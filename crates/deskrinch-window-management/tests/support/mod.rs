@@ -1,5 +1,5 @@
 //! What the compositor tests share: which nested compositor they run in,
-//! and waiting for events.
+//! what it does, and waiting for events.
 
 pub(crate) mod compositor;
 pub(crate) mod test_window;
@@ -11,10 +11,48 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
-use deskrinch_window_management::{Event, Window, WindowId, WindowManager, connect};
+use deskrinch_window_management::{
+    EndReason, Event, Protocol, Window, WindowId, WindowManager, connect,
+};
 
 /// How long a test waits for the compositor to report something.
 const PATIENCE: Duration = Duration::from_secs(10);
+
+/// What each compositor does, where they differ.
+impl Compositor {
+    /// The protocol the crate speaks to it.
+    pub(crate) fn protocol(self) -> Protocol {
+        match self {
+            Self::Kwin => Protocol::PlasmaWindowManagement,
+            Self::Sway | Self::Labwc => Protocol::WlrForeignToplevel,
+        }
+    }
+
+    /// Whether it has a minimized state. sway does not: it ignores the
+    /// protocol's minimize requests.
+    pub(crate) fn minimizes(self) -> bool {
+        self != Self::Sway
+    }
+
+    /// Whether it maximizes a window that asks. sway tiles every window
+    /// and never maximizes one.
+    pub(crate) fn maximizes(self) -> bool {
+        self != Self::Sway
+    }
+
+    /// Whether it reports a window's parent. sway offers the protocol
+    /// version that can, but never sets one.
+    pub(crate) fn reports_parents(self) -> bool {
+        self != Self::Sway
+    }
+
+    /// Whether a window's reported outputs follow it while it is
+    /// fullscreen. sway reports them from the window's tiled place, which
+    /// fullscreen hides, so they catch up only once it is windowed again.
+    pub(crate) fn tracks_fullscreen_outputs(self) -> bool {
+        self != Self::Sway
+    }
+}
 
 /// An app id no other window in the session has.
 pub(crate) fn unique_app_id(name: &str) -> String {
@@ -28,6 +66,7 @@ pub(crate) struct Watcher {
     pub(crate) manager: WindowManager,
     events: Receiver<Event>,
     seen: RefCell<BTreeMap<WindowId, Window>>,
+    ended: RefCell<Option<EndReason>>,
 }
 
 impl Watcher {
@@ -42,6 +81,7 @@ impl Watcher {
             manager,
             events,
             seen: RefCell::default(),
+            ended: RefCell::default(),
         }
     }
 
@@ -50,6 +90,9 @@ impl Watcher {
     pub(crate) fn wait_until<T>(&self, what: &str, check: impl Fn(&[Window]) -> Option<T>) -> T {
         let deadline = Instant::now() + PATIENCE;
         loop {
+            if let Some(reason) = &*self.ended.borrow() {
+                panic!("waiting for {what}: the connection ended: {reason}");
+            }
             let windows: Vec<_> = self.seen.borrow().values().cloned().collect();
             if let Some(found) = check(&windows) {
                 return found;
@@ -84,6 +127,21 @@ impl Watcher {
         });
     }
 
+    /// Waits for the connection to end, and returns why.
+    pub(crate) fn wait_ended(&self, what: &str) -> EndReason {
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            if let Some(reason) = self.ended.borrow().clone() {
+                return reason;
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            match self.events.recv_timeout(left) {
+                Ok(event) => self.fold(event),
+                Err(error) => panic!("waiting for {what}: {error}"),
+            }
+        }
+    }
+
     /// Folds in every event already delivered, without waiting.
     pub(crate) fn drain(&self) {
         while let Ok(event) = self.events.try_recv() {
@@ -97,6 +155,10 @@ impl Watcher {
     }
 
     fn fold(&self, event: Event) {
+        assert!(
+            self.ended.borrow().is_none(),
+            "an event after Ended: {event:?}"
+        );
         let mut seen = self.seen.borrow_mut();
         match event {
             Event::Added(window) => {
@@ -110,7 +172,7 @@ impl Watcher {
             Event::Removed(id) => {
                 assert!(seen.remove(&id).is_some(), "removed before added: {id}");
             }
-            Event::Ended(reason) => panic!("the connection ended: {reason}"),
+            Event::Ended(reason) => *self.ended.borrow_mut() = Some(reason),
             other => panic!("an event the tests do not know: {other:?}"),
         }
     }

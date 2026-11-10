@@ -28,8 +28,12 @@ const SHUTDOWN: Duration = Duration::from_secs(5);
 /// How often to look again while waiting.
 const POLL: Duration = Duration::from_millis(50);
 
-/// The KWin socket's name; sway picks its own.
+/// The KWin socket's name; the wlroots compositors pick their own.
 const KWIN_SOCKET: &str = "wayland-0";
+/// How many outputs the session has, side by side.
+const OUTPUTS: u32 = 2;
+/// Each output's size, where the compositor takes one.
+const OUTPUT_SIZE: (u32, u32) = (1280, 720);
 
 /// Variables of the real session that would lead a nested program back to
 /// it.
@@ -105,13 +109,19 @@ impl Session {
         Ok(session)
     }
 
-    /// Runs a test binary's ignored tests in the session, one at a time.
-    /// Returns whether they passed.
-    pub(super) fn run_tests(&self, binary: &Path) -> Result<bool, Error> {
+    /// Runs a test binary's ignored tests in the session, one at a time,
+    /// with `filter` (libtest arguments) choosing which. Returns whether they
+    /// passed.
+    ///
+    /// The tests are told the session's process group, so that one can end
+    /// the session underneath a connection.
+    pub(super) fn run_tests(&self, binary: &Path, filter: &[&str]) -> Result<bool, Error> {
         let mut command = Command::new(binary);
         isolate(&mut command, self.dir.path());
         command
             .args(["--ignored", "--test-threads=1"])
+            .args(filter)
+            .env("DESKRINCH_TEST_SESSION_GROUP", self.child.id().to_string())
             .env("WAYLAND_DISPLAY", &self.socket)
             .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name());
         let status = command.status().map_err(|source| Error::Spawn {
@@ -204,7 +214,10 @@ fn compositor_command(compositor: Compositor, dir: &Path) -> Result<Command, Err
                     "--no-lockscreen",
                     "--no-global-shortcuts",
                     "--no-kactivities",
-                ]);
+                ])
+                .arg(format!("--output-count={OUTPUTS}"))
+                .arg(format!("--width={}", OUTPUT_SIZE.0))
+                .arg(format!("--height={}", OUTPUT_SIZE.1));
             Ok(command)
         }
         Compositor::Sway => {
@@ -215,16 +228,36 @@ fn compositor_command(compositor: Compositor, dir: &Path) -> Result<Command, Err
                 source,
             })?;
             let mut command = Command::new("sway");
+            command.arg("--config").arg(&config);
+            wlroots_headless(&mut command);
+            Ok(command)
+        }
+        Compositor::Labwc => {
+            // An empty configuration directory: labwc's defaults, and no
+            // autostart.
+            let config = dir.join("labwc");
+            create_private_dir(&config)?;
+            let mut command = Command::new("labwc");
             command
-                .arg("--config")
+                .arg("--config-dir")
                 .arg(&config)
-                .env("WLR_BACKENDS", "headless")
-                .env("WLR_RENDERER", "pixman")
-                .env("WLR_HEADLESS_OUTPUTS", "1")
-                .env("WLR_LIBINPUT_NO_DEVICES", "1");
+                // It would only update it on a DRM backend, and without a
+                // session bus it cannot; said here so that it never does.
+                .env("LABWC_UPDATE_ACTIVATION_ENV", "false");
+            wlroots_headless(&mut command);
             Ok(command)
         }
     }
+}
+
+/// Runs a wlroots compositor on the headless backend, with software
+/// rendering, no input devices and [`OUTPUTS`] outputs.
+fn wlroots_headless(command: &mut Command) {
+    command
+        .env("WLR_BACKENDS", "headless")
+        .env("WLR_RENDERER", "pixman")
+        .env("WLR_HEADLESS_OUTPUTS", OUTPUTS.to_string())
+        .env("WLR_LIBINPUT_NO_DEVICES", "1");
 }
 
 /// Points `command` at the session in `dir` instead of the real one.
