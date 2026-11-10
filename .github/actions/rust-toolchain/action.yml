@@ -1,0 +1,26 @@
+name: Install the pinned Rust toolchain
+description: >-
+  Installs the toolchain `rust-toolchain.toml` names, with its components, and
+  fails unless that file is what selects the toolchain `cargo` will use.
+
+runs:
+  using: composite
+  steps:
+    # With no argument, rustup (1.28 and later, preinstalled on GitHub's
+    # runners) installs the toolchain and components the file names.
+    - name: Install the toolchain rust-toolchain.toml pins
+      shell: bash
+      run: rustup toolchain install
+
+    # An environment override or a directory override would win over the
+    # file silently; this fails the job instead.
+    - name: Check rust-toolchain.toml selects it
+      shell: bash
+      run: |
+        active=$(rustup show active-toolchain)
+        echo "$active"
+        rustc --version
+        case "$active" in
+          *"overridden by '$GITHUB_WORKSPACE/rust-toolchain.toml'"*) ;;
+          *) echo "::error::the toolchain is not the one rust-toolchain.toml pins: $active"; exit 1 ;;
+        esac
