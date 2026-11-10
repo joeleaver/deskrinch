@@ -1,0 +1,10 @@
+# Cargo configuration shared by everyone who builds deskrinch.
+#
+# A developer's own settings, such as the `[patch]` that points rinch at a
+# local checkout to test unmerged rinch work, go in the gitignored
+# `.cargo/config.local.toml`. It is optional; Cargo merges it over this file.
+include = [{ path = "config.local.toml", optional = true }]
+
+[alias]
+# The repository's tasks (the cargo-xtask pattern): `cargo xtask --help`.
+xtask = "run --quiet --package xtask --"

@@ -46,8 +46,9 @@ it. Only the project manager writes to Pimble.
   follow rinch's own `AGENTS.md`/`CLAUDE.md`, and open a PR against
   `joeleaver/rinch`. The same goes for rinch's forks. Merging is rinch's.
 - rinch is a git dependency on `main`, never a path dependency, and needs no
-  `[patch.crates-io]` lines. Unmerged rinch work is tested through the
-  gitignored `.cargo/config.toml` `[patch]`.
+  `[patch.crates-io]` lines. Unmerged rinch work is tested through a
+  `[patch]` in the gitignored `.cargo/config.local.toml`, which the tracked
+  `.cargo/config.toml` includes.
 - Phase 2 builds on smithay only. cosmic-comp and niri are GPL-3 reference
   reading; don't copy code from them.
 - Code reaches `main` through a pull request with CI green.

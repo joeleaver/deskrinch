@@ -1,0 +1,67 @@
+# `cargo deny check`: what may enter the dependency graph.
+# Reference: https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# deskrinch is a Linux desktop; check the graph that ships there.
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+all-features = true
+
+[advisories]
+# Every RustSec advisory (vulnerable, unmaintained, unsound) fails the check,
+# and so does a yanked version. An exception names the advisory id in
+# `ignore` with the reason beside it.
+version = 2
+yanked = "deny"
+unmaintained = "all"
+ignore = []
+
+[licenses]
+# deskrinch is `MIT OR Apache-2.0`, so what it links is permissive, with
+# MPL-2.0 as the one file-level copyleft exception (reason below). Still no
+# GPL, LGPL, AGPL or EPL. The list is what the Rust ecosystem under rinch,
+# wgpu and smithay uses; a new licence is added here, with its reason, in the
+# pull request that brings it in.
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Zlib",
+    "BSL-1.0",
+    "0BSD",
+    "CC0-1.0",
+    # Unicode's data licence, carried by unicode-ident and the ICU crates.
+    "Unicode-3.0",
+    # rinch's CSS engine is Stylo: `stylo`, `selectors`, `cssparser` and
+    # `stylo_atoms` are MPL-2.0. Its copyleft is per file, so linking those
+    # crates unmodified as dependencies puts no obligation on deskrinch.
+    # deskrinch never vendors or modifies MPL files in its own tree.
+    "MPL-2.0",
+]
+confidence-threshold = 0.93
+# The list is written for the dependencies to come, so a licence nothing uses
+# yet is expected, not a mistake worth a warning.
+unused-allowed-license = "allow"
+
+[bans]
+# A `*` version requirement is never acceptable. A versionless `path`
+# dependency between this workspace's own unpublished crates is not one.
+wildcards = "deny"
+allow-wildcard-paths = true
+# Duplicate versions are reported for review, not failed: the wgpu and
+# smithay trees carry some that this repository cannot remove.
+multiple-versions = "warn"
+
+[sources]
+# Crates come from crates.io only. A git dependency (rinch) is allowed by
+# adding its repository to `allow-git` in the pull request that adds it.
+# For rinch the entry must also cover the forks it pins as git dependencies:
+# winit-fork, vello-fork, parley-fork and taffy-fork, under
+# github.com/joeleaver.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []
