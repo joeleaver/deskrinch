@@ -2,10 +2,11 @@
 
 use std::fs;
 use std::sync::mpsc::{self, Receiver};
+use std::time::Duration;
 
-use deskrinch_desktop_entries::{Event, Watcher};
+use deskrinch_desktop_entries::{Event, Visibility, Watcher};
 
-use crate::support::{PATIENCE, environment, write};
+use crate::support::{PATIENCE, environment, script, write};
 
 fn app(name: &str, extra: &str) -> String {
     format!("[Desktop Entry]\nType=Application\nName={name}\nExec=run\n{extra}")
@@ -83,4 +84,38 @@ fn reports_entries_added_changed_and_removed() {
         events.recv().is_err(),
         "the watcher stopped and dropped its subscriber"
     );
+}
+
+#[test]
+fn refresh_re_evaluates_try_exec() {
+    let root = tempfile::tempdir().unwrap();
+    let (home, bin) = (root.path().join("home"), root.path().join("bin"));
+    fs::create_dir_all(&bin).unwrap();
+    write(
+        &home,
+        "applications/t.desktop",
+        &app("T", "TryExec=late-tool\n"),
+    );
+    let mut env = environment(&home, &[]);
+    env.path = vec![bin.clone()];
+    let (sender, events) = mpsc::channel();
+    let (watcher, catalog) = Watcher::start(env, move |event| {
+        sender.send(event).unwrap();
+    })
+    .unwrap();
+    let first = catalog.iter().next().unwrap();
+    assert_eq!(first.visibility, Visibility::TryExecMissing);
+
+    // Installing the program touches no watched directory: nothing is
+    // reported until a refresh.
+    script(&bin.join("late-tool"), "true\n");
+    assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+    watcher.refresh();
+    match events.recv_timeout(PATIENCE).expect("no event arrived") {
+        Event::Changed(e) => assert_eq!(e.visibility, Visibility::Shown),
+        other => panic!("unexpected event {other:?}"),
+    }
+    // A refresh that finds nothing new reports nothing.
+    watcher.refresh();
+    assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
 }

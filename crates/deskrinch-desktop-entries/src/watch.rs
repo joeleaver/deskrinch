@@ -8,9 +8,10 @@
 //! and the visibility rules exactly as [`Catalog::scan`] does, at the cost
 //! of reading a few hundred small files.
 //!
-//! Only the files are watched: an entry's visibility also depends on
-//! whether its `TryExec` program exists, which is re-evaluated whenever a
-//! rescan happens but does not by itself cause one.
+//! Only the data directories are watched, not `PATH`. An entry's visibility
+//! also depends on whether its `TryExec` program exists; that is
+//! re-evaluated on every rescan, and [`Watcher::refresh`] asks for one, so
+//! a launcher calls it when it opens to show nothing stale.
 
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -56,6 +57,7 @@ pub struct Watcher {
 
 enum Message {
     Changed(notify::Result<notify::Event>),
+    Refresh,
     Stop,
 }
 
@@ -107,6 +109,18 @@ impl Watcher {
             catalog,
         ))
     }
+
+    /// Rescans now, re-evaluating every entry's visibility, and reports the
+    /// changes through the subscriber like any others.
+    ///
+    /// `PATH` is not watched, so installing or removing a `TryExec` program
+    /// changes no file the watcher sees. Call this when that may matter,
+    /// such as when the launcher opens. It returns at once; the events
+    /// follow on the watcher's thread.
+    pub fn refresh(&self) {
+        // Fails only once the worker has stopped.
+        self.messages.send(Message::Refresh).ok();
+    }
 }
 
 impl Drop for Watcher {
@@ -130,17 +144,26 @@ struct Worker {
 
 impl Worker {
     fn run(mut self, inbox: &Receiver<Message>) {
-        while let Ok(Message::Changed(change)) = inbox.recv() {
-            let mut relevant = self.consider(change);
-            let deadline = Instant::now() + MAX_DELAY;
-            loop {
-                let wait = QUIET.min(deadline.saturating_duration_since(Instant::now()));
-                match inbox.recv_timeout(wait) {
-                    Ok(Message::Changed(change)) => relevant |= self.consider(change),
-                    Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                    Err(RecvTimeoutError::Timeout) => break,
+        loop {
+            let relevant = match inbox.recv() {
+                // A refresh is asked for now: no waiting for quiet.
+                Ok(Message::Refresh) => true,
+                Ok(Message::Changed(change)) => {
+                    let mut relevant = self.consider(change);
+                    let deadline = Instant::now() + MAX_DELAY;
+                    loop {
+                        let wait = QUIET.min(deadline.saturating_duration_since(Instant::now()));
+                        match inbox.recv_timeout(wait) {
+                            Ok(Message::Changed(change)) => relevant |= self.consider(change),
+                            Ok(Message::Refresh) => relevant = true,
+                            Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+                            Err(RecvTimeoutError::Timeout) => break,
+                        }
+                    }
+                    relevant
                 }
-            }
+                Ok(Message::Stop) | Err(_) => return,
+            };
             if relevant {
                 for error in self.retarget() {
                     (self.subscriber)(Event::Error(error));
