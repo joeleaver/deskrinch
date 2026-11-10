@@ -6,17 +6,30 @@
 //! fixtures.
 
 use std::ffi::OsString;
+use std::os::unix::ffi::OsStrExt;
 use std::path::{Path, PathBuf};
 
+use deskrinch_xdg::{BaseDirs, absolute_paths};
+use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_encode};
+
 use crate::locale::Locale;
+
+/// The bytes a D-Bus address value may hold unescaped
+/// (`[-0-9A-Za-z_/.\*]`); every other byte is written `%XX`.
+const ADDRESS_VALUE: &AsciiSet = &NON_ALPHANUMERIC
+    .remove(b'-')
+    .remove(b'_')
+    .remove(b'/')
+    .remove(b'.')
+    .remove(b'\\')
+    .remove(b'*');
 
 /// Where desktop entries live and what the session looks like.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Environment {
-    /// `$XDG_DATA_HOME`: the user's data directory, searched first.
-    pub data_home: Option<PathBuf>,
-    /// `$XDG_DATA_DIRS`: the system data directories, in precedence order.
-    pub data_dirs: Vec<PathBuf>,
+    /// The XDG base directories; entries are found in the data directories
+    /// ([`BaseDirs::data_home`] first, then [`BaseDirs::data_dirs`]).
+    pub base_dirs: BaseDirs,
     /// `$XDG_CURRENT_DESKTOP`: the names of the running desktop, matched
     /// against `OnlyShowIn` and `NotShowIn`.
     pub current_desktops: Vec<String>,
@@ -36,35 +49,23 @@ impl Environment {
     }
 
     /// Builds the environment from `var`, which returns the value of an
-    /// environment variable, by the XDG Base Directory rules:
+    /// environment variable:
     ///
-    /// - `XDG_DATA_HOME` defaults to `$HOME/.local/share`, and
-    ///   `XDG_DATA_DIRS` to `/usr/local/share:/usr/share`, when unset or
-    ///   empty. Relative paths are invalid and ignored.
+    /// - The base directories by the XDG Base Directory rules, as
+    ///   [`BaseDirs::from_vars`] reads them.
     /// - The locales come from `LC_ALL`, `LC_MESSAGES` or `LANG` (the first
     ///   set), preceded by the `LANGUAGE` list unless that locale is `C`,
     ///   as gettext does.
     /// - The session bus is `DBUS_SESSION_BUS_ADDRESS`, or the conventional
-    ///   `$XDG_RUNTIME_DIR/bus`.
+    ///   `bus` socket in the runtime directory. Like every base directory,
+    ///   the runtime directory counts only when it is absolute.
     pub fn from_vars(var: impl Fn(&str) -> Option<OsString>) -> Self {
         let text = |name: &str| {
             var(name)
                 .and_then(|value| value.into_string().ok())
                 .filter(|value| !value.is_empty())
         };
-        let home = var("HOME")
-            .map(PathBuf::from)
-            .filter(|home| home.is_absolute());
-        let data_home = var("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .filter(|dir| dir.is_absolute())
-            .or_else(|| home.map(|home| home.join(".local/share")));
-        let mut data_dirs = var("XDG_DATA_DIRS")
-            .map(|dirs| absolute_paths(&dirs))
-            .unwrap_or_default();
-        if data_dirs.is_empty() {
-            data_dirs = vec!["/usr/local/share".into(), "/usr/share".into()];
-        }
+        let base_dirs = BaseDirs::from_vars(&var);
         let current_desktops = text("XDG_CURRENT_DESKTOP")
             .map(|desktops| {
                 desktops
@@ -77,11 +78,12 @@ impl Environment {
         let path = var("PATH")
             .map(|path| absolute_paths(&path))
             .unwrap_or_default();
-        let session_bus = text("DBUS_SESSION_BUS_ADDRESS")
-            .or_else(|| text("XDG_RUNTIME_DIR").map(|dir| format!("unix:path={dir}/bus")));
+        let session_bus = text("DBUS_SESSION_BUS_ADDRESS").or_else(|| {
+            let runtime = base_dirs.runtime_dir.as_deref()?;
+            Some(bus_address(&runtime.join("bus")))
+        });
         Self {
-            data_home,
-            data_dirs,
+            base_dirs,
             current_desktops,
             path,
             locales: locales(&text),
@@ -92,18 +94,14 @@ impl Environment {
     /// Every data directory in precedence order: `data_home`, then
     /// `data_dirs`.
     pub fn data_dirs_in_order(&self) -> impl Iterator<Item = &Path> {
-        self.data_home
-            .iter()
-            .chain(&self.data_dirs)
-            .map(PathBuf::as_path)
+        self.base_dirs.data_dirs_in_order()
     }
 }
 
-/// The absolute entries of a colon-separated path list.
-fn absolute_paths(list: &std::ffi::OsStr) -> Vec<PathBuf> {
-    std::env::split_paths(list)
-        .filter(|dir| dir.is_absolute())
-        .collect()
+/// The D-Bus address of the socket at `path`, escaped as addresses require.
+fn bus_address(path: &Path) -> String {
+    let escaped = percent_encode(path.as_os_str().as_bytes(), ADDRESS_VALUE);
+    format!("unix:path={escaped}")
 }
 
 fn locales(text: &impl Fn(&str) -> Option<String>) -> Vec<Locale> {
@@ -137,38 +135,27 @@ mod tests {
     }
 
     #[test]
-    fn applies_the_base_directory_defaults() {
-        let e = env(&[("HOME", "/home/u")]);
-        assert_eq!(e.data_home, Some("/home/u/.local/share".into()));
-        assert_eq!(
-            e.data_dirs,
-            [PathBuf::from("/usr/local/share"), "/usr/share".into()]
-        );
-        assert_eq!(env(&[]).data_home, None);
-    }
-
-    #[test]
-    fn ignores_relative_directories() {
+    fn finds_entries_in_the_xdg_data_directories() {
         let e = env(&[
             ("HOME", "/home/u"),
-            ("XDG_DATA_HOME", "relative"),
             ("XDG_DATA_DIRS", "rel:/opt/share::/usr/share"),
         ]);
-        assert_eq!(e.data_home, Some("/home/u/.local/share".into()));
-        assert_eq!(
-            e.data_dirs,
-            [PathBuf::from("/opt/share"), "/usr/share".into()]
-        );
         let order: Vec<_> = e.data_dirs_in_order().collect();
-        assert_eq!(order[0], Path::new("/home/u/.local/share"));
-        assert_eq!(order.len(), 3);
+        assert_eq!(
+            order,
+            [
+                Path::new("/home/u/.local/share"),
+                Path::new("/opt/share"),
+                Path::new("/usr/share")
+            ]
+        );
     }
 
     #[test]
     fn reads_desktops_path_and_bus() {
         let e = env(&[
             ("XDG_CURRENT_DESKTOP", "deskrinch:KDE"),
-            ("PATH", "/usr/bin:/bin"),
+            ("PATH", "/usr/bin:bin::/bin"),
             ("XDG_RUNTIME_DIR", "/run/user/1000"),
         ]);
         assert_eq!(e.current_desktops, ["deskrinch", "KDE"]);
@@ -177,8 +164,32 @@ mod tests {
             e.session_bus.as_deref(),
             Some("unix:path=/run/user/1000/bus")
         );
-        let e = env(&[("DBUS_SESSION_BUS_ADDRESS", "unix:path=/x")]);
+        let e = env(&[
+            ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/x"),
+            ("XDG_RUNTIME_DIR", "/run/user/1000"),
+        ]);
         assert_eq!(e.session_bus.as_deref(), Some("unix:path=/x"));
+    }
+
+    #[test]
+    fn takes_the_bus_only_from_an_absolute_runtime_directory() {
+        // The rule every base directory follows: a relative path is
+        // invalid and ignored, so there is no conventional bus either.
+        assert_eq!(
+            env(&[("XDG_RUNTIME_DIR", "run/user/1000")]).session_bus,
+            None
+        );
+        assert_eq!(env(&[("XDG_RUNTIME_DIR", "")]).session_bus, None);
+        assert_eq!(env(&[]).session_bus, None);
+    }
+
+    #[test]
+    fn escapes_the_bus_path_as_d_bus_addresses_require() {
+        let e = env(&[("XDG_RUNTIME_DIR", "/run/a b,c;d=é")]);
+        assert_eq!(
+            e.session_bus.as_deref(),
+            Some("unix:path=/run/a%20b%2Cc%3Bd%3D%C3%A9/bus")
+        );
     }
 
     #[test]

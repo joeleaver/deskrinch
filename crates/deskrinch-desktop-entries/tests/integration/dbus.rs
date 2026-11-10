@@ -11,6 +11,7 @@ use deskrinch_desktop_entries::{
     DesktopEntry, DirectReason, Environment, LaunchContext, LaunchError, Launched, Placement,
     Target, launch,
 };
+use deskrinch_test_dbus::session::REAL_SESSION_VARIABLES;
 use zbus::object_server::SignalEmitter;
 use zbus::{ObjectPath, OwnedObjectPath, OwnedVariant};
 
@@ -263,4 +264,35 @@ fn reports_a_failed_activation() {
         launch(&invalid, None, &[], &context(&bus, dir.path())),
         Err(LaunchError::InvalidBusName(_))
     ));
+}
+
+#[test]
+fn launches_into_the_isolated_session_only() {
+    let bus = PrivateBus::start();
+    let dir = tempfile::tempdir().unwrap();
+    let env = Environment {
+        session_bus: Some(bus.address().to_owned()),
+        ..Environment::default()
+    };
+    // Every real-session variable set, as a real session would have it,
+    // before the isolation: whatever the test process inherited.
+    let real = REAL_SESSION_VARIABLES
+        .iter()
+        .fold(LaunchContext::new(&env), |context, variable| {
+            context.with_env(*variable, "real")
+        });
+    let context = bus
+        .isolate(real.with_env("DESKRINCH_TEST_OUT", dir.path()))
+        .without_scopes();
+    let launched = launch(&recorder_entry(dir.path()), None, &[], &context).unwrap();
+    let (pid, _) = process(&launched);
+    let record = recorded(dir.path(), pid);
+    let leaked: Vec<&String> = record["var"]
+        .iter()
+        .filter(|name| REAL_SESSION_VARIABLES.contains(&name.as_str()))
+        .filter(|name| *name != "DBUS_SESSION_BUS_ADDRESS")
+        .collect();
+    assert_eq!(leaked, Vec::<&String>::new());
+    // The bus variable the session does set names the private bus.
+    assert_eq!(record["bus"], [bus.address()]);
 }
