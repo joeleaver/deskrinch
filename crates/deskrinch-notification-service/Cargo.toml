@@ -19,6 +19,7 @@ thiserror.workspace = true
 zbus = { workspace = true, features = ["default-rt", "service", "proxy"] }
 
 [dev-dependencies]
+proptest.workspace = true
 deskrinch-test-dbus.workspace = true
 
 [lints]

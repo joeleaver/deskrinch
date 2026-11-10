@@ -178,4 +178,6 @@ impl<'de> Accepted<'de> for Urgency {
 }
 
 #[cfg(test)]
+mod props;
+#[cfg(test)]
 mod tests;

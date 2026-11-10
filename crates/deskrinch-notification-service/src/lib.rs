@@ -86,6 +86,8 @@ mod markup;
 mod model;
 mod notification;
 mod policy;
+#[cfg(test)]
+mod props;
 mod request;
 mod service;
 mod text;

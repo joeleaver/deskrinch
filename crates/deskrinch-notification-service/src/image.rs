@@ -227,4 +227,6 @@ fn local_path(bytes: Vec<u8>) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
+mod props;
+#[cfg(test)]
 mod tests;
