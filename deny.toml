@@ -13,7 +13,20 @@ all-features = true
 version = 2
 yanked = "deny"
 unmaintained = "all"
-ignore = []
+ignore = [
+    # proc-macro-error is unmaintained, with no safe upgrade. It is a
+    # build-time macro helper of gtk-rs 0.18 (glib-macros, gtk3-macros),
+    # which rinch's native menus (muda 0.15) use. Tracked exception: it goes
+    # with joeleaver/rinch#2434 (and #2435, building without the native
+    # menus).
+    { id = "RUSTSEC-2024-0370", reason = "build-time only, through rinch's muda/gtk 0.18; no upgrade exists; joeleaver/rinch#2434" },
+    # ttf-parser is unmaintained, with no safe upgrade. winit's Wayland
+    # backend draws client-side decorations with sctk-adwaita, which reads
+    # the title font through ab_glyph and ttf-parser. The panel is a
+    # borderless layer surface and never draws them. Tracked exception: it
+    # goes with joeleaver/rinch#2434.
+    { id = "RUSTSEC-2026-0192", reason = "winit's client-side decorations (sctk-adwaita), which the panel never draws; no upgrade exists; joeleaver/rinch#2434" },
+]
 
 [licenses]
 # deskrinch is `MIT OR Apache-2.0`, so what it links is permissive, with
@@ -64,4 +77,15 @@ multiple-versions = "warn"
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = [
+    # rinch itself, on `main`.
+    "https://github.com/joeleaver/rinch",
+    # The forks rinch pins by rev (its docs/internals/dependencies.md and
+    # app-and-windows.md say why each exists).
+    "https://github.com/joeleaver/winit-fork",
+    "https://github.com/joeleaver/vello-fork",
+    "https://github.com/joeleaver/parley-fork",
+    "https://github.com/joeleaver/taffy-fork",
+    # softbuffer, which rinch takes from upstream git at a pinned rev.
+    "https://github.com/rust-windowing/softbuffer",
+]

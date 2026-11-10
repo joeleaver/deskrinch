@@ -1,34 +1,24 @@
-//! Watching the configuration files and delivering a section's new
+//! One watcher per process, delivering each subscribed section's new
 //! settings.
 //!
-//! The watcher runs on a thread of its own. It watches the directory of
-//! every layer's file (not the file, so that an editor saving by writing a
-//! new file and renaming it over the old one is seen), or, when the
-//! directory does not exist yet, its nearest existing ancestor (so its
-//! creation is seen). A file that is a symbolic link is also watched where
-//! it points. After a burst of changes to those files settles, it reads
-//! them all again and resolves the section; what changed is delivered.
+//! The [`Watcher`] watches every layer's file through `deskrinch-watch`
+//! (so creation, removal, saves by rename and symbolic links are seen).
+//! When a change settles it reads the files once and resolves every
+//! subscribed section from that one snapshot; each subscriber hears only
+//! what changed for its section.
 
-use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::fmt;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
+use deskrinch_watch::{Armed, Target, Timing, WatchError};
 
 use crate::diagnostic::Diagnostic;
-use crate::error::WatchError;
 use crate::section::{Resolved, Section, Settings};
 use crate::snapshot::Snapshot;
 use crate::sources::Sources;
 
-/// How long changes must pause before the files are read again.
-const QUIET: Duration = Duration::from_millis(100);
-/// The longest a reload waits during a continuous stream of changes.
-const MAX_DELAY: Duration = Duration::from_secs(1);
-
-/// What a reload found.
+/// What a reload found for one section.
 #[derive(Debug)]
 pub enum Event<T> {
     /// The settings changed; these are the new ones.
@@ -38,223 +28,217 @@ pub enum Event<T> {
     /// is wrong any more. Delivered before the [`Changed`](Self::Changed)
     /// of the same reload.
     Diagnostics(Vec<Diagnostic>),
-    /// Watching failed in part; the watcher carries on.
-    Error(WatchError),
 }
 
-/// Watches the configuration files and reports a section's [`Event`]s to a
-/// subscriber until dropped.
-#[derive(Debug)]
+/// Watches the configuration files for the whole process, and delivers
+/// the [`Event`]s of every section [subscribed](Self::subscribe), until
+/// dropped.
 pub struct Watcher {
-    messages: Sender<Message>,
-    worker: Option<JoinHandle<()>>,
+    // Declared first, so the thread stops before the rest is dropped.
+    _watch: deskrinch_watch::Watcher,
+    shared: Arc<Shared>,
 }
 
-enum Message {
-    Changed(notify::Result<notify::Event>),
-    Stop,
+/// A section's subscription; dropping it ends the deliveries.
+pub struct Subscription {
+    shared: Weak<Shared>,
+    id: u64,
+    active: Arc<AtomicBool>,
 }
 
-impl Watcher {
-    /// Starts watching the files of `sources` for the section `name`, and
-    /// returns the settings the reported events are changes to.
-    /// `subscriber` is called on the watcher's thread, one event at a time.
-    ///
-    /// A reload that leaves the settings as they were delivers no
-    /// [`Event::Changed`]; one that leaves the diagnostics as they were
-    /// delivers no [`Event::Diagnostics`].
-    ///
-    /// # Errors
-    ///
-    /// [`WatchError`] when `T`'s defaults are unusable, or the
-    /// file-watching backend or the thread cannot be started, or a
-    /// directory cannot be watched (for example when the inotify watch
-    /// limit is reached).
-    pub fn start<T: Settings>(
-        sources: Sources,
-        name: &str,
-        subscriber: impl Fn(Event<T>) + Send + 'static,
-    ) -> Result<(Self, Resolved<T>), WatchError> {
-        let section = Section::new(name)?;
-        let (messages, inbox) = mpsc::channel();
-        let forward = messages.clone();
-        let backend = notify::recommended_watcher(move |change| {
-            // A send fails only once the worker has stopped, when there is
-            // no one left to tell.
-            forward.send(Message::Changed(change)).ok();
-        })
-        .map_err(|error| WatchError::Backend(Box::new(error)))?;
-        let mut worker = Worker {
-            backend,
-            targets: Targets::default(),
-            sources,
-            section,
-            settings: T::default(),
-            diagnostics: Vec::new(),
-            subscriber: Box::new(subscriber),
-        };
-        // Watch first, then read: a change between the two is reported
-        // rather than lost.
-        if let Some(error) = worker.retarget().into_iter().next() {
-            return Err(error);
-        }
-        let resolved = worker.section.resolve(&Snapshot::read(&worker.sources));
-        worker.settings.clone_from(&resolved.settings);
-        worker.diagnostics.clone_from(&resolved.diagnostics);
-        let handle = thread::Builder::new()
-            .name("config-watch".into())
-            .spawn(move || worker.run(&inbox))
-            .map_err(WatchError::Thread)?;
-        Ok((
-            Self {
-                messages,
-                worker: Some(handle),
-            },
-            resolved,
-        ))
-    }
-}
-
-impl Drop for Watcher {
-    fn drop(&mut self) {
-        self.messages.send(Message::Stop).ok();
-        if let Some(worker) = self.worker.take() {
-            // A panic in the subscriber ended the thread already; there is
-            // nothing more to stop.
-            worker.join().ok();
-        }
-    }
-}
-
-struct Worker<T> {
-    backend: RecommendedWatcher,
-    targets: Targets,
+struct Shared {
     sources: Sources,
+    subscribers: Mutex<Subscribers>,
+}
+
+#[derive(Default)]
+struct Subscribers {
+    next_id: u64,
+    list: Vec<(u64, Box<dyn Reload>)>,
+}
+
+/// A deferred call of one subscriber with the events of one reload.
+type Delivery = Box<dyn FnOnce() + Send>;
+
+/// One section's state, without its type.
+trait Reload: Send {
+    /// Resolves the section from `snapshot`, and what to deliver, if
+    /// anything changed.
+    fn reload(&mut self, snapshot: &Snapshot) -> Option<Delivery>;
+}
+
+struct Typed<T> {
     section: Section<T>,
     /// The settings and diagnostics last delivered.
     settings: T,
     diagnostics: Vec<Diagnostic>,
-    subscriber: Box<dyn Fn(Event<T>) + Send>,
+    sink: Arc<Sink<T>>,
 }
 
-impl<T: Settings> Worker<T> {
-    fn run(mut self, inbox: &Receiver<Message>) {
-        while let Ok(Message::Changed(change)) = inbox.recv() {
-            let mut relevant = self.consider(change);
-            let deadline = Instant::now() + MAX_DELAY;
-            loop {
-                let wait = QUIET.min(deadline.saturating_duration_since(Instant::now()));
-                match inbox.recv_timeout(wait) {
-                    Ok(Message::Changed(change)) => relevant |= self.consider(change),
-                    Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                    Err(RecvTimeoutError::Timeout) => break,
-                }
-            }
-            if relevant {
-                for error in self.retarget() {
-                    (self.subscriber)(Event::Error(error));
-                }
-                self.reload();
-            }
-        }
+/// Where a section's events go. `active` is cleared when the subscription
+/// is dropped, so a delivery already under way stops short.
+struct Sink<T> {
+    active: Arc<AtomicBool>,
+    subscriber: Mutex<Box<dyn Fn(Event<T>) + Send>>,
+}
+
+impl Watcher {
+    /// Starts watching the files of `sources`. Problems watching them (for
+    /// example the inotify watch limit, reached by a directory created
+    /// later) go to `on_error`, on the watcher's thread; the watcher
+    /// carries on and reloads.
+    ///
+    /// # Errors
+    ///
+    /// [`WatchError`] when the file-watching backend or its thread cannot
+    /// be started, or a directory cannot be watched.
+    pub fn start(
+        sources: Sources,
+        on_error: impl Fn(WatchError) + Send + 'static,
+    ) -> Result<Self, WatchError> {
+        let targets = sources
+            .files()
+            .map(|file| Target::File(file.to_path_buf()))
+            .collect();
+        let armed = Armed::new(targets, Timing::default())?;
+        let shared = Arc::new(Shared {
+            sources,
+            subscribers: Mutex::default(),
+        });
+        let worker = Arc::clone(&shared);
+        let watch = armed.start("config-watch", move |event| match event {
+            deskrinch_watch::Event::Changed => worker.reload(),
+            deskrinch_watch::Event::Error(error) => on_error(error),
+        })?;
+        Ok(Self {
+            _watch: watch,
+            shared,
+        })
     }
 
-    /// Whether a change may concern a layer's file. Reading the files (as
-    /// a reload does) changes nothing.
-    fn consider(&self, change: notify::Result<notify::Event>) -> bool {
-        match change {
-            Ok(event) => {
-                !matches!(event.kind, EventKind::Access(_))
-                    && event.paths.iter().any(|path| self.targets.concerns(path))
-            }
-            Err(error) => {
-                (self.subscriber)(Event::Error(WatchError::Backend(Box::new(error))));
-                true
-            }
-        }
+    /// Subscribes to `section`, and returns its settings now; the events
+    /// `subscriber` hears are changes to them. `subscriber` is called on
+    /// the watcher's thread, one event at a time.
+    ///
+    /// A reload that leaves the settings as they were delivers no
+    /// [`Event::Changed`]; one that leaves the diagnostics as they were
+    /// delivers no [`Event::Diagnostics`].
+    pub fn subscribe<T: Settings>(
+        &self,
+        mut section: Section<T>,
+        subscriber: impl Fn(Event<T>) + Send + 'static,
+    ) -> (Subscription, Resolved<T>) {
+        let active = Arc::new(AtomicBool::new(true));
+        let mut subscribers = self.shared.lock();
+        // Read under the lock: a reload either finished before, or reads
+        // after and compares with this.
+        let resolved = section.resolve(&Snapshot::read(&self.shared.sources));
+        let typed = Typed {
+            section,
+            settings: resolved.settings.clone(),
+            diagnostics: resolved.diagnostics.clone(),
+            sink: Arc::new(Sink {
+                active: Arc::clone(&active),
+                subscriber: Mutex::new(Box::new(subscriber)),
+            }),
+        };
+        let id = subscribers.next_id;
+        subscribers.next_id += 1;
+        subscribers.list.push((id, Box::new(typed)));
+        let subscription = Subscription {
+            shared: Arc::downgrade(&self.shared),
+            id,
+            active,
+        };
+        (subscription, resolved)
+    }
+}
+
+impl Shared {
+    fn lock(&self) -> MutexGuard<'_, Subscribers> {
+        // A subscriber that panicked left nothing half-updated here.
+        self.subscribers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Watches what the files now need, and returns the watches that could
-    /// not be added.
-    fn retarget(&mut self) -> Vec<WatchError> {
-        let wanted = Targets::for_files(self.sources.files());
-        for path in self.targets.watched.difference(&wanted.watched) {
-            // The directory may be gone already, which removed its watch.
-            self.backend.unwatch(path).ok();
+    /// Reads the files once and delivers each section's changes. The
+    /// deliveries run after the lock is released, so a subscriber may
+    /// subscribe, or drop its subscription, from its callback.
+    fn reload(&self) {
+        let deliveries: Vec<Delivery> = {
+            let mut subscribers = self.lock();
+            let snapshot = Snapshot::read(&self.sources);
+            subscribers
+                .list
+                .iter_mut()
+                .filter_map(|(_, typed)| typed.reload(&snapshot))
+                .collect()
+        };
+        for delivery in deliveries {
+            delivery();
         }
-        let mut errors = Vec::new();
-        for path in wanted.watched.difference(&self.targets.watched) {
-            if let Err(error) = self.backend.watch(path, RecursiveMode::NonRecursive) {
-                errors.push(WatchError::Backend(Box::new(error)));
-            }
-        }
-        self.targets = wanted;
-        errors
     }
+}
 
-    fn reload(&mut self) {
-        let resolved = self.section.resolve(&Snapshot::read(&self.sources));
+impl<T: Settings> Reload for Typed<T> {
+    fn reload(&mut self, snapshot: &Snapshot) -> Option<Delivery> {
+        let resolved = self.section.resolve(snapshot);
+        let mut events = Vec::new();
         if resolved.diagnostics != self.diagnostics {
             self.diagnostics.clone_from(&resolved.diagnostics);
-            (self.subscriber)(Event::Diagnostics(resolved.diagnostics));
+            events.push(Event::Diagnostics(resolved.diagnostics));
         }
         if resolved.settings != self.settings {
-            self.settings = resolved.settings.clone();
-            (self.subscriber)(Event::Changed(resolved.settings));
+            self.settings.clone_from(&resolved.settings);
+            events.push(Event::Changed(resolved.settings));
+        }
+        if events.is_empty() {
+            return None;
+        }
+        let sink = Arc::clone(&self.sink);
+        Some(Box::new(move || sink.deliver(events)))
+    }
+}
+
+impl<T> Sink<T> {
+    fn deliver(&self, events: Vec<Event<T>>) {
+        let subscriber = self
+            .subscriber
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        for event in events {
+            if !self.active.load(Ordering::Acquire) {
+                return;
+            }
+            subscriber(event);
         }
     }
 }
 
-/// The directories watched, and the files they are watched for.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct Targets {
-    watched: BTreeSet<PathBuf>,
-    /// Every layer's file, and where it points when it is a link.
-    files: Vec<PathBuf>,
-}
-
-impl Targets {
-    fn for_files<'a>(files: impl Iterator<Item = &'a Path>) -> Self {
-        let files: Vec<PathBuf> = files
-            .flat_map(|file| {
-                let target = file.canonicalize().ok().filter(|target| target != file);
-                std::iter::once(file.to_path_buf()).chain(target)
-            })
-            .collect();
-        let watched = files
-            .iter()
-            .filter_map(|file| file.ancestors().skip(1).find(|dir| dir.is_dir()))
-            .map(Path::to_path_buf)
-            .collect();
-        Self { watched, files }
-    }
-
-    /// Whether a change at `path` may affect a file: it is the file, or a
-    /// directory on the way to it.
-    fn concerns(&self, path: &Path) -> bool {
-        self.files.iter().any(|file| file.starts_with(path))
+impl Drop for Subscription {
+    fn drop(&mut self) {
+        self.active.store(false, Ordering::Release);
+        if let Some(shared) = self.shared.upgrade() {
+            shared.lock().list.retain(|(id, _)| *id != self.id);
+        }
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+impl fmt::Debug for Watcher {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Watcher")
+            .field("sources", &self.shared.sources)
+            .field("subscriptions", &self.shared.lock().list.len())
+            .finish_non_exhaustive()
+    }
+}
 
-    #[test]
-    fn watches_the_nearest_existing_directory_of_each_file() {
-        let root = tempfile::tempdir().unwrap();
-        let present = root.path().join("present");
-        std::fs::create_dir(&present).unwrap();
-        let files = [
-            present.join("config.toml"),
-            root.path().join("absent/deskrinch/config.toml"),
-        ];
-        let targets = Targets::for_files(files.iter().map(PathBuf::as_path));
-        let expected: BTreeSet<PathBuf> = [present.clone(), root.path().to_path_buf()].into();
-        assert_eq!(targets.watched, expected);
-        assert!(targets.concerns(&files[0]));
-        assert!(targets.concerns(&root.path().join("absent")));
-        assert!(!targets.concerns(&present.join("other.toml")));
-        assert!(!targets.concerns(&present.join(".config.toml.swp")));
+impl fmt::Debug for Subscription {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Subscription")
+            .field("id", &self.id)
+            .field("active", &self.active.load(Ordering::Acquire))
+            .finish_non_exhaustive()
     }
 }

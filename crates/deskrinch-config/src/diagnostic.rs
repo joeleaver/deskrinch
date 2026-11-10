@@ -91,6 +91,13 @@ pub enum Problem {
         /// The key within the section.
         key: String,
     },
+    /// A top-level key that is no table the shell knows, usually a
+    /// misspelled section. A warning: the rest of the file is used.
+    #[error("unknown table `{table}`")]
+    UnknownTable {
+        /// The key.
+        table: String,
+    },
 }
 
 impl Problem {
@@ -98,7 +105,7 @@ impl Problem {
     #[must_use]
     pub fn severity(&self) -> Severity {
         match self {
-            Self::UnknownKey { .. } => Severity::Warning,
+            Self::UnknownKey { .. } | Self::UnknownTable { .. } => Severity::Warning,
             _ => Severity::Error,
         }
     }

@@ -1,11 +1,12 @@
 //! Fixtures shared by the tests.
 
+use std::fmt::Debug;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
-use deskrinch_config::{Diagnostic, Event, Sources, Watcher};
+use deskrinch_config::{Diagnostic, Event, Section, Settings, Sources, Subscription, Watcher};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
@@ -62,13 +63,51 @@ impl Dirs {
     }
 
     /// Watches `[panel]`: the watcher, the initial settings and the events.
-    pub(crate) fn watch(&self) -> (Watcher, Panel, Receiver<Event<Panel>>) {
-        let (sender, events) = mpsc::channel();
-        let (watcher, resolved) = Watcher::start(self.sources(), "panel", move |event| {
-            sender.send(event).ok();
-        })
-        .unwrap();
-        (watcher, resolved.settings, events)
+    pub(crate) fn watch(&self) -> (Watched, Panel, Receiver<Event<Panel>>) {
+        let watcher = Watcher::start(self.sources(), |error| panic!("{error}")).unwrap();
+        let (subscription, panel, events) = subscribe(&watcher, "panel");
+        (
+            Watched {
+                _subscription: subscription,
+                _watcher: watcher,
+            },
+            panel,
+            events,
+        )
+    }
+}
+
+/// A watcher and its one subscription, kept alive together.
+pub(crate) struct Watched {
+    _subscription: Subscription,
+    _watcher: Watcher,
+}
+
+/// Subscribes to section `name` as a `T`: the subscription, the initial
+/// settings and the events.
+pub(crate) fn subscribe<T: Settings>(
+    watcher: &Watcher,
+    name: &str,
+) -> (Subscription, T, Receiver<Event<T>>) {
+    let (sender, events) = mpsc::channel();
+    let section = Section::new(name).unwrap();
+    let (subscription, resolved) = watcher.subscribe(section, move |event| {
+        sender.send(event).ok();
+    });
+    (subscription, resolved.settings, events)
+}
+
+/// Settings several components share.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub(crate) struct General {
+    pub(crate) terminal: String,
+}
+
+impl Default for General {
+    fn default() -> Self {
+        Self {
+            terminal: "foot".into(),
+        }
     }
 }
 
@@ -79,22 +118,32 @@ pub(crate) fn write(path: &Path, text: &str) {
 }
 
 /// The next event, which must come soon.
-fn next(events: &Receiver<Event<Panel>>) -> Event<Panel> {
+fn next<T>(events: &Receiver<Event<T>>) -> Event<T> {
     events.recv_timeout(PATIENCE).expect("no event arrived")
 }
 
 /// The next event, which must be new settings.
-pub(crate) fn next_change(events: &Receiver<Event<Panel>>) -> Panel {
+pub(crate) fn next_change<T: Debug>(events: &Receiver<Event<T>>) -> T {
     match next(events) {
-        Event::Changed(panel) => panel,
-        other => panic!("expected new settings, got {other:?}"),
+        Event::Changed(settings) => settings,
+        Event::Diagnostics(diagnostics) => {
+            panic!("expected new settings, got diagnostics {diagnostics:?}")
+        }
+    }
+}
+
+/// Asserts that nothing arrives for long enough for a change to have
+/// settled and been delivered.
+pub(crate) fn nothing<T: Debug>(events: &Receiver<Event<T>>) {
+    if let Ok(event) = events.recv_timeout(Duration::from_millis(1500)) {
+        panic!("expected nothing, got {event:?}");
     }
 }
 
 /// The next event, which must be diagnostics.
-pub(crate) fn next_diagnostics(events: &Receiver<Event<Panel>>) -> Vec<Diagnostic> {
+pub(crate) fn next_diagnostics<T: Debug>(events: &Receiver<Event<T>>) -> Vec<Diagnostic> {
     match next(events) {
         Event::Diagnostics(diagnostics) => diagnostics,
-        other => panic!("expected diagnostics, got {other:?}"),
+        Event::Changed(settings) => panic!("expected diagnostics, got settings {settings:?}"),
     }
 }

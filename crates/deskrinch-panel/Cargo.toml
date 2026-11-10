@@ -1,0 +1,29 @@
+[package]
+name = "deskrinch-panel"
+description = "The desktop panel: a bar along the bottom of the output that windows keep clear of, with the clock."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "deskrinch-panel"
+path = "src/main.rs"
+
+[features]
+# rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input):
+# `cargo run -p deskrinch-panel --features debug`. Off in a normal build.
+debug = ["rinch/debug"]
+
+[dependencies]
+deskrinch-clock.workspace = true
+# `gpu` adds the GPU renderer beside the software one rinch always has on
+# the desktop; which one draws is chosen at run time (see the crate docs).
+# `theme`: the theme variables the bar is styled with.
+rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
+thiserror.workspace = true
+
+[lints]
+workspace = true
