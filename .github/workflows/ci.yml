@@ -16,6 +16,10 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  # What building rinch needs beyond the runner image: GTK for its native
+  # menus (muda) and libxdo for their accelerators. Every job that builds the
+  # whole workspace installs these.
+  RINCH_BUILD_PACKAGES: libgtk-3-dev libxdo-dev
 
 # Third-party actions are pinned to a full commit SHA, with the release it is
 # in the comment beside it. The commands are the ones README.md lists.
@@ -38,6 +42,9 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: ${{ env.RINCH_BUILD_PACKAGES }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -58,7 +65,7 @@ jobs:
       # check interoperability with libnotify's notify-send.
       - uses: ./.github/actions/apt-packages
         with:
-          packages: dbus-daemon libnotify-bin
+          packages: dbus-daemon libnotify-bin ${{ env.RINCH_BUILD_PACKAGES }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}

@@ -4,7 +4,7 @@ A Wayland desktop built on [rinch](https://github.com/joeleaver/rinch): a shell
 first (panel, launcher, notifications on `wlr-layer-shell`, running under KWin),
 then a smithay-based compositor.
 
-Early days. No desktop code yet.
+Early days: the libraries the shell rests on, and a panel (`deskrinch-panel`).
 
 ## Building and checking
 
@@ -18,6 +18,10 @@ cargo test --workspace --locked
 cargo deny --locked check      # cargo install cargo-deny --locked
 cargo xtask file-length
 ```
+
+Building rinch, which the panel uses, needs the GTK 3 and libxdo development
+files for its native menus (on Debian and Ubuntu, `libgtk-3-dev` and
+`libxdo-dev`).
 
 The desktop-entries crate's tests start a private `dbus-daemon` (from the
 `dbus` package) for the systemd-scope and D-Bus activation paths; it talks

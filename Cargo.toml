@@ -1,6 +1,11 @@
 [workspace]
 resolver = "3"
 members = ["crates/*", "xtask"]
+# Clones of rinch (and its forks) for unmerged work live in the gitignored
+# `.work/` and are patched in from there. Without this, Cargo would take a
+# patched crate under this directory for a member of this workspace instead
+# of its own.
+exclude = [".work"]
 
 # Metadata every member inherits with `key.workspace = true`.
 [workspace.package]
@@ -17,6 +22,7 @@ publish = false
 [workspace.dependencies]
 bitflags = "2.13.2"
 clap = { version = "4.6.7", features = ["derive"] }
+deskrinch-clock = { path = "crates/deskrinch-clock" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-watch = { path = "crates/deskrinch-watch" }
@@ -34,6 +40,10 @@ libc = "0.2.191"
 notify = { version = "8.2.2", default-features = false }
 percent-encoding = "2.3.2"
 proptest = { version = "1.12.0", default-features = false, features = ["std", "timeout"] }
+# The GUI framework, from its `main` branch: never a path. Unmerged rinch work
+# is tried through a `[patch]` in `.cargo/config.local.toml`. Its own default
+# features are off; a member names `desktop` (and `gpu`) itself.
+rinch = { git = "https://github.com/joeleaver/rinch", branch = "main", default-features = false }
 rustix = "1.1.6"
 serde = "1.0.229"
 serde_ignored = "0.1.14"
