@@ -40,4 +40,53 @@ pub(crate) enum Error {
         /// Why reading it failed.
         source: io::Error,
     },
+    /// A file-system operation failed.
+    #[error("could not {what}")]
+    Io {
+        /// What was being done.
+        what: String,
+        /// Why it failed.
+        source: io::Error,
+    },
+    /// A program could not be started.
+    #[error("could not run `{program}` (is it installed?)")]
+    Spawn {
+        /// The program.
+        program: String,
+        /// Why starting it failed.
+        source: io::Error,
+    },
+    /// `cargo` could not build the test binaries.
+    #[error("building the compositor tests failed ({status})")]
+    BuildFailed {
+        /// How `cargo` exited.
+        status: ExitStatus,
+    },
+    /// `cargo` built the tests but did not report a test binary.
+    #[error("cargo reported no executable for the `{name}` test")]
+    MissingTestBinary {
+        /// The test target.
+        name: &'static str,
+    },
+    /// The test binary cannot be granted KWin's protocol.
+    #[error("could not write the tests' desktop file")]
+    DesktopEntry(#[from] deskrinch_window_management::kwin_access::DesktopEntryError),
+    /// The nested compositor exited before opening its socket.
+    #[error("{compositor} exited ({status}) before opening its socket; its log:\n{log}")]
+    CompositorExited {
+        /// The compositor.
+        compositor: &'static str,
+        /// How it exited.
+        status: ExitStatus,
+        /// What it printed.
+        log: String,
+    },
+    /// The nested compositor did not open its socket in time.
+    #[error("{compositor} did not open its socket in time; its log:\n{log}")]
+    CompositorTimedOut {
+        /// The compositor.
+        compositor: &'static str,
+        /// What it printed.
+        log: String,
+    },
 }
