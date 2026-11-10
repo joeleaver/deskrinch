@@ -1,14 +1,18 @@
-//! The model of one desktop entry, and parsing it from a file's text.
+//! The model of one desktop entry, and parsing it from a file's bytes.
 
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
+use crate::deviation::Deviation;
 use crate::error::ParseError;
 use crate::keyfile::{Group, KeyFile};
-use crate::locale::{LocalizedList, LocalizedString};
+use crate::locale::{Localized, LocalizedList, LocalizedString};
 
-/// The group every desktop entry file has.
+/// The group every desktop entry file starts with.
 const MAIN_GROUP: &str = "Desktop Entry";
+
+/// What a missing `Name` reads as, as in GLib.
+const UNNAMED: &str = "Unnamed";
 
 /// A desktop-file ID: the file's path below an `applications` directory with
 /// `/` replaced by `-`, such as `org.kde.konsole.desktop` or
@@ -76,7 +80,7 @@ pub struct DesktopEntry {
     pub path: PathBuf,
     /// The entry's type and the keys only that type has.
     pub kind: EntryKind,
-    /// `Name`.
+    /// `Name`; `Unnamed` when the file has none.
     pub name: LocalizedString,
     /// `GenericName`, such as "Web Browser".
     pub generic_name: Option<LocalizedString>,
@@ -98,6 +102,9 @@ pub struct DesktopEntry {
     pub categories: Vec<String>,
     /// `Keywords`, for searching.
     pub keywords: Option<LocalizedList>,
+    /// How the file deviates from the specification, in the order found.
+    /// Empty for a conforming file.
+    pub deviations: Vec<Deviation>,
 }
 
 /// The type of an entry, with the keys specific to it.
@@ -119,7 +126,8 @@ pub enum EntryKind {
 #[non_exhaustive]
 pub struct Application {
     /// `Exec`, unescaped as a string but with its quoting and field codes
-    /// intact; see [`crate::exec`]. Absent only when `DBusActivatable`.
+    /// intact; see [`crate::exec`]. Absent when `DBusActivatable`, or when
+    /// the file leaves it out (a [`Deviation::MissingKey`]).
     pub exec: Option<String>,
     /// `TryExec`: a program that must exist for the entry to be shown.
     pub try_exec: Option<String>,
@@ -148,37 +156,50 @@ pub struct Application {
 pub struct Action {
     /// The action's identifier, as listed in `Actions`.
     pub id: String,
-    /// `Name`.
+    /// `Name`; `Unnamed` when the group has none.
     pub name: LocalizedString,
     /// `Icon`, unresolved.
     pub icon: Option<LocalizedString>,
-    /// `Exec`. Absent only when the application is `DBusActivatable`.
+    /// `Exec`. Absent when the application is `DBusActivatable`, or when
+    /// the group leaves it out.
     pub exec: Option<String>,
 }
 
 impl DesktopEntry {
-    /// Parses the text of the file at `path`, whose ID is `id`.
+    /// Parses the contents of the file at `path`, whose ID is `id`.
+    ///
+    /// The file is read as GLib reads it: what breaks the specification but
+    /// GLib accepts is accepted and listed in
+    /// [`deviations`](DesktopEntry::deviations).
     ///
     /// # Errors
     ///
-    /// [`ParseError`] when the file is not a valid desktop entry: malformed
-    /// syntax, a missing required key (`Type`, `Name`, an application's
-    /// `Exec` unless `DBusActivatable`, a link's `URL`), an invalid
-    /// boolean or an unknown `Type`.
-    pub fn parse(id: DesktopId, path: PathBuf, text: &str) -> Result<Self, ParseError> {
-        let file = KeyFile::parse(text)?;
+    /// [`ParseError`] for what GLib also refuses: a malformed line, a key
+    /// before the first group, a first group other than `[Desktop Entry]`,
+    /// a missing or unknown `Type`, or a link without `URL`.
+    pub fn parse(
+        id: DesktopId,
+        path: PathBuf,
+        contents: impl AsRef<[u8]>,
+    ) -> Result<Self, ParseError> {
+        let mut deviations = Vec::new();
+        let file = KeyFile::parse(contents.as_ref(), &mut deviations)?;
+        if file.first_group() != Some(MAIN_GROUP) {
+            return Err(ParseError::MissingDesktopEntryGroup);
+        }
         let main = file
             .group(MAIN_GROUP)
             .ok_or(ParseError::MissingDesktopEntryGroup)?;
+        let d = &mut deviations;
         let kind = match main
-            .string("Type")
+            .string("Type", d)
             .ok_or(ParseError::MissingKey { key: "Type" })?
             .as_str()
         {
-            "Application" => EntryKind::Application(parse_application(&file, main)?),
+            "Application" => EntryKind::Application(parse_application(&file, main, d)),
             "Link" => EntryKind::Link {
                 url: main
-                    .string("URL")
+                    .string("URL", d)
                     .ok_or(ParseError::MissingKey { key: "URL" })?,
             },
             "Directory" => EntryKind::Directory,
@@ -192,18 +213,17 @@ impl DesktopEntry {
             id,
             path,
             kind,
-            name: main
-                .localized("Name")
-                .ok_or(ParseError::MissingKey { key: "Name" })?,
-            generic_name: main.localized("GenericName"),
-            comment: main.localized("Comment"),
-            icon: main.localized("Icon"),
-            hidden: main.boolean("Hidden")?,
-            no_display: main.boolean("NoDisplay")?,
-            only_show_in: main.list("OnlyShowIn"),
-            not_show_in: main.list("NotShowIn"),
-            categories: main.list("Categories"),
-            keywords: main.localized_list("Keywords"),
+            name: name(main, d),
+            generic_name: main.localized("GenericName", d),
+            comment: main.localized("Comment", d),
+            icon: main.localized("Icon", d),
+            hidden: main.boolean("Hidden", d),
+            no_display: main.boolean("NoDisplay", d),
+            only_show_in: main.list("OnlyShowIn", d),
+            not_show_in: main.list("NotShowIn", d),
+            categories: main.list("Categories", d),
+            keywords: main.localized_list("Keywords", d),
+            deviations,
         })
     }
 
@@ -217,167 +237,76 @@ impl DesktopEntry {
     }
 }
 
-fn parse_application(file: &KeyFile, main: &Group) -> Result<Application, ParseError> {
-    let dbus_activatable = main.boolean("DBusActivatable")?;
-    let exec = main.string("Exec");
-    if exec.is_none() && !dbus_activatable {
-        return Err(ParseError::MissingKey { key: "Exec" });
+/// A group's `Name`: as written, or GLib's `Unnamed` (keeping any
+/// translations) when it has no unlocalised value.
+fn name(group: &Group, deviations: &mut Vec<Deviation>) -> LocalizedString {
+    if let Some(name) = group.localized("Name", deviations) {
+        return name;
     }
-    let actions = main
-        .list("Actions")
-        .into_iter()
-        .filter_map(|id| {
-            // An action listed without its group is ignored, as is a group
-            // that is not listed.
-            let group = file.group(&format!("Desktop Action {id}"))?;
-            Some(parse_action(id, group, dbus_activatable))
-        })
-        .collect::<Result<_, _>>()?;
-    Ok(Application {
-        exec,
-        try_exec: main.string("TryExec"),
-        working_dir: main.string("Path").map(PathBuf::from),
-        terminal: main.boolean("Terminal")?,
-        dbus_activatable,
-        actions,
-        mime_types: main.list("MimeType"),
-        startup_wm_class: main.string("StartupWMClass"),
-        startup_notify: main.boolean("StartupNotify")?,
-    })
+    let translations = group.translations("Name", deviations);
+    if translations.is_empty() {
+        deviations.push(Deviation::MissingKey {
+            group: group.name().into(),
+            key: "Name",
+        });
+    }
+    Localized {
+        default: UNNAMED.into(),
+        translations,
+    }
 }
 
-fn parse_action(id: String, group: &Group, dbus_activatable: bool) -> Result<Action, ParseError> {
-    let exec = group.string("Exec");
+/// `Exec`, noting its absence unless D-Bus activation makes it optional.
+fn read_exec(
+    group: &Group,
+    dbus_activatable: bool,
+    deviations: &mut Vec<Deviation>,
+) -> Option<String> {
+    let exec = group.string("Exec", deviations);
     if exec.is_none() && !dbus_activatable {
-        return Err(ParseError::MissingKey { key: "Exec" });
+        deviations.push(Deviation::MissingKey {
+            group: group.name().into(),
+            key: "Exec",
+        });
     }
-    Ok(Action {
-        id,
-        name: group
-            .localized("Name")
-            .ok_or(ParseError::MissingKey { key: "Name" })?,
-        icon: group.localized("Icon"),
+    exec
+}
+
+fn parse_application(file: &KeyFile, main: &Group, d: &mut Vec<Deviation>) -> Application {
+    let dbus_activatable = main.boolean("DBusActivatable", d);
+    let exec = read_exec(main, dbus_activatable, d);
+    let mut actions = Vec::new();
+    for id in main.list("Actions", d) {
+        // A group that is not listed is ignored, silently: the
+        // specification allows it.
+        let Some(group) = file.group(&format!("Desktop Action {id}")) else {
+            d.push(Deviation::ActionWithoutGroup { action: id });
+            continue;
+        };
+        actions.push(Action {
+            name: name(group, d),
+            icon: group.localized("Icon", d),
+            exec: read_exec(group, dbus_activatable, d),
+            id,
+        });
+    }
+    Application {
         exec,
-    })
+        try_exec: main.string("TryExec", d),
+        working_dir: main.string("Path", d).map(PathBuf::from),
+        terminal: main.boolean("Terminal", d),
+        dbus_activatable,
+        actions,
+        mime_types: main.list("MimeType", d),
+        startup_wm_class: main.string("StartupWMClass", d),
+        startup_notify: main.boolean("StartupNotify", d),
+    }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::locale::Locale;
+#[path = "entry_tests.rs"]
+mod tests;
 
-    fn parse(text: &str) -> Result<DesktopEntry, ParseError> {
-        let id = DesktopId::new("org.example.App.desktop").unwrap();
-        DesktopEntry::parse(id, "/x/org.example.App.desktop".into(), text)
-    }
-
-    #[test]
-    fn ids_come_from_the_relative_path() {
-        let id = |p: &str| DesktopId::from_relative_path(Path::new(p)).map(|id| id.0);
-        assert_eq!(
-            id("kde/konsole.desktop").as_deref(),
-            Some("kde-konsole.desktop")
-        );
-        assert_eq!(id("a.desktop").as_deref(), Some("a.desktop"));
-        assert_eq!(id("../a.desktop"), None);
-        assert_eq!(id("/a.desktop"), None);
-        assert_eq!(id("a.txt"), None);
-        assert_eq!(id(".desktop"), None);
-        assert_eq!(
-            DesktopId::new("org.a.b.desktop").unwrap().app_id(),
-            "org.a.b"
-        );
-    }
-
-    #[test]
-    fn parses_an_application() {
-        let entry = parse(
-            "[Desktop Entry]\nType=Application\nName=Editor\nName[de]=Bearbeiter\n\
-             GenericName=Text Editor\nComment=Edit\nIcon=accessories-text-editor\n\
-             Exec=edit %F\nTryExec=edit\nPath=/tmp\nTerminal=false\nNoDisplay=true\n\
-             OnlyShowIn=KDE;GNOME;\nCategories=Utility;TextEditor;\nKeywords=text;notes;\n\
-             Keywords[de]=Text;\nMimeType=text/plain;\nStartupWMClass=editor\n\
-             StartupNotify=true\nActions=new;missing;\n\
-             [Desktop Action new]\nName=New Window\nExec=edit --new\n\
-             [Desktop Action unlisted]\nName=Unlisted\nExec=x\n",
-        )
-        .unwrap();
-        assert_eq!(
-            entry.name.get(&[Locale::parse("de").unwrap()]),
-            "Bearbeiter"
-        );
-        assert_eq!(entry.generic_name.unwrap().default, "Text Editor");
-        assert_eq!(entry.icon.unwrap().default, "accessories-text-editor");
-        assert!(entry.no_display && !entry.hidden);
-        assert_eq!(entry.only_show_in, ["KDE", "GNOME"]);
-        assert_eq!(entry.categories, ["Utility", "TextEditor"]);
-        let keywords = entry.keywords.unwrap();
-        assert_eq!(keywords.default, ["text", "notes"]);
-        assert_eq!(keywords.get(&[Locale::parse("de").unwrap()]), &["Text"]);
-        let EntryKind::Application(app) = entry.kind else {
-            panic!("not an application");
-        };
-        assert_eq!(app.exec.as_deref(), Some("edit %F"));
-        assert_eq!(app.try_exec.as_deref(), Some("edit"));
-        assert_eq!(app.working_dir, Some(PathBuf::from("/tmp")));
-        assert_eq!(app.mime_types, ["text/plain"]);
-        assert_eq!(app.startup_wm_class.as_deref(), Some("editor"));
-        assert!(app.startup_notify && !app.terminal && !app.dbus_activatable);
-        assert_eq!(app.actions.len(), 1);
-        assert_eq!(app.actions[0].id, "new");
-        assert_eq!(app.actions[0].name.default, "New Window");
-        assert_eq!(app.actions[0].exec.as_deref(), Some("edit --new"));
-    }
-
-    #[test]
-    fn parses_links_and_directories() {
-        let link = parse("[Desktop Entry]\nType=Link\nName=Site\nURL=https://example.org\n");
-        assert_eq!(
-            link.unwrap().kind,
-            EntryKind::Link {
-                url: "https://example.org".into()
-            }
-        );
-        let dir = parse("[Desktop Entry]\nType=Directory\nName=Games\n").unwrap();
-        assert_eq!(dir.kind, EntryKind::Directory);
-        assert!(dir.application().is_none());
-    }
-
-    #[test]
-    fn a_dbus_activatable_application_needs_no_exec() {
-        let entry = parse(
-            "[Desktop Entry]\nType=Application\nName=A\nDBusActivatable=true\nActions=a;\n\
-             [Desktop Action a]\nName=Act\n",
-        )
-        .unwrap();
-        let app = entry.application().unwrap();
-        assert!(app.dbus_activatable && app.exec.is_none() && app.actions[0].exec.is_none());
-    }
-
-    #[test]
-    fn rejects_entries_missing_what_their_type_requires() {
-        for (text, key) in [
-            ("[Desktop Entry]\nName=A\n", "Type"),
-            ("[Desktop Entry]\nType=Application\nExec=a\n", "Name"),
-            ("[Desktop Entry]\nType=Application\nName=A\n", "Exec"),
-            ("[Desktop Entry]\nType=Link\nName=A\n", "URL"),
-            (
-                "[Desktop Entry]\nType=Application\nName=A\nExec=a\nActions=x;\n\
-                 [Desktop Action x]\nName=X\n",
-                "Exec",
-            ),
-        ] {
-            assert_eq!(parse(text), Err(ParseError::MissingKey { key }), "{text:?}");
-        }
-        assert_eq!(
-            parse("[Other]\nType=Application\n"),
-            Err(ParseError::MissingDesktopEntryGroup)
-        );
-        assert_eq!(
-            parse("[Desktop Entry]\nType=Service\nName=A\n"),
-            Err(ParseError::UnknownType {
-                value: "Service".into()
-            })
-        );
-    }
-}
+#[cfg(test)]
+#[path = "leniency_tests.rs"]
+mod leniency_tests;

@@ -2,10 +2,8 @@
 
 use std::collections::HashMap;
 use std::fs;
-use std::io::{BufRead, BufReader};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -47,12 +45,20 @@ pub(crate) fn entry(dir: &Path, id: &str, text: &str) -> DesktopEntry {
 }
 
 /// The recorder: a script that writes what it was run with to
-/// `$DESKRINCH_TEST_OUT/<its pid>`, one `key=value` per line.
+/// `$DESKRINCH_TEST_OUT/<its pid>`, one `key=value` per line. With
+/// `$DESKRINCH_TEST_HOLD` set, it also forks a child, records the child's
+/// PID and both cgroups, and then waits for the child (which sleeps that
+/// many seconds).
 pub(crate) fn recorder(dir: &Path) -> PathBuf {
     let path = dir.join("recorder");
     script(
         &path,
         r#"out="$DESKRINCH_TEST_OUT/$$"
+child=
+if [ -n "$DESKRINCH_TEST_HOLD" ]; then
+  sleep "$DESKRINCH_TEST_HOLD" &
+  child=$!
+fi
 {
   for arg in "$@"; do printf 'arg=%s\n' "$arg"; done
   printf 'cwd=%s\n' "$(pwd)"
@@ -61,8 +67,14 @@ pub(crate) fn recorder(dir: &Path) -> PathBuf {
   printf 'extra=%s\n' "$DESKRINCH_TEST_EXTRA"
   read -r _pid _comm _state ppid _pgrp sid _rest < /proc/$$/stat
   printf 'ppid=%s\nsid=%s\n' "$ppid" "$sid"
+  printf 'cgroup=%s\n' "$(cat /proc/$$/cgroup)"
+  if [ -n "$child" ]; then
+    printf 'child=%s\n' "$child"
+    printf 'child_cgroup=%s\n' "$(cat /proc/$child/cgroup)"
+  fi
 } > "$out.partial"
 mv "$out.partial" "$out"
+if [ -n "$child" ]; then wait "$child"; fi
 "#,
     );
     path
@@ -92,56 +104,40 @@ pub(crate) fn wait_for<T>(mut probe: impl FnMut() -> Option<T>) -> T {
     }
 }
 
-/// A private `dbus-daemon` with nothing to activate, stopped on drop.
-pub(crate) struct PrivateBus {
-    daemon: Child,
-    /// Its address.
-    pub(crate) address: String,
-    _dir: tempfile::TempDir,
-}
+/// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.
+pub(crate) struct PrivateBus(deskrinch_test_dbus::PrivateBus);
 
 impl PrivateBus {
+    /// A bus that activates nothing.
     pub(crate) fn start() -> Self {
-        let dir = tempfile::tempdir().unwrap();
-        let config = dir.path().join("bus.conf");
-        fs::write(
-            &config,
-            format!(
-                r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <type>session</type>
-  <listen>unix:path={}/socket</listen>
-  <auth>EXTERNAL</auth>
-  <policy context="default">
-    <allow send_destination="*" eavesdrop="true"/>
-    <allow eavesdrop="true"/>
-    <allow own="*"/>
-  </policy>
-</busconfig>
-"#,
-                dir.path().display()
-            ),
-        )
-        .unwrap();
-        let mut daemon = Command::new("dbus-daemon")
-            .arg(format!("--config-file={}", config.display()))
-            .args(["--nofork", "--print-address=1"])
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("the D-Bus tests need dbus-daemon");
-        let mut address = String::new();
-        BufReader::new(daemon.stdout.take().unwrap())
-            .read_line(&mut address)
-            .unwrap();
-        Self {
-            daemon,
-            address: address.trim().to_owned(),
-            _dir: dir,
-        }
+        Self::with_services(&[])
     }
 
-    /// A connection to the bus that owns `name` and serves `object` at
+    /// A bus that activates the services described in `service_dirs`.
+    pub(crate) fn with_services(service_dirs: &[&Path]) -> Self {
+        let bus = deskrinch_test_dbus::PrivateBus::start_with_services(service_dirs);
+        Self(bus.expect("a private bus (needs dbus-daemon)"))
+    }
+
+    pub(crate) fn address(&self) -> &str {
+        self.0.address()
+    }
+
+    /// `context` with the variables that point what it launches at this
+    /// bus's isolated session (its XDG directories and the bus).
+    pub(crate) fn isolate(
+        &self,
+        context: deskrinch_desktop_entries::LaunchContext,
+    ) -> deskrinch_desktop_entries::LaunchContext {
+        self.0
+            .session_env()
+            .into_iter()
+            .fold(context, |context, (name, value)| {
+                context.with_env(name, value)
+            })
+    }
+
+    /// A connection to this bus that owns `name` and serves `object` at
     /// `path`.
     pub(crate) fn serve<I: zbus::object_server::Interface>(
         &self,
@@ -149,20 +145,24 @@ impl PrivateBus {
         path: &str,
         object: I,
     ) -> zbus::Connection {
-        zbus::block_on(async {
-            zbus::connection::Builder::address(self.address.as_str())
-                .name(name)
-                .serve_at(path, object)
-                .build()
-                .await
-        })
-        .unwrap()
+        serve(self.address(), name, path, object)
     }
 }
 
-impl Drop for PrivateBus {
-    fn drop(&mut self) {
-        self.daemon.kill().ok();
-        self.daemon.wait().ok();
-    }
+/// A connection to the bus at `address` that owns `name` and serves
+/// `object` at `path`.
+pub(crate) fn serve<I: zbus::object_server::Interface>(
+    address: &str,
+    name: &str,
+    path: &str,
+    object: I,
+) -> zbus::Connection {
+    zbus::block_on(async {
+        zbus::connection::Builder::address(address)
+            .name(name)
+            .serve_at(path, object)
+            .build()
+            .await
+    })
+    .unwrap()
 }

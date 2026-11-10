@@ -5,6 +5,7 @@
 pub(crate) enum Compositor {
     Kwin,
     Sway,
+    Labwc,
 }
 
 impl Compositor {
@@ -16,6 +17,7 @@ impl Compositor {
         match std::env::var("DESKRINCH_TEST_COMPOSITOR").as_deref() {
             Ok("kwin") => Self::Kwin,
             Ok("sway") => Self::Sway,
+            Ok("labwc") => Self::Labwc,
             _ => panic!(
                 "the compositor tests run in a nested compositor: \
                  use `cargo xtask compositor-tests`"

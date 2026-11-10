@@ -29,6 +29,8 @@ const MIN_VERSION: u32 = 1;
 const MAX_VERSION: u32 = 3;
 /// The version that reports fullscreen.
 const FULLSCREEN_SINCE: u32 = 2;
+/// The version that reports parents.
+const PARENT_SINCE: u32 = 3;
 
 /// The protocol sends a new toplevel's initial state right after announcing
 /// it, so one exchange loads the list.
@@ -53,7 +55,10 @@ pub(super) fn bind(
     let capabilities = Capabilities {
         protocol: Protocol::WlrForeignToplevel,
         states,
-        outputs: true,
+        // Settled by `backend::connect`, which knows whether outputs have
+        // names.
+        outputs: false,
+        parent: manager.version() >= PARENT_SINCE,
         actions: Actions::all(),
     };
     Ok((manager, capabilities))
@@ -132,16 +137,15 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, WindowId> for State {
                 Change::State(window_state(&array))
             }
             zwlr_foreign_toplevel_handle_v1::Event::OutputEnter { output } => {
-                let Some(name) = state.output_name(&output) else {
-                    return;
-                };
-                Change::OutputEnter(name)
+                state.output_entered(id, &output, true);
+                return;
             }
             zwlr_foreign_toplevel_handle_v1::Event::OutputLeave { output } => {
-                let Some(name) = state.output_name(&output) else {
-                    return;
-                };
-                Change::OutputLeave(name)
+                state.output_entered(id, &output, false);
+                return;
+            }
+            zwlr_foreign_toplevel_handle_v1::Event::Parent { parent } => {
+                Change::Parent(parent.and_then(|parent| parent.data::<WindowId>().copied()))
             }
             zwlr_foreign_toplevel_handle_v1::Event::Done => {
                 state.update(|inner| inner.list.commit(id));
@@ -152,7 +156,6 @@ impl Dispatch<ZwlrForeignToplevelHandleV1, WindowId> for State {
                 handle.destroy();
                 return;
             }
-            // `parent` is not modelled.
             _ => return,
         };
         state.update(|inner| {

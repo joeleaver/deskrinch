@@ -28,9 +28,11 @@ pub enum ConnectError {
         crate::backend::SUPPORTED_GLOBALS.join(", ")
     )]
     Unsupported,
-    /// The compositor looks like KWin, which offers its window-management
-    /// protocol only to clients it has granted it to. See
-    /// [`kwin_access`](crate::kwin_access) for how a client is granted it.
+    /// The compositor offers none of the protocols, and looks like KWin,
+    /// which offers its window-management protocol only to clients it has
+    /// granted it to. "Looks like KWin" is inferred: the compositor offers
+    /// other `org_kde_kwin_*` globals. See [`kwin_access`](crate::kwin_access)
+    /// for how a client is granted the protocol.
     #[error(
         "the compositor looks like KWin and has not granted this client \
          org_kde_plasma_window_management; see the crate's kwin_access docs"

@@ -2,7 +2,9 @@
 
 use std::os::unix::fs::symlink;
 
-use deskrinch_desktop_entries::{Catalog, DesktopId, ParseError, ScanError, Visibility};
+use deskrinch_desktop_entries::{
+    Catalog, DesktopId, Deviation, ParseError, ProblemKind, ScanError, Visibility,
+};
 
 use crate::support::{environment, script, write};
 
@@ -60,42 +62,55 @@ fn applies_precedence_ids_and_hidden_across_directories() {
 }
 
 #[test]
-fn skips_invalid_files_and_reports_them() {
+fn skips_unusable_files_and_warns_about_deviant_ones() {
     let root = tempfile::tempdir().unwrap();
     let (home, system) = (root.path().join("home"), root.path().join("system"));
-    write(
+    let broken = write(
         &home,
         "applications/a.desktop",
-        "[Desktop Entry]\nType=Application\n",
+        "[Desktop Entry]\nType=Application\nnot a key\n",
     );
     write(&system, "applications/a.desktop", &app("System A", ""));
     let binary = system.join("applications/binary.desktop");
-    std::fs::write(&binary, b"[Desktop Entry]\nName=\xff\n").unwrap();
+    std::fs::write(
+        &binary,
+        b"[Desktop Entry]\nType=Application\nName=B\nComment=\xff\nExec=b\n",
+    )
+    .unwrap();
     let catalog = Catalog::scan(&environment(&home, &[&system]));
 
-    assert_eq!(
-        catalog.get(&id("a.desktop")).unwrap().entry.name.default,
-        "System A"
-    );
-    let mut problems: Vec<_> = catalog
+    // The unusable override falls through to the system entry; the
+    // deviant file is listed, with a warning.
+    let name = |i: &str| catalog.get(&id(i)).unwrap().entry.name.default.clone();
+    assert_eq!(name("a.desktop"), "System A");
+    assert_eq!(name("binary.desktop"), "B");
+    let problems: Vec<_> = catalog
         .problems()
         .iter()
-        .map(|p| match &p.error {
-            ScanError::Parse(error) => (p.path.clone(), error.clone()),
-            ScanError::Read(error) => panic!("unexpected read error {error}"),
+        .map(|p| match &p.kind {
+            ProblemKind::Skipped(ScanError::Parse(error)) => {
+                (p.path.clone(), format!("skipped: {error:?}"))
+            }
+            ProblemKind::Skipped(ScanError::Read(error)) => panic!("read error {error}"),
+            ProblemKind::Deviation(deviation) => {
+                (p.path.clone(), format!("warning: {deviation:?}"))
+            }
         })
         .collect();
-    problems.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
         problems,
         [
             (
-                home.join("applications/a.desktop"),
-                ParseError::MissingKey { key: "Exec" }
+                broken,
+                format!("skipped: {:?}", ParseError::InvalidLine { line: 3 })
             ),
-            (binary, ParseError::NotUtf8),
+            (
+                binary,
+                format!("warning: {:?}", Deviation::NotUtf8 { line: 4 })
+            ),
         ]
     );
+    assert!(catalog.problems()[0].is_skipped() && !catalog.problems()[1].is_skipped());
 }
 
 #[test]
@@ -104,6 +119,8 @@ fn checks_try_exec_against_path_and_absolute_paths() {
     let (home, bin) = (root.path().join("home"), root.path().join("bin"));
     std::fs::create_dir_all(&bin).unwrap();
     script(&bin.join("present"), "true\n");
+    // The program every entry here runs.
+    script(&bin.join("run"), "true\n");
     std::fs::write(bin.join("not-executable"), "").unwrap();
     let absolute = bin.join("present");
     write(
@@ -135,6 +152,74 @@ fn checks_try_exec_against_path_and_absolute_paths() {
     assert_eq!(visibility("absolute.desktop"), Visibility::Shown);
     assert_eq!(visibility("missing.desktop"), Visibility::TryExecMissing);
     assert_eq!(visibility("noexec.desktop"), Visibility::TryExecMissing);
+}
+
+#[test]
+fn hides_applications_whose_exec_program_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let (home, bin, work) = (
+        root.path().join("home"),
+        root.path().join("bin"),
+        root.path().join("work"),
+    );
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(work.join("sub")).unwrap();
+    script(&bin.join("on-path"), "true\n");
+    script(&work.join("sub/relative"), "true\n");
+    std::fs::write(bin.join("not-executable"), "").unwrap();
+    let absolute = bin.join("on-path");
+    let entries = [
+        ("path", "Exec=on-path %U\n".to_owned()),
+        ("absolute", format!("Exec=\"{}\"\n", absolute.display())),
+        (
+            "relative",
+            format!("Exec=sub/relative\nPath={}\n", work.display()),
+        ),
+        ("uninstalled", "Exec=uninstalled-app\n".to_owned()),
+        ("not-executable", "Exec=not-executable\n".to_owned()),
+        // A bare name is looked up in PATH, never in `Path`.
+        (
+            "bare-in-path-dir",
+            format!("Exec=relative\nPath={}\n", work.join("sub").display()),
+        ),
+        (
+            "dbus",
+            "DBusActivatable=true\nExec=uninstalled-app\n".to_owned(),
+        ),
+    ];
+    for (id, body) in &entries {
+        let text = format!("[Desktop Entry]\nType=Application\nName={id}\n{body}");
+        write(&home, &format!("applications/{id}.desktop"), &text);
+    }
+    let mut env = environment(&home, &[]);
+    env.path = vec![bin];
+    let catalog = Catalog::scan(&env);
+
+    let visibility = |i: &str| {
+        catalog
+            .get(&id(&format!("{i}.desktop")))
+            .unwrap()
+            .visibility
+    };
+    assert_eq!(visibility("path"), Visibility::Shown);
+    assert_eq!(visibility("absolute"), Visibility::Shown);
+    assert_eq!(visibility("relative"), Visibility::Shown);
+    assert_eq!(visibility("uninstalled"), Visibility::ExecMissing);
+    assert_eq!(visibility("not-executable"), Visibility::ExecMissing);
+    assert_eq!(visibility("bare-in-path-dir"), Visibility::ExecMissing);
+    assert_eq!(visibility("dbus"), Visibility::Shown);
+    let shown: Vec<_> = catalog.shown().map(|e| e.id.to_string()).collect();
+    assert_eq!(
+        shown,
+        [
+            "absolute.desktop",
+            "dbus.desktop",
+            "path.desktop",
+            "relative.desktop"
+        ]
+    );
+    // Tools still see the hidden entries, and why.
+    assert_eq!(catalog.len(), entries.len());
 }
 
 #[test]

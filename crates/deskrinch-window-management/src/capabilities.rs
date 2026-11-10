@@ -79,6 +79,11 @@ pub enum Protocol {
 /// report stay empty, and an action it lacks returns
 /// [`ActionError::Unsupported`](crate::ActionError::Unsupported). A
 /// list-only protocol is a connection with no actions.
+///
+/// These say what the protocol, as this compositor offers it, can carry. A
+/// compositor may still not use all of it: sway, for one, offers the
+/// version of the wlroots protocol that reports parents but never reports
+/// one, and accepts minimize requests while having no minimized state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Capabilities {
@@ -86,8 +91,13 @@ pub struct Capabilities {
     pub protocol: Protocol,
     /// The state flags the connection reports.
     pub states: WindowState,
-    /// Whether [`Window::outputs`](crate::Window::outputs) is reported.
+    /// Whether [`Window::outputs`](crate::Window::outputs) is reported. It is
+    /// false when the compositor gives outputs no names (`wl_output` before
+    /// version 4 and no `zxdg_output_v1` names), as the outputs could not be
+    /// told apart.
     pub outputs: bool,
+    /// Whether [`Window::parent`](crate::Window::parent) is reported.
+    pub parent: bool,
     /// The actions the connection can request.
     pub actions: Actions,
 }
@@ -110,6 +120,7 @@ mod tests {
             protocol: Protocol::WlrForeignToplevel,
             states: WindowState::ACTIVE,
             outputs: true,
+            parent: false,
             actions: Actions::ACTIVATE | Actions::CLOSE,
         };
         let supported: Vec<_> = Action::ALL

@@ -19,6 +19,7 @@ use crate::dbus::interface::{NAME, Notifications, PATH};
 use crate::dbus::name::{self, NameRequest, NameStatus, Watcher};
 use crate::limits::Limits;
 use crate::notification::{CloseReason, Notification, NotificationId};
+use crate::policy::{Ownership, SignalDelivery};
 use crate::request::Policy;
 use shared::Shared;
 
@@ -68,6 +69,10 @@ pub struct Config {
     /// The timeout of a notification that leaves it to the server; `None`
     /// keeps such notifications until dismissed.
     pub default_timeout: Option<Duration>,
+    /// Which senders may replace or close a notification.
+    pub ownership: Ownership,
+    /// Who receives the signals about a notification.
+    pub signal_delivery: SignalDelivery,
 }
 
 impl Default for Config {
@@ -79,6 +84,8 @@ impl Default for Config {
             capabilities: Capabilities::default(),
             limits: Limits::default(),
             default_timeout: Some(Duration::from_secs(5)),
+            ownership: Ownership::default(),
+            signal_delivery: SignalDelivery::default(),
         }
     }
 }
@@ -103,6 +110,11 @@ pub enum Event {
     /// it back).
     NameAcquired,
     /// Another service took the name; notifications no longer reach this one.
+    /// The live notifications were closed just before, with
+    /// [`CloseReason::Undefined`]. Those `NotificationClosed` signals leave
+    /// after the name has gone, so a client that only accepts signals from
+    /// the name's current owner (libnotify, through `GDBusProxy`) ignores
+    /// them: `notify-send --wait` stays waiting.
     NameLost,
     /// The bus connection ended. The service receives nothing more; the
     /// daemon decides whether to start another.
@@ -147,7 +159,12 @@ pub enum OperationError {
     Stopped,
 }
 
-/// The running service. Dropping it stops it and releases the name.
+/// The running service.
+///
+/// Dropping it is an orderly stop: every live notification (paused ones
+/// too) is closed with [`CloseReason::Undefined`], the subscriber hears of
+/// each and the senders get `NotificationClosed`, and only then is the
+/// connection closed and the name released.
 ///
 /// Dropping, like [`Service::start`], blocks the calling thread on the bus,
 /// so neither may happen inside an async runtime's task.
@@ -185,8 +202,9 @@ impl Service {
             limits: config.limits,
             capabilities: config.capabilities,
             default_timeout: config.default_timeout,
+            ownership: config.ownership,
         };
-        let shared = Shared::new(policy, clock, config.server);
+        let shared = Shared::new(policy, config.signal_delivery, clock, config.server);
         let object = Notifications {
             shared: Arc::clone(&shared),
         };
@@ -311,6 +329,32 @@ impl Handle {
     /// [`OperationError::Stopped`] after the service stopped.
     pub fn dismiss(&self, id: NotificationId) -> Result<(), OperationError> {
         self.shared.close(id, CloseReason::Dismissed)
+    }
+
+    /// Stops `id`'s timer, keeping the time it has left, while the user looks
+    /// at it (the pointer is over its popup, say). It stays paused through a
+    /// replacement, with its new full timeout left, until
+    /// [`resume`](Self::resume). Pausing twice, or pausing a notification
+    /// that never expires, changes nothing. A paused notification is closed
+    /// like any other: by the user, the sender, or the service stopping.
+    ///
+    /// # Errors
+    ///
+    /// [`OperationError::NotFound`] when it is not live,
+    /// [`OperationError::Stopped`] after the service stopped.
+    pub fn pause(&self, id: NotificationId) -> Result<(), OperationError> {
+        self.shared.set_paused(id, true)
+    }
+
+    /// Starts `id`'s timer again with the time it had left when paused.
+    /// Resuming one that is not paused changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`OperationError::NotFound`] when it is not live,
+    /// [`OperationError::Stopped`] after the service stopped.
+    pub fn resume(&self, id: NotificationId) -> Result<(), OperationError> {
+        self.shared.set_paused(id, false)
     }
 
     /// The user invoked the action `key` on `id` (use

@@ -5,18 +5,22 @@ use std::io;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use crate::deviation::Deviation;
+
 /// A boxed error from a lower layer (D-Bus, the file-watching backend),
 /// kept as the source of one of this crate's errors.
 pub type BoxedError = Box<dyn StdError + Send + Sync>;
 
-/// Why a desktop entry file is invalid. An invalid file is skipped, as the
-/// specification requires, and reported in [`crate::Catalog::problems`].
+/// Why a desktop entry file cannot be used at all. Such a file is skipped
+/// and reported in [`crate::Catalog::problems`].
+///
+/// These are the failures GLib's `GKeyFile` and `GDesktopAppInfo` also
+/// refuse. What GLib reads despite the specification is read here too, and
+/// recorded as a [`Deviation`](crate::Deviation) instead.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ParseError {
-    /// The file is not UTF-8.
-    #[error("the file is not UTF-8")]
-    NotUtf8,
-    /// A line is neither a comment, a group header nor a `Key=value`.
+    /// A line is neither a comment, a group header nor a `Key=value`, or
+    /// its group or key name is malformed.
     #[error("line {line} is malformed")]
     InvalidLine {
         /// The 1-based line number.
@@ -28,32 +32,10 @@ pub enum ParseError {
         /// The 1-based line number.
         line: usize,
     },
-    /// A group appears twice.
-    #[error("group [{group}] appears twice")]
-    DuplicateGroup {
-        /// The group's name.
-        group: String,
-    },
-    /// A key appears twice in a group.
-    #[error("key {key} appears twice in [{group}]")]
-    DuplicateKey {
-        /// The group's name.
-        group: String,
-        /// The key.
-        key: String,
-    },
-    /// A boolean key is neither `true` nor `false`.
-    #[error("key {key} is {value:?}, not true or false")]
-    InvalidBoolean {
-        /// The key.
-        key: String,
-        /// Its value.
-        value: String,
-    },
-    /// There is no `[Desktop Entry]` group.
-    #[error("there is no [Desktop Entry] group")]
+    /// The first group is not `[Desktop Entry]`, or there is none.
+    #[error("the file does not start with a [Desktop Entry] group")]
     MissingDesktopEntryGroup,
-    /// A key the entry's type requires is missing.
+    /// `Type`, or a link's `URL`, is missing.
     #[error("the required key {key} is missing")]
     MissingKey {
         /// The key.
@@ -78,13 +60,31 @@ pub enum ScanError {
     Parse(#[from] ParseError),
 }
 
-/// A file a scan skipped, and why.
+/// Something wrong with a file a scan read.
 #[derive(Debug, Clone)]
 pub struct Problem {
     /// The file.
     pub path: PathBuf,
-    /// Why it was skipped.
-    pub error: ScanError,
+    /// What is wrong.
+    pub kind: ProblemKind,
+}
+
+/// How bad a [`Problem`] is.
+#[derive(Debug, Clone)]
+pub enum ProblemKind {
+    /// The file could not be used at all and was skipped.
+    Skipped(ScanError),
+    /// The file deviates from the specification but was read, the way GLib
+    /// reads it: a warning.
+    Deviation(Deviation),
+}
+
+impl Problem {
+    /// Whether the file was skipped, rather than read with a warning.
+    #[must_use]
+    pub fn is_skipped(&self) -> bool {
+        matches!(self.kind, ProblemKind::Skipped(_))
+    }
 }
 
 /// Why an `Exec` value cannot be turned into a command line.

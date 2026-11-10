@@ -12,8 +12,9 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::task::Wake;
 
 use crate::clock::Clock;
-use crate::model::{ActionRefused, Change, Model, Refused};
+use crate::model::{ActionRefused, Change, CloseRefused, Model, Refused};
 use crate::notification::{CloseReason, Notification, NotificationId};
+use crate::policy::SignalDelivery;
 use crate::request::{Policy, Request};
 use crate::service::{Event, OperationError, ServerInfo};
 
@@ -57,17 +58,36 @@ impl From<Stopped> for NotifyError {
     }
 }
 
+/// Why a `CloseNotification` call closed nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloseError {
+    NotFound,
+    NotOwner,
+    Stopped,
+}
+
+impl From<Stopped> for CloseError {
+    fn from(Stopped: Stopped) -> Self {
+        Self::Stopped
+    }
+}
+
 /// Something the worker delivers.
 #[derive(Debug, Clone)]
 pub(crate) enum Output {
     Event(Event),
-    Signal(Signal),
+    Signal {
+        signal: Signal,
+        /// The unique name to send it to; `None` broadcasts it.
+        to: Option<String>,
+    },
 }
 
 pub(crate) struct State {
     pub(crate) model: Model,
     pub(crate) outbox: VecDeque<Output>,
     pub(crate) stopping: bool,
+    delivery: SignalDelivery,
 }
 
 impl State {
@@ -76,26 +96,38 @@ impl State {
         match change {
             Change::Shown(n) => self.outbox.push_back(Output::Event(Event::Shown(n))),
             Change::Replaced(n) => self.outbox.push_back(Output::Event(Event::Replaced(n))),
-            Change::Closed { id, reason } => {
+            Change::Closed { id, reason, sender } => {
                 self.outbox
                     .push_back(Output::Event(Event::Closed { id, reason }));
-                self.outbox
-                    .push_back(Output::Signal(Signal::NotificationClosed { id, reason }));
+                self.signal(Signal::NotificationClosed { id, reason }, sender.as_deref());
             }
             Change::ActionInvoked {
                 id,
                 key,
                 activation_token,
+                sender,
             } => {
                 // The specification: the token comes before ActionInvoked.
                 if let Some(token) = activation_token {
-                    self.outbox
-                        .push_back(Output::Signal(Signal::ActivationToken { id, token }));
+                    self.signal(Signal::ActivationToken { id, token }, sender.as_deref());
                 }
-                self.outbox
-                    .push_back(Output::Signal(Signal::ActionInvoked { id, key }));
+                self.signal(Signal::ActionInvoked { id, key }, sender.as_deref());
             }
         }
+    }
+
+    /// Queues `signal` about a notification whose current sender is
+    /// `sender`, addressed as the delivery policy says. With sender-only
+    /// delivery and no sender (a peer-to-peer connection) it goes nowhere.
+    fn signal(&mut self, signal: Signal, sender: Option<&str>) {
+        let to = match self.delivery {
+            SignalDelivery::Broadcast => None,
+            SignalDelivery::Sender => match sender {
+                Some(sender) => Some(sender.to_owned()),
+                None => return,
+            },
+        };
+        self.outbox.push_back(Output::Signal { signal, to });
     }
 }
 
@@ -110,12 +142,18 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    pub(crate) fn new(policy: Policy, clock: Arc<dyn Clock>, server: ServerInfo) -> Arc<Self> {
+    pub(crate) fn new(
+        policy: Policy,
+        delivery: SignalDelivery,
+        clock: Arc<dyn Clock>,
+        server: ServerInfo,
+    ) -> Arc<Self> {
         let shared = Arc::new(Self {
             state: Mutex::new(State {
                 model: Model::new(policy),
                 outbox: VecDeque::new(),
                 stopping: false,
+                delivery,
             }),
             wake: Condvar::new(),
             clock,
@@ -157,6 +195,44 @@ impl Shared {
                 .map_err(NotifyError::Refused)?;
             state.record(change);
             Ok(id)
+        })
+    }
+
+    /// Pauses (`true`) or resumes `id`'s timer; the worker then waits for
+    /// the new next expiry.
+    pub(crate) fn set_paused(
+        &self,
+        id: NotificationId,
+        paused: bool,
+    ) -> Result<(), OperationError> {
+        let now = self.clock.now();
+        self.change(|state| {
+            let done = if paused {
+                state.model.pause(id, now)
+            } else {
+                state.model.resume(id, now)
+            };
+            done.ok_or(OperationError::NotFound(id))
+        })
+    }
+
+    /// A `CloseNotification` call from `sender`.
+    pub(crate) fn close_from_sender(
+        &self,
+        id: NotificationId,
+        sender: Option<&str>,
+    ) -> Result<(), CloseError> {
+        self.change(|state| {
+            let change =
+                state
+                    .model
+                    .close_from_sender(id, sender)
+                    .map_err(|refused| match refused {
+                        CloseRefused::NotFound => CloseError::NotFound,
+                        CloseRefused::NotOwner => CloseError::NotOwner,
+                    })?;
+            state.record(change);
+            Ok(())
         })
     }
 
@@ -222,9 +298,28 @@ impl Shared {
         self.owns_name.store(owns, Ordering::SeqCst);
     }
 
-    /// Tells the worker to deliver what is queued and stop.
+    /// Closes every live notification with reason 4, so that senders waiting
+    /// on one are released.
+    pub(crate) fn close_all(&self) {
+        let mut state = self.lock();
+        for change in state.model.close_all(CloseReason::Undefined) {
+            state.record(change);
+        }
+        drop(state);
+        self.wake.notify_all();
+    }
+
+    /// Closes every live notification (as [`close_all`](Self::close_all)),
+    /// then tells the worker to deliver what is queued and stop.
     pub(crate) fn stop(&self) {
-        self.lock().stopping = true;
+        let mut state = self.lock();
+        if !state.stopping {
+            for change in state.model.close_all(CloseReason::Undefined) {
+                state.record(change);
+            }
+            state.stopping = true;
+        }
+        drop(state);
         self.wake.notify_all();
     }
 }

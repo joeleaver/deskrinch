@@ -14,7 +14,8 @@
 //!   specification's locale matching when read.
 //! - A [`Catalog`] is every installed entry, one per ID, with the
 //!   specification's precedence and `Hidden` rules applied and each entry's
-//!   [`Visibility`] (`NoDisplay`, `OnlyShowIn`/`NotShowIn`, `TryExec`).
+//!   [`Visibility`] (`NoDisplay`, `OnlyShowIn`/`NotShowIn`, `TryExec`, and
+//!   whether the program `Exec` runs is installed).
 //! - [`search`] ranks entries against a query; the ranking is specified in
 //!   [`search`'s module](crate::search).
 //! - [`launch`] runs an entry: `Exec` expanded by [`exec::expand`], in a
@@ -49,10 +50,12 @@
 //! [Desktop Entry Specification]: https://specifications.freedesktop.org/desktop-entry/latest/
 
 mod catalog;
+mod deviation;
 mod entry;
 mod env;
 mod error;
 pub mod exec;
+mod fold;
 mod keyfile;
 mod launch;
 mod locale;
@@ -61,11 +64,14 @@ pub mod search;
 mod watch;
 
 pub use catalog::{Catalog, CatalogEntry, Visibility};
+pub use deviation::Deviation;
 pub use entry::{Action, Application, DesktopEntry, DesktopId, EntryKind};
 pub use env::Environment;
-pub use error::{BoxedError, ExecError, LaunchError, ParseError, Problem, ScanError, WatchError};
+pub use error::{
+    BoxedError, ExecError, LaunchError, ParseError, Problem, ProblemKind, ScanError, WatchError,
+};
 pub use exec::Target;
 pub use launch::{DirectReason, LaunchContext, Launched, Placement, launch};
 pub use locale::{Locale, Localized, LocalizedList, LocalizedString};
-pub use search::{Match, MatchField, MatchKind, search};
+pub use search::{Coverage, Match, MatchField, MatchKind, search};
 pub use watch::{Event, Watcher};

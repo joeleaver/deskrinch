@@ -6,7 +6,7 @@
 //! own, which is ended as a whole when the session is dropped. Nothing it
 //! starts can reach the real session's sockets, bus or files.
 
-use std::ffi::{OsStr, OsString};
+use std::ffi::OsStr;
 use std::fs::{self, File};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::process::CommandExt;
@@ -15,6 +15,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use deskrinch_test_dbus::session::{self, isolate};
 use rustix::process::{Pid, Signal, kill_process_group, test_kill_process_group};
 use tempfile::TempDir;
 
@@ -27,19 +28,12 @@ const SHUTDOWN: Duration = Duration::from_secs(5);
 /// How often to look again while waiting.
 const POLL: Duration = Duration::from_millis(50);
 
-/// The KWin socket's name; sway picks its own.
+/// The KWin socket's name; the wlroots compositors pick their own.
 const KWIN_SOCKET: &str = "wayland-0";
-
-/// Variables of the real session that would lead a nested program back to
-/// it.
-const REAL_SESSION_VARIABLES: &[&str] = &[
-    "DISPLAY",
-    "WAYLAND_DISPLAY",
-    "WAYLAND_SOCKET",
-    "SWAYSOCK",
-    "I3SOCK",
-    "DBUS_SESSION_BUS_ADDRESS",
-];
+/// How many outputs the session has, side by side.
+const OUTPUTS: u32 = 2;
+/// Each output's size, where the compositor takes one.
+const OUTPUT_SIZE: (u32, u32) = (1280, 720);
 
 /// A compositor a session can run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -47,8 +41,11 @@ pub(crate) enum Compositor {
     /// KWin, `kwin_wayland --virtual`: `org_kde_plasma_window_management`.
     Kwin,
     /// sway, on the wlroots headless backend:
-    /// `zwlr_foreign_toplevel_management_v1`.
+    /// `zwlr_foreign_toplevel_management_v1`. It has no minimized state.
     Sway,
+    /// labwc, on the wlroots headless backend:
+    /// `zwlr_foreign_toplevel_management_v1`, with minimize.
+    Labwc,
 }
 
 impl Compositor {
@@ -57,6 +54,7 @@ impl Compositor {
         match self {
             Self::Kwin => "kwin",
             Self::Sway => "sway",
+            Self::Labwc => "labwc",
         }
     }
 }
@@ -86,9 +84,10 @@ impl Session {
                 what: "create the session directory".into(),
                 source,
             })?;
-        for sub in ["run", "data", "config", "cache", "state"] {
-            create_private_dir(&dir.path().join(sub))?;
-        }
+        session::create_dirs(dir.path()).map_err(|source| Error::Io {
+            what: "create the session's directories".into(),
+            source,
+        })?;
         prepare(&dir.path().join("data"))?;
 
         let log_path = dir.path().join("compositor.log");
@@ -124,11 +123,18 @@ impl Session {
         Ok(session)
     }
 
-    /// Runs a test binary's ignored tests in the session, one at a time.
-    /// Returns whether they passed.
-    pub(crate) fn run_tests(&self, binary: &Path) -> Result<bool, Error> {
+    /// Runs a test binary's ignored tests in the session, one at a time,
+    /// with `filter` (libtest arguments) choosing which. Returns whether they
+    /// passed.
+    ///
+    /// The tests are told the session's process group, so that one can end
+    /// the session underneath a connection.
+    pub(crate) fn run_tests(&self, binary: &Path, filter: &[&str]) -> Result<bool, Error> {
         let mut command = self.client(binary.as_os_str());
-        command.args(["--ignored", "--test-threads=1"]);
+        command
+            .args(["--ignored", "--test-threads=1"])
+            .args(filter)
+            .env("DESKRINCH_TEST_SESSION_GROUP", self.child.id().to_string());
         let status = command.status().map_err(|source| Error::Spawn {
             program: binary.display().to_string(),
             source,
@@ -157,6 +163,7 @@ impl Session {
                     command.env("SWAYSOCK", ipc);
                 }
             }
+            Compositor::Labwc => {}
         }
         command
     }
@@ -262,7 +269,10 @@ fn compositor_command(compositor: Compositor, dir: &Path) -> Result<Command, Err
                     "--no-lockscreen",
                     "--no-global-shortcuts",
                     "--no-kactivities",
-                ]);
+                ])
+                .arg(format!("--output-count={OUTPUTS}"))
+                .arg(format!("--width={}", OUTPUT_SIZE.0))
+                .arg(format!("--height={}", OUTPUT_SIZE.1));
             Ok(command)
         }
         Compositor::Sway => {
@@ -273,46 +283,39 @@ fn compositor_command(compositor: Compositor, dir: &Path) -> Result<Command, Err
                 source,
             })?;
             let mut command = Command::new("sway");
+            command.arg("--config").arg(&config);
+            wlroots_headless(&mut command);
+            Ok(command)
+        }
+        Compositor::Labwc => {
+            // An empty configuration directory: labwc's defaults, and no
+            // autostart.
+            let config = dir.join("labwc");
+            session::create_private_dir(&config).map_err(|source| Error::Io {
+                what: format!("create {}", config.display()),
+                source,
+            })?;
+            let mut command = Command::new("labwc");
             command
-                .arg("--config")
+                .arg("--config-dir")
                 .arg(&config)
-                .env("WLR_BACKENDS", "headless")
-                .env("WLR_RENDERER", "pixman")
-                .env("WLR_HEADLESS_OUTPUTS", "1")
-                .env("WLR_LIBINPUT_NO_DEVICES", "1");
+                // It would only update it on a DRM backend, and without a
+                // session bus it cannot; said here so that it never does.
+                .env("LABWC_UPDATE_ACTIVATION_ENV", "false");
+            wlroots_headless(&mut command);
             Ok(command)
         }
     }
 }
 
-/// Points `command` at the session in `dir` instead of the real one.
-fn isolate(command: &mut Command, dir: &Path) {
-    for variable in REAL_SESSION_VARIABLES {
-        command.env_remove(variable);
-    }
-    let paths: [(&str, PathBuf); 5] = [
-        ("XDG_RUNTIME_DIR", dir.join("run")),
-        ("XDG_DATA_HOME", dir.join("data")),
-        ("XDG_CONFIG_HOME", dir.join("config")),
-        ("XDG_CACHE_HOME", dir.join("cache")),
-        ("XDG_STATE_HOME", dir.join("state")),
-    ];
-    for (variable, path) in paths {
-        command.env(variable, OsString::from(path));
-    }
-}
-
-/// A directory only its owner may enter, as `XDG_RUNTIME_DIR` must be.
-fn create_private_dir(path: &Path) -> Result<(), Error> {
-    use std::os::unix::fs::DirBuilderExt;
-
-    fs::DirBuilder::new()
-        .mode(0o700)
-        .create(path)
-        .map_err(|source| Error::Io {
-            what: format!("create {}", path.display()),
-            source,
-        })
+/// Runs a wlroots compositor on the headless backend, with software
+/// rendering, no input devices and [`OUTPUTS`] outputs.
+fn wlroots_headless(command: &mut Command) {
+    command
+        .env("WLR_BACKENDS", "headless")
+        .env("WLR_RENDERER", "pixman")
+        .env("WLR_HEADLESS_OUTPUTS", OUTPUTS.to_string())
+        .env("WLR_LIBINPUT_NO_DEVICES", "1");
 }
 
 /// The name of the Wayland socket in `runtime`, once there is one.
@@ -368,24 +371,5 @@ mod tests {
         let _listener =
             std::os::unix::net::UnixListener::bind(dir.path().join("wayland-0")).unwrap();
         assert_eq!(wayland_socket(dir.path()).as_deref(), Some("wayland-0"));
-    }
-
-    #[test]
-    fn isolation_replaces_the_session_variables() {
-        let dir = Path::new("/tmp/session");
-        let mut command = Command::new("true");
-        command.env("WAYLAND_DISPLAY", "wayland-real");
-        isolate(&mut command, dir);
-        let envs: Vec<_> = command.get_envs().collect();
-        for variable in REAL_SESSION_VARIABLES {
-            assert!(
-                envs.contains(&(variable.as_ref(), None)),
-                "{variable} is not removed"
-            );
-        }
-        assert!(envs.contains(&(
-            "XDG_RUNTIME_DIR".as_ref(),
-            Some(Path::new("/tmp/session/run").as_os_str())
-        )));
     }
 }

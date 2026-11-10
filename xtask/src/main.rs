@@ -10,6 +10,7 @@ mod file_length;
 mod git;
 mod run_in_session;
 mod session;
+mod systemd_scope_tests;
 
 use std::error::Error as _;
 use std::ffi::OsString;
@@ -46,7 +47,8 @@ enum Task {
     /// Each compositor runs in a session of its own (temporary runtime,
     /// data, configuration and cache directories, and a private D-Bus bus
     /// for KWin), so nothing reaches the real desktop session. Needs
-    /// `kwin_wayland` and `dbus-run-session` for KWin, `sway` for sway.
+    /// `kwin_wayland` and `dbus-run-session` for KWin, and `sway` and
+    /// `labwc` for those.
     CompositorTests {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
@@ -70,6 +72,12 @@ enum Task {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Run the desktop-entries test that launches into a real transient
+    /// systemd scope.
+    ///
+    /// Uses the systemd user instance of the current session: it starts
+    /// only the test's own recorder script, in a scope it stops again.
+    SystemdScopeTests,
 }
 
 impl Task {
@@ -77,6 +85,7 @@ impl Task {
         match self {
             Self::FileLength => file_length::run(root),
             Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
+            Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Session {
                 compositor,
                 program,

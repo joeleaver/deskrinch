@@ -44,7 +44,10 @@ it. Only the project manager writes to Pimble.
 - **rinch is changed only through PRs.** The local checkout at `~/dev/rinch`
   is read-only from here. Work in a fresh clone under the gitignored `.work/`,
   follow rinch's own `AGENTS.md`/`CLAUDE.md`, and open a PR against
-  `joeleaver/rinch`. The same goes for rinch's forks. Merging is rinch's.
+  `joeleaver/rinch`. The same goes for rinch's forks. The project manager
+  reviews those PRs and merges them: a rinch PR only through rinch's batch
+  procedure (`docs/internals/ci.md`), a fork PR with a merge commit. An agent
+  stops at an open PR with its checks green.
 - rinch is a git dependency on `main`, never a path dependency, and needs no
   `[patch.crates-io]` lines. Unmerged rinch work is tested through a
   `[patch]` in the gitignored `.cargo/config.local.toml`, which the tracked
@@ -61,6 +64,9 @@ it. Only the project manager writes to Pimble.
   `xtask/src/compositor_tests/session.rs` is the reference. Nothing is
   installed, written or launched in the user's real session or home. This
   holds for work in rinch clones too.
+- **Temporary files are your own.** Agents share scratch directories. Never
+  write a fixed file name there (a PR description, a script, a log): make a
+  directory with `mktemp -d` and work in it.
 - Phase 2 builds on smithay only. cosmic-comp and niri are GPL-3 reference
   reading; don't copy code from them.
 - Code reaches `main` through a pull request with CI green.
