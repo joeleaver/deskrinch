@@ -18,6 +18,10 @@ publish = false
 bitflags = "2.13.2"
 clap = { version = "4.6.7", features = ["derive"] }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
+futures-core = "0.3.34"
+libc = "0.2.191"
+notify = { version = "8.2.2", default-features = false }
+percent-encoding = "2.3.2"
 rustix = "1.1.6"
 serde_json = "1.0.154"
 tempfile = "3.27.0"
@@ -26,6 +30,7 @@ wayland-client = "0.31.15"
 wayland-protocols = "0.32.13"
 wayland-protocols-plasma = "0.3.12"
 wayland-protocols-wlr = "0.3.12"
+zbus = { version = "6.2.1", default-features = false }
 
 # One lint policy for the whole repository; every member opts in with
 # `[lints] workspace = true`. Lints are set to `warn` and CI turns every
