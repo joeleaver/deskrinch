@@ -8,10 +8,9 @@ use deskrinch_notification_service::{CloseReason, Event, ImageSource, Urgency};
 
 use crate::common::{PATIENCE, PrivateBus, start};
 
-fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
-    Command::new("notify-send")
+pub(crate) fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
+    bus.command("notify-send")
         .args(args)
-        .env("DBUS_SESSION_BUS_ADDRESS", bus.address())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
@@ -19,7 +18,7 @@ fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
 }
 
 /// Waits for `child` to exit, within the tests' patience.
-fn finish(child: Child) -> Output {
+pub(crate) fn finish(child: Child) -> Output {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let _sent = tx.send(child.wait_with_output());
@@ -69,7 +68,7 @@ fn notify_send_notifications_arrive_with_their_options() {
     assert_eq!(n.body.plain_text(), "Some bold & italic");
     assert!(n.body.spans()[1].style.bold && n.body.spans()[3].style.italic);
     assert_eq!(n.urgency, Urgency::Low);
-    assert_eq!(n.timeout(), Some(std::time::Duration::from_secs(3)));
+    assert_eq!(n.timeout, Some(std::time::Duration::from_secs(3)));
     assert_eq!(n.category.as_deref(), Some("im.received"));
     assert_eq!(n.desktop_entry.as_deref(), Some("org.example.Interop"));
     assert!(n.transient);

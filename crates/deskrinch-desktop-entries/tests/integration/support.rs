@@ -123,6 +123,20 @@ impl PrivateBus {
         self.0.address()
     }
 
+    /// `context` with the variables that point what it launches at this
+    /// bus's isolated session (its XDG directories and the bus).
+    pub(crate) fn isolate(
+        &self,
+        context: deskrinch_desktop_entries::LaunchContext,
+    ) -> deskrinch_desktop_entries::LaunchContext {
+        self.0
+            .session_env()
+            .into_iter()
+            .fold(context, |context, (name, value)| {
+                context.with_env(name, value)
+            })
+    }
+
     /// A connection to this bus that owns `name` and serves `object` at
     /// `path`.
     pub(crate) fn serve<I: zbus::object_server::Interface>(

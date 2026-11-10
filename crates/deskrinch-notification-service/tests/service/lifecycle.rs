@@ -6,17 +6,14 @@ use std::time::Duration;
 use deskrinch_notification_service::{CloseReason, Event, OperationError};
 use zbus::Variant;
 
-use crate::common::{Client, PrivateBus, Signal, Signals, id, start};
-
-/// Long enough for a signal that should not come to have arrived.
-const QUIET: Duration = Duration::from_millis(200);
+use crate::common::{Client, PrivateBus, QUIET, Signal, id, start};
 
 #[test]
 fn replacement_keeps_the_id_and_emits_no_close() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let signals = Signals::listen(&bus);
     let client = Client::new(&bus);
+    let signals = &client.signals;
     let first = client.simple(0, "Downloading", "10%", 0);
     let other = client.simple(0, "Other", "", 0);
     let again = client.simple(first, "Downloading", "50%", 0);
@@ -38,19 +35,22 @@ fn replacement_keeps_the_id_and_emits_no_close() {
     assert_eq!(live, [first, other], "the replacement kept its place");
     signals.none_within(QUIET);
 
-    // An id that is no longer live makes a new notification.
+    // An id that is no longer live makes a new notification with that id,
+    // as the specification's return value requires.
     client.close(first).unwrap();
     assert_eq!(signals.next(), Signal::Closed(first, 3));
-    let fresh = client.simple(first, "Downloading", "again", 0);
-    assert_ne!(fresh, first);
+    let again = client.simple(first, "Downloading", "again", 0);
+    assert_eq!(again, first);
+    let fixed = client.simple(4242, "Fixed id", "", 0);
+    assert_eq!(fixed, 4242);
 }
 
 #[test]
 fn expiry_follows_the_clock_without_sleeping() {
     let bus = PrivateBus::start();
     let (service, events, clock) = start(&bus);
-    let signals = Signals::listen(&bus);
     let client = Client::new(&bus);
+    let signals = &client.signals;
     let short = client.simple(0, "short", "", 1000);
     let default = client.simple(0, "default", "", -1);
     let never = client.simple(0, "never", "", 0);
@@ -91,8 +91,8 @@ fn expiry_follows_the_clock_without_sleeping() {
 fn replacing_restarts_the_timer() {
     let bus = PrivateBus::start();
     let (_service, _events, clock) = start(&bus);
-    let signals = Signals::listen(&bus);
     let client = Client::new(&bus);
+    let signals = &client.signals;
     let n = client.simple(0, "a", "", 1000);
     clock.advance(Duration::from_millis(600));
     client.simple(n, "a2", "", 1000);
@@ -106,8 +106,8 @@ fn replacing_restarts_the_timer() {
 fn close_notification_closes_once() {
     let bus = PrivateBus::start();
     let (_service, events, _clock) = start(&bus);
-    let signals = Signals::listen(&bus);
     let client = Client::new(&bus);
+    let signals = &client.signals;
     let n = client.simple(0, "a", "", 0);
     events.next_shown();
     client.close(n).unwrap();
@@ -141,8 +141,9 @@ fn close_notification_closes_once() {
 fn the_user_dismisses() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let signals = Signals::listen(&bus);
-    let n = Client::new(&bus).simple(0, "a", "", 0);
+    let client = Client::new(&bus);
+    let signals = &client.signals;
+    let n = client.simple(0, "a", "", 0);
     events.next_shown();
     let handle = service.handle();
     handle.dismiss(id(n)).unwrap();
@@ -154,8 +155,8 @@ fn the_user_dismisses() {
 fn invoking_an_action_sends_the_token_then_the_action_then_closes() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let signals = Signals::listen(&bus);
     let client = Client::new(&bus);
+    let signals = &client.signals;
     let actions = ["default", "Open", "reply", "Reply"];
     let n = client
         .send(0, "a", "", &actions, &HashMap::new(), 0)
@@ -184,8 +185,8 @@ fn invoking_an_action_sends_the_token_then_the_action_then_closes() {
 fn a_resident_notification_stays_after_an_action() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let signals = Signals::listen(&bus);
     let client = Client::new(&bus);
+    let signals = &client.signals;
     let hints = HashMap::from([("resident", Variant::from(true))]);
     let n = client
         .send(0, "music", "", &["default", "Show"], &hints, 0)

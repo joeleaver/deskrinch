@@ -185,7 +185,8 @@ fn a_dbus_activatable_entry_is_started_by_service_activation() {
         session_bus: Some(bus.address().to_owned()),
         ..Default::default()
     };
-    let context = deskrinch_desktop_entries::LaunchContext::new(&env).with_activation_token("tok");
+    let context = bus
+        .isolate(deskrinch_desktop_entries::LaunchContext::new(&env).with_activation_token("tok"));
     let launched = launch(&app, None, &[Target::Path("/x".into())], &context).unwrap();
     assert_eq!(
         launched,

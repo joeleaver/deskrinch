@@ -9,10 +9,16 @@
 #[cfg(test)]
 mod common;
 #[cfg(test)]
+mod delivery;
+#[cfg(test)]
 mod interop;
 #[cfg(test)]
 mod lifecycle;
 #[cfg(test)]
 mod names;
+#[cfg(test)]
+mod pause;
+#[cfg(test)]
+mod stop;
 #[cfg(test)]
 mod wire;
