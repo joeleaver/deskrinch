@@ -65,6 +65,15 @@ fn ignores_other_files_in_the_directory() {
 }
 
 #[test]
+fn reports_a_change_when_asked_to_refresh() {
+    let root = Root::new();
+    let (watcher, events) = watch(vec![Target::File(root.join("config.toml"))]);
+    watcher.refresh();
+    changed(&events);
+    quiet(&events);
+}
+
+#[test]
 fn may_be_dropped_by_its_own_subscriber() {
     let root = Root::new();
     let file = root.join("config.toml");

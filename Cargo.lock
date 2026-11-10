@@ -247,12 +247,13 @@ name = "deskrinch-desktop-entries"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-dbus",
+ "deskrinch-watch",
+ "deskrinch-xdg",
  "futures-core",
  "icu_casemap",
  "icu_normalizer",
  "icu_properties",
  "libc",
- "notify",
  "percent-encoding",
  "tempfile",
  "thiserror",

@@ -147,8 +147,11 @@ fn absolute(value: Option<OsString>) -> Option<PathBuf> {
     value.map(PathBuf::from).filter(|path| path.is_absolute())
 }
 
-/// The absolute entries of a colon-separated path list.
-fn absolute_paths(list: &OsStr) -> Vec<PathBuf> {
+/// The absolute entries of a colon-separated path list, in order: how
+/// `XDG_DATA_DIRS` and `XDG_CONFIG_DIRS` are read, and how a list such as
+/// `PATH` is best read too. Relative and empty entries are dropped.
+#[must_use]
+pub fn absolute_paths(list: &OsStr) -> Vec<PathBuf> {
     std::env::split_paths(list)
         .filter(|dir| dir.is_absolute())
         .collect()

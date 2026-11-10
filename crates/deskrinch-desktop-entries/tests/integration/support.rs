@@ -7,7 +7,8 @@ use std::path::{Path, PathBuf};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use deskrinch_desktop_entries::{DesktopEntry, DesktopId, Environment};
+use deskrinch_desktop_entries::{BaseDirs, DesktopEntry, DesktopId, Environment, LaunchContext};
+use deskrinch_test_dbus::session::REAL_SESSION_VARIABLES;
 
 /// How long a test waits for something asynchronous before failing.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
@@ -32,10 +33,21 @@ pub(crate) fn script(path: &Path, body: &str) {
 /// An environment whose only data directories are `home` and `system`.
 pub(crate) fn environment(home: &Path, system: &[&Path]) -> Environment {
     Environment {
-        data_home: Some(home.to_path_buf()),
-        data_dirs: system.iter().map(|dir| dir.to_path_buf()).collect(),
+        base_dirs: BaseDirs {
+            data_home: Some(home.to_path_buf()),
+            data_dirs: system.iter().map(|dir| dir.to_path_buf()).collect(),
+            ..BaseDirs::default()
+        },
         ..Environment::default()
     }
+}
+
+/// `context` launching without any of the real session's variables, for
+/// tests that run no session of their own.
+pub(crate) fn without_real_session(context: LaunchContext) -> LaunchContext {
+    REAL_SESSION_VARIABLES
+        .iter()
+        .fold(context, |context, variable| context.without_env(*variable))
 }
 
 /// An application entry parsed from `text`.
@@ -65,6 +77,8 @@ fi
   printf 'token=%s\n' "${XDG_ACTIVATION_TOKEN-unset}"
   printf 'startup=%s\n' "${DESKTOP_STARTUP_ID-unset}"
   printf 'extra=%s\n' "$DESKRINCH_TEST_EXTRA"
+  awk 'BEGIN { for (name in ENVIRON) printf "var=%s\n", name }'
+  printf 'bus=%s\n' "${DBUS_SESSION_BUS_ADDRESS-unset}"
   read -r _pid _comm _state ppid _pgrp sid _rest < /proc/$$/stat
   printf 'ppid=%s\nsid=%s\n' "$ppid" "$sid"
   printf 'cgroup=%s\n' "$(cat /proc/$$/cgroup)"
@@ -125,16 +139,15 @@ impl PrivateBus {
 
     /// `context` with the variables that point what it launches at this
     /// bus's isolated session (its XDG directories and the bus).
-    pub(crate) fn isolate(
-        &self,
-        context: deskrinch_desktop_entries::LaunchContext,
-    ) -> deskrinch_desktop_entries::LaunchContext {
-        self.0
-            .session_env()
-            .into_iter()
-            .fold(context, |context, (name, value)| {
-                context.with_env(name, value)
-            })
+    pub(crate) fn isolate(&self, context: LaunchContext) -> LaunchContext {
+        let session = self.0.session_env();
+        let context = REAL_SESSION_VARIABLES
+            .iter()
+            .filter(|variable| !session.iter().any(|(name, _)| name == *variable))
+            .fold(context, |context, variable| context.without_env(*variable));
+        session.into_iter().fold(context, |context, (name, value)| {
+            context.with_env(name, value)
+        })
     }
 
     /// A connection to this bus that owns `name` and serves `object` at
