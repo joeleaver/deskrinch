@@ -6,7 +6,7 @@ use std::collections::btree_map::Entry as MapEntry;
 
 use crate::entry::{DesktopEntry, DesktopId};
 use crate::env::Environment;
-use crate::error::Problem;
+use crate::error::{Problem, ProblemKind};
 
 /// Whether an entry belongs in menus and launchers, and if not, why.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -72,6 +72,10 @@ impl Catalog {
             match found {
                 Err(problem) => problems.push(problem),
                 Ok(entry) => {
+                    problems.extend(entry.deviations.iter().map(|deviation| Problem {
+                        path: entry.path.clone(),
+                        kind: ProblemKind::Deviation(deviation.clone()),
+                    }));
                     if let MapEntry::Vacant(slot) = winners.entry(entry.id.clone()) {
                         slot.insert((!entry.hidden).then_some(entry));
                     }
@@ -120,7 +124,9 @@ impl Catalog {
         self.entries.is_empty()
     }
 
-    /// The files the scan skipped, and why.
+    /// What was wrong with the files the scan read, in the order read: the
+    /// files it skipped, and the deviations from the specification in the
+    /// files it read anyway (see [`Problem::is_skipped`]).
     #[must_use]
     pub fn problems(&self) -> &[Problem] {
         &self.problems
@@ -220,7 +226,7 @@ mod tests {
     fn an_invalid_file_falls_through_to_the_next() {
         let problem = Problem {
             path: "/home/a.desktop".into(),
-            error: ScanError::Parse(ParseError::MissingDesktopEntryGroup),
+            kind: ProblemKind::Skipped(ScanError::Parse(ParseError::MissingDesktopEntryGroup)),
         };
         let catalog = Catalog::build(
             [Err(problem), Ok(entry("a.desktop", "system", ""))],

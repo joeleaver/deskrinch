@@ -49,6 +49,7 @@
 //! [Desktop Entry Specification]: https://specifications.freedesktop.org/desktop-entry/latest/
 
 mod catalog;
+mod deviation;
 mod entry;
 mod env;
 mod error;
@@ -61,9 +62,12 @@ pub mod search;
 mod watch;
 
 pub use catalog::{Catalog, CatalogEntry, Visibility};
+pub use deviation::Deviation;
 pub use entry::{Action, Application, DesktopEntry, DesktopId, EntryKind};
 pub use env::Environment;
-pub use error::{BoxedError, ExecError, LaunchError, ParseError, Problem, ScanError, WatchError};
+pub use error::{
+    BoxedError, ExecError, LaunchError, ParseError, Problem, ProblemKind, ScanError, WatchError,
+};
 pub use exec::Target;
 pub use launch::{DirectReason, LaunchContext, Launched, Placement, launch};
 pub use locale::{Locale, Localized, LocalizedList, LocalizedString};
