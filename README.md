@@ -19,6 +19,15 @@ cargo deny --locked check      # cargo install cargo-deny --locked
 cargo xtask file-length
 ```
 
+The window-management crate's compositor tests drive a real compositor and
+are ignored by `cargo test`. This runs them in nested, headless KWin and sway
+sessions that touch nothing in your own (it needs `kwin_wayland`,
+`dbus-run-session` and `sway`; name one compositor to run only that):
+
+```sh
+cargo xtask compositor-tests [kwin] [sway]
+```
+
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists
 them. Local Cargo settings, such as a `[patch]` for unmerged rinch work, go in
 the gitignored `.cargo/config.local.toml`.

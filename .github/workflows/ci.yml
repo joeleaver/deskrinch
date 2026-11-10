@@ -82,3 +82,32 @@ jobs:
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask file-length
+
+  # The window-management crate against real compositors, nested and
+  # headless. Ubuntu 24.04's packages are older than a current desktop's
+  # (KWin 5.27, sway 1.9), so this checks the protocols as those versions
+  # speak them.
+  compositor-tests:
+    name: Compositor tests (${{ matrix.compositor }})
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - compositor: kwin
+            packages: kwin-wayland dbus-daemon
+          - compositor: sway
+            packages: sway
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - name: Install ${{ matrix.compositor }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ${{ matrix.packages }}
+      - run: cargo xtask compositor-tests ${{ matrix.compositor }}
