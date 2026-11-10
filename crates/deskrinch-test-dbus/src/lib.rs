@@ -177,8 +177,8 @@ impl PrivateBus {
         &self.address
     }
 
-    /// The root of the bus's isolated session (its XDG directories are
-    /// [`session::SESSION_DIRS`] under it).
+    /// The root of the bus's isolated session (its home and XDG directories
+    /// are [`session::SESSION_DIRS`] under it).
     #[must_use]
     pub fn session_root(&self) -> &Path {
         self.dir.path()
@@ -194,16 +194,16 @@ impl PrivateBus {
         command
     }
 
-    /// The variables [`command`](Self::command) sets: the session's XDG
-    /// directories and `DBUS_SESSION_BUS_ADDRESS`. For code under test that
-    /// builds its own commands and takes extra variables rather than a
-    /// [`Command`]; such a command still inherits the real session's
-    /// display variables unless the code under test removes them.
+    /// The variables [`command`](Self::command) sets: the session's
+    /// [`session::environment`] and `DBUS_SESSION_BUS_ADDRESS`. For code
+    /// under test that builds its own commands and takes extra variables
+    /// rather than a [`Command`]; such a command still inherits the real
+    /// session's variables ([`session::REAL_SESSION_VARIABLES`]) unless the
+    /// code under test removes them.
     #[must_use]
     pub fn session_env(&self) -> Vec<(&'static str, OsString)> {
-        session::SESSION_DIRS
-            .iter()
-            .map(|(variable, sub)| (*variable, self.dir.path().join(sub).into_os_string()))
+        session::environment(self.dir.path())
+            .into_iter()
             .chain([("DBUS_SESSION_BUS_ADDRESS", OsString::from(&self.address))])
             .collect()
     }
