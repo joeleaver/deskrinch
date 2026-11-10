@@ -115,4 +115,40 @@ pub(crate) enum Error {
         /// What it printed.
         log: String,
     },
+    /// The measured program exited before the measurement was done.
+    #[error("{program} exited ({status}) while it was measured; its last output:\n{output}")]
+    MeasuredExited {
+        /// The program.
+        program: String,
+        /// How it exited.
+        status: ExitStatus,
+        /// Its last lines of output.
+        output: String,
+    },
+    /// The measured program drew no frame in time.
+    #[error(
+        "{program} presented no frame within {} s (is it a rinch program? the first \
+         frame is rinch's RINCH_PERF line); its last output:\n{output}",
+        waited.as_secs()
+    )]
+    NoFirstFrame {
+        /// The program.
+        program: String,
+        /// How long it was given.
+        waited: std::time::Duration,
+        /// Its last lines of output.
+        output: String,
+    },
+    /// The measured program's `/proc` entry went away while it was read.
+    #[error("{program} went away while it was measured")]
+    MeasuredGone {
+        /// The program.
+        program: String,
+    },
+    /// `callgrind_control` could not get a dump.
+    #[error("callgrind_control could not dump the profile ({status})")]
+    CallgrindControl {
+        /// How it exited.
+        status: ExitStatus,
+    },
 }
