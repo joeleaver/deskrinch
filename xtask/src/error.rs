@@ -81,6 +81,32 @@ pub(crate) enum Error {
         /// What it printed.
         log: String,
     },
+    /// The session's private D-Bus bus could not start.
+    #[error("could not start the session's D-Bus bus")]
+    Bus(#[from] deskrinch_test_dbus::Error),
+    /// The handler that ends sessions on `SIGINT`, `SIGTERM` and `SIGHUP`
+    /// could not be installed.
+    #[error("could not handle signals: {reason}")]
+    SignalHandler {
+        /// Why.
+        reason: String,
+    },
+    /// A signal asked xtask to stop; the sessions it ran have been ended.
+    #[error("interrupted; the session was ended")]
+    Interrupted,
+    /// Processes of a session were still running after it was ended. They
+    /// have been killed; the session's directory is kept.
+    #[error(
+        "processes of the session outlived it and were killed (directory kept: {}):\n{}",
+        root.display(),
+        leftovers.iter().map(|leftover| format!("  {leftover}")).collect::<Vec<_>>().join("\n")
+    )]
+    SessionLeftovers {
+        /// What was still running.
+        leftovers: Vec<crate::session::Leftover>,
+        /// The session's directory.
+        root: PathBuf,
+    },
     /// The nested compositor did not open its socket in time.
     #[error("{compositor} did not open its socket in time; its log:\n{log}")]
     CompositorTimedOut {

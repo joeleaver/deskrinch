@@ -1,0 +1,195 @@
+//! The compositors a session can run, and how each is started headless.
+
+use std::fs;
+use std::os::unix::fs::FileTypeExt;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+
+use deskrinch_test_dbus::session;
+
+use crate::error::Error;
+
+/// The KWin socket's name; the wlroots compositors pick their own.
+const KWIN_SOCKET: &str = "wayland-0";
+/// Each output's size, where the compositor takes one.
+const OUTPUT_SIZE: (u32, u32) = (1280, 720);
+
+/// A compositor a session can run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Compositor {
+    /// KWin, `kwin_wayland --virtual`, without Xwayland:
+    /// `org_kde_plasma_window_management`.
+    Kwin,
+    /// sway, on the wlroots headless backend:
+    /// `zwlr_foreign_toplevel_management_v1`. It has no minimized state.
+    Sway,
+    /// labwc, on the wlroots headless backend:
+    /// `zwlr_foreign_toplevel_management_v1`, with minimize.
+    Labwc,
+}
+
+impl Compositor {
+    /// Its name, as the tests read it from `DESKRINCH_TEST_COMPOSITOR`.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Kwin => "kwin",
+            Self::Sway => "sway",
+            Self::Labwc => "labwc",
+        }
+    }
+
+    /// The command that starts it with `outputs` outputs side by side, in
+    /// the session whose root is `root` (the caller isolates it).
+    pub(super) fn command(self, root: &Path, outputs: u32) -> Result<Command, Error> {
+        match self {
+            Self::Kwin => {
+                // No `--xwayland`: KWin then starts neither Xwayland nor the
+                // `kcminit` that comes with it, which aborts and dumps core
+                // when its X server goes away while it is still starting.
+                let mut command = Command::new("kwin_wayland");
+                command
+                    .args(["--virtual", "--socket", KWIN_SOCKET])
+                    .args([
+                        "--no-lockscreen",
+                        "--no-global-shortcuts",
+                        "--no-kactivities",
+                    ])
+                    .arg(format!("--output-count={outputs}"))
+                    .arg(format!("--width={}", OUTPUT_SIZE.0))
+                    .arg(format!("--height={}", OUTPUT_SIZE.1));
+                Ok(command)
+            }
+            Self::Sway => {
+                // An empty configuration: no bar, background, key bindings or
+                // `exec` lines.
+                let config = root.join("sway.conf");
+                fs::write(&config, "").map_err(|source| Error::Io {
+                    what: format!("write {}", config.display()),
+                    source,
+                })?;
+                let mut command = Command::new("sway");
+                command.arg("--config").arg(&config);
+                wlroots_headless(&mut command, outputs);
+                Ok(command)
+            }
+            Self::Labwc => {
+                // An empty configuration directory: labwc's defaults, and no
+                // autostart.
+                let config = root.join("labwc");
+                session::create_private_dir(&config).map_err(|source| Error::Io {
+                    what: format!("create {}", config.display()),
+                    source,
+                })?;
+                let mut command = Command::new("labwc");
+                command
+                    .arg("--config-dir")
+                    .arg(&config)
+                    // labwc pushes its environment into the D-Bus and systemd
+                    // activation environments on a DRM backend; never here.
+                    .env("LABWC_UPDATE_ACTIVATION_ENV", "false");
+                wlroots_headless(&mut command, outputs);
+                Ok(command)
+            }
+        }
+    }
+
+    /// Variables a client needs to reach this compositor beyond
+    /// `WAYLAND_DISPLAY`, given the session's runtime directory.
+    pub(super) fn client_env(self, runtime: &Path) -> Vec<(&'static str, PathBuf)> {
+        match self {
+            Self::Sway => sway_ipc(runtime)
+                .map(|ipc| ("SWAYSOCK", ipc))
+                .into_iter()
+                .collect(),
+            Self::Kwin | Self::Labwc => Vec::new(),
+        }
+    }
+}
+
+/// Runs a wlroots compositor on the headless backend, with software
+/// rendering, no input devices and `outputs` outputs.
+fn wlroots_headless(command: &mut Command, outputs: u32) {
+    command
+        .env("WLR_BACKENDS", "headless")
+        .env("WLR_RENDERER", "pixman")
+        .env("WLR_HEADLESS_OUTPUTS", outputs.to_string())
+        .env("WLR_LIBINPUT_NO_DEVICES", "1");
+}
+
+/// The name of the Wayland socket in `runtime`, once there is one.
+pub(super) fn wayland_socket(runtime: &Path) -> Option<String> {
+    sockets(runtime).find(|name| is_wayland_socket_name(name))
+}
+
+/// sway's IPC socket in `runtime`.
+fn sway_ipc(runtime: &Path) -> Option<PathBuf> {
+    sockets(runtime)
+        .find(|name| is_sway_ipc_name(name))
+        .map(|name| runtime.join(name))
+}
+
+/// The names of the sockets in `dir`.
+fn sockets(dir: &Path) -> impl Iterator<Item = String> {
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_socket()))
+        .filter_map(|entry| entry.file_name().into_string().ok())
+}
+
+/// Whether `name` is a compositor's `wayland-*` socket (not its lock file,
+/// and not another program's socket).
+fn is_wayland_socket_name(name: &str) -> bool {
+    name.strip_prefix("wayland-")
+        .is_some_and(|rest| !rest.is_empty() && !rest.contains('.'))
+}
+
+/// Whether `name` is sway's IPC socket, `sway-ipc.<uid>.<pid>.sock`.
+fn is_sway_ipc_name(name: &str) -> bool {
+    name.strip_prefix("sway-ipc.")
+        .and_then(|rest| rest.strip_suffix(".sock"))
+        .is_some_and(|middle| !middle.is_empty())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::os::unix::net::UnixListener;
+
+    use super::*;
+
+    #[test]
+    fn recognises_sways_ipc_socket() {
+        assert!(is_sway_ipc_name("sway-ipc.1000.4242.sock"));
+        assert!(!is_sway_ipc_name("wayland-1"));
+        assert!(!is_sway_ipc_name("sway-ipc.1000.4242.sock.lock"));
+    }
+
+    #[test]
+    fn recognises_wayland_sockets() {
+        assert!(is_wayland_socket_name("wayland-0"));
+        assert!(is_wayland_socket_name("wayland-1"));
+        assert!(!is_wayland_socket_name("wayland-0.lock"));
+        assert!(!is_wayland_socket_name("wayland-"));
+        assert!(!is_wayland_socket_name("sway-ipc.1000.1.sock"));
+    }
+
+    #[test]
+    fn finds_only_sockets() {
+        let dir = tempfile::tempdir_in("/tmp").unwrap();
+        fs::write(dir.path().join("wayland-0"), "").unwrap();
+        fs::write(dir.path().join("sway-ipc.1000.1.sock"), "").unwrap();
+        assert_eq!(wayland_socket(dir.path()), None, "a plain file is not one");
+        assert_eq!(sway_ipc(dir.path()), None);
+        fs::remove_file(dir.path().join("wayland-0")).unwrap();
+        fs::remove_file(dir.path().join("sway-ipc.1000.1.sock")).unwrap();
+        let _wayland = UnixListener::bind(dir.path().join("wayland-0")).unwrap();
+        let _ipc = UnixListener::bind(dir.path().join("sway-ipc.1000.1.sock")).unwrap();
+        assert_eq!(wayland_socket(dir.path()).as_deref(), Some("wayland-0"));
+        assert_eq!(
+            Compositor::Sway.client_env(dir.path()),
+            [("SWAYSOCK", dir.path().join("sway-ipc.1000.1.sock"))]
+        );
+        assert_eq!(Compositor::Labwc.client_env(dir.path()), []);
+    }
+}

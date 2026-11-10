@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+ctrlc.workspace = true
 deskrinch-test-dbus.workspace = true
 deskrinch-window-management.workspace = true
 rustix = { workspace = true, features = ["process"] }

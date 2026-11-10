@@ -1,24 +1,45 @@
 //! A nested, headless compositor session, isolated from the real one.
 //!
-//! The session has its own runtime, data, configuration, cache and state
-//! directories in a temporary directory, its own D-Bus session bus (KWin)
-//! with service activation turned off, and runs in a process group of its
-//! own, which is ended as a whole when the session is dropped. Nothing it
-//! starts can reach the real session's sockets, bus or files.
+//! What a session is, which [`Session::client`] commands share:
+//!
+//! - Its own `XDG_RUNTIME_DIR`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`,
+//!   `XDG_CACHE_HOME` and `XDG_STATE_HOME`, private directories under a fresh
+//!   `/tmp/deskrinch-session-*` root, and none of the real session's display
+//!   or bus variables ([`session::REAL_SESSION_VARIABLES`]).
+//! - A private D-Bus session bus ([`PrivateBus`]) with no service activation,
+//!   named in `DBUS_SESSION_BUS_ADDRESS` for the compositor and every client.
+//! - The compositor, headless, and every client in one process group of
+//!   their own, which is ended as a whole (`SIGTERM`, then `SIGKILL` after
+//!   [`SHUTDOWN`]) when the session ends, and also when xtask gets `SIGINT`,
+//!   `SIGTERM` or `SIGHUP` ([`interrupt`]).
+//! - Afterwards, a check that nothing of the session runs any more: a
+//!   process that left the group is found by its environment, killed, and
+//!   reported as an error ([`leftovers`]).
+//!
+//! The isolation itself (directories, variables, the bus) is
+//! `deskrinch-test-dbus`'s, which the D-Bus tests use too.
+
+mod compositor;
+pub(crate) mod interrupt;
+mod leftovers;
 
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::os::unix::fs::FileTypeExt;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use deskrinch_test_dbus::PrivateBus;
 use deskrinch_test_dbus::session::{self, isolate};
-use rustix::process::{Pid, Signal, kill_process_group, test_kill_process_group};
+use rustix::process::{
+    Pid, Signal, kill_process, kill_process_group, test_kill_process, test_kill_process_group,
+};
 use tempfile::TempDir;
 
+pub(crate) use self::compositor::Compositor;
+pub(crate) use self::leftovers::Leftover;
 use crate::error::Error;
 
 /// How long a compositor has to open its socket.
@@ -28,53 +49,32 @@ const SHUTDOWN: Duration = Duration::from_secs(5);
 /// How often to look again while waiting.
 const POLL: Duration = Duration::from_millis(50);
 
-/// The KWin socket's name; the wlroots compositors pick their own.
-const KWIN_SOCKET: &str = "wayland-0";
-/// How many outputs the session has, side by side.
-const OUTPUTS: u32 = 2;
-/// Each output's size, where the compositor takes one.
-const OUTPUT_SIZE: (u32, u32) = (1280, 720);
-
-/// A compositor a session can run.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum Compositor {
-    /// KWin, `kwin_wayland --virtual`: `org_kde_plasma_window_management`.
-    Kwin,
-    /// sway, on the wlroots headless backend:
-    /// `zwlr_foreign_toplevel_management_v1`. It has no minimized state.
-    Sway,
-    /// labwc, on the wlroots headless backend:
-    /// `zwlr_foreign_toplevel_management_v1`, with minimize.
-    Labwc,
-}
-
-impl Compositor {
-    /// Its name, as the tests read it from `DESKRINCH_TEST_COMPOSITOR`.
-    pub(crate) fn name(self) -> &'static str {
-        match self {
-            Self::Kwin => "kwin",
-            Self::Sway => "sway",
-            Self::Labwc => "labwc",
-        }
-    }
-}
-
 /// A running nested compositor.
 #[derive(Debug)]
 pub(crate) struct Session {
     compositor: Compositor,
-    dir: TempDir,
+    /// The session's root; `None` once it has been kept or removed.
+    dir: Option<TempDir>,
+    root: PathBuf,
+    bus: PrivateBus,
     child: Child,
+    group: Pid,
     socket: String,
+    keep: bool,
+    ended: bool,
 }
 
 impl Session {
-    /// Starts `compositor` in a new isolated session, after `prepare` has
-    /// set up the session's data directory (`XDG_DATA_HOME`).
+    /// Starts `compositor` with `outputs` outputs in a new isolated session,
+    /// after `prepare` has set up the session's data directory
+    /// (`XDG_DATA_HOME`).
     pub(crate) fn start(
         compositor: Compositor,
+        outputs: u32,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<Self, Error> {
+        interrupt::install()?;
+        interrupt::check()?;
         // In `/tmp`, not `$TMPDIR`: the Wayland socket's path must fit a Unix
         // socket address (108 bytes), and `$TMPDIR` may be long.
         let dir = tempfile::Builder::new()
@@ -84,13 +84,15 @@ impl Session {
                 what: "create the session directory".into(),
                 source,
             })?;
-        session::create_dirs(dir.path()).map_err(|source| Error::Io {
+        let root = dir.path().to_owned();
+        session::create_dirs(&root).map_err(|source| Error::Io {
             what: "create the session's directories".into(),
             source,
         })?;
-        prepare(&dir.path().join("data"))?;
+        prepare(&root.join("data"))?;
+        let bus = PrivateBus::start()?;
 
-        let log_path = dir.path().join("compositor.log");
+        let log_path = root.join("compositor.log");
         let log = File::create(&log_path).map_err(|source| Error::Io {
             what: format!("create {}", log_path.display()),
             source,
@@ -100,9 +102,10 @@ impl Session {
             source,
         })?;
 
-        let mut command = compositor_command(compositor, dir.path())?;
-        isolate(&mut command, dir.path());
+        let mut command = compositor.command(&root, outputs)?;
+        isolate(&mut command, &root);
         command
+            .env("DBUS_SESSION_BUS_ADDRESS", bus.address())
             .stdin(Stdio::null())
             .stdout(log)
             .stderr(log_err)
@@ -112,86 +115,169 @@ impl Session {
         let child = command
             .spawn()
             .map_err(|source| Error::Spawn { program, source })?;
+        let group = Pid::from_child(&child);
+        interrupt::watch(group);
 
         let mut session = Self {
             compositor,
-            dir,
+            dir: Some(dir),
+            root,
+            bus,
             child,
+            group,
             socket: String::new(),
+            keep: false,
+            ended: false,
         };
         session.socket = session.wait_for_socket()?;
         Ok(session)
+    }
+
+    /// Keeps the session's directory (its logs, and whatever clients wrote
+    /// there) when it ends, instead of removing it.
+    pub(crate) fn keep(&mut self) {
+        self.keep = true;
+    }
+
+    /// The session's root directory, which clients see as
+    /// `DESKRINCH_SESSION_DIR`.
+    pub(crate) fn root(&self) -> &Path {
+        &self.root
     }
 
     /// Runs a test binary's ignored tests in the session, one at a time,
     /// with `filter` (libtest arguments) choosing which. Returns whether they
     /// passed.
     ///
-    /// The tests are told the session's process group, so that one can end
-    /// the session underneath a connection.
+    /// The tests are told the compositor and the session's process group, so
+    /// that one can end the session underneath a connection.
     pub(crate) fn run_tests(&self, binary: &Path, filter: &[&str]) -> Result<bool, Error> {
-        let mut command = self.client(binary.as_os_str());
+        let mut command = self.outside_client(binary.as_os_str());
         command
             .args(["--ignored", "--test-threads=1"])
             .args(filter)
-            .env("DESKRINCH_TEST_SESSION_GROUP", self.child.id().to_string());
+            .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
+            .env(
+                "DESKRINCH_TEST_SESSION_GROUP",
+                self.group.as_raw_nonzero().to_string(),
+            );
         let status = command.status().map_err(|source| Error::Spawn {
             program: binary.display().to_string(),
             source,
         })?;
+        interrupt::check()?;
         Ok(status.success())
     }
 
     /// A command that runs `program` as a client of the session: isolated
-    /// from the real session, pointed at this compositor (and at KWin's
-    /// private bus or sway's IPC socket), and in the session's process
-    /// group, so that whatever it leaves running ends with the session.
+    /// from the real session; pointed at this compositor
+    /// (`WAYLAND_DISPLAY`, and sway's `SWAYSOCK`) and at the session's bus
+    /// (`DBUS_SESSION_BUS_ADDRESS`); told the session's directory
+    /// (`DESKRINCH_SESSION_DIR`); with standard input closed; and in the
+    /// session's process group, so that whatever it leaves running ends with
+    /// the session.
+    ///
+    /// Standard input is closed because the session's group is not the
+    /// terminal's foreground group: a client reading the terminal would be
+    /// stopped (`SIGTTIN`) and hang the session.
     pub(crate) fn client(&self, program: &OsStr) -> Command {
-        let mut command = Command::new(program);
-        isolate(&mut command, self.dir.path());
-        command
-            .env("WAYLAND_DISPLAY", &self.socket)
-            .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
-            .process_group(Pid::from_child(&self.child).as_raw_nonzero().get());
-        match self.compositor {
-            // KWin's own bus, which its D-Bus interfaces are on.
-            Compositor::Kwin => {
-                command.env("DBUS_SESSION_BUS_ADDRESS", bus_address(self.dir.path()));
-            }
-            Compositor::Sway => {
-                if let Some(ipc) = self.sway_ipc() {
-                    command.env("SWAYSOCK", ipc);
-                }
-            }
-            Compositor::Labwc => {}
-        }
+        let mut command = self.outside_client(program);
+        command.process_group(self.group.as_raw_nonzero().get());
         command
     }
 
-    /// sway's IPC socket in the session's runtime directory.
-    fn sway_ipc(&self) -> Option<PathBuf> {
-        fs::read_dir(self.dir.path().join("run"))
-            .ok()?
-            .filter_map(Result::ok)
-            .map(|entry| entry.path())
-            .find(|path| {
-                path.file_name()
-                    .and_then(|name| name.to_str())
-                    .is_some_and(is_sway_ipc_name)
-            })
+    /// [`client`](Self::client) without joining the session's process
+    /// group: for a test runner whose tests end the session by signalling
+    /// that group, and must not end themselves with it. What it leaves
+    /// running is still found by the check for leftovers.
+    fn outside_client(&self, program: &OsStr) -> Command {
+        let mut command = Command::new(program);
+        isolate(&mut command, &self.root);
+        command
+            .env("WAYLAND_DISPLAY", &self.socket)
+            .env("DBUS_SESSION_BUS_ADDRESS", self.bus.address())
+            .env("DESKRINCH_SESSION_DIR", &self.root)
+            .envs(self.compositor.client_env(&self.root.join("run")))
+            .stdin(Stdio::null());
+        command
+    }
+
+    /// Whether the compositor is still running.
+    pub(crate) fn compositor_running(&mut self) -> bool {
+        matches!(self.child.try_wait(), Ok(None))
     }
 
     /// The compositor's output so far.
     pub(crate) fn log(&self) -> String {
-        fs::read_to_string(self.dir.path().join("compositor.log")).unwrap_or_default()
+        fs::read_to_string(self.root.join("compositor.log")).unwrap_or_default()
+    }
+
+    /// Ends the session and checks that nothing of it is left. Leftovers
+    /// are killed and reported, and the session's directory is then kept.
+    pub(crate) fn end(mut self) -> Result<(), Error> {
+        self.finish()
+    }
+
+    fn finish(&mut self) -> Result<(), Error> {
+        if self.ended {
+            return Ok(());
+        }
+        self.ended = true;
+        let group_left = self.stop_group();
+        interrupt::forget(self.group);
+        self.bus.stop();
+        let mut leftovers = leftovers::find(&self.root.join("run"));
+        for leftover in &leftovers {
+            // Already gone, or not ours to signal: either way not running on.
+            let _ = kill_process(leftover.pid, Signal::KILL);
+        }
+        // `SIGKILL` takes effect asynchronously; return once they are gone.
+        let deadline = Instant::now() + SHUTDOWN;
+        while leftovers
+            .iter()
+            .any(|leftover| test_kill_process(leftover.pid).is_ok())
+            && Instant::now() < deadline
+        {
+            thread::sleep(POLL);
+        }
+        if group_left {
+            leftovers.insert(
+                0,
+                Leftover {
+                    pid: self.group,
+                    command: "(the session's process group)".into(),
+                },
+            );
+        }
+        let keep = self.keep || !leftovers.is_empty();
+        if let Some(dir) = self.dir.take() {
+            if keep {
+                let kept = dir.keep();
+                eprintln!("session: kept {}", kept.display());
+            } else {
+                dir.close().map_err(|source| Error::Io {
+                    what: format!("remove {}", self.root.display()),
+                    source,
+                })?;
+            }
+        }
+        if leftovers.is_empty() {
+            Ok(())
+        } else {
+            Err(Error::SessionLeftovers {
+                leftovers,
+                root: self.root.clone(),
+            })
+        }
     }
 
     /// Waits for the compositor's Wayland socket and returns its name.
     fn wait_for_socket(&mut self) -> Result<String, Error> {
-        let runtime = self.dir.path().join("run");
+        let runtime = self.root.join("run");
         let deadline = Instant::now() + STARTUP;
         loop {
-            if let Some(socket) = wayland_socket(&runtime) {
+            interrupt::check()?;
+            if let Some(socket) = compositor::wayland_socket(&runtime) {
                 return Ok(socket);
             }
             if let Ok(Some(status)) = self.child.try_wait() {
@@ -211,23 +297,24 @@ impl Session {
         }
     }
 
-    /// Ends every process of the session: `SIGTERM`, then `SIGKILL` for what
-    /// is left after [`SHUTDOWN`].
-    fn stop(&mut self) {
-        let group = Pid::from_child(&self.child);
+    /// Ends every process of the session's group: `SIGTERM`, then `SIGKILL`
+    /// for what is left after [`SHUTDOWN`]. Returns whether any of the group
+    /// outlived even that.
+    fn stop_group(&mut self) -> bool {
         // The group may already be gone; either way it is asked to end.
-        let _ = kill_process_group(group, Signal::TERM);
+        let _ = kill_process_group(self.group, Signal::TERM);
         let deadline = Instant::now() + SHUTDOWN;
         loop {
             // Reap the leader, so that its zombie does not keep the group.
             drop(self.child.try_wait());
-            if test_kill_process_group(group).is_err() {
-                return;
+            if test_kill_process_group(self.group).is_err() {
+                return false;
             }
             if Instant::now() >= deadline {
-                let _ = kill_process_group(group, Signal::KILL);
+                let _ = kill_process_group(self.group, Signal::KILL);
                 drop(self.child.wait());
-                return;
+                thread::sleep(POLL);
+                return test_kill_process_group(self.group).is_ok();
             }
             thread::sleep(POLL);
         }
@@ -236,140 +323,10 @@ impl Session {
 
 impl Drop for Session {
     fn drop(&mut self) {
-        self.stop();
-    }
-}
-
-/// The address of the private session bus of the KWin session in `dir`:
-/// the conventional `bus` socket in its runtime directory.
-fn bus_address(dir: &Path) -> String {
-    format!("unix:path={}", dir.join("run/bus").to_string_lossy())
-}
-
-/// The command that starts `compositor` with its session directory `dir`.
-fn compositor_command(compositor: Compositor, dir: &Path) -> Result<Command, Error> {
-    match compositor {
-        Compositor::Kwin => {
-            let config = dir.join("dbus.conf");
-            // A session bus that serves only what connects to it: no service
-            // activation, so nothing (such as the desktop portals, whose
-            // document portal mounts a FUSE file system in the runtime
-            // directory) is started on demand. At a known path, so the
-            // session's clients can be given it too.
-            let contents = deskrinch_test_dbus::config(&bus_address(dir));
-            fs::write(&config, contents).map_err(|source| Error::Io {
-                what: format!("write {}", config.display()),
-                source,
-            })?;
-            let mut command = Command::new("dbus-run-session");
-            command
-                .arg(format!("--config-file={}", config.display()))
-                .args(["--", "kwin_wayland", "--virtual", "--socket", KWIN_SOCKET])
-                .args([
-                    "--no-lockscreen",
-                    "--no-global-shortcuts",
-                    "--no-kactivities",
-                ])
-                .arg(format!("--output-count={OUTPUTS}"))
-                .arg(format!("--width={}", OUTPUT_SIZE.0))
-                .arg(format!("--height={}", OUTPUT_SIZE.1));
-            Ok(command)
+        // A session dropped on an error path still ends; its own failure to
+        // end cleanly can only be reported.
+        if let Err(error) = self.finish() {
+            eprintln!("session: {error}");
         }
-        Compositor::Sway => {
-            // An empty configuration: no bar, background or key bindings.
-            let config = dir.join("sway.conf");
-            fs::write(&config, "").map_err(|source| Error::Io {
-                what: format!("write {}", config.display()),
-                source,
-            })?;
-            let mut command = Command::new("sway");
-            command.arg("--config").arg(&config);
-            wlroots_headless(&mut command);
-            Ok(command)
-        }
-        Compositor::Labwc => {
-            // An empty configuration directory: labwc's defaults, and no
-            // autostart.
-            let config = dir.join("labwc");
-            session::create_private_dir(&config).map_err(|source| Error::Io {
-                what: format!("create {}", config.display()),
-                source,
-            })?;
-            let mut command = Command::new("labwc");
-            command
-                .arg("--config-dir")
-                .arg(&config)
-                // It would only update it on a DRM backend, and without a
-                // session bus it cannot; said here so that it never does.
-                .env("LABWC_UPDATE_ACTIVATION_ENV", "false");
-            wlroots_headless(&mut command);
-            Ok(command)
-        }
-    }
-}
-
-/// Runs a wlroots compositor on the headless backend, with software
-/// rendering, no input devices and [`OUTPUTS`] outputs.
-fn wlroots_headless(command: &mut Command) {
-    command
-        .env("WLR_BACKENDS", "headless")
-        .env("WLR_RENDERER", "pixman")
-        .env("WLR_HEADLESS_OUTPUTS", OUTPUTS.to_string())
-        .env("WLR_LIBINPUT_NO_DEVICES", "1");
-}
-
-/// The name of the Wayland socket in `runtime`, once there is one.
-fn wayland_socket(runtime: &Path) -> Option<String> {
-    fs::read_dir(runtime)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_socket()))
-        .filter_map(|entry| entry.file_name().into_string().ok())
-        .find(|name| is_wayland_socket_name(name))
-}
-
-/// Whether `name` is a compositor's `wayland-*` socket (not its lock file,
-/// and not another program's socket).
-fn is_wayland_socket_name(name: &str) -> bool {
-    name.strip_prefix("wayland-")
-        .is_some_and(|rest| !rest.is_empty() && !rest.contains('.'))
-}
-
-/// Whether `name` is sway's IPC socket, `sway-ipc.<uid>.<pid>.sock`.
-fn is_sway_ipc_name(name: &str) -> bool {
-    name.strip_prefix("sway-ipc.")
-        .and_then(|rest| rest.strip_suffix(".sock"))
-        .is_some_and(|middle| !middle.is_empty())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn recognises_sways_ipc_socket() {
-        assert!(is_sway_ipc_name("sway-ipc.1000.4242.sock"));
-        assert!(!is_sway_ipc_name("wayland-1"));
-        assert!(!is_sway_ipc_name("sway-ipc.1000.4242.sock.lock"));
-    }
-
-    #[test]
-    fn recognises_wayland_sockets() {
-        assert!(is_wayland_socket_name("wayland-0"));
-        assert!(is_wayland_socket_name("wayland-1"));
-        assert!(!is_wayland_socket_name("wayland-0.lock"));
-        assert!(!is_wayland_socket_name("wayland-"));
-        assert!(!is_wayland_socket_name("sway-ipc.1000.1.sock"));
-    }
-
-    #[test]
-    fn finds_only_a_socket() {
-        let dir = tempfile::tempdir_in("/tmp").unwrap();
-        fs::write(dir.path().join("wayland-0"), "").unwrap();
-        assert_eq!(wayland_socket(dir.path()), None, "a plain file is not one");
-        fs::remove_file(dir.path().join("wayland-0")).unwrap();
-        let _listener =
-            std::os::unix::net::UnixListener::bind(dir.path().join("wayland-0")).unwrap();
-        assert_eq!(wayland_socket(dir.path()).as_deref(), Some("wayland-0"));
     }
 }
