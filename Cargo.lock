@@ -768,7 +768,7 @@ dependencies = [
  "libc",
  "notify",
  "tempfile",
- "thiserror",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
