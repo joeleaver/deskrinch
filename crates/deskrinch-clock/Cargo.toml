@@ -1,0 +1,30 @@
+[package]
+name = "deskrinch-clock"
+description = "Wall-clock time for the desktop: a ticker that wakes at each displayed minute or second, through suspend and clock changes, and locale-aware formatting."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# CLDR's patterns for every locale, compiled in (the crate's default
+# `compiled_data`), so formatting needs no data files at run time.
+icu_datetime.workspace = true
+icu_locale_core.workspace = true
+# Not used directly: `sync` makes ICU4X's data shareable between threads,
+# so a `Formatter` is `Send` and can format on the clock's thread.
+icu_provider = { workspace = true, features = ["sync"] }
+# Time zones come from the system's own TZif files, which this crate reads
+# (see `zone`); none of jiff's databases or its ambient `TZ` lookup is used.
+jiff = { workspace = true, features = ["std"] }
+jiff-icu = { workspace = true, features = ["std", "time"] }
+rustix = { workspace = true, features = ["event", "fs", "time"] }
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
