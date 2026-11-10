@@ -35,11 +35,14 @@ fn replacement_keeps_the_id_and_emits_no_close() {
     assert_eq!(live, [first, other], "the replacement kept its place");
     signals.none_within(QUIET);
 
-    // An id that is no longer live makes a new notification.
+    // An id that is no longer live makes a new notification with that id,
+    // as the specification's return value requires.
     client.close(first).unwrap();
     assert_eq!(signals.next(), Signal::Closed(first, 3));
-    let fresh = client.simple(first, "Downloading", "again", 0);
-    assert_ne!(fresh, first);
+    let again = client.simple(first, "Downloading", "again", 0);
+    assert_eq!(again, first);
+    let fixed = client.simple(4242, "Fixed id", "", 0);
+    assert_eq!(fixed, 4242);
 }
 
 #[test]

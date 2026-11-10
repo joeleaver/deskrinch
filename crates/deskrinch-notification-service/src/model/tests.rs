@@ -4,6 +4,7 @@ use super::*;
 use crate::capabilities::Capabilities;
 use crate::limits::Limits;
 use crate::notification::Urgency;
+use crate::policy::Ownership;
 use crate::request::Hints;
 
 const SECOND: Duration = Duration::from_secs(1);
@@ -13,10 +14,15 @@ fn model() -> Model {
 }
 
 fn model_with(limits: Limits) -> Model {
+    model_owned(limits, Ownership::AnySender)
+}
+
+fn model_owned(limits: Limits, ownership: Ownership) -> Model {
     Model::new(Policy {
         limits,
         capabilities: Capabilities::default(),
         default_timeout: Some(5 * SECOND),
+        ownership,
     })
 }
 
@@ -68,20 +74,67 @@ fn replacement_keeps_the_id_and_the_place_and_restarts_the_timer() {
 }
 
 #[test]
-fn replacing_an_id_that_is_not_live_shows_a_new_notification() {
+fn replacing_an_id_that_is_not_live_shows_a_new_notification_with_that_id() {
     let mut m = model();
     let now = Instant::now();
-    let (id, change) = m
+    let (taken, change) = m
         .notify(
             &Request {
-                replaces_id: 42,
-                ..request("a")
+                replaces_id: 2,
+                ..request("fixed id")
             },
             now,
         )
         .unwrap();
-    assert_eq!(id.get(), 1);
-    assert!(matches!(change, Change::Shown(_)));
+    assert_eq!(
+        taken.get(),
+        2,
+        "the specification: the same value as replaces_id"
+    );
+    assert!(matches!(change, Change::Shown(ref n) if n.id == taken));
+    // The counter hands out 1, then skips 2 while it is live.
+    let (first, _) = m.notify(&request("a"), now).unwrap();
+    let (second, _) = m.notify(&request("b"), now).unwrap();
+    assert_eq!((first.get(), second.get()), (1, 3));
+}
+
+#[test]
+fn only_the_original_sender_may_replace_or_close_when_so_configured() {
+    let from = |sender: &str, replaces_id: u32| Request {
+        sender: Some(sender.into()),
+        replaces_id,
+        ..request("x")
+    };
+    let now = Instant::now();
+
+    let mut strict = model_owned(Limits::default(), Ownership::OriginalSender);
+    let (a, _) = strict.notify(&from(":1.1", 0), now).unwrap();
+    assert_eq!(
+        strict.notify(&from(":1.2", a.get()), now),
+        Err(Refused::NotOwner)
+    );
+    assert_eq!(
+        strict.close_from_sender(a, Some(":1.2")),
+        Err(CloseRefused::NotOwner)
+    );
+    assert!(matches!(
+        strict.notify(&from(":1.1", a.get()), now),
+        Ok((_, Change::Replaced(_)))
+    ));
+    assert!(strict.close_from_sender(a, Some(":1.1")).is_ok());
+    assert_eq!(
+        strict.close_from_sender(a, Some(":1.1")),
+        Err(CloseRefused::NotFound)
+    );
+
+    let mut open = model();
+    let (b, _) = open.notify(&from(":1.1", 0), now).unwrap();
+    let (_, change) = open.notify(&from(":1.2", b.get()), now).unwrap();
+    assert!(
+        matches!(change, Change::Replaced(ref n) if n.sender.as_deref() == Some(":1.2")),
+        "the replacing sender becomes the current sender"
+    );
+    assert!(open.close_from_sender(b, Some(":1.3")).is_ok());
 }
 
 #[test]

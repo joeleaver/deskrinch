@@ -19,6 +19,7 @@ use crate::dbus::interface::{NAME, Notifications, PATH};
 use crate::dbus::name::{self, NameRequest, NameStatus, Watcher};
 use crate::limits::Limits;
 use crate::notification::{CloseReason, Notification, NotificationId};
+use crate::policy::Ownership;
 use crate::request::Policy;
 use shared::Shared;
 
@@ -68,6 +69,8 @@ pub struct Config {
     /// The timeout of a notification that leaves it to the server; `None`
     /// keeps such notifications until dismissed.
     pub default_timeout: Option<Duration>,
+    /// Which senders may replace or close a notification.
+    pub ownership: Ownership,
 }
 
 impl Default for Config {
@@ -79,6 +82,7 @@ impl Default for Config {
             capabilities: Capabilities::default(),
             limits: Limits::default(),
             default_timeout: Some(Duration::from_secs(5)),
+            ownership: Ownership::default(),
         }
     }
 }
@@ -185,6 +189,7 @@ impl Service {
             limits: config.limits,
             capabilities: config.capabilities,
             default_timeout: config.default_timeout,
+            ownership: config.ownership,
         };
         let shared = Shared::new(policy, clock, config.server);
         let object = Notifications {

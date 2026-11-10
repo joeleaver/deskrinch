@@ -8,6 +8,7 @@ fn policy() -> Policy {
         limits: Limits::default(),
         capabilities: Capabilities::default(),
         default_timeout: Some(Duration::from_secs(5)),
+        ownership: Ownership::AnySender,
     }
 }
 

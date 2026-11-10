@@ -12,7 +12,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError, Weak};
 use std::task::Wake;
 
 use crate::clock::Clock;
-use crate::model::{ActionRefused, Change, Model, Refused};
+use crate::model::{ActionRefused, Change, CloseRefused, Model, Refused};
 use crate::notification::{CloseReason, Notification, NotificationId};
 use crate::request::{Policy, Request};
 use crate::service::{Event, OperationError, ServerInfo};
@@ -52,6 +52,20 @@ pub(crate) enum NotifyError {
 }
 
 impl From<Stopped> for NotifyError {
+    fn from(Stopped: Stopped) -> Self {
+        Self::Stopped
+    }
+}
+
+/// Why a `CloseNotification` call closed nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloseError {
+    NotFound,
+    NotOwner,
+    Stopped,
+}
+
+impl From<Stopped> for CloseError {
     fn from(Stopped: Stopped) -> Self {
         Self::Stopped
     }
@@ -175,6 +189,26 @@ impl Shared {
                 state.model.resume(id, now)
             };
             done.ok_or(OperationError::NotFound(id))
+        })
+    }
+
+    /// A `CloseNotification` call from `sender`.
+    pub(crate) fn close_from_sender(
+        &self,
+        id: NotificationId,
+        sender: Option<&str>,
+    ) -> Result<(), CloseError> {
+        self.change(|state| {
+            let change =
+                state
+                    .model
+                    .close_from_sender(id, sender)
+                    .map_err(|refused| match refused {
+                        CloseRefused::NotFound => CloseError::NotFound,
+                        CloseRefused::NotOwner => CloseError::NotOwner,
+                    })?;
+            state.record(change);
+            Ok(())
         })
     }
 

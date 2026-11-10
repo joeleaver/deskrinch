@@ -9,6 +9,7 @@ use crate::image::{self, Image, ImageSource, RawImage};
 use crate::limits::Limits;
 use crate::markup;
 use crate::notification::{Action, Expiry, Notification, NotificationId, Sound, Urgency};
+use crate::policy::Ownership;
 use crate::text::{self, Lines};
 
 /// The arguments of a `Notify` call, unvalidated, borrowed from the message.
@@ -60,6 +61,8 @@ pub(crate) struct Policy {
     /// The timeout of a notification that leaves it to the server (`-1`);
     /// `None` keeps those until dismissed.
     pub(crate) default_timeout: Option<Duration>,
+    /// Which senders may replace or close a notification.
+    pub(crate) ownership: Ownership,
 }
 
 impl Request<'_> {

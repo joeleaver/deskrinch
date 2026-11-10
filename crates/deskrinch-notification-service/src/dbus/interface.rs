@@ -5,10 +5,10 @@ use std::sync::Arc;
 use zbus::message::Header;
 use zbus::object_server::SignalEmitter;
 
-use crate::notification::{CloseReason, NotificationId};
+use crate::model::Refused;
+use crate::notification::NotificationId;
 use crate::request::{Hints, Request};
-use crate::service::OperationError;
-use crate::service::shared::{NotifyError, Shared};
+use crate::service::shared::{CloseError, NotifyError, Shared};
 
 /// The well-known name the service owns.
 pub(crate) const NAME: &str = "org.freedesktop.Notifications";
@@ -30,6 +30,9 @@ pub(crate) enum Error {
     NotFound,
     /// The sender, or the server, holds as many notifications as it may.
     LimitsExceeded(String),
+    /// With [`Ownership::OriginalSender`](crate::Ownership::OriginalSender),
+    /// another sender's notification was named.
+    AccessDenied(String),
     /// The service is shutting down.
     Stopped,
 }
@@ -75,21 +78,31 @@ impl Notifications {
         };
         match self.shared.notify(&request) {
             Ok(id) => Ok(id.get()),
-            Err(NotifyError::Refused(refused)) => Err(Error::LimitsExceeded(refused.to_string())),
+            Err(NotifyError::Refused(refused @ Refused::NotOwner)) => {
+                Err(Error::AccessDenied(refused.to_string()))
+            }
+            Err(NotifyError::Refused(
+                refused @ (Refused::TooMany(_) | Refused::TooManyFromSender(_)),
+            )) => Err(Error::LimitsExceeded(refused.to_string())),
             Err(NotifyError::Stopped) => Err(Error::Stopped),
         }
     }
 
     /// Closes a live notification; `NotificationClosed` reports reason 3.
-    fn close_notification(&self, id: u32) -> Result<(), Error> {
+    #[expect(
+        clippy::needless_pass_by_value,
+        reason = "zbus hands the header to an interface method by value"
+    )]
+    fn close_notification(&self, #[zbus(header)] header: Header<'_>, id: u32) -> Result<(), Error> {
         let id = NotificationId::new(id).ok_or(Error::NotFound)?;
-        match self.shared.close(id, CloseReason::Closed) {
+        let sender = header.sender().map(zbus::names::UniqueName::as_str);
+        match self.shared.close_from_sender(id, sender) {
             Ok(()) => Ok(()),
-            Err(OperationError::Stopped) => Err(Error::Stopped),
-            // `close` refuses nothing else; an unknown action cannot arise.
-            Err(OperationError::NotFound(_) | OperationError::UnknownAction { .. }) => {
-                Err(Error::NotFound)
-            }
+            Err(CloseError::NotFound) => Err(Error::NotFound),
+            Err(CloseError::NotOwner) => Err(Error::AccessDenied(
+                "the notification belongs to another sender".into(),
+            )),
+            Err(CloseError::Stopped) => Err(Error::Stopped),
         }
     }
 
