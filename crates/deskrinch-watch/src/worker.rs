@@ -38,6 +38,7 @@ impl Backend for notify::RecommendedWatcher {
 
 pub(crate) enum Message {
     Changed(notify::Result<notify::Event>),
+    Refresh,
     Stop,
 }
 
@@ -163,6 +164,16 @@ impl Watcher {
     ) -> Result<Self, WatchError> {
         Armed::new(targets, timing)?.start(name, subscriber)
     }
+
+    /// Reports [`Event::Changed`] now, as if a target had changed, without
+    /// waiting for a pause: for what a caller depends on that no file it
+    /// watches shows (a program installed on `PATH`). Returns at once; the
+    /// event follows on the watcher's thread. During a burst of changes it
+    /// joins the burst's one report.
+    pub fn refresh(&self) {
+        // Fails only once the worker has stopped.
+        self.messages.send(Message::Refresh).ok();
+    }
 }
 
 impl Drop for Watcher {
@@ -182,22 +193,31 @@ impl Drop for Watcher {
 
 impl Core {
     fn run(mut self, inbox: &Receiver<Message>, mut subscriber: impl FnMut(Event)) {
-        while let Ok(Message::Changed(change)) = inbox.recv() {
-            let mut relevant = self.consider(change, &mut subscriber);
-            let deadline = Instant::now() + self.timing.max_delay;
-            loop {
-                let wait = self
-                    .timing
-                    .quiet
-                    .min(deadline.saturating_duration_since(Instant::now()));
-                match inbox.recv_timeout(wait) {
-                    Ok(Message::Changed(change)) => {
-                        relevant |= self.consider(change, &mut subscriber);
+        loop {
+            let relevant = match inbox.recv() {
+                // Asked for now: no waiting for a pause.
+                Ok(Message::Refresh) => true,
+                Ok(Message::Changed(change)) => {
+                    let mut relevant = self.consider(change, &mut subscriber);
+                    let deadline = Instant::now() + self.timing.max_delay;
+                    loop {
+                        let wait = self
+                            .timing
+                            .quiet
+                            .min(deadline.saturating_duration_since(Instant::now()));
+                        match inbox.recv_timeout(wait) {
+                            Ok(Message::Changed(change)) => {
+                                relevant |= self.consider(change, &mut subscriber);
+                            }
+                            Ok(Message::Refresh) => relevant = true,
+                            Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
+                            Err(RecvTimeoutError::Timeout) => break,
+                        }
                     }
-                    Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                    Err(RecvTimeoutError::Timeout) => break,
+                    relevant
                 }
-            }
+                Ok(Message::Stop) | Err(_) => return,
+            };
             if relevant {
                 for error in self.retarget() {
                     subscriber(Event::Error(error));
