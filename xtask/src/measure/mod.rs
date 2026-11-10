@@ -34,7 +34,7 @@ mod smaps;
 mod system;
 
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
@@ -117,6 +117,9 @@ pub(crate) struct Request {
     pub(crate) idle: Duration,
     pub(crate) first_frame_timeout: Duration,
     pub(crate) instructions: bool,
+    /// Where to keep each run's Callgrind profile (`run-N/`), for
+    /// `callgrind_annotate`; inside the session, and gone with it, if unset.
+    pub(crate) profiles: Option<PathBuf>,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
 }
@@ -158,7 +161,10 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         eprintln!("measure: run {index} of {}", request.runs);
         let run = in_session(request, |session| {
             if request.instructions {
-                let dir = session.root().join("callgrind");
+                let dir = request.profiles.as_ref().map_or_else(
+                    || session.root().join("callgrind"),
+                    |dir| dir.join(format!("run-{index}")),
+                );
                 std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
                     what: format!("create {}", dir.display()),
                     source,

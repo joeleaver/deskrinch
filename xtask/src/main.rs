@@ -15,7 +15,7 @@ mod systemd_scope_tests;
 
 use std::error::Error as _;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -111,6 +111,10 @@ enum Task {
         /// and memory.
         #[arg(long)]
         instructions: bool,
+        /// With `--instructions`: keep each run's Callgrind profile in
+        /// `DIR/run-N/`, for `callgrind_annotate`.
+        #[arg(long, value_name = "DIR", requires = "instructions")]
+        profiles: Option<PathBuf>,
         /// The program to measure.
         program: OsString,
         /// Its arguments.
@@ -140,6 +144,7 @@ impl Task {
                 idle,
                 first_frame_timeout,
                 instructions,
+                profiles,
                 program,
                 args,
             } => measure::run(&measure::Request {
@@ -153,6 +158,7 @@ impl Task {
                     first_frame_timeout.unwrap_or(if instructions { 1200 } else { 120 }),
                 ),
                 instructions,
+                profiles,
                 program,
                 args,
             }),

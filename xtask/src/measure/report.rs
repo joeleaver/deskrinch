@@ -135,7 +135,16 @@ pub(crate) fn render(title: &str, runs: &[Run]) -> String {
     }
     let mut out = String::new();
     let _ = writeln!(out, "{title}: {} run(s)", runs.len());
+    let width = names.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
     for wall in [false, true] {
+        let section: Vec<(&str, Unit)> = names
+            .iter()
+            .copied()
+            .filter(|(_, unit)| (*unit == Unit::WallNs) == wall)
+            .collect();
+        if section.is_empty() {
+            continue;
+        }
         if wall {
             let _ = writeln!(
                 out,
@@ -143,21 +152,25 @@ pub(crate) fn render(title: &str, runs: &[Run]) -> String {
                  the load average noted under each run."
             );
         }
-        let width = names.iter().map(|(name, _)| name.len()).max().unwrap_or(0);
         let _ = writeln!(
             out,
             "\n  {:width$}  {:>14}  {:>31}  every run",
             "metric", "median", "min .. max"
         );
-        for &(name, unit) in names.iter().filter(|(_, u)| (*u == Unit::WallNs) == wall) {
+        for (name, unit) in section {
             let all = &values[name];
             let Some((median, min, max)) = spread(all) else {
                 continue;
             };
             let each: Vec<String> = all.iter().map(|&v| format(v, unit)).collect();
+            let missing = if all.len() < runs.len() {
+                format!(" (in {} of {} runs)", all.len(), runs.len())
+            } else {
+                String::new()
+            };
             let _ = writeln!(
                 out,
-                "  {name:width$}  {:>14}  {:>14} .. {:>14}  {}",
+                "  {name:width$}  {:>14}  {:>14} .. {:>14}  {}{missing}",
                 format(median, unit),
                 format(min, unit),
                 format(max, unit),
@@ -234,5 +247,18 @@ mod tests {
             !report.contains("Run 2:"),
             "a run without notes has no section"
         );
+    }
+
+    #[test]
+    fn a_metric_some_runs_lack_says_so_and_an_empty_section_is_left_out() {
+        let mut first = Run::default();
+        first.push("instructions", Unit::Count, 10);
+        first.push("  thread worker", Unit::CpuNs, 1_000_000);
+        let mut second = Run::default();
+        second.push("instructions", Unit::Count, 12);
+        let report = render("x", &[first, second]);
+        assert!(report.contains("1.0 ms (in 1 of 2 runs)"), "{report}");
+        assert!(report.contains("10, 12\n"), "{report}");
+        assert!(!report.contains("Wall-clock"), "{report}");
     }
 }

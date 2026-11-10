@@ -117,7 +117,12 @@ fn startup(
     );
     run.push("  of it system", Unit::CpuNs, first.system_ticks * tick_ns);
     for (group, ns, count) in procfs::runtime_by_group(seen.values()) {
-        run.push(format!("  thread {group} (x{count})"), Unit::CpuNs, ns);
+        run.push(format!("  thread {group}"), Unit::CpuNs, ns);
+        run.push(
+            format!("    threads named {group}"),
+            Unit::Count,
+            u64::from(count),
+        );
     }
     run.push(
         "threads started by the first frame",

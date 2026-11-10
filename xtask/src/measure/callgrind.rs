@@ -132,6 +132,7 @@ fn dump(control: &dyn Fn() -> Command, pid: &str, label: &str) -> Result<(), Err
     let status = control()
         .args(["--dump", label, pid])
         .stdout(Stdio::null())
+        .stderr(Stdio::null())
         .status()
         .map_err(|source| Error::Spawn {
             program: "callgrind_control".to_owned(),
