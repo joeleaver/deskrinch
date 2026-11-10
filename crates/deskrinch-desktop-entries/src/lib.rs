@@ -16,8 +16,8 @@
 //!   specification's precedence and `Hidden` rules applied and each entry's
 //!   [`Visibility`] (`NoDisplay`, `OnlyShowIn`/`NotShowIn`, `TryExec`, and
 //!   whether the program `Exec` runs is installed).
-//! - [`search`] ranks entries against a query; the ranking is specified in
-//!   [`search`'s module](crate::search).
+//! - [`search()`] ranks entries against a query; the ranking is specified
+//!   in [`search`'s module](mod@crate::search).
 //! - [`launch`] runs an entry: `Exec` expanded by [`exec::expand`], in a
 //!   terminal when `Terminal=true`, or by D-Bus activation when
 //!   `DBusActivatable=true`. Policy such as the terminal emulator comes in a
