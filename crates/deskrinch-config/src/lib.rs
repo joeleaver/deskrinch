@@ -29,7 +29,9 @@
 //! layers below it. When a file that was good breaks while the component
 //! runs, its last good version keeps being used instead. A key the section's
 //! type does not have is a warning, with its location: that is how a typo
-//! gets noticed.
+//! gets noticed. Given the names of every table the shell knows
+//! ([`Section::with_known_tables`]), a top-level table that is none of them
+//! is a warning too.
 //!
 //! # Where values came from
 //!
@@ -39,10 +41,13 @@
 //!
 //! # Live
 //!
-//! A [`Watcher`] delivers the section's new settings when any layer's file
-//! changes, is created or removed (including by an editor that saves by
-//! renaming a new file over the old one). A change that leaves the
-//! section's settings as they were delivers nothing.
+//! One [`Watcher`] per process watches every layer's file, with one
+//! inotify instance however many sections it serves. Each
+//! [subscribed](Watcher::subscribe) section hears its new settings when a
+//! layer's file changes, is created or removed (including by an editor that
+//! saves by renaming a new file over the old one, and through symbolic
+//! links). A change that leaves a section's settings as they were delivers
+//! nothing to it.
 //!
 //! # Structure
 //!
@@ -54,7 +59,7 @@
 //! # Example
 //!
 //! ```
-//! use deskrinch_config::{Event, Sources, Watcher, load};
+//! use deskrinch_config::{Event, Section, Sources, Watcher, load};
 //! use deskrinch_xdg::BaseDirs;
 //! use serde::{Deserialize, Serialize};
 //!
@@ -89,7 +94,8 @@
 //! let sources = Sources::new(&dirs);
 //!
 //! // Once:
-//! let panel = load::<Panel>(&sources, "panel")?;
+//! let section = Section::<Panel>::new("panel")?.with_known_tables(["general", "launcher"]);
+//! let panel = load(&sources, section.clone());
 //! for diagnostic in &panel.diagnostics {
 //!     eprintln!("{diagnostic}");
 //! }
@@ -97,14 +103,15 @@
 //! assert_eq!(panel.settings, Panel::default());
 //!
 //! // Or live:
-//! let (watcher, panel) = Watcher::start(sources, "panel", |event: Event<Panel>| match event {
+//! let watcher = Watcher::start(sources, |error| eprintln!("{error}"))?;
+//! let (subscription, panel) = watcher.subscribe(section, |event| match event {
 //!     Event::Changed(panel) => println!("now {panel:?}"),
 //!     Event::Diagnostics(diagnostics) => {
 //!         diagnostics.iter().for_each(|d| eprintln!("{d}"));
 //!     }
-//!     Event::Error(error) => eprintln!("{error}"),
-//! })?;
-//! # drop((watcher, panel));
+//! });
+//! // More sections, same watcher: `watcher.subscribe(general, ...)`.
+//! # drop((subscription, panel, watcher));
 //! # Ok(())
 //! # }
 //! ```
@@ -118,13 +125,14 @@ mod sources;
 mod tree;
 mod watch;
 
+pub use deskrinch_watch::WatchError;
 pub use diagnostic::{Diagnostic, Location, Problem, Severity};
 pub use effective::{Effective, EffectiveValue, ValueSource};
-pub use error::{BoxedError, DefaultsError, WatchError};
+pub use error::DefaultsError;
 pub use section::{Resolved, Section, Settings};
 pub use snapshot::Snapshot;
 pub use sources::{FILE, Sources, load};
-pub use watch::{Event, Watcher};
+pub use watch::{Event, Subscription, Watcher};
 
 #[cfg(test)]
 mod tests;

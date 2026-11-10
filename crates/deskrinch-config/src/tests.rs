@@ -352,3 +352,35 @@ fn rejects_defaults_that_are_not_a_table() {
         Err(DefaultsError::NotATable { .. })
     ));
 }
+
+#[test]
+fn warns_of_unknown_tables_when_the_known_ones_are_given() {
+    let text = "[general]\nx = 1\n[pannel]\nheight = 40\n[panel]\nheight = 50\n[launcher]\n";
+    let mut known = section().with_known_tables(["general", "launcher"]);
+    let resolved = known.clone().resolve(&snapshot(None, None, Some(text)));
+    assert_eq!(resolved.settings.height, 50);
+    let diagnostic = only(&resolved.diagnostics);
+    assert_eq!(diagnostic.location, Some(at(3, 2)));
+    assert_eq!(diagnostic.severity(), Severity::Warning);
+    assert_eq!(
+        diagnostic.to_string(),
+        format!("{USER}:3:2: warning: unknown table `pannel`")
+    );
+
+    // In each file, in the file's order, also beside a broken section.
+    let resolved = known.resolve(&snapshot(
+        Some("zeta = 1\nalpha = 2\n"),
+        None,
+        Some("[panel]\nheight = 'tall'\n[pannel]\n"),
+    ));
+    let found: Vec<_> = resolved
+        .diagnostics
+        .iter()
+        .map(|d| (d.file.to_str().unwrap(), d.location.unwrap().line))
+        .collect();
+    assert_eq!(found, [(LOW, 1), (LOW, 2), (USER, 3), (USER, 2)]);
+
+    // Without the list, nothing is known to be wrong.
+    let unknowing = resolve(None, None, Some(text));
+    assert_eq!(unknowing.diagnostics, Vec::<Diagnostic>::new());
+}

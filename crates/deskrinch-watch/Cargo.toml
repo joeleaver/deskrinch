@@ -1,0 +1,20 @@
+[package]
+name = "deskrinch-watch"
+description = "Debounced watching of files and directory trees that may not exist yet, on a thread of its own."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+libc.workspace = true
+notify.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
