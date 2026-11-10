@@ -42,7 +42,11 @@ pub(crate) struct Notifications {
     pub(crate) shared: Arc<Shared>,
 }
 
-#[zbus::interface(name = "org.freedesktop.Notifications")]
+// `spawn = false`: calls are handled, and replied to, one at a time in the
+// order they arrive, which the worker relies on to keep signals behind the
+// replies (`replies_sent`). The methods only take a short lock and never
+// wait on the bus, so this cannot deadlock.
+#[zbus::interface(name = "org.freedesktop.Notifications", spawn = false)]
 impl Notifications {
     /// Shows a notification, or replaces the live one `replaces_id` names.
     #[expect(

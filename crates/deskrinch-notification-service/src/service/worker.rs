@@ -21,6 +21,9 @@ pub(crate) fn run(shared: &Arc<Shared>, connection: &Connection, subscriber: &Su
         let Some(batch) = next_batch(shared) else {
             return;
         };
+        if batch.iter().any(|o| matches!(o, Output::Signal { .. })) {
+            zbus::block_on(replies_sent(connection));
+        }
         for output in batch {
             match output {
                 Output::Event(event) => subscriber(event),
@@ -42,6 +45,32 @@ pub(crate) fn run(shared: &Arc<Shared>, connection: &Connection, subscriber: &Su
             }
         }
     }
+}
+
+/// Returns once the replies to every method call already received have been
+/// sent, so that no signal about a notification overtakes the `Notify` reply
+/// that tells its sender the id (a sender that does not know the id yet
+/// would ignore `NotificationClosed` and wait forever).
+///
+/// The object is served without a task per call, so the object server
+/// handles calls, reply included, one at a time in arrival order. A `Ping`
+/// to this connection itself arrives after every call received so far, and
+/// is answered only once those have been replied to.
+async fn replies_sent(connection: &Connection) {
+    let Some(own) = connection.unique_name() else {
+        return;
+    };
+    // It fails only when the connection is gone, and then nothing is sent
+    // anyway.
+    let _pinged = connection
+        .call_method(
+            Some(own.as_str()),
+            PATH,
+            Some("org.freedesktop.DBus.Peer"),
+            "Ping",
+            &(),
+        )
+        .await;
 }
 
 /// Waits for outputs, expiring notifications as their time comes. `None`
