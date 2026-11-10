@@ -61,7 +61,10 @@ it. Only the project manager writes to Pimble.
   process group, ended as a whole afterwards. Never plain `dbus-run-session`:
   its default configuration activates the desktop portals and the secret
   service, which then run against the real session.
-  `xtask/src/compositor_tests/session.rs` is the reference. Nothing is
+  `cargo xtask session <kwin|sway|labwc> <program>` runs any command in such
+  a session and is the way to do it; its code is `xtask/src/session/` on
+  `crates/deskrinch-test-dbus`. In a rinch clone, rinch's own
+  `scripts/isolated-session.sh` does the same. Nothing is
   installed, written or launched in the user's real session or home. This
   holds for work in rinch clones too.
 - **Temporary files are your own.** Agents share scratch directories. Never
