@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use crate::deviation::Deviation;
 
-/// A boxed error from a lower layer (D-Bus, the file-watching backend),
-/// kept as the source of one of this crate's errors.
+/// A boxed error from a lower layer (D-Bus), kept as the source of one of
+/// this crate's errors.
 pub type BoxedError = Box<dyn StdError + Send + Sync>;
 
 /// Why a desktop entry file cannot be used at all. Such a file is skipped
@@ -157,15 +157,4 @@ pub enum LaunchError {
         #[source]
         source: BoxedError,
     },
-}
-
-/// Why watching the data directories failed.
-#[derive(Debug, thiserror::Error)]
-pub enum WatchError {
-    /// The file-watching backend failed.
-    #[error("the file-watching backend failed")]
-    Backend(#[source] BoxedError),
-    /// The worker thread could not be started.
-    #[error("cannot start the watcher thread")]
-    Thread(#[source] io::Error),
 }
