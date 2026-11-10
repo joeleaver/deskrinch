@@ -10,10 +10,11 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
-thiserror.workspace = true
-
-[dev-dependencies]
+deskrinch-window-management.workspace = true
+rustix = { workspace = true, features = ["process"] }
+serde_json.workspace = true
 tempfile.workspace = true
+thiserror.workspace = true
 
 [lints]
 workspace = true

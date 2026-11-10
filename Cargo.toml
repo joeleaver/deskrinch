@@ -1,8 +1,6 @@
 [workspace]
 resolver = "3"
-# Crates live in `crates/<name>`. The first one to land adds `"crates/*"`
-# here (and drops this comment): Cargo rejects a glob that matches nothing.
-members = ["xtask"]
+members = ["crates/*", "xtask"]
 
 # Metadata every member inherits with `key.workspace = true`.
 [workspace.package]
@@ -17,9 +15,17 @@ publish = false
 # Every version lives here. A member names a dependency with
 # `name.workspace = true` and adds only the features it needs.
 [workspace.dependencies]
+bitflags = "2.13.2"
 clap = { version = "4.6.7", features = ["derive"] }
+deskrinch-window-management = { path = "crates/deskrinch-window-management" }
+rustix = "1.1.6"
+serde_json = "1.0.154"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
+wayland-client = "0.31.15"
+wayland-protocols = "0.32.13"
+wayland-protocols-plasma = "0.3.12"
+wayland-protocols-wlr = "0.3.12"
 
 # One lint policy for the whole repository; every member opts in with
 # `[lints] workspace = true`. Lints are set to `warn` and CI turns every

@@ -4,6 +4,7 @@
 //! returning [`Outcome`]. Adding a task is a new module, one [`Task`] variant
 //! and one match arm in [`Task::run`]; existing tasks are not touched.
 
+mod compositor_tests;
 mod error;
 mod file_length;
 mod git;
@@ -36,12 +37,25 @@ enum Task {
         file_length::MAX_LINES,
     ))]
     FileLength,
+    /// Run the window-management compositor tests in nested, headless
+    /// compositors.
+    ///
+    /// Each compositor runs in a session of its own (temporary runtime,
+    /// data, configuration and cache directories, and a private D-Bus bus
+    /// for KWin), so nothing reaches the real desktop session. Needs
+    /// `kwin_wayland` and `dbus-run-session` for KWin, `sway` for sway.
+    CompositorTests {
+        /// The compositors to run in; all of them when none is given.
+        #[arg(value_enum)]
+        compositors: Vec<compositor_tests::Compositor>,
+    },
 }
 
 impl Task {
     fn run(self, root: &Path) -> Result<Outcome, Error> {
         match self {
             Self::FileLength => file_length::run(root),
+            Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
         }
     }
 }
