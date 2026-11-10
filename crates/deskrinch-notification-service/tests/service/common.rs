@@ -6,10 +6,7 @@
 //! directories, so nothing can be activated on it either.
 
 use std::collections::HashMap;
-use std::io::{BufRead as _, BufReader};
-use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Duration;
@@ -24,96 +21,33 @@ use zbus::{Connection, MatchRule, MessageStream, Variant};
 /// How long a test waits for something that should happen.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
-/// A `dbus-daemon` of the test's own, stopped when dropped.
-pub(crate) struct PrivateBus {
-    daemon: Child,
-    address: String,
-    _dir: tempfile::TempDir,
-}
+/// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.
+pub(crate) struct PrivateBus(deskrinch_test_dbus::PrivateBus);
 
 impl PrivateBus {
     pub(crate) fn start() -> Self {
-        static BUSES: AtomicUsize = AtomicUsize::new(0);
-        let dir = tempfile::tempdir().unwrap();
-        let config = dir.path().join("bus.conf");
-        // The socket is abstract (nothing to clean up) and named like a
-        // session bus's: Ubuntu confines `notify-send` with AppArmor, whose
-        // `dbus-session-strict` abstraction lets it connect only to
-        // `@/tmp/dbus-*` and the user's own session bus. AppArmor mediation
-        // of messages is turned off on this bus: the profile allows sending
-        // only `Notify` and `GetServerInformation`, and receiving no signals,
-        // which would leave `--wait` and `--action` hanging.
-        let socket = format!(
-            "/tmp/dbus-deskrinch-test-{}-{}",
-            std::process::id(),
-            BUSES.fetch_add(1, Ordering::SeqCst)
-        );
-        std::fs::write(
-            &config,
-            format!(
-                r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <type>session</type>
-  <listen>unix:abstract={socket}</listen>
-  <auth>EXTERNAL</auth>
-  <apparmor mode="disabled"/>
-  <policy context="default">
-    <allow send_destination="*" eavesdrop="true"/>
-    <allow eavesdrop="true"/>
-    <allow own="*"/>
-  </policy>
-</busconfig>
-"#
-            ),
-        )
-        .unwrap();
-        let mut daemon = Command::new("dbus-daemon")
-            .arg(format!("--config-file={}", config.display()))
-            .args(["--nofork", "--print-address=1"])
-            .stdout(Stdio::piped())
-            .spawn()
-            .expect("dbus-daemon must be installed to run these tests");
-        let mut address = String::new();
-        BufReader::new(daemon.stdout.take().unwrap())
-            .read_line(&mut address)
-            .unwrap();
-        let address = address.trim().to_owned();
-        assert!(!address.is_empty(), "dbus-daemon printed no address");
-        Self {
-            daemon,
-            address,
-            _dir: dir,
-        }
+        Self(deskrinch_test_dbus::PrivateBus::start().expect("a private bus (needs dbus-daemon)"))
     }
 
     pub(crate) fn address(&self) -> &str {
-        &self.address
+        self.0.address()
     }
 
     pub(crate) fn config(&self) -> Config {
         Config {
-            bus: Bus::Address(self.address.clone()),
+            bus: Bus::Address(self.address().to_owned()),
             ..Config::default()
         }
     }
 
     /// A client connection to this bus.
     pub(crate) fn client(&self) -> Connection {
-        zbus::block_on(zbus::connection::Builder::address(self.address.as_str()).build()).unwrap()
+        zbus::block_on(zbus::connection::Builder::address(self.address()).build()).unwrap()
     }
 
     /// Stops the daemon now.
     pub(crate) fn kill(&mut self) {
-        // Either fails only when the daemon has already exited.
-        let _killed = self.daemon.kill();
-        let _waited = self.daemon.wait();
-    }
-}
-
-impl Drop for PrivateBus {
-    fn drop(&mut self) {
-        self.kill();
+        self.0.stop();
     }
 }
 
