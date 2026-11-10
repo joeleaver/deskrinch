@@ -16,8 +16,18 @@ pub(crate) struct Plan {
     /// Each directory watched, and whether recursively.
     pub(crate) watches: BTreeMap<PathBuf, bool>,
     /// The paths whose changes matter: each target where it is written,
-    /// and where it points when it is a symbolic link.
-    interest: Vec<PathBuf>,
+    /// and where it points when it is a symbolic link; and whether what is
+    /// below it matters to any depth or only its entries.
+    interest: Vec<(PathBuf, Depth)>,
+}
+
+/// How far below an interesting path a change matters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Depth {
+    /// Anywhere below (a tree; nothing is below a file).
+    Any,
+    /// Only the directory's own entries.
+    Entries,
 }
 
 impl Plan {
@@ -27,6 +37,10 @@ impl Plan {
             let path = target.path();
             let located = located(path);
             let resolved = path.canonicalize().ok().filter(|real| *real != located);
+            let depth = match target {
+                Target::File(_) | Target::Tree(_) => Depth::Any,
+                Target::Directory(_) => Depth::Entries,
+            };
             for point in std::iter::once(located).chain(resolved) {
                 // The directory holding it sees it created, removed,
                 // replaced by a rename or re-pointed; its nearest existing
@@ -34,13 +48,17 @@ impl Plan {
                 if let Some(dir) = point.ancestors().skip(1).find(|dir| dir.is_dir()) {
                     plan.add(dir.to_path_buf(), false);
                 }
-                plan.interest.push(point);
+                plan.interest.push((point, depth));
             }
-            if let Target::Tree(_) = target
-                && let Ok(dir) = path.canonicalize()
+            let recursive = match target {
+                Target::File(_) => continue,
+                Target::Tree(_) => true,
+                Target::Directory(_) => false,
+            };
+            if let Ok(dir) = path.canonicalize()
                 && dir.is_dir()
             {
-                plan.add(dir, true);
+                plan.add(dir, recursive);
             }
         }
         plan.prune();
@@ -67,11 +85,16 @@ impl Plan {
     }
 
     /// Whether a change at `path` may concern a target: it is the target,
-    /// inside it, or a directory on the way to it.
+    /// inside it (for a directory, one of its own entries), or a directory
+    /// on the way to it.
     pub(crate) fn concerns(&self, path: &Path) -> bool {
-        self.interest
-            .iter()
-            .any(|point| path.starts_with(point) || point.starts_with(path))
+        self.interest.iter().any(|(point, depth)| {
+            point.starts_with(path)
+                || match depth {
+                    Depth::Any => path.starts_with(point),
+                    Depth::Entries => path.parent() == Some(point.as_path()),
+                }
+        })
     }
 }
 
@@ -173,5 +196,23 @@ mod tests {
             watches(&plan),
             [(root.clone(), false), (root.join("tree"), true)]
         );
+    }
+
+    #[test]
+    fn watches_a_directory_for_its_own_entries_only() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        let dir = root.join("pixmaps");
+        fs::create_dir_all(dir.join("sub")).unwrap();
+        let plan = Plan::new(&[Target::Directory(dir.clone())]);
+        assert_eq!(
+            watches(&plan),
+            [(root.clone(), false), (dir.clone(), false)]
+        );
+        assert!(plan.concerns(&dir.join("foot.png")));
+        assert!(plan.concerns(&dir));
+        assert!(plan.concerns(&root));
+        assert!(!plan.concerns(&dir.join("sub/deep.png")));
+        assert!(!plan.concerns(&root.join("other")));
     }
 }
