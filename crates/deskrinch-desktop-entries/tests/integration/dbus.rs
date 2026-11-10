@@ -105,7 +105,7 @@ fn context(bus: &PrivateBus, out: &Path) -> LaunchContext {
 fn recorder_entry(dir: &Path) -> DesktopEntry {
     let text = format!(
         "[Desktop Entry]\nType=Application\nName=Recorder\nExec={}\n",
-        recorder(dir).display()
+        recorder(dir)
     );
     entry(dir, "org.deskrinch.test-recorder.desktop", &text)
 }

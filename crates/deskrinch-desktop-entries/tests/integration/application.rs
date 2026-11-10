@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use deskrinch_desktop_entries::{Launched, Target, launch};
 use zbus::OwnedVariant;
 
-use crate::support::{PATIENCE, PrivateBus, entry, serve};
+use crate::support::{PATIENCE, PrivateBus, entry, serve_all};
 
 /// A stand-in for a `DBusActivatable` application.
 pub(crate) struct FakeApplication {
@@ -131,13 +131,13 @@ fn activation_stand_in() {
     let application = FakeApplication {
         calls: Arc::clone(&calls),
     };
-    let connection = serve(&address, ACTIVATED, ACTIVATED_PATH, application);
-    zbus::block_on(
-        connection
-            .object_server()
-            .at(ACTIVATED_PATH, Probe { calls, quit }),
-    )
-    .unwrap();
+    // Both objects before the name: the test calls `Probe` as soon as it
+    // sees the name owned.
+    let _connection = serve_all(&address, ACTIVATED, |builder| {
+        builder
+            .serve_at(ACTIVATED_PATH, application)
+            .serve_at(ACTIVATED_PATH, Probe { calls, quit })
+    });
     quitting.recv_timeout(PATIENCE * 3).ok();
 }
 
@@ -196,17 +196,15 @@ fn a_dbus_activatable_entry_is_started_by_service_activation() {
     );
     assert!(owned(&client), "the bus started the stand-in");
 
-    let probe = |method: &str| {
-        zbus::block_on(client.call_method(
-            Some(ACTIVATED),
-            ACTIVATED_PATH,
-            Some(PROBE),
-            method,
-            &(),
-        ))
-        .unwrap()
-    };
-    let calls: Vec<String> = probe("Calls").body().deserialize().unwrap();
+    let calls = zbus::block_on(client.call_method(
+        Some(ACTIVATED),
+        ACTIVATED_PATH,
+        Some(PROBE),
+        "Calls",
+        &(),
+    ))
+    .unwrap();
+    let calls: Vec<String> = calls.body().deserialize().unwrap();
     assert_eq!(calls, [r#"Open ["file:///x"] parameters=0 token=tok"#]);
     let pid = zbus::block_on(client.call_method(
         Some("org.freedesktop.DBus"),
@@ -218,5 +216,13 @@ fn a_dbus_activatable_entry_is_started_by_service_activation() {
     .unwrap();
     let pid: u32 = pid.body().deserialize().unwrap();
     assert_ne!(pid, std::process::id(), "a process of its own");
-    probe("Quit");
+    // Expecting no reply: the stand-in exits as soon as it is told to, and
+    // may disconnect before a reply would have been sent.
+    let quit = zbus::Message::method_call(ACTIVATED_PATH, "Quit")
+        .destination(ACTIVATED)
+        .interface(PROBE)
+        .with_flags(zbus::message::Flags::NO_REPLY_EXPECTED)
+        .build(&())
+        .unwrap();
+    zbus::block_on(client.send(&quit)).unwrap();
 }

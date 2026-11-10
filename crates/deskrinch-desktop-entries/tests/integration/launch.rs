@@ -34,8 +34,8 @@ fn runs_exec_detached_in_path_with_the_context_environment() {
     std::fs::create_dir(&work).unwrap();
     let text = format!(
         "[Desktop Entry]\nType=Application\nName=Recorder\nIcon=rec\n\
-         Exec=\"{}\" --name=%c %i \"quoted arg\" %F\nPath={}\n",
-        recorder(dir.path()).display(),
+         Exec={} --name=%c %i \"quoted arg\" %F\nPath={}\n",
+        recorder(dir.path()),
         work.display(),
     );
     let app = entry(dir.path(), "recorder.desktop", &text);
@@ -78,7 +78,7 @@ fn a_single_file_code_starts_one_process_per_target() {
     let dir = tempfile::tempdir().unwrap();
     let text = format!(
         "[Desktop Entry]\nType=Application\nName=R\nExec={} %u\n",
-        recorder(dir.path()).display()
+        recorder(dir.path())
     );
     let app = entry(dir.path(), "r.desktop", &text);
     let targets = [
@@ -98,9 +98,8 @@ fn runs_actions() {
     let dir = tempfile::tempdir().unwrap();
     let recorder = recorder(dir.path());
     let text = format!(
-        "[Desktop Entry]\nType=Application\nName=R\nExec={0} main\nActions=new;\n\
-         [Desktop Action new]\nName=New\nExec={0} --new-window\n",
-        recorder.display()
+        "[Desktop Entry]\nType=Application\nName=R\nExec={recorder} main\nActions=new;\n\
+         [Desktop Action new]\nName=New\nExec={recorder} --new-window\n",
     );
     let app = entry(dir.path(), "r.desktop", &text);
     let launched = launch(&app, Some("new"), &[], &context(dir.path())).unwrap();
@@ -122,7 +121,8 @@ fn a_terminal_entry_needs_a_terminal_and_runs_in_it() {
     assert!(matches!(error, LaunchError::TerminalRequired));
 
     // The recorder stands in for the terminal emulator, so `top` never runs.
-    let with_terminal = context(dir.path()).with_terminal([recorder.as_os_str(), "-e".as_ref()]);
+    let with_terminal =
+        context(dir.path()).with_terminal(recorder.argv().into_iter().chain(["-e".into()]));
     let launched = launch(&app, None, &[], &with_terminal).unwrap();
     assert_eq!(
         recorded(dir.path(), pids(&launched)[0])["arg"],
@@ -177,7 +177,7 @@ fn a_dbus_activatable_entry_falls_back_to_exec_without_a_bus() {
     let dir = tempfile::tempdir().unwrap();
     let text = format!(
         "[Desktop Entry]\nType=Application\nName=R\nDBusActivatable=true\nExec={} fallback\n",
-        recorder(dir.path()).display()
+        recorder(dir.path())
     );
     let app = entry(dir.path(), "org.deskrinch.Test.desktop", &text);
     let launched = launch(&app, None, &[], &context(dir.path())).unwrap();
@@ -202,7 +202,7 @@ fn removes_variables_in_the_order_given() {
     let dir = tempfile::tempdir().unwrap();
     let text = format!(
         "[Desktop Entry]\nType=Application\nName=R\nExec={}\n",
-        recorder(dir.path()).display()
+        recorder(dir.path())
     );
     let app = entry(dir.path(), "r.desktop", &text);
     let context = context(dir.path())
