@@ -11,6 +11,7 @@ use std::process::Command;
 /// Variables of the real session that would lead a program back to it.
 pub const REAL_SESSION_VARIABLES: &[&str] = &[
     "DISPLAY",
+    "XAUTHORITY",
     "WAYLAND_DISPLAY",
     "WAYLAND_SOCKET",
     "SWAYSOCK",

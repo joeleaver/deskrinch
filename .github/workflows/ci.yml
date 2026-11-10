@@ -112,9 +112,9 @@ jobs:
           - compositor: kwin
             packages: kwin-wayland dbus-daemon
           - compositor: sway
-            packages: sway
+            packages: sway dbus-daemon
           - compositor: labwc
-            packages: labwc
+            packages: labwc dbus-daemon
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -127,6 +127,10 @@ jobs:
         with:
           packages: ${{ matrix.packages }}
       - run: cargo xtask compositor-tests ${{ matrix.compositor }}
+      - name: Test cargo xtask session under ${{ matrix.compositor }}
+        run: cargo test -p xtask --test session --locked -- --ignored
+        env:
+          DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
 
   # The desktop-entries launch into a real transient scope. The runner has
   # systemd as PID 1 but no user session; lingering starts the runner

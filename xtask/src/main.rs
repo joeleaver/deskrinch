@@ -8,9 +8,12 @@ mod compositor_tests;
 mod error;
 mod file_length;
 mod git;
+mod run_in_session;
+mod session;
 mod systemd_scope_tests;
 
 use std::error::Error as _;
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -41,15 +44,33 @@ enum Task {
     /// Run the window-management compositor tests in nested, headless
     /// compositors.
     ///
-    /// Each compositor runs in a session of its own (temporary runtime,
-    /// data, configuration and cache directories, and a private D-Bus bus
-    /// for KWin), so nothing reaches the real desktop session. Needs
-    /// `kwin_wayland` and `dbus-run-session` for KWin, and `sway` and
-    /// `labwc` for those.
+    /// Each compositor runs in an isolated session of its own, the one
+    /// `cargo xtask session` describes, so nothing reaches the real desktop
+    /// session. Needs `dbus-daemon`, and `kwin_wayland`, `sway` and `labwc`
+    /// for those compositors.
     CompositorTests {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
-        compositors: Vec<compositor_tests::Compositor>,
+        compositors: Vec<session::Compositor>,
+    },
+    /// Run a command in an isolated, nested, headless compositor session.
+    #[command(long_about = run_in_session::LONG_ABOUT)]
+    Session {
+        /// How many outputs the compositor has, side by side, 1280x720 each.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=8))]
+        outputs: u32,
+        /// Keep the session's directory afterwards (its compositor log, and
+        /// whatever the command wrote to `$DESKRINCH_SESSION_DIR`).
+        #[arg(long)]
+        keep: bool,
+        /// The compositor to run.
+        #[arg(value_enum)]
+        compositor: session::Compositor,
+        /// The program to run in the session.
+        program: OsString,
+        /// Its arguments.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
     },
     /// Run the desktop-entries test that launches into a real transient
     /// systemd scope.
@@ -65,6 +86,19 @@ impl Task {
             Self::FileLength => file_length::run(root),
             Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
+            Self::Session {
+                outputs,
+                keep,
+                compositor,
+                program,
+                args,
+            } => run_in_session::run(&run_in_session::Request {
+                compositor,
+                outputs,
+                keep,
+                program,
+                args,
+            }),
         }
     }
 }
@@ -76,13 +110,21 @@ enum Outcome {
     Passed,
     /// The repository fails the check; the task has printed why.
     Failed,
+    /// The task ran a command, which exited with this status.
+    Exit(u8),
 }
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
+    let runs_a_command = matches!(cli.task, Task::Session { .. });
     match cli.task.run(Path::new(WORKSPACE_ROOT)) {
         Ok(Outcome::Passed) => ExitCode::SUCCESS,
         Ok(Outcome::Failed) => ExitCode::FAILURE,
+        Ok(Outcome::Exit(code)) => ExitCode::from(code),
+        Err(Error::Interrupted) => {
+            eprintln!("error: {}", Error::Interrupted);
+            ExitCode::from(run_in_session::INTERRUPTED)
+        }
         Err(error) => {
             eprintln!("error: {error}");
             let mut cause = error.source();
@@ -90,7 +132,13 @@ fn main() -> ExitCode {
                 eprintln!("  caused by: {inner}");
                 cause = inner.source();
             }
-            ExitCode::FAILURE
+            // A command's own status must not be mistaken for the session's
+            // failure.
+            if runs_a_command {
+                ExitCode::from(run_in_session::SESSION_FAILED)
+            } else {
+                ExitCode::FAILURE
+            }
         }
     }
 }
