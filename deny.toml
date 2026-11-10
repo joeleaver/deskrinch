@@ -16,10 +16,11 @@ unmaintained = "all"
 ignore = []
 
 [licenses]
-# deskrinch is `MIT OR Apache-2.0`, so everything it links must be permissive:
-# no copyleft, weak or strong (no GPL, LGPL, AGPL, MPL, EPL). The list is
-# what the Rust ecosystem under rinch, wgpu and smithay uses; a new licence
-# is added here, with its reason, in the pull request that brings it in.
+# deskrinch is `MIT OR Apache-2.0`, so what it links is permissive, with
+# MPL-2.0 as the one file-level copyleft exception (reason below). Still no
+# GPL, LGPL, AGPL or EPL. The list is what the Rust ecosystem under rinch,
+# wgpu and smithay uses; a new licence is added here, with its reason, in the
+# pull request that brings it in.
 version = 2
 allow = [
     "MIT",
@@ -34,6 +35,11 @@ allow = [
     "CC0-1.0",
     # Unicode's data licence, carried by unicode-ident and the ICU crates.
     "Unicode-3.0",
+    # rinch's CSS engine is Stylo: `stylo`, `selectors`, `cssparser` and
+    # `stylo_atoms` are MPL-2.0. Its copyleft is per file, so linking those
+    # crates unmodified as dependencies puts no obligation on deskrinch.
+    # deskrinch never vendors or modifies MPL files in its own tree.
+    "MPL-2.0",
 ]
 confidence-threshold = 0.93
 # The list is written for the dependencies to come, so a licence nothing uses
@@ -52,6 +58,9 @@ multiple-versions = "warn"
 [sources]
 # Crates come from crates.io only. A git dependency (rinch) is allowed by
 # adding its repository to `allow-git` in the pull request that adds it.
+# For rinch the entry must also cover the forks it pins as git dependencies:
+# winit-fork, vello-fork, parley-fork and taffy-fork, under
+# github.com/joeleaver.
 unknown-registry = "deny"
 unknown-git = "deny"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
