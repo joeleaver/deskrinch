@@ -19,6 +19,10 @@ cargo deny --locked check      # cargo install cargo-deny --locked
 cargo xtask file-length
 ```
 
+The desktop-entries crate's tests start a private `dbus-daemon` (from the
+`dbus` package) for the systemd-scope and D-Bus activation paths; it talks
+to nothing in your session.
+
 The window-management crate's compositor tests drive a real compositor and
 are ignored by `cargo test`. This runs them in nested, headless KWin and sway
 sessions that touch nothing in your own (it needs `kwin_wayland`,
