@@ -1,5 +1,5 @@
 use super::*;
-use crate::locale::Locale;
+use deskrinch_keyfile::Locale;
 
 fn parse(text: &str) -> Result<DesktopEntry, ParseError> {
     let id = DesktopId::new("org.example.App.desktop").unwrap();
