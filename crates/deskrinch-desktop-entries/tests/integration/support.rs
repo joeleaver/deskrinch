@@ -56,15 +56,42 @@ pub(crate) fn entry(dir: &Path, id: &str, text: &str) -> DesktopEntry {
     DesktopEntry::parse(DesktopId::new(id).unwrap(), path, text).unwrap()
 }
 
-/// The recorder: a script that writes what it was run with to
+/// The recorder: a shell script that writes what it was run with to
 /// `$DESKRINCH_TEST_OUT/<its pid>`, one `key=value` per line. With
 /// `$DESKRINCH_TEST_HOLD` set, it also forks a child, records the child's
 /// PID and both cgroups, and then waits for the child (which sleeps that
 /// many seconds).
-pub(crate) fn recorder(dir: &Path) -> PathBuf {
-    let path = dir.join("recorder");
-    script(
-        &path,
+///
+/// It runs as `/bin/sh <script>`, never as an executable of its own: a
+/// file this process has just written cannot be executed safely while the
+/// tests run in parallel. Another test's `fork` between the write's open
+/// and close gives the child a copy of the write descriptor until it
+/// execs, and `execve` of a file open for writing fails with `ETXTBSY`.
+/// `/bin/sh` is never open for writing; the script is only read.
+#[derive(Debug, Clone)]
+pub(crate) struct Recorder {
+    script: PathBuf,
+}
+
+impl Recorder {
+    /// The command line, as arguments: for a terminal-emulator command.
+    pub(crate) fn argv(&self) -> [std::ffi::OsString; 2] {
+        ["/bin/sh".into(), self.script.clone().into_os_string()]
+    }
+}
+
+/// The command line as a desktop entry's `Exec` writes it.
+impl std::fmt::Display for Recorder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "/bin/sh \"{}\"", self.script.display())
+    }
+}
+
+/// Writes the recorder into `dir`.
+pub(crate) fn recorder(dir: &Path) -> Recorder {
+    let script = dir.join("recorder.sh");
+    fs::write(
+        &script,
         r#"out="$DESKRINCH_TEST_OUT/$$"
 child=
 if [ -n "$DESKRINCH_TEST_HOLD" ]; then
@@ -90,8 +117,9 @@ fi
 mv "$out.partial" "$out"
 if [ -n "$child" ]; then wait "$child"; fi
 "#,
-    );
-    path
+    )
+    .unwrap();
+    Recorder { script }
 }
 
 /// What the recorder with PID `pid` wrote, once it has: each key's values.
