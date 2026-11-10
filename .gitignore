@@ -1,3 +1,4 @@
 /target
 /.cargo/config.local.toml
 /.work/
+/.claude/worktrees/
