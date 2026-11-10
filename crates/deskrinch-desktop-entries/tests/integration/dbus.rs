@@ -95,7 +95,7 @@ fn systemd(result: &'static str) -> (PrivateBus, zbus::Connection, Arc<Mutex<Vec
 
 fn context(bus: &PrivateBus, out: &Path) -> LaunchContext {
     let env = Environment {
-        session_bus: Some(bus.address.clone()),
+        session_bus: Some(bus.address().to_owned()),
         ..Environment::default()
     };
     LaunchContext::new(&env).with_env("DESKRINCH_TEST_OUT", out)

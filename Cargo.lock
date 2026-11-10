@@ -161,6 +161,7 @@ dependencies = [
 name = "deskrinch-desktop-entries"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-dbus",
  "futures-core",
  "libc",
  "notify",
