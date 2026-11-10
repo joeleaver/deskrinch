@@ -4,4 +4,4 @@ allow-unwrap-in-tests = true
 allow-expect-in-tests = true
 # Proper names the docs use that `doc_markdown` would otherwise want in
 # backticks; `".."` keeps clippy's default list.
-doc-valid-idents = ["AppArmor", "GLib", "KWin", ".."]
+doc-valid-idents = ["AppArmor", "GLib", "KWin", "TZif", ".."]

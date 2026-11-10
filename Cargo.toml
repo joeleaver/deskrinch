@@ -22,8 +22,13 @@ deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
 futures-core = "0.3.34"
 icu_casemap = "2.4.0"
+icu_datetime = "2.4.0"
+icu_locale_core = "2.4.0"
 icu_normalizer = "2.4.0"
 icu_properties = "2.4.0"
+icu_provider = { version = "2.4.0", default-features = false }
+jiff = { version = "0.2.42", default-features = false }
+jiff-icu = { version = "0.2.4", default-features = false }
 libc = "0.2.191"
 notify = { version = "8.2.2", default-features = false }
 percent-encoding = "2.3.2"
