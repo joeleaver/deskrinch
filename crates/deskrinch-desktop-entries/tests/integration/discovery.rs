@@ -2,7 +2,9 @@
 
 use std::os::unix::fs::symlink;
 
-use deskrinch_desktop_entries::{Catalog, DesktopId, ParseError, ScanError, Visibility};
+use deskrinch_desktop_entries::{
+    Catalog, DesktopId, Deviation, ParseError, ProblemKind, ScanError, Visibility,
+};
 
 use crate::support::{environment, script, write};
 
@@ -60,42 +62,55 @@ fn applies_precedence_ids_and_hidden_across_directories() {
 }
 
 #[test]
-fn skips_invalid_files_and_reports_them() {
+fn skips_unusable_files_and_warns_about_deviant_ones() {
     let root = tempfile::tempdir().unwrap();
     let (home, system) = (root.path().join("home"), root.path().join("system"));
-    write(
+    let broken = write(
         &home,
         "applications/a.desktop",
-        "[Desktop Entry]\nType=Application\n",
+        "[Desktop Entry]\nType=Application\nnot a key\n",
     );
     write(&system, "applications/a.desktop", &app("System A", ""));
     let binary = system.join("applications/binary.desktop");
-    std::fs::write(&binary, b"[Desktop Entry]\nName=\xff\n").unwrap();
+    std::fs::write(
+        &binary,
+        b"[Desktop Entry]\nType=Application\nName=B\nComment=\xff\nExec=b\n",
+    )
+    .unwrap();
     let catalog = Catalog::scan(&environment(&home, &[&system]));
 
-    assert_eq!(
-        catalog.get(&id("a.desktop")).unwrap().entry.name.default,
-        "System A"
-    );
-    let mut problems: Vec<_> = catalog
+    // The unusable override falls through to the system entry; the
+    // deviant file is listed, with a warning.
+    let name = |i: &str| catalog.get(&id(i)).unwrap().entry.name.default.clone();
+    assert_eq!(name("a.desktop"), "System A");
+    assert_eq!(name("binary.desktop"), "B");
+    let problems: Vec<_> = catalog
         .problems()
         .iter()
-        .map(|p| match &p.error {
-            ScanError::Parse(error) => (p.path.clone(), error.clone()),
-            ScanError::Read(error) => panic!("unexpected read error {error}"),
+        .map(|p| match &p.kind {
+            ProblemKind::Skipped(ScanError::Parse(error)) => {
+                (p.path.clone(), format!("skipped: {error:?}"))
+            }
+            ProblemKind::Skipped(ScanError::Read(error)) => panic!("read error {error}"),
+            ProblemKind::Deviation(deviation) => {
+                (p.path.clone(), format!("warning: {deviation:?}"))
+            }
         })
         .collect();
-    problems.sort_by(|a, b| a.0.cmp(&b.0));
     assert_eq!(
         problems,
         [
             (
-                home.join("applications/a.desktop"),
-                ParseError::MissingKey { key: "Exec" }
+                broken,
+                format!("skipped: {:?}", ParseError::InvalidLine { line: 3 })
             ),
-            (binary, ParseError::NotUtf8),
+            (
+                binary,
+                format!("warning: {:?}", Deviation::NotUtf8 { line: 4 })
+            ),
         ]
     );
+    assert!(catalog.problems()[0].is_skipped() && !catalog.problems()[1].is_skipped());
 }
 
 #[test]

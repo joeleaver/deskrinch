@@ -36,6 +36,14 @@ labwc sessions that touch nothing in your own (it needs `kwin_wayland`,
 cargo xtask compositor-tests [kwin] [sway] [labwc]
 ```
 
+One desktop-entries test launches into a real transient scope of your
+systemd user instance, and is ignored by `cargo test`. It starts only its
+own recorder script, and stops the scope again:
+
+```sh
+cargo xtask systemd-scope-tests
+```
+
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists
 them. Local Cargo settings, such as a `[patch]` for unmerged rinch work, go in
 the gitignored `.cargo/config.local.toml`.

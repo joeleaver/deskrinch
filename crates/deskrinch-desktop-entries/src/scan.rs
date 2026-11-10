@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::catalog::{Catalog, Found};
 use crate::entry::{DesktopEntry, DesktopId};
 use crate::env::Environment;
-use crate::error::{ParseError, Problem, ScanError};
+use crate::error::{Problem, ProblemKind, ScanError};
 
 impl Catalog {
     /// Scans the `applications` directory of every data directory in `env`.
@@ -71,12 +71,13 @@ fn walk(root: &Path, dir: &Path, visited: &mut HashSet<PathBuf>, found: &mut Vec
 
 /// Reads and parses one file.
 pub(crate) fn read_entry(id: DesktopId, path: PathBuf) -> Found {
-    let text = match fs::read(&path) {
-        Ok(bytes) => String::from_utf8(bytes).map_err(|_| ScanError::Parse(ParseError::NotUtf8)),
-        Err(error) => Err(ScanError::Read(Arc::new(error))),
-    };
-    text.and_then(|text| Ok(DesktopEntry::parse(id, path.clone(), &text)?))
-        .map_err(|error| Problem { path, error })
+    fs::read(&path)
+        .map_err(|error| ScanError::Read(Arc::new(error)))
+        .and_then(|bytes| Ok(DesktopEntry::parse(id, path.clone(), bytes)?))
+        .map_err(|error| Problem {
+            path,
+            kind: ProblemKind::Skipped(error),
+        })
 }
 
 /// Whether `program` (an absolute path, or a name looked up in `path`) is

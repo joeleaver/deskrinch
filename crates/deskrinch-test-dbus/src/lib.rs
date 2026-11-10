@@ -4,8 +4,12 @@
 //! bus that serves only what connects to it. [`PrivateBus`] runs a
 //! `dbus-daemon` on it for as long as it lives; `cargo xtask
 //! compositor-tests` hands the same configuration to `dbus-run-session`.
+//!
+//! A test of D-Bus activation itself opts in to service directories of its
+//! own with [`config_with_services`] or [`PrivateBus::start_with_services`].
 
 use std::io::{self, BufRead as _, BufReader};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -21,13 +25,33 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 ///   bus; on a test bus those rules would only get in the way of the test.
 #[must_use]
 pub fn config(listen: &str) -> String {
+    config_with_services(listen, &[])
+}
+
+/// [`config`], except that the bus activates services from the D-Bus
+/// service files in `service_dirs`, and only from there. Off by default: on
+/// a test bus, activation from the system's directories is what would start
+/// the real desktop's portals and daemons.
+#[must_use]
+pub fn config_with_services(listen: &str, service_dirs: &[&Path]) -> String {
+    let service_dirs: String = service_dirs
+        .iter()
+        .map(|dir| {
+            [
+                "  <servicedir>",
+                &dir.display().to_string(),
+                "</servicedir>\n",
+            ]
+            .concat()
+        })
+        .collect();
     format!(
         r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig>
   <type>session</type>
   <listen>{listen}</listen>
-  <auth>EXTERNAL</auth>
+{service_dirs}  <auth>EXTERNAL</auth>
   <apparmor mode="disabled"/>
   <policy context="default">
     <allow send_destination="*" eavesdrop="true"/>
@@ -73,6 +97,16 @@ impl PrivateBus {
     ///
     /// When the configuration cannot be written or `dbus-daemon` cannot run.
     pub fn start() -> Result<Self, Error> {
+        Self::start_with_services(&[])
+    }
+
+    /// Starts a daemon that activates services from `service_dirs`; see
+    /// [`config_with_services`].
+    ///
+    /// # Errors
+    ///
+    /// When the configuration cannot be written or `dbus-daemon` cannot run.
+    pub fn start_with_services(service_dirs: &[&Path]) -> Result<Self, Error> {
         static BUSES: AtomicUsize = AtomicUsize::new(0);
         let dir = tempfile::tempdir().map_err(Error::Config)?;
         let socket = format!(
@@ -81,7 +115,11 @@ impl PrivateBus {
             BUSES.fetch_add(1, Ordering::SeqCst)
         );
         let path = dir.path().join("bus.conf");
-        std::fs::write(&path, config(&format!("unix:abstract={socket}"))).map_err(Error::Config)?;
+        std::fs::write(
+            &path,
+            config_with_services(&format!("unix:abstract={socket}"), service_dirs),
+        )
+        .map_err(Error::Config)?;
         let mut daemon = Command::new("dbus-daemon")
             .arg(format!("--config-file={}", path.display()))
             .args(["--nofork", "--print-address=1"])
@@ -143,6 +181,13 @@ mod tests {
         assert!(config.contains("<listen>unix:dir=/tmp/x</listen>"));
         assert!(!config.contains("servicedir"));
         assert!(config.contains(r#"<apparmor mode="disabled"/>"#));
+    }
+
+    #[test]
+    fn service_directories_are_opt_in() {
+        let config = config_with_services("unix:dir=/tmp/x", &[Path::new("/tmp/services")]);
+        assert!(config.contains("<servicedir>/tmp/services</servicedir>"));
+        assert_eq!(config.matches("servicedir>").count(), 2);
     }
 
     #[test]

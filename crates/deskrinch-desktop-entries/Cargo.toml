@@ -10,6 +10,11 @@ publish.workspace = true
 
 [dependencies]
 futures-core.workspace = true
+# Unicode case folding, compatibility decomposition and general categories,
+# for matching searches without regard to case or diacritics.
+icu_casemap.workspace = true
+icu_normalizer.workspace = true
+icu_properties.workspace = true
 libc.workspace = true
 notify.workspace = true
 percent-encoding.workspace = true
@@ -19,6 +24,7 @@ thiserror.workspace = true
 zbus = { workspace = true, features = ["default-rt"] }
 
 [dev-dependencies]
+deskrinch-test-dbus.workspace = true
 tempfile.workspace = true
 # The tests stand in for systemd and for a D-Bus-activated application.
 zbus = { workspace = true, features = ["default-rt", "service"] }

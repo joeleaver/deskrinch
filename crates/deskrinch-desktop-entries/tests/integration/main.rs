@@ -7,6 +7,8 @@
 //! nothing.
 
 #[cfg(test)]
+mod application;
+#[cfg(test)]
 mod dbus;
 #[cfg(test)]
 mod discovery;
@@ -14,5 +16,7 @@ mod discovery;
 mod launch;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod systemd;
 #[cfg(test)]
 mod watch;
