@@ -170,10 +170,24 @@ pub(crate) fn serve<I: zbus::object_server::Interface>(
     path: &str,
     object: I,
 ) -> zbus::Connection {
+    serve_all(address, name, |builder| builder.serve_at(path, object))
+}
+
+/// A connection to the bus at `address` that serves what `objects` adds to
+/// its builder, and only then owns `name`.
+///
+/// A client waits for the name before it calls, so every object must be in
+/// place before the name is claimed: `Builder::build` serves the builder's
+/// objects first and requests the name last. An object added to the
+/// connection after `build` would race the client's first call.
+pub(crate) fn serve_all<'a>(
+    address: &'a str,
+    name: &'a str,
+    objects: impl FnOnce(zbus::connection::Builder<'a>) -> zbus::connection::Builder<'a>,
+) -> zbus::Connection {
     zbus::block_on(async {
-        zbus::connection::Builder::address(address)
+        objects(zbus::connection::Builder::address(address))
             .name(name)
-            .serve_at(path, object)
             .build()
             .await
     })
