@@ -168,7 +168,11 @@ impl Watcher {
 impl Drop for Watcher {
     fn drop(&mut self) {
         self.messages.send(Message::Stop).ok();
-        if let Some(worker) = self.worker.take() {
+        if let Some(worker) = self.worker.take()
+            // Dropped by its own subscriber: the thread ends when the
+            // subscriber returns, and cannot wait for itself.
+            && worker.thread().id() != thread::current().id()
+        {
             // A panic in the subscriber ended the thread already; there is
             // nothing more to stop.
             worker.join().ok();

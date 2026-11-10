@@ -2,8 +2,10 @@
 
 use std::fs;
 use std::os::unix::fs::symlink;
+use std::sync::{Arc, Mutex, mpsc};
+use std::time::Duration;
 
-use deskrinch_watch::Target;
+use deskrinch_watch::{Target, Timing, Watcher};
 
 use crate::support::{Root, changed, quiet, watch, write};
 
@@ -60,6 +62,30 @@ fn ignores_other_files_in_the_directory() {
     write(&root.join("notes.txt"), "unrelated");
     assert_eq!(fs::read_to_string(root.join("config.toml")).unwrap(), "a");
     quiet(&events);
+}
+
+#[test]
+fn may_be_dropped_by_its_own_subscriber() {
+    let root = Root::new();
+    let file = root.join("config.toml");
+    let slot: Arc<Mutex<Option<Watcher>>> = Arc::default();
+    let (done, finished) = mpsc::channel();
+    let inner = Arc::clone(&slot);
+    let watcher = Watcher::start(
+        vec![Target::File(file.clone())],
+        Timing::default(),
+        "test-watch",
+        move |_| {
+            // The last owner, dropped on the watcher's own thread.
+            drop(inner.lock().unwrap().take());
+            done.send(()).ok();
+        },
+    )
+    .unwrap();
+    *slot.lock().unwrap() = Some(watcher);
+    write(&file, "a");
+    finished.recv_timeout(Duration::from_secs(10)).unwrap();
+    assert!(slot.lock().unwrap().is_none());
 }
 
 #[test]
