@@ -7,6 +7,8 @@
 //! nothing.
 
 #[cfg(test)]
+mod application;
+#[cfg(test)]
 mod dbus;
 #[cfg(test)]
 mod discovery;

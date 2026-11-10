@@ -4,7 +4,6 @@
 //! does; it cannot move a process between cgroups, so these tests cover
 //! the protocol and the launch's ordering, not the kernel side.
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
@@ -15,6 +14,7 @@ use deskrinch_desktop_entries::{
 use zbus::object_server::SignalEmitter;
 use zbus::{ObjectPath, OwnedObjectPath, OwnedVariant};
 
+use crate::application::{AppCall, FakeApplication};
 use crate::support::{PrivateBus, entry, recorded, recorder};
 
 /// What the stand-in systemd was asked.
@@ -187,81 +187,6 @@ fn without_systemd_or_with_scopes_off_the_process_runs_directly() {
     assert_eq!(placement, Placement::Direct(DirectReason::Disabled));
     assert!(calls.lock().unwrap().is_empty());
     recorded(dir.path(), pid);
-}
-
-/// A stand-in for a `DBusActivatable` application.
-struct FakeApplication {
-    calls: Arc<Mutex<Vec<AppCall>>>,
-}
-
-/// A call the stand-in application received.
-#[derive(Debug)]
-struct AppCall {
-    method: &'static str,
-    /// The URIs of `Open`, or the action of `ActivateAction`.
-    args: Vec<String>,
-    parameters: Vec<OwnedVariant>,
-    platform_data: HashMap<String, OwnedVariant>,
-}
-
-impl AppCall {
-    /// The call as text, checking that both token keys agree.
-    fn describe(&self) -> String {
-        let get = |key: &str| {
-            self.platform_data
-                .get(key)
-                .map(|value| String::try_from(value.clone()).unwrap())
-        };
-        assert_eq!(get("activation-token"), get("desktop-startup-id"));
-        format!(
-            "{} {:?} parameters={} token={}",
-            self.method,
-            self.args,
-            self.parameters.len(),
-            get("activation-token").unwrap_or_default()
-        )
-    }
-}
-
-impl FakeApplication {
-    fn record(&self, call: AppCall) {
-        self.calls.lock().unwrap().push(call);
-    }
-}
-
-#[zbus::interface(name = "org.freedesktop.Application")]
-impl FakeApplication {
-    fn activate(&self, platform_data: HashMap<String, OwnedVariant>) {
-        self.record(AppCall {
-            method: "Activate",
-            args: Vec::new(),
-            parameters: Vec::new(),
-            platform_data,
-        });
-    }
-
-    fn open(&self, uris: Vec<String>, platform_data: HashMap<String, OwnedVariant>) {
-        self.record(AppCall {
-            method: "Open",
-            args: uris,
-            parameters: Vec::new(),
-            platform_data,
-        });
-    }
-
-    fn activate_action(
-        &self,
-        action: String,
-        parameter: Vec<OwnedVariant>,
-        platform_data: HashMap<String, OwnedVariant>,
-    ) {
-        self.record(AppCall {
-            method: "ActivateAction",
-            args: vec![action],
-            parameters: parameter,
-            platform_data,
-        });
-    }
 }
 
 #[test]
