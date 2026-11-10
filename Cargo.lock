@@ -162,6 +162,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-test-dbus",
  "futures-core",
+ "percent-encoding",
  "serde",
  "thiserror",
  "zbus",

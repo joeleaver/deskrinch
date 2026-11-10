@@ -129,6 +129,11 @@ fn references_parse_as_files_or_icon_names() {
         ImageSource::from_reference("file:///tmp/a%20b.png", 64),
         file("/tmp/a b.png")
     );
+    // An escape that is not one stays literal.
+    assert_eq!(
+        ImageSource::from_reference("file:///tmp/%zz%2", 64),
+        file("/tmp/%zz%2")
+    );
     assert_eq!(
         ImageSource::from_reference("file://localhost/tmp/a.png", 64),
         file("/tmp/a.png")
@@ -149,8 +154,6 @@ fn bad_references_are_refused() {
         "file://tmp/a.png",
         "file:///tmp/a.png?x",
         "file:///tmp/a.png#x",
-        "file:///tmp/%zz",
-        "file:///tmp/%2",
         "file:///tmp/%00",
         "https://example.org/a.png",
         "icon name",

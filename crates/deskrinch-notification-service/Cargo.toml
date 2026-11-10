@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 futures-core.workspace = true
+percent-encoding.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 # zbus's own runtime (`default-rt`) drives the connection on a helper thread,

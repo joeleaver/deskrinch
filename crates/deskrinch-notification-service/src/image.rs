@@ -200,23 +200,9 @@ fn file_uri_path(path: &str) -> Option<PathBuf> {
     if !path.starts_with('/') || path.contains(['?', '#']) {
         return None;
     }
-    let mut bytes = Vec::with_capacity(path.len());
-    let mut rest = path.as_bytes();
-    while let Some((&b, tail)) = rest.split_first() {
-        if b == b'%' {
-            let hex = tail.get(..2)?;
-            let hex = std::str::from_utf8(hex).ok()?;
-            if !hex.bytes().all(|h| h.is_ascii_hexdigit()) {
-                return None;
-            }
-            bytes.push(u8::from_str_radix(hex, 16).ok()?);
-            rest = &tail[2..];
-        } else {
-            bytes.push(b);
-            rest = tail;
-        }
-    }
-    local_path(bytes)
+    // A `%` not followed by two hex digits stays literal, as RFC 3986
+    // decoders treat it.
+    local_path(percent_encoding::percent_decode_str(path).collect())
 }
 
 /// An absolute local path from raw bytes, refusing NUL.
