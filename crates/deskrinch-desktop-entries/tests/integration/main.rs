@@ -17,4 +17,6 @@ mod launch;
 #[cfg(test)]
 mod support;
 #[cfg(test)]
+mod systemd;
+#[cfg(test)]
 mod watch;

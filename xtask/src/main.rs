@@ -8,6 +8,7 @@ mod compositor_tests;
 mod error;
 mod file_length;
 mod git;
+mod systemd_scope_tests;
 
 use std::error::Error as _;
 use std::path::Path;
@@ -49,6 +50,12 @@ enum Task {
         #[arg(value_enum)]
         compositors: Vec<compositor_tests::Compositor>,
     },
+    /// Run the desktop-entries test that launches into a real transient
+    /// systemd scope.
+    ///
+    /// Uses the systemd user instance of the current session: it starts
+    /// only the test's own recorder script, in a scope it stops again.
+    SystemdScopeTests,
 }
 
 impl Task {
@@ -56,6 +63,7 @@ impl Task {
         match self {
             Self::FileLength => file_length::run(root),
             Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
+            Self::SystemdScopeTests => systemd_scope_tests::run(root),
         }
     }
 }
