@@ -144,5 +144,14 @@ jobs:
           test -S "$runtime/bus"
           echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
           echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus" >> "$GITHUB_ENV"
-      - run: systemctl --user show --property=Version,SystemState
+      - name: Wait for systemd on the user bus
+        # The first client starts the socket-activated bus, and systemd
+        # connects to it only once it is up.
+        run: |
+          for _ in $(seq 100); do
+            busctl --user status org.freedesktop.systemd1 > /dev/null 2>&1 && break
+            sleep 0.1
+          done
+          busctl --user status org.freedesktop.systemd1 > /dev/null
+          systemctl --user show --property=Version,SystemState
       - run: cargo xtask systemd-scope-tests
