@@ -1,0 +1,24 @@
+[package]
+name = "deskrinch-component"
+description = "What every deskrinch shell component process does the same way: its settings, followed live into rinch, and its reporting."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+deskrinch-config.workspace = true
+deskrinch-settings.workspace = true
+deskrinch-xdg.workspace = true
+# `desktop`: rinch's native logging (its `tracing-subscriber` formatter),
+# the one a component's window runs with.
+rinch = { workspace = true, features = ["desktop"] }
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

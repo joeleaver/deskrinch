@@ -27,7 +27,27 @@ use rinch::{
     WindowProps,
 };
 
-use crate::settings::{Edge, Placement};
+use deskrinch_settings::panel::{Edge, Height, PanelSettings};
+
+/// Where the panel is: the part of its settings its window's surface is
+/// made of. A change to it moves the window; any other change does not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) struct Placement {
+    /// The edge it runs along.
+    pub(crate) edge: Edge,
+    /// Its height, which it also reserves.
+    pub(crate) height: Height,
+}
+
+impl Placement {
+    /// Where `settings` put the panel.
+    pub(crate) fn of(settings: &PanelSettings) -> Self {
+        Self {
+            edge: settings.edge,
+            height: settings.height,
+        }
+    }
+}
 
 /// The layer surface's namespace and the window's app id.
 pub(crate) const NAMESPACE: &str = "deskrinch-panel";
@@ -78,7 +98,6 @@ pub(crate) fn place(placement: Placement) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::{Height, PanelSettings};
 
     fn placement(edge: Edge, height: u32) -> Placement {
         Placement {
@@ -89,7 +108,7 @@ mod tests {
 
     #[test]
     fn by_default_spans_the_bottom_edge_and_reserves_40() {
-        let surface = layer_surface(PanelSettings::default().placement());
+        let surface = layer_surface(Placement::of(&PanelSettings::default()));
         assert_eq!(surface.layer, LayerShellLayer::Top);
         assert_eq!(
             surface.anchor,

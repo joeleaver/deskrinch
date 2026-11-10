@@ -711,6 +711,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-component"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-config",
+ "deskrinch-settings",
+ "deskrinch-xdg",
+ "rinch",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "deskrinch-config"
 version = "0.1.0"
 dependencies = [
@@ -760,11 +772,19 @@ name = "deskrinch-panel"
 version = "0.1.0"
 dependencies = [
  "deskrinch-clock",
- "deskrinch-config",
+ "deskrinch-component",
+ "deskrinch-settings",
  "deskrinch-xdg",
  "rinch",
- "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "deskrinch-settings"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-config",
+ "serde",
 ]
 
 [[package]]

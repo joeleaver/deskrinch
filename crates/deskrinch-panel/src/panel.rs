@@ -6,20 +6,21 @@
 //! widgets read through the context. A change of edge or height moves the
 //! window ([`surface::place`]); anything else leaves it alone.
 
+use deskrinch_component::LiveSettings;
+use deskrinch_settings::panel::PanelSettings;
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
 use crate::bar::Bar;
-use crate::config::Config;
-use crate::surface;
+use crate::surface::{self, Placement};
 
-/// The panel, following `config`, which it keeps running until it closes.
+/// The panel, following `live`, which it keeps until it closes.
 #[component]
-pub(crate) fn panel(config: Config) -> NodeHandle {
-    let settings = Signal::new(config.initial.clone());
+pub(crate) fn panel(live: LiveSettings<PanelSettings>) -> NodeHandle {
+    let settings = Signal::new(live.initial.clone());
     create_context(settings);
-    let placement = Memo::new(move || settings.get().placement());
-    let mut placed = config.initial.placement();
+    let placement = Memo::new(move || Placement::of(&settings.get()));
+    let mut placed = Placement::of(&live.initial);
     Effect::new(move || {
         let wanted = placement.get();
         if wanted != placed {
@@ -27,10 +28,10 @@ pub(crate) fn panel(config: Config) -> NodeHandle {
             placed = wanted;
         }
     });
-    if let Some(newer) = config.connect(settings) {
+    if let Some(newer) = live.connect(settings) {
         settings.set(newer);
     }
-    rinch::reactive::on_cleanup(move || drop(config));
+    rinch::reactive::on_cleanup(move || drop(live));
     rsx! {
         Bar {}
     }
