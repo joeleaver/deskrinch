@@ -98,7 +98,7 @@ fn context(bus: &PrivateBus, out: &Path) -> LaunchContext {
         session_bus: Some(bus.address().to_owned()),
         ..Environment::default()
     };
-    LaunchContext::new(&env).with_env("DESKRINCH_TEST_OUT", out)
+    bus.isolate(LaunchContext::new(&env).with_env("DESKRINCH_TEST_OUT", out))
 }
 
 fn recorder_entry(dir: &Path) -> DesktopEntry {

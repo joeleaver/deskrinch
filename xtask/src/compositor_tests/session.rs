@@ -6,15 +6,15 @@
 //! own, which is ended as a whole when the session is dropped. Nothing it
 //! starts can reach the real session's sockets, bus or files.
 
-use std::ffi::OsString;
 use std::fs::{self, File};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::process::CommandExt;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use deskrinch_test_dbus::session::{self, isolate};
 use rustix::process::{Pid, Signal, kill_process_group, test_kill_process_group};
 use tempfile::TempDir;
 
@@ -34,17 +34,6 @@ const KWIN_SOCKET: &str = "wayland-0";
 const OUTPUTS: u32 = 2;
 /// Each output's size, where the compositor takes one.
 const OUTPUT_SIZE: (u32, u32) = (1280, 720);
-
-/// Variables of the real session that would lead a nested program back to
-/// it.
-const REAL_SESSION_VARIABLES: &[&str] = &[
-    "DISPLAY",
-    "WAYLAND_DISPLAY",
-    "WAYLAND_SOCKET",
-    "SWAYSOCK",
-    "I3SOCK",
-    "DBUS_SESSION_BUS_ADDRESS",
-];
 
 /// A running nested compositor.
 #[derive(Debug)]
@@ -71,9 +60,10 @@ impl Session {
                 what: "create the session directory".into(),
                 source,
             })?;
-        for sub in ["run", "data", "config", "cache", "state"] {
-            create_private_dir(&dir.path().join(sub))?;
-        }
+        session::create_dirs(dir.path()).map_err(|source| Error::Io {
+            what: "create the session's directories".into(),
+            source,
+        })?;
         prepare(&dir.path().join("data"))?;
 
         let log_path = dir.path().join("compositor.log");
@@ -236,7 +226,10 @@ fn compositor_command(compositor: Compositor, dir: &Path) -> Result<Command, Err
             // An empty configuration directory: labwc's defaults, and no
             // autostart.
             let config = dir.join("labwc");
-            create_private_dir(&config)?;
+            session::create_private_dir(&config).map_err(|source| Error::Io {
+                what: format!("create {}", config.display()),
+                source,
+            })?;
             let mut command = Command::new("labwc");
             command
                 .arg("--config-dir")
@@ -258,36 +251,6 @@ fn wlroots_headless(command: &mut Command) {
         .env("WLR_RENDERER", "pixman")
         .env("WLR_HEADLESS_OUTPUTS", OUTPUTS.to_string())
         .env("WLR_LIBINPUT_NO_DEVICES", "1");
-}
-
-/// Points `command` at the session in `dir` instead of the real one.
-fn isolate(command: &mut Command, dir: &Path) {
-    for variable in REAL_SESSION_VARIABLES {
-        command.env_remove(variable);
-    }
-    let paths: [(&str, PathBuf); 5] = [
-        ("XDG_RUNTIME_DIR", dir.join("run")),
-        ("XDG_DATA_HOME", dir.join("data")),
-        ("XDG_CONFIG_HOME", dir.join("config")),
-        ("XDG_CACHE_HOME", dir.join("cache")),
-        ("XDG_STATE_HOME", dir.join("state")),
-    ];
-    for (variable, path) in paths {
-        command.env(variable, OsString::from(path));
-    }
-}
-
-/// A directory only its owner may enter, as `XDG_RUNTIME_DIR` must be.
-fn create_private_dir(path: &Path) -> Result<(), Error> {
-    use std::os::unix::fs::DirBuilderExt;
-
-    fs::DirBuilder::new()
-        .mode(0o700)
-        .create(path)
-        .map_err(|source| Error::Io {
-            what: format!("create {}", path.display()),
-            source,
-        })
 }
 
 /// The name of the Wayland socket in `runtime`, once there is one.
@@ -329,24 +292,5 @@ mod tests {
         let _listener =
             std::os::unix::net::UnixListener::bind(dir.path().join("wayland-0")).unwrap();
         assert_eq!(wayland_socket(dir.path()).as_deref(), Some("wayland-0"));
-    }
-
-    #[test]
-    fn isolation_replaces_the_session_variables() {
-        let dir = Path::new("/tmp/session");
-        let mut command = Command::new("true");
-        command.env("WAYLAND_DISPLAY", "wayland-real");
-        isolate(&mut command, dir);
-        let envs: Vec<_> = command.get_envs().collect();
-        for variable in REAL_SESSION_VARIABLES {
-            assert!(
-                envs.contains(&(variable.as_ref(), None)),
-                "{variable} is not removed"
-            );
-        }
-        assert!(envs.contains(&(
-            "XDG_RUNTIME_DIR".as_ref(),
-            Some(Path::new("/tmp/session/run").as_os_str())
-        )));
     }
 }

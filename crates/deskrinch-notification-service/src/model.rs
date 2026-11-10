@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use crate::notification::{CloseReason, Expiry, Notification, NotificationId};
+use crate::policy::Ownership;
 use crate::request::{Policy, Request};
 
 /// A change to the model, in the order it happened.
@@ -18,12 +19,16 @@ pub(crate) enum Change {
     Closed {
         id: NotificationId,
         reason: CloseReason,
+        /// Its sender when it closed.
+        sender: Option<String>,
     },
     /// The user invoked an action.
     ActionInvoked {
         id: NotificationId,
         key: String,
         activation_token: Option<String>,
+        /// The notification's current sender.
+        sender: Option<String>,
     },
 }
 
@@ -34,6 +39,15 @@ pub(crate) enum Refused {
     TooMany(usize),
     #[error("this sender has {0} live notifications, the most one sender may have")]
     TooManyFromSender(usize),
+    #[error("the notification belongs to another sender")]
+    NotOwner,
+}
+
+/// Why a `CloseNotification` call closed nothing.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum CloseRefused {
+    NotFound,
+    NotOwner,
 }
 
 /// The live notifications, in the order they were first shown.
@@ -71,15 +85,27 @@ impl Model {
     }
 
     /// Shows `request` at `now`: replaces the live notification it names, or
-    /// adds a new one (also when the one it names is no longer live).
+    /// adds a new one.
+    ///
+    /// The specification: "If `replaces_id` is not 0, the returned value is
+    /// the same value as `replaces_id`." So a new notification for a
+    /// `replaces_id` that is not live takes that id (scripts that reuse a
+    /// fixed id rely on it), and the counter skips any id that is live.
     pub(crate) fn notify(
         &mut self,
         request: &Request<'_>,
         now: Instant,
     ) -> Result<(NotificationId, Change), Refused> {
-        let replacing = NotificationId::new(request.replaces_id).and_then(|id| self.position(id));
+        let requested = NotificationId::new(request.replaces_id);
+        let replacing = requested.and_then(|id| self.position(id));
         let limits = &self.policy.limits;
         let owner = replacing.and_then(|at| self.live[at].sender.as_deref());
+        if replacing.is_some()
+            && self.policy.ownership == Ownership::OriginalSender
+            && owner != request.sender.as_deref()
+        {
+            return Err(Refused::NotOwner);
+        }
         if replacing.is_none() && self.live.len() >= limits.max_live {
             return Err(Refused::TooMany(limits.max_live));
         }
@@ -103,11 +129,17 @@ impl Model {
         let budget = limits.max_image_bytes_total.saturating_sub(held);
         if let Some(at) = replacing {
             let id = self.live[at].id;
-            let notification = Arc::new(request.build(id, now, &self.policy, budget));
+            let mut built = request.build(id, now, &self.policy, budget);
+            // A notification the UI holds paused (under the pointer, say)
+            // stays paused with its new content, its full timeout left.
+            if matches!(self.live[at].expiry, Expiry::Paused { .. }) {
+                built.expiry = built.expiry.paused(now);
+            }
+            let notification = Arc::new(built);
             self.live[at] = Arc::clone(&notification);
             return Ok((id, Change::Replaced(notification)));
         }
-        let id = self.allocate_id();
+        let id = requested.unwrap_or_else(|| self.allocate_id());
         let notification = Arc::new(request.build(id, now, &self.policy, budget));
         self.live.push(Arc::clone(&notification));
         Ok((id, Change::Shown(notification)))
@@ -125,11 +157,44 @@ impl Model {
         }
     }
 
+    /// The sender `sender` called `CloseNotification` on `id`.
+    pub(crate) fn close_from_sender(
+        &mut self,
+        id: NotificationId,
+        sender: Option<&str>,
+    ) -> Result<Change, CloseRefused> {
+        let notification = self.get(id).ok_or(CloseRefused::NotFound)?;
+        if self.policy.ownership == Ownership::OriginalSender
+            && notification.sender.as_deref() != sender
+        {
+            return Err(CloseRefused::NotOwner);
+        }
+        self.close(id, CloseReason::Closed)
+            .ok_or(CloseRefused::NotFound)
+    }
+
     /// Removes `id` for `reason`. `None` when it is not live.
     pub(crate) fn close(&mut self, id: NotificationId, reason: CloseReason) -> Option<Change> {
         let at = self.position(id)?;
-        self.live.remove(at);
-        Some(Change::Closed { id, reason })
+        let closed = self.live.remove(at);
+        Some(Change::Closed {
+            id,
+            reason,
+            sender: closed.sender.clone(),
+        })
+    }
+
+    /// Removes every live notification, paused ones included, in order,
+    /// for `reason`.
+    pub(crate) fn close_all(&mut self, reason: CloseReason) -> Vec<Change> {
+        self.live
+            .drain(..)
+            .map(|n| Change::Closed {
+                id: n.id,
+                reason,
+                sender: n.sender.clone(),
+            })
+            .collect()
     }
 
     /// The user invoked the action `key` on `id`. Unless the notification is
@@ -148,6 +213,7 @@ impl Model {
             id,
             key: action.key.clone(),
             activation_token,
+            sender: notification.sender.clone(),
         }];
         if !notification.resident {
             changes.extend(self.close(id, CloseReason::Dismissed));
@@ -164,6 +230,7 @@ impl Model {
                 changes.push(Change::Closed {
                     id: n.id,
                     reason: CloseReason::Expired,
+                    sender: n.sender.clone(),
                 });
             }
             !expired
@@ -177,9 +244,33 @@ impl Model {
             .iter()
             .filter_map(|n| match n.expiry {
                 Expiry::At(at) => Some(at),
-                Expiry::Never => None,
+                Expiry::Never | Expiry::Paused { .. } => None,
             })
             .min()
+    }
+
+    /// Stops `id`'s timer at `now`, keeping the time it has left. Pausing a
+    /// paused notification, or one that never expires, changes nothing.
+    /// `None` when it is not live.
+    pub(crate) fn pause(&mut self, id: NotificationId, now: Instant) -> Option<()> {
+        self.set_expiry(id, |expiry| expiry.paused(now))
+    }
+
+    /// Starts `id`'s timer again at `now` with the time it had left.
+    /// `None` when it is not live.
+    pub(crate) fn resume(&mut self, id: NotificationId, now: Instant) -> Option<()> {
+        self.set_expiry(id, |expiry| expiry.resumed(now))
+    }
+
+    fn set_expiry(&mut self, id: NotificationId, f: impl FnOnce(Expiry) -> Expiry) -> Option<()> {
+        let at = self.position(id)?;
+        let expiry = f(self.live[at].expiry);
+        if expiry != self.live[at].expiry {
+            let mut notification = Notification::clone(&self.live[at]);
+            notification.expiry = expiry;
+            self.live[at] = Arc::new(notification);
+        }
+        Some(())
     }
 }
 

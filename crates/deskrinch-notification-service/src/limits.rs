@@ -37,6 +37,9 @@ pub struct Limits {
     pub max_hint_bytes: usize,
     /// Width and height, in pixels, of an image sent as pixel data.
     pub max_image_side: u32,
+    /// Bytes of one image's decoded pixel data (4 bytes a pixel): 16 MiB
+    /// holds a 1920×1080 screenshot twice over.
+    pub max_image_bytes: usize,
     /// Bytes of decoded pixel data across all live notifications together.
     pub max_image_bytes_total: usize,
 }
@@ -55,7 +58,8 @@ impl Default for Limits {
             max_action_key_bytes: 256,
             max_action_label_bytes: 256,
             max_hint_bytes: 256,
-            max_image_side: 1024,
+            max_image_side: 4096,
+            max_image_bytes: 16 * 1024 * 1024,
             max_image_bytes_total: 64 * 1024 * 1024,
         }
     }
