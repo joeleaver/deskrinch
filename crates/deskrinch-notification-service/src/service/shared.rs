@@ -160,6 +160,24 @@ impl Shared {
         })
     }
 
+    /// Pauses (`true`) or resumes `id`'s timer; the worker then waits for
+    /// the new next expiry.
+    pub(crate) fn set_paused(
+        &self,
+        id: NotificationId,
+        paused: bool,
+    ) -> Result<(), OperationError> {
+        let now = self.clock.now();
+        self.change(|state| {
+            let done = if paused {
+                state.model.pause(id, now)
+            } else {
+                state.model.resume(id, now)
+            };
+            done.ok_or(OperationError::NotFound(id))
+        })
+    }
+
     /// Closes `id` for `reason`.
     pub(crate) fn close(
         &self,

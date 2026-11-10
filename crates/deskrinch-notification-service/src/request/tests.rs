@@ -258,15 +258,42 @@ fn position_needs_both_coordinates_and_urgency_must_be_known() {
 }
 
 #[test]
-fn expiry_follows_the_timeout_and_urgency() {
-    let now = Instant::now();
+fn the_timeout_follows_the_request_and_urgency() {
     let default = Some(Duration::from_secs(5));
-    let at = |ms| Expiry::At(now + Duration::from_millis(ms));
-    assert_eq!(expiry(-1, Urgency::Normal, now, default), at(5000));
-    assert_eq!(expiry(-7, Urgency::Normal, now, default), at(5000));
-    assert_eq!(expiry(-1, Urgency::Normal, now, None), Expiry::Never);
-    assert_eq!(expiry(0, Urgency::Normal, now, default), Expiry::Never);
-    assert_eq!(expiry(1500, Urgency::Low, now, default), at(1500));
-    assert_eq!(expiry(1500, Urgency::Critical, now, default), Expiry::Never);
-    assert_eq!(expiry(-1, Urgency::Critical, now, default), Expiry::Never);
+    let ms = |ms| Some(Duration::from_millis(ms));
+    assert_eq!(timeout(-1, Urgency::Normal, default), ms(5000));
+    assert_eq!(timeout(-7, Urgency::Normal, default), ms(5000));
+    assert_eq!(timeout(-1, Urgency::Normal, None), None);
+    assert_eq!(timeout(0, Urgency::Normal, default), None);
+    assert_eq!(timeout(1500, Urgency::Low, default), ms(1500));
+    assert_eq!(timeout(1500, Urgency::Critical, default), None);
+    assert_eq!(timeout(-1, Urgency::Critical, default), None);
+}
+
+#[test]
+fn the_expiry_starts_when_shown_and_pauses_keeping_the_rest() {
+    let now = Instant::now();
+    let second = Duration::from_secs(1);
+    let expiry = Expiry::starting(Some(5 * second), now);
+    assert_eq!(expiry, Expiry::At(now + 5 * second));
+    let paused = expiry.paused(now + 2 * second);
+    assert_eq!(
+        paused,
+        Expiry::Paused {
+            remaining: 3 * second
+        }
+    );
+    assert_eq!(paused.paused(now + 4 * second), paused, "pausing twice");
+    assert_eq!(
+        paused.resumed(now + 10 * second),
+        Expiry::At(now + 13 * second)
+    );
+    assert_eq!(Expiry::starting(None, now).paused(now), Expiry::Never);
+    // Paused past its deadline, it has nothing left, and expires on resume.
+    assert_eq!(
+        expiry.paused(now + 9 * second),
+        Expiry::Paused {
+            remaining: Duration::ZERO
+        }
+    );
 }

@@ -103,7 +103,13 @@ impl Model {
         let budget = limits.max_image_bytes_total.saturating_sub(held);
         if let Some(at) = replacing {
             let id = self.live[at].id;
-            let notification = Arc::new(request.build(id, now, &self.policy, budget));
+            let mut built = request.build(id, now, &self.policy, budget);
+            // A notification the UI holds paused (under the pointer, say)
+            // stays paused with its new content, its full timeout left.
+            if matches!(self.live[at].expiry, Expiry::Paused { .. }) {
+                built.expiry = built.expiry.paused(now);
+            }
+            let notification = Arc::new(built);
             self.live[at] = Arc::clone(&notification);
             return Ok((id, Change::Replaced(notification)));
         }
@@ -177,9 +183,33 @@ impl Model {
             .iter()
             .filter_map(|n| match n.expiry {
                 Expiry::At(at) => Some(at),
-                Expiry::Never => None,
+                Expiry::Never | Expiry::Paused { .. } => None,
             })
             .min()
+    }
+
+    /// Stops `id`'s timer at `now`, keeping the time it has left. Pausing a
+    /// paused notification, or one that never expires, changes nothing.
+    /// `None` when it is not live.
+    pub(crate) fn pause(&mut self, id: NotificationId, now: Instant) -> Option<()> {
+        self.set_expiry(id, |expiry| expiry.paused(now))
+    }
+
+    /// Starts `id`'s timer again at `now` with the time it had left.
+    /// `None` when it is not live.
+    pub(crate) fn resume(&mut self, id: NotificationId, now: Instant) -> Option<()> {
+        self.set_expiry(id, |expiry| expiry.resumed(now))
+    }
+
+    fn set_expiry(&mut self, id: NotificationId, f: impl FnOnce(Expiry) -> Expiry) -> Option<()> {
+        let at = self.position(id)?;
+        let expiry = f(self.live[at].expiry);
+        if expiry != self.live[at].expiry {
+            let mut notification = Notification::clone(&self.live[at]);
+            notification.expiry = expiry;
+            self.live[at] = Arc::new(notification);
+        }
+        Some(())
     }
 }
 

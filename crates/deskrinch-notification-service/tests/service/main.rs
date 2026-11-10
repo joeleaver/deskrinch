@@ -15,4 +15,6 @@ mod lifecycle;
 #[cfg(test)]
 mod names;
 #[cfg(test)]
+mod pause;
+#[cfg(test)]
 mod wire;

@@ -85,7 +85,7 @@ fn a_notification_arrives_parsed_with_its_hints() {
     );
     assert_eq!(spans[3].link, None);
     assert_eq!(n.urgency, Urgency::Critical);
-    assert_eq!(n.timeout(), None, "critical never expires");
+    assert_eq!(n.timeout, None, "critical never expires");
     assert_eq!(n.category.as_deref(), Some("email.arrived"));
     assert_eq!(n.desktop_entry.as_deref(), Some("org.example.Mail"));
     let Some(ImageSource::Pixels(image)) = &n.image else {

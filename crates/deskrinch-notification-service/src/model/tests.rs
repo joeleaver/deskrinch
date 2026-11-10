@@ -287,3 +287,38 @@ fn the_image_budget_is_shared_by_live_notifications() {
     let (_, change) = m.notify(&replacement, now).unwrap();
     assert!(matches!(change, Change::Replaced(ref n) if n.image.is_some()));
 }
+
+#[test]
+fn a_paused_notification_keeps_its_remaining_time() {
+    let mut m = model();
+    let t0 = Instant::now();
+    let (a, _) = m.notify(&request("a"), t0).unwrap();
+    assert_eq!(m.pause(a, t0 + 2 * SECOND), Some(()));
+    assert_eq!(m.next_expiry(), None, "a paused timer is no deadline");
+    assert_eq!(m.expire(t0 + 60 * SECOND), []);
+    assert_eq!(m.resume(a, t0 + 60 * SECOND), Some(()));
+    assert_eq!(m.next_expiry(), Some(t0 + 63 * SECOND), "3 s were left");
+    assert_eq!(m.pause(id(99), t0), None);
+    assert_eq!(m.resume(id(99), t0), None);
+}
+
+#[test]
+fn a_replacement_of_a_paused_notification_stays_paused() {
+    let mut m = model();
+    let t0 = Instant::now();
+    let (a, _) = m.notify(&request("a"), t0).unwrap();
+    m.pause(a, t0 + 4 * SECOND);
+    let replacement = Request {
+        replaces_id: a.get(),
+        ..request("a2")
+    };
+    m.notify(&replacement, t0 + 10 * SECOND).unwrap();
+    assert_eq!(
+        m.get(a).unwrap().expiry,
+        Expiry::Paused {
+            remaining: 5 * SECOND
+        }
+    );
+    m.resume(a, t0 + 20 * SECOND);
+    assert_eq!(m.next_expiry(), Some(t0 + 25 * SECOND));
+}

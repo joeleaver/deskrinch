@@ -79,6 +79,7 @@ impl Request<'_> {
             .urgency
             .and_then(Urgency::from_level)
             .unwrap_or_default();
+        let timeout = timeout(self.expire_timeout, urgency, policy.default_timeout);
         let mut budget = image_budget;
         let image = self.image(limits, &mut budget);
         let icon_data = hints
@@ -128,7 +129,8 @@ impl Request<'_> {
             resident: hints.resident == Some(true),
             position: hints.x.zip(hints.y),
             shown_at: now,
-            expiry: expiry(self.expire_timeout, urgency, now, policy.default_timeout),
+            timeout,
+            expiry: Expiry::starting(timeout, now),
         }
     }
 
@@ -182,22 +184,21 @@ fn decode(raw: &RawImage<'_>, limits: &Limits, budget: &mut usize) -> Option<Ima
     Some(image)
 }
 
-/// When a notification shown at `now` expires.
+/// How long after it is shown a notification expires, if it does.
 ///
 /// A critical notification never expires on its own, whatever its timeout
 /// (the specification's urgency levels). Otherwise `0` is never, a positive
 /// timeout is that many milliseconds, and `-1` (or any other negative value)
 /// is the server's default.
-fn expiry(timeout: i32, urgency: Urgency, now: Instant, default: Option<Duration>) -> Expiry {
+fn timeout(expire_timeout: i32, urgency: Urgency, default: Option<Duration>) -> Option<Duration> {
     if urgency == Urgency::Critical {
-        return Expiry::Never;
+        return None;
     }
-    let after = match u64::try_from(timeout) {
+    match u64::try_from(expire_timeout) {
         Ok(0) => None,
         Ok(ms) => Some(Duration::from_millis(ms)),
         Err(_) => default,
-    };
-    after.map_or(Expiry::Never, |after| Expiry::At(now + after))
+    }
 }
 
 #[cfg(test)]

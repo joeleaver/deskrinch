@@ -69,7 +69,7 @@ fn notify_send_notifications_arrive_with_their_options() {
     assert_eq!(n.body.plain_text(), "Some bold & italic");
     assert!(n.body.spans()[1].style.bold && n.body.spans()[3].style.italic);
     assert_eq!(n.urgency, Urgency::Low);
-    assert_eq!(n.timeout(), Some(std::time::Duration::from_secs(3)));
+    assert_eq!(n.timeout, Some(std::time::Duration::from_secs(3)));
     assert_eq!(n.category.as_deref(), Some("im.received"));
     assert_eq!(n.desktop_entry.as_deref(), Some("org.example.Interop"));
     assert!(n.transient);

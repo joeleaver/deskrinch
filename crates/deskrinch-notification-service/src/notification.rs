@@ -94,6 +94,39 @@ pub enum Expiry {
     Never,
     /// At this moment on the service's [`Clock`](crate::Clock).
     At(Instant),
+    /// Paused by the UI ([`Handle::pause`](crate::Handle::pause)), with this
+    /// much of its timeout left for when it resumes.
+    Paused {
+        /// The time left.
+        remaining: Duration,
+    },
+}
+
+impl Expiry {
+    /// The expiry of a timeout starting at `now`.
+    pub(crate) fn starting(timeout: Option<Duration>, now: Instant) -> Self {
+        timeout.map_or(Self::Never, |after| Self::At(now + after))
+    }
+
+    /// This expiry paused at `now`; one that never comes is unchanged.
+    #[must_use]
+    pub(crate) fn paused(self, now: Instant) -> Self {
+        match self {
+            Self::At(at) => Self::Paused {
+                remaining: at.saturating_duration_since(now),
+            },
+            other => other,
+        }
+    }
+
+    /// This expiry running again from `now`.
+    #[must_use]
+    pub(crate) fn resumed(self, now: Instant) -> Self {
+        match self {
+            Self::Paused { remaining } => Self::At(now + remaining),
+            other => other,
+        }
+    }
 }
 
 /// Why a notification left the model, as `NotificationClosed` reports it.
@@ -106,6 +139,10 @@ pub enum CloseReason {
     Dismissed,
     /// The sender called `CloseNotification` (reason 3).
     Closed,
+    /// The service stopped, or lost `org.freedesktop.Notifications` to
+    /// another service (reason 4, "Undefined/reserved reasons" in the
+    /// specification). Senders waiting on the notification are released.
+    Undefined,
 }
 
 impl CloseReason {
@@ -116,6 +153,7 @@ impl CloseReason {
             Self::Expired => 1,
             Self::Dismissed => 2,
             Self::Closed => 3,
+            Self::Undefined => 4,
         }
     }
 }
@@ -166,6 +204,9 @@ pub struct Notification {
     pub position: Option<(i32, i32)>,
     /// When it was shown or last replaced, on the service's clock.
     pub shown_at: Instant,
+    /// How long after it was shown it expires, if it does: the sender's
+    /// timeout, or the default, or `None` (also for critical urgency).
+    pub timeout: Option<Duration>,
     /// When it expires.
     pub expiry: Expiry,
 }
@@ -201,15 +242,6 @@ impl Notification {
     #[must_use]
     pub fn action(&self, key: &str) -> Option<&Action> {
         self.actions.iter().find(|a| a.key == key)
-    }
-
-    /// How long after it was shown it expires, if it does.
-    #[must_use]
-    pub fn timeout(&self) -> Option<Duration> {
-        match self.expiry {
-            Expiry::Never => None,
-            Expiry::At(at) => Some(at.saturating_duration_since(self.shown_at)),
-        }
     }
 
     /// Bytes of decoded pixels this notification holds.

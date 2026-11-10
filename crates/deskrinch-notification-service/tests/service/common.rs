@@ -18,6 +18,9 @@ use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::{Connection, MatchRule, MessageStream, Variant};
 
+/// Long enough for a signal that should not come to have arrived.
+pub(crate) const QUIET: Duration = Duration::from_millis(200);
+
 /// How long a test waits for something that should happen.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
@@ -114,16 +117,19 @@ pub trait Notifications {
     fn get_server_information(&self) -> zbus::Result<(String, String, String, String)>;
 }
 
-/// A client of the service.
+/// A client of the service, and the signals its own connection receives
+/// (which, with sender-only delivery, are the ones about its notifications).
 pub(crate) struct Client {
     pub proxy: NotificationsProxy<'static>,
+    pub signals: Signals,
 }
 
 impl Client {
     pub(crate) fn new(bus: &PrivateBus) -> Self {
         let connection = bus.client();
+        let signals = Signals::on(&connection);
         let proxy = zbus::block_on(NotificationsProxy::new(&connection)).unwrap();
-        Self { proxy }
+        Self { proxy, signals }
     }
 
     /// Sends a notification with no actions or hints.
@@ -170,16 +176,16 @@ pub(crate) enum Signal {
 pub(crate) struct Signals(Receiver<Signal>);
 
 impl Signals {
-    /// Starts listening; signals emitted after this returns are all seen.
-    pub(crate) fn listen(bus: &PrivateBus) -> Self {
-        let connection = bus.client();
+    /// Starts listening on `connection`; signals it receives after this
+    /// returns are all seen.
+    pub(crate) fn on(connection: &Connection) -> Self {
         let rule = MatchRule::builder()
             .msg_type(Type::Signal)
             .interface("org.freedesktop.Notifications")
             .build()
             .unwrap();
         let mut stream =
-            zbus::block_on(MessageStream::for_match_rule(rule, &connection, None)).unwrap();
+            zbus::block_on(MessageStream::for_match_rule(rule, connection, None)).unwrap();
         let (tx, rx) = mpsc::channel();
         thread::spawn(move || {
             zbus::block_on(async move {

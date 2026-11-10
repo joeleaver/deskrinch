@@ -313,6 +313,32 @@ impl Handle {
         self.shared.close(id, CloseReason::Dismissed)
     }
 
+    /// Stops `id`'s timer, keeping the time it has left, while the user looks
+    /// at it (the pointer is over its popup, say). It stays paused through a
+    /// replacement, with its new full timeout left, until
+    /// [`resume`](Self::resume). Pausing twice, or pausing a notification
+    /// that never expires, changes nothing. A paused notification is closed
+    /// like any other: by the user, the sender, or the service stopping.
+    ///
+    /// # Errors
+    ///
+    /// [`OperationError::NotFound`] when it is not live,
+    /// [`OperationError::Stopped`] after the service stopped.
+    pub fn pause(&self, id: NotificationId) -> Result<(), OperationError> {
+        self.shared.set_paused(id, true)
+    }
+
+    /// Starts `id`'s timer again with the time it had left when paused.
+    /// Resuming one that is not paused changes nothing.
+    ///
+    /// # Errors
+    ///
+    /// [`OperationError::NotFound`] when it is not live,
+    /// [`OperationError::Stopped`] after the service stopped.
+    pub fn resume(&self, id: NotificationId) -> Result<(), OperationError> {
+        self.shared.set_paused(id, false)
+    }
+
     /// The user invoked the action `key` on `id` (use
     /// [`Action::DEFAULT_KEY`](crate::Action::DEFAULT_KEY) for activating the
     /// notification itself). The sender gets `ActivationToken` first when
