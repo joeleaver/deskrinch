@@ -44,7 +44,10 @@ it. Only the project manager writes to Pimble.
 - **rinch is changed only through PRs.** The local checkout at `~/dev/rinch`
   is read-only from here. Work in a fresh clone under the gitignored `.work/`,
   follow rinch's own `AGENTS.md`/`CLAUDE.md`, and open a PR against
-  `joeleaver/rinch`. The same goes for rinch's forks. Merging is rinch's.
+  `joeleaver/rinch`. The same goes for rinch's forks. The project manager
+  reviews those PRs and merges them: a rinch PR only through rinch's batch
+  procedure (`docs/internals/ci.md`), a fork PR with a merge commit. An agent
+  stops at an open PR with its checks green.
 - rinch is a git dependency on `main`, never a path dependency, and needs no
   `[patch.crates-io]` lines. Unmerged rinch work is tested through a
   `[patch]` in the gitignored `.cargo/config.local.toml`, which the tracked
