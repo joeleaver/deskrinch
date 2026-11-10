@@ -228,6 +228,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-watch"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "notify",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
 name = "deskrinch-window-management"
 version = "0.1.0"
 dependencies = [
