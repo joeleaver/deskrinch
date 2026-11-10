@@ -1,0 +1,4 @@
+# A failing `unwrap` or `expect` is how a test reports a broken expectation;
+# the workspace bans them everywhere else.
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true

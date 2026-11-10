@@ -1,0 +1,7 @@
+# One exact compiler for contributors and CI: the version rinch pins
+# (https://github.com/joeleaver/rinch/blob/main/rust-toolchain.toml), so a
+# clean local `cargo clippy` is a clean CI run. Move it together with
+# `rust-version` in Cargo.toml, when rinch moves.
+[toolchain]
+channel = "1.99.0"
+components = ["rustfmt", "clippy"]

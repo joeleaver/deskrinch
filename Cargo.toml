@@ -1,0 +1,71 @@
+[workspace]
+resolver = "3"
+# Crates live in `crates/<name>`. The first one to land adds `"crates/*"`
+# here (and drops this comment): Cargo rejects a glob that matches nothing.
+members = ["xtask"]
+
+# Metadata every member inherits with `key.workspace = true`.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# The toolchain `rust-toolchain.toml` pins; move the two together.
+rust-version = "1.99.0"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/joeleaver/deskrinch"
+publish = false
+
+# Every version lives here. A member names a dependency with
+# `name.workspace = true` and adds only the features it needs.
+[workspace.dependencies]
+clap = { version = "4.6.7", features = ["derive"] }
+tempfile = "3.27.0"
+thiserror = "2.0.21"
+
+# One lint policy for the whole repository; every member opts in with
+# `[lints] workspace = true`. Lints are set to `warn` and CI turns every
+# warning into an error (`-D warnings`), so an edit in progress still builds
+# locally while nothing reaches `main` with a warning.
+#
+# A crate that needs an exception uses `#[expect(lint, reason = "...")]` at
+# the narrowest item, never a crate-wide allow.
+[workspace.lints.rust]
+# `unsafe` needs a written safety argument (CLAUDE.md). `deny` rather than
+# `forbid` so a justified block can carry `#[expect(unsafe_code, reason)]`
+# next to its `// SAFETY:` comment; clippy's `undocumented_unsafe_blocks`
+# below insists on that comment.
+unsafe_code = "deny"
+missing_docs = "warn"
+missing_debug_implementations = "warn"
+rust_2018_idioms = { level = "warn", priority = -1 }
+unreachable_pub = "warn"
+unused_qualifications = "warn"
+unused_lifetimes = "warn"
+unused_import_braces = "warn"
+let_underscore_drop = "warn"
+trivial_casts = "warn"
+trivial_numeric_casts = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# The `cargo` group is left out on purpose: its `multiple_crate_versions`
+# fires on duplicate versions deep in the wgpu and smithay trees that this
+# repository cannot change. `cargo deny` reports duplicates instead.
+#
+# Picked from `restriction`:
+# Errors are typed values: no panicking shortcuts outside tests (clippy.toml
+# allows them in tests).
+unwrap_used = "warn"
+expect_used = "warn"
+# Nothing "for now": no placeholders or debugging leftovers.
+todo = "warn"
+unimplemented = "warn"
+dbg_macro = "warn"
+# Every lint exception says why, and goes stale loudly (`expect`, not `allow`).
+allow_attributes = "warn"
+allow_attributes_without_reason = "warn"
+# Every `unsafe` block carries its safety argument.
+undocumented_unsafe_blocks = "warn"
+unnecessary_safety_comment = "warn"
+multiple_unsafe_ops_per_block = "warn"
+clone_on_ref_ptr = "warn"
