@@ -58,7 +58,7 @@ mod plan;
 mod worker;
 
 pub use error::{BoxedError, WatchError};
-pub use worker::{Armed, Watcher};
+pub use worker::{Armed, Handle, Watcher};
 
 /// A path to watch.
 #[derive(Debug, Clone, PartialEq, Eq)]
