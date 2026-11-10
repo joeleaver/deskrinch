@@ -15,7 +15,8 @@
 //!
 //! - A [`Window`] has an id, a title, an application id, a [`WindowState`]
 //!   (active, minimized, maximized, fullscreen, demanding attention,
-//!   skipping the taskbar) and the outputs it is on.
+//!   skipping the taskbar), the outputs it is on, and its parent (the
+//!   window a dialog belongs to).
 //! - The subscriber passed to [`connect`] hears every change as an
 //!   [`Event`]: a window is `Added` once, then `Changed` (carrying its whole
 //!   new state), then `Removed`. `Ended` closes the connection's stream.
@@ -26,11 +27,13 @@
 //!
 //! Protocols differ in what they report and allow, and
 //! [`WindowManagement::capabilities`] says what this connection has: the
-//! state flags it reports, whether it reports outputs, and its actions. A
-//! flag that is not reported is never set; outputs that are not reported stay
-//! empty; an action that is missing fails with [`ActionError::Unsupported`].
-//! KWin's protocol, for instance, does not report outputs, and the wlroots
-//! one does not report attention or taskbar hints.
+//! state flags it reports, whether it reports outputs and parents, and its
+//! actions. A flag that is not reported is never set; outputs and parents
+//! that are not reported stay empty; an action that is missing fails with
+//! [`ActionError::Unsupported`]. The wlroots protocol, for instance, does not
+//! report attention or taskbar hints. KWin's reports a window's geometry
+//! rather than its outputs, and this crate works the outputs out from the
+//! output layout, so the caller sees outputs either way.
 //!
 //! # Threads
 //!
@@ -71,13 +74,15 @@
 //!
 //! The unit tests need no compositor. The tests in `tests/` drive a real one
 //! and are ignored by a plain `cargo test`; `cargo xtask compositor-tests`
-//! runs them inside a nested, headless KWin and sway, with their own runtime,
-//! data and configuration directories, touching nothing in the real session.
+//! runs them inside nested, headless KWin, sway and labwc sessions with two
+//! outputs each and their own runtime, data and configuration directories,
+//! touching nothing in the real session.
 
 mod backend;
 mod capabilities;
 mod error;
 pub mod kwin_access;
+mod layout;
 mod manager;
 mod model;
 mod window;

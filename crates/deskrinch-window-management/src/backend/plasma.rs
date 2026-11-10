@@ -6,7 +6,7 @@
 //! so it is announced at once. `unmapped` ends the window.
 
 use wayland_client::globals::GlobalList;
-use wayland_client::{Connection, Dispatch, QueueHandle};
+use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols_plasma::plasma_window_management::client::org_kde_plasma_window::{
     self, OrgKdePlasmaWindow,
 };
@@ -17,6 +17,7 @@ use wayland_protocols_plasma::plasma_window_management::client::org_kde_plasma_w
 use super::{State, WindowHandle};
 use crate::capabilities::{Action, Actions, Capabilities, Protocol};
 use crate::error::ConnectError;
+use crate::layout::Rect;
 use crate::model::Change;
 use crate::window::{WindowId, WindowState};
 
@@ -47,7 +48,11 @@ pub(super) fn bind(
     let capabilities = Capabilities {
         protocol: Protocol::PlasmaWindowManagement,
         states: WindowState::all(),
+        // Worked out from geometry; settled by `backend::connect`, which
+        // knows whether the output layout is described.
         outputs: false,
+        // `parent_window` is older than `MIN_VERSION`.
+        parent: true,
         actions: Actions::all(),
     };
     Ok((manager, capabilities))
@@ -127,6 +132,24 @@ impl Dispatch<OrgKdePlasmaWindow, WindowId> for State {
             org_kde_plasma_window::Event::StateChanged { flags } => {
                 Change::State(window_state(flags))
             }
+            org_kde_plasma_window::Event::Geometry {
+                x,
+                y,
+                width,
+                height,
+            } => {
+                let geometry = Rect {
+                    x,
+                    y,
+                    width: i32::try_from(width).unwrap_or(i32::MAX),
+                    height: i32::try_from(height).unwrap_or(i32::MAX),
+                };
+                state.moved(id, geometry);
+                return;
+            }
+            org_kde_plasma_window::Event::ParentWindow { parent } => {
+                Change::Parent(parent.and_then(|parent| parent.data::<WindowId>().copied()))
+            }
             org_kde_plasma_window::Event::InitialState => {
                 state.update(|inner| inner.list.commit(id));
                 return;
@@ -136,8 +159,8 @@ impl Dispatch<OrgKdePlasmaWindow, WindowId> for State {
                 window.destroy();
                 return;
             }
-            // Geometry, icons, virtual desktops, activities, pid, parent and
-            // the rest are not modelled.
+            // Icons, virtual desktops, activities, pid and the rest are not
+            // modelled.
             _ => return,
         };
         state.update(|inner| inner.list.apply_live(id, change));

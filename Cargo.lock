@@ -195,6 +195,7 @@ name = "deskrinch-window-management"
 version = "0.1.0"
 dependencies = [
  "bitflags",
+ "rustix",
  "tempfile",
  "thiserror",
  "wayland-client",
