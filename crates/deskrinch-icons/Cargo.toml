@@ -15,8 +15,8 @@ deskrinch-xdg.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-# The index_cost example reads this thread's CPU clock.
-rustix = { workspace = true, features = ["time"] }
+# The index_cost example reads this thread's CPU clock and the page size.
+rustix = { workspace = true, features = ["param", "time"] }
 tempfile.workspace = true
 
 [lints]

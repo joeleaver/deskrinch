@@ -6,7 +6,8 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use super::*;
-use crate::index::Indexed;
+use crate::candidates::names;
+use crate::index::{Indexed, Location};
 use crate::theme::Theme;
 use crate::theme::tests::BIRCH;
 
@@ -221,8 +222,81 @@ fn falls_back_to_generic_names_theme_by_theme() {
         path(&t, unknown.with_generic_fallback()),
         "/b0/parent/48/input.png"
     );
-    assert_eq!(generic_names("a-b-c"), ["a-b-c", "a-b", "a"]);
-    assert_eq!(generic_names("-a"), ["-a"]);
+    assert_eq!(names("a-b-c", true), ["a-b-c", "a-b", "a"]);
+    assert_eq!(names("a-b-c", false), ["a-b-c"]);
+    assert_eq!(names("-a", true), ["-a"]);
+}
+
+#[test]
+fn prefers_symbolic_icons_at_every_level_for_a_symbolic_name() {
+    assert_eq!(
+        names("a-b-symbolic", true),
+        ["a-b-symbolic", "a-symbolic", "a-b", "a"]
+    );
+    assert_eq!(names("symbolic", true), ["symbolic"]);
+    assert_eq!(names("-symbolic", true), ["-symbolic"]);
+    let text = theme_text("", &["48:48:Fixed"]);
+    let t = index(
+        "t",
+        &[(
+            "t",
+            &text,
+            &[
+                ("48", 0, "audio-volume.png"),
+                ("48", 0, "audio-symbolic.svg"),
+            ],
+        )],
+        &[],
+    );
+    let request = Request::new("audio-volume-symbolic", 48).with_generic_fallback();
+    assert_eq!(path(&t, request), "/b0/t/48/audio-symbolic.svg");
+}
+
+#[test]
+fn gives_every_candidate_best_first() {
+    let child = theme_text(
+        "",
+        &["16:16:Fixed", "48:48:Fixed", "32:32:Fixed", "64:64:Fixed"],
+    );
+    let hicolor = theme_text("", &["48:48:Fixed"]);
+    let t = index(
+        "child",
+        &[
+            (
+                "child",
+                &child,
+                &[
+                    ("64", 0, "x.png"),
+                    ("16", 0, "x.png"),
+                    ("32", 0, "x.png"),
+                    ("48", 1, "x.png"),
+                    ("48", 0, "x.svg"),
+                ],
+            ),
+            (HICOLOR, &hicolor, &[("48", 0, "x.png")]),
+        ],
+        &[(1, "x.png"), (0, "x.xpm")],
+    );
+    let all: Vec<String> = t
+        .candidates(&Request::new("x", 48))
+        .unwrap()
+        .map(|icon| icon.path.display().to_string())
+        .collect();
+    assert_eq!(
+        all,
+        [
+            // The exact matches: base directory first, then format.
+            "/b0/child/48/x.svg",
+            "/b1/child/48/x.png",
+            // The other sizes by distance, 32 and 64 tied: directory order.
+            "/b0/child/32/x.png",
+            "/b0/child/64/x.png",
+            "/b0/child/16/x.png",
+            "/b0/hicolor/48/x.png",
+            "/b0/x.xpm",
+            "/b1/x.png",
+        ]
+    );
 }
 
 #[test]

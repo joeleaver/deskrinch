@@ -161,23 +161,53 @@ fn falls_back_to_the_base_directories_and_pixmaps() {
 }
 
 #[test]
-fn follows_links_to_files_and_ignores_broken_ones() {
+fn lists_links_and_finds_past_broken_ones() {
     let f = Fixture::new();
+    f.theme("b0", "t", &theme_text("", &["48:48:Fixed", "64:64:Fixed"]));
     f.theme("b0", HICOLOR, &theme_text("", &["48:48:Fixed"]));
     let target = f.icon("b0", HICOLOR, "48", "real.png");
-    symlink(&target, f.base("b0").join("hicolor/48/alias.png")).unwrap();
+    let alias = f.base("b0").join("t/48/alias.png");
+    std::fs::create_dir_all(alias.parent().unwrap()).unwrap();
+    symlink(&target, &alias).unwrap();
+    // The theme's best `x` is a broken link, its next a link to a
+    // directory; then a real file at another size, then hicolor's.
+    let broken = f.base("b0").join("t/48/x.png");
+    symlink(f.root.join("nowhere.png"), &broken).unwrap();
+    symlink(f.base("b0"), f.base("b0").join("t/48/x.svg")).unwrap();
+    let other_size = f.icon("b0", "t", "64", "x.png");
+    f.icon("b0", HICOLOR, "48", "x.png");
+    // A directory named like an icon is not listed at all.
+    std::fs::create_dir(f.base("b0").join("t/48/dir.png")).unwrap();
+    // Only broken links: the unthemed icon is the first that exists.
     symlink(
         f.root.join("nowhere.png"),
-        f.base("b0").join("hicolor/48/broken.png"),
+        f.base("b0").join("t/48/gone.png"),
     )
     .unwrap();
-    std::fs::create_dir(f.base("b0").join("hicolor/48/dir.png")).unwrap();
-    let index = f.load(HICOLOR);
+    let loose = f.icon("b1", "", "", "gone.png");
+
+    let index = f.load("t");
+    let request = |name| Request::new(name, 48);
+    assert_eq!(index.find(&request("alias")).unwrap().path, alias);
+    // The pure lookup reads no file, so it answers with the broken link;
+    // `find` checks, and goes on.
+    assert_eq!(index.lookup(&request("x")).unwrap().path, broken);
+    assert_eq!(index.find(&request("x")).unwrap().path, other_size);
+    let all: Vec<_> = index
+        .candidates(&request("x"))
+        .unwrap()
+        .map(|i| i.path)
+        .collect();
     assert_eq!(
-        found(&index, "alias"),
-        Some(f.base("b0").join("hicolor/48/alias.png"))
+        all,
+        [
+            broken.clone(),
+            f.base("b0").join("t/48/x.svg"),
+            other_size.clone(),
+            f.base("b0").join("hicolor/48/x.png"),
+        ]
     );
-    assert_eq!(found(&index, "broken"), None);
+    assert_eq!(index.find(&request("gone")).unwrap().path, loose);
     assert_eq!(found(&index, "dir"), None);
 }
 
@@ -192,8 +222,11 @@ fn answers_an_absolute_path_as_itself_when_it_exists() {
     assert_eq!((icon.path, icon.format), (png.clone(), Format::Png));
     let gone = f.root.join("gone.svg");
     assert_eq!(by_path(&gone), Err(LookupError::NoFile(gone)));
+    // Another format is answered too; drawing it is the renderer's
+    // business.
     let jpeg = f.root.join("app.jpg");
-    assert_eq!(by_path(&jpeg), Err(LookupError::UnsupportedFormat(jpeg)));
+    let icon = by_path(&jpeg).unwrap();
+    assert_eq!((icon.path, icon.format), (jpeg, Format::Other));
     // `find` answers names as `lookup` does.
     assert_eq!(index.find(&Request::new("app", 48)).unwrap().path, png);
 }

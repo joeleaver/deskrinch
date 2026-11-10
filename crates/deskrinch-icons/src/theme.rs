@@ -58,6 +58,13 @@ pub enum DirectoryKind {
     },
     /// Within `threshold` (`Threshold`, 2 by default) of
     /// [`Directory::size`]. The default `Type`.
+    ///
+    /// When no directory matches, a lookup takes the closest, and a
+    /// `Threshold` directory's distance here is from the band
+    /// `Size ± Threshold` (times `Scale`, in device pixels). The
+    /// specification's text compares against that band but then subtracts
+    /// `MinSize` and `MaxSize`, which only `Scalable` directories have; this
+    /// crate reads the text's evident intent.
     Threshold {
         /// `Threshold`.
         threshold: u32,
@@ -197,7 +204,7 @@ impl Directory {
     /// this is `Size ± Threshold`, which is what the specification's
     /// `DirectorySizeDistance` compares against; its text then subtracts
     /// `MinSize` and `MaxSize`, which a `Threshold` directory does not
-    /// have. GTK uses the band, as here.
+    /// have (see [`DirectoryKind::Threshold`]).
     fn range(&self) -> (i64, i64) {
         let size = i64::from(self.size);
         match self.kind {

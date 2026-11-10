@@ -8,6 +8,10 @@
 //! CPU, so the figures hold on a loaded machine where wall time does not.
 //! The first build reads directories the kernel may not have cached; the
 //! others show the cost with a warm cache, as a rebuild after a change has.
+//!
+//! The index's memory is the growth of the resident set (`/proc/self/statm`)
+//! from before the first build to after it, with that index kept: an
+//! estimate that includes the allocator's own overhead.
 
 use std::time::Duration;
 
@@ -22,22 +26,35 @@ fn cpu_time() -> Duration {
     Duration::new(seconds, nanos)
 }
 
+/// This process's resident set, in bytes.
+fn resident() -> usize {
+    let statm = std::fs::read_to_string("/proc/self/statm").unwrap_or_default();
+    let pages: usize = statm
+        .split_whitespace()
+        .nth(1)
+        .and_then(|pages| pages.parse().ok())
+        .unwrap_or(0);
+    pages * rustix::param::page_size()
+}
+
 fn main() {
     let mut args = std::env::args().skip(1);
     let theme = args.next().unwrap_or_else(|| "breeze".to_owned());
     let builds: usize = args.next().and_then(|n| n.parse().ok()).unwrap_or(20);
     let search_path = SearchPath::new(&BaseDirs::from_process());
 
-    let mut costs = Vec::with_capacity(builds);
-    let mut index = None;
-    for _ in 0..builds.max(1) {
+    let before = resident();
+    let start = cpu_time();
+    let index = Index::load(&search_path, &theme);
+    let first = cpu_time().saturating_sub(start);
+    let grown = resident().saturating_sub(before);
+    let mut costs = vec![first];
+    for _ in 1..builds.max(1) {
         let start = cpu_time();
         let built = Index::load(&search_path, &theme);
         costs.push(cpu_time().saturating_sub(start));
-        index = Some(built);
+        drop(built);
     }
-    let Some(index) = index else { return };
-    let first = costs[0];
     let mut warm = costs[1..].to_vec();
     warm.sort();
 
@@ -52,6 +69,7 @@ fn main() {
         index.files(),
         index.problems().len()
     );
+    println!("resident set grew by {} KiB with the index", grown / 1024);
     println!("first build: {first:?} CPU");
     if let (Some(min), Some(median)) = (warm.first(), warm.get(warm.len() / 2)) {
         println!(
@@ -75,4 +93,13 @@ fn main() {
     }
     let per_lookup = cpu_time().saturating_sub(start) / lookups.try_into().unwrap_or(u32::MAX);
     println!("lookup: {per_lookup:?} CPU each ({hits} of {lookups} found)");
+
+    let start = cpu_time();
+    let mut hits = 0;
+    for i in 0..lookups {
+        let request = Request::new(names[i % names.len()], 48).with_generic_fallback();
+        hits += usize::from(index.find(&request).is_ok());
+    }
+    let per_find = cpu_time().saturating_sub(start) / lookups.try_into().unwrap_or(u32::MAX);
+    println!("find, checking the file: {per_find:?} CPU each ({hits} of {lookups} found)");
 }

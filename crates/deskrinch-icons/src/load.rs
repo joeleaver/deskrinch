@@ -180,10 +180,10 @@ impl Index {
     /// an icon format's extension. A directory that does not exist has
     /// none.
     ///
-    /// A link is followed, so a broken one or one to a directory is no
-    /// icon, as Qt has it (GTK lists names without looking). Themes such as
-    /// Breeze are mostly links, and following them is most of what a build
-    /// costs.
+    /// A link is listed without being followed: themes such as Breeze are
+    /// mostly links, and following each was most of what a build cost. So
+    /// a listed icon may be a broken link (or a link to a directory);
+    /// [`Index::find`] checks the one it answers with.
     fn list(&mut self, theme: &str, dir: &Path) -> Vec<(String, Format)> {
         let entries = match fs::read_dir(dir) {
             Ok(entries) => entries,
@@ -199,9 +199,8 @@ impl Index {
                 let file_name = entry.file_name();
                 let (stem, format) = Format::split(file_name.to_str()?)?;
                 let file_type = entry.file_type().ok()?;
-                let is_file =
-                    file_type.is_file() || (file_type.is_symlink() && entry.path().is_file());
-                is_file.then(|| (stem.to_owned(), format))
+                let listed = file_type.is_file() || file_type.is_symlink();
+                listed.then(|| (stem.to_owned(), format))
             })
             .collect()
     }

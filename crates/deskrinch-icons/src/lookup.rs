@@ -1,10 +1,10 @@
 //! Finding an icon: the specification's `FindIcon` and `FindBestIcon`, over
 //! an [`Index`].
 
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
-use crate::index::{Format, Index, Indexed, Location};
+use crate::candidates::{self, Candidates};
+use crate::index::{Format, Index};
 
 /// The theme every lookup falls back to.
 pub const HICOLOR: &str = "hicolor";
@@ -35,6 +35,11 @@ pub enum Fallback {
     /// of them before its parents, as the Icon Theme Specification's
     /// `FindBestIcon` does: a more specific icon in a parent theme loses to
     /// a more generic one in the theme itself.
+    ///
+    /// A symbolic name prefers symbolic icons at every level before any
+    /// coloured one, since a monochrome icon was asked for:
+    /// `input-mouse-symbolic`, then `input-symbolic`, then `input-mouse`,
+    /// then `input`.
     Generic,
 }
 
@@ -101,28 +106,19 @@ pub enum LookupError {
     /// The absolute path is no file.
     #[error("{0:?} is not a file")]
     NoFile(PathBuf),
-    /// The absolute path's extension is none of `png`, `svg` and `xpm`.
-    #[error("{0:?} is not a PNG, SVG or XPM file")]
-    UnsupportedFormat(PathBuf),
 }
 
 impl Index {
-    /// Looks up `request` in the index's theme, its parents and `hicolor`,
-    /// then among the icons outside any theme, by the Icon Theme
-    /// Specification. It reads no file.
-    ///
-    /// Within a theme the first directory (in the theme's order) that
-    /// serves the size and scale as they are wins, its first base directory
-    /// that has the icon, and the first format of PNG, SVG and XPM. Failing
-    /// that, the icon closest in device pixels wins, the first one on a tie.
-    /// Only when no theme has the name are the base directories themselves
-    /// looked in.
+    /// Every file that could answer `request`, best first (see
+    /// [`Candidates`] for the order), without reading any: the index lists
+    /// names, and a name may be a broken link. [`find`](Self::find) takes
+    /// the first that exists; [`lookup`](Self::lookup) the first.
     ///
     /// # Errors
     ///
-    /// [`LookupError::NotFound`] when nothing has the icon; an invalid
-    /// request, or an absolute path (see [`find`](Self::find)), as such.
-    pub fn lookup(&self, request: &Request<'_>) -> Result<Icon, LookupError> {
+    /// An invalid request, or an absolute path (see [`find`](Self::find)),
+    /// as such.
+    pub fn candidates(&self, request: &Request<'_>) -> Result<Candidates<'_>, LookupError> {
         if Path::new(request.name).is_absolute() {
             return Err(LookupError::Path(request.name.into()));
         }
@@ -137,116 +133,62 @@ impl Index {
                 scale: request.scale,
             });
         }
-        let names = match request.fallback {
-            Fallback::None => vec![request.name],
-            Fallback::Generic => generic_names(request.name),
-        };
-        let mut visited = HashSet::new();
-        [self.theme.as_str(), HICOLOR]
-            .into_iter()
-            .find_map(|theme| self.in_theme(theme, &names, request, &mut visited))
-            .or_else(|| names.iter().find_map(|name| self.unthemed(name)))
+        let generic = request.fallback == Fallback::Generic;
+        let names = candidates::names(request.name, generic);
+        Ok(Candidates::new(self, names, request.size, request.scale))
+    }
+
+    /// Looks up `request` in the index's theme, its parents and `hicolor`,
+    /// then among the icons outside any theme, by the Icon Theme
+    /// Specification: the first of the [`candidates`](Self::candidates).
+    /// It reads no file, so the file may turn out to be a broken link;
+    /// [`find`](Self::find) checks.
+    ///
+    /// Within a theme the first directory (in the theme's order) that
+    /// serves the size and scale as they are wins, its first base directory
+    /// that has the icon, and the first format of PNG, SVG and XPM. Failing
+    /// that, the icon closest in device pixels wins, the first one on a tie.
+    /// Only when no theme has the name are the base directories themselves
+    /// looked in.
+    ///
+    /// # Errors
+    ///
+    /// [`LookupError::NotFound`] when nothing has the icon; an invalid
+    /// request, or an absolute path, as such.
+    pub fn lookup(&self, request: &Request<'_>) -> Result<Icon, LookupError> {
+        self.candidates(request)?
+            .next()
             .ok_or_else(|| LookupError::NotFound {
                 name: request.name.into(),
             })
     }
 
-    /// [`lookup`](Self::lookup), and for a name that is an absolute path,
-    /// that file, if it exists and is a PNG, SVG or XPM file. Only an
-    /// absolute path makes it read the file system, to see that the file
-    /// exists.
+    /// The first of the [`candidates`](Self::candidates) that exists, so a
+    /// broken link is never returned; and for a name that is an absolute
+    /// path, that file, if it exists, in whatever format. It reads the file
+    /// system once per candidate it checks: once, unless it meets a broken
+    /// link.
     ///
     /// # Errors
     ///
-    /// As [`lookup`](Self::lookup); for a path,
-    /// [`LookupError::NoFile`] or [`LookupError::UnsupportedFormat`].
+    /// As [`lookup`](Self::lookup); for a path, [`LookupError::NoFile`].
     pub fn find(&self, request: &Request<'_>) -> Result<Icon, LookupError> {
         let path = Path::new(request.name);
-        if !path.is_absolute() {
-            return self.lookup(request);
+        if path.is_absolute() {
+            if !path.is_file() {
+                return Err(LookupError::NoFile(path.into()));
+            }
+            return Ok(Icon {
+                path: path.into(),
+                format: candidates::format_of(path),
+            });
         }
-        let format = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .and_then(Format::split)
-            .map(|(_, format)| format)
-            .ok_or_else(|| LookupError::UnsupportedFormat(path.into()))?;
-        if !path.is_file() {
-            return Err(LookupError::NoFile(path.into()));
-        }
-        Ok(Icon {
-            path: path.into(),
-            format,
-        })
-    }
-
-    /// `FindBestIconHelper`: `theme`, then its parents depth first, each
-    /// theme once.
-    fn in_theme<'s>(
-        &'s self,
-        theme: &'s str,
-        names: &[&str],
-        request: &Request<'_>,
-        visited: &mut HashSet<&'s str>,
-    ) -> Option<Icon> {
-        if !visited.insert(theme) {
-            return None;
-        }
-        let indexed = self.themes.get(theme)?;
-        names
-            .iter()
-            .find_map(|name| self.in_directories(indexed, name, request))
-            .or_else(|| {
-                indexed
-                    .theme
-                    .inherits
-                    .iter()
-                    .find_map(|parent| self.in_theme(parent, names, request, visited))
+        self.candidates(request)?
+            .find(|icon| icon.path.is_file())
+            .ok_or_else(|| LookupError::NotFound {
+                name: request.name.into(),
             })
     }
-
-    /// `LookupIcon`: the first file whose directory serves the size and
-    /// scale, else the closest.
-    fn in_directories(&self, theme: &Indexed, name: &str, request: &Request<'_>) -> Option<Icon> {
-        let locations = theme.icons.get(name)?;
-        let directory = |at: &Location| &theme.theme.directories[at.directory];
-        let at = locations
-            .iter()
-            .find(|at| directory(at).matches(request.size, request.scale))
-            .or_else(|| {
-                // `min_by_key` keeps the first of equal keys.
-                locations
-                    .iter()
-                    .min_by_key(|at| directory(at).distance(request.size, request.scale))
-            })?;
-        Some(Icon {
-            path: self.themed_path(theme, name, *at),
-            format: at.format,
-        })
-    }
-
-    /// `LookupFallbackIcon`: the first base directory that has the icon.
-    fn unthemed(&self, name: &str) -> Option<Icon> {
-        let at = *self.unthemed.get(name)?.first()?;
-        Some(Icon {
-            path: self.unthemed_path(name, at),
-            format: at.format,
-        })
-    }
-}
-
-/// `name`, then each name with its last `-` component dropped.
-fn generic_names(name: &str) -> Vec<&str> {
-    let mut names = vec![name];
-    let mut rest = name;
-    while let Some(end) = rest.rfind('-') {
-        rest = &rest[..end];
-        if rest.is_empty() {
-            break;
-        }
-        names.push(rest);
-    }
-    names
 }
 
 #[cfg(test)]

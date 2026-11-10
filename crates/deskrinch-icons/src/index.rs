@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use crate::problem::Problem;
 use crate::theme::Theme;
 
-/// An image format the specification allows for icons, in the order a
-/// lookup prefers them within one directory.
+/// An icon file's format: one of the three the specification allows in
+/// themes, in the order a lookup prefers them within one directory, or,
+/// for an absolute path a caller gave, any other.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Format {
     /// `.png`.
@@ -18,31 +19,38 @@ pub enum Format {
     Svg,
     /// `.xpm`.
     Xpm,
+    /// Another format, or none the extension names: only ever for an
+    /// absolute path given to [`Index::find`]. Whether it can be drawn is
+    /// the renderer's business; its extension is in the path.
+    Other,
 }
 
 impl Format {
-    /// Every format, in the order a lookup prefers them.
+    /// The specification's formats, in the order a lookup prefers them.
     pub const ALL: [Self; 3] = [Self::Png, Self::Svg, Self::Xpm];
 
-    /// The file extension, without the dot.
+    /// The file extension, without the dot; `None` for
+    /// [`Other`](Self::Other).
     #[must_use]
-    pub fn extension(self) -> &'static str {
+    pub fn extension(self) -> Option<&'static str> {
         match self {
-            Self::Png => "png",
-            Self::Svg => "svg",
-            Self::Xpm => "xpm",
+            Self::Png => Some("png"),
+            Self::Svg => Some("svg"),
+            Self::Xpm => Some("xpm"),
+            Self::Other => None,
         }
     }
 
-    /// The format a file name's extension names, and the name without it:
-    /// `firefox.png` is `("firefox", Png)`. Extensions are matched exactly,
-    /// as GTK matches them.
+    /// The format a file name's extension names, if it is one of the
+    /// specification's, and the name without it: `firefox.png` is
+    /// `("firefox", Png)`. Extensions are matched exactly, as GTK matches
+    /// them.
     #[must_use]
     pub fn split(file_name: &str) -> Option<(&str, Self)> {
         let (stem, extension) = file_name.rsplit_once('.')?;
         let format = Self::ALL
             .into_iter()
-            .find(|format| format.extension() == extension)?;
+            .find(|format| format.extension() == Some(extension))?;
         (!stem.is_empty()).then_some((stem, format))
     }
 }
@@ -140,8 +148,13 @@ impl Index {
     }
 }
 
+/// An indexed icon's file name. Indexed icons are always in one of the
+/// specification's formats, which have an extension.
 fn file_name(name: &str, format: Format) -> String {
-    format!("{name}.{}", format.extension())
+    match format.extension() {
+        Some(extension) => format!("{name}.{extension}"),
+        None => name.to_owned(),
+    }
 }
 
 #[cfg(test)]

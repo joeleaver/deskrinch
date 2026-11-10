@@ -14,13 +14,18 @@
 //! - An [`Index`] is everything a lookup in one theme needs: that theme,
 //!   every theme it inherits from, `hicolor`, and the unthemed icons
 //!   directly in the base directories, with which icons each directory
-//!   holds. [`Index::load`] builds it by reading the directories; nothing
-//!   fails, and what was wrong is in [`Index::problems`].
-//! - [`Index::lookup`] answers a [`Request`] (a name, a size, a scale, and
-//!   optionally the generic fallback from `a-b-c` to `a-b` to `a`) with an
-//!   [`Icon`] (a path and its [`Format`]) or a [`LookupError`]. It is the
-//!   specification's lookup, and it reads no file. [`Index::find`] also
-//!   answers an absolute path, as itself, when the file exists.
+//!   holds. [`Index::load`] builds it by listing the directories, by name:
+//!   it does not follow links, which in a theme like Breeze would cost most
+//!   of the build. Nothing fails, and what was wrong is in
+//!   [`Index::problems`].
+//! - [`Index::candidates`] gives the files that could answer a [`Request`]
+//!   (a name, a size, a scale, and optionally the generic fallback from
+//!   `a-b-c` to `a-b` to `a`), best first, by the specification's lookup;
+//!   it reads no file. [`Index::lookup`] is the first of them, an [`Icon`]
+//!   (a path and its [`Format`]) or a [`LookupError`].
+//! - [`Index::find`] is the first that exists, so a broken link is never
+//!   returned, at one `stat` per candidate checked. It also answers an
+//!   absolute path, as itself, when the file exists.
 //! - A [`Watcher`] follows the themes through `deskrinch-watch` and
 //!   delivers a new index when they change.
 //!
@@ -49,6 +54,7 @@
 //!
 //! [Icon Theme Specification]: https://specifications.freedesktop.org/icon-theme/latest/
 
+mod candidates;
 mod index;
 mod load;
 mod lookup;
@@ -56,6 +62,7 @@ mod problem;
 mod theme;
 mod watch;
 
+pub use candidates::Candidates;
 pub use index::{Format, Index};
 pub use load::SearchPath;
 pub use lookup::{Fallback, HICOLOR, Icon, LookupError, Request};
