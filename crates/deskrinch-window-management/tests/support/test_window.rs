@@ -5,7 +5,7 @@
 //! client, dispatched on a thread of its own so that it answers pings and
 //! configures like a live application: it acknowledges each configure and
 //! draws a buffer of the size asked for. A close request is recorded and
-//! obeyed: the window unmaps, as an application would.
+//! obeyed: the toplevel is destroyed, as an application would destroy it.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -275,7 +275,7 @@ impl Client {
 impl Dispatch<XdgToplevel, Arc<Shared>> for Client {
     fn event(
         _: &mut Self,
-        _: &XdgToplevel,
+        toplevel: &XdgToplevel,
         event: xdg_toplevel::Event,
         shared: &Arc<Shared>,
         _: &Connection,
@@ -287,9 +287,10 @@ impl Dispatch<XdgToplevel, Arc<Shared>> for Client {
             }
             xdg_toplevel::Event::Close => {
                 shared.status.lock().unwrap().close_requested = true;
-                // Obey, as an application would: unmap.
-                shared.surface.attach(None, 0, 0);
-                shared.surface.commit();
+                // Obey, as an application would: the window goes. (Dropping
+                // the `TestWindow` later destroys the rest; a request to the
+                // destroyed toplevel is ignored.)
+                toplevel.destroy();
             }
             _ => {}
         }

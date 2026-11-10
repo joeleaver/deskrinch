@@ -79,7 +79,7 @@ fn reports_title_changes() {
 
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
-fn a_window_its_client_unmaps_is_removed() {
+fn a_window_its_client_destroys_is_removed() {
     Compositor::current();
     let app_id = unique_app_id("unmapped");
     let watcher = Watcher::connect();
@@ -87,7 +87,7 @@ fn a_window_its_client_unmaps_is_removed() {
     let window = client.open("Brief", &app_id);
     watcher.wait_window("the window", &app_id, |_| true);
     drop(window);
-    watcher.wait_gone("the unmapped window", &app_id);
+    watcher.wait_gone("the destroyed window", &app_id);
 }
 
 #[test]
