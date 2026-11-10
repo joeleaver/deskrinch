@@ -49,6 +49,18 @@ it. Only the project manager writes to Pimble.
   `[patch.crates-io]` lines. Unmerged rinch work is tested through a
   `[patch]` in the gitignored `.cargo/config.local.toml`, which the tracked
   `.cargo/config.toml` includes.
+- **Test sessions are isolated from the real one.** A nested compositor, a
+  test D-Bus bus, or anything that talks to session services runs only inside
+  an isolated session: its own `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME`,
+  `XDG_DATA_HOME`, `XDG_CACHE_HOME` and `XDG_STATE_HOME` under a temporary
+  directory, the real session's display and bus variables removed, a private
+  bus with service activation off (`crates/deskrinch-test-dbus`), and its own
+  process group, ended as a whole afterwards. Never plain `dbus-run-session`:
+  its default configuration activates the desktop portals and the secret
+  service, which then run against the real session.
+  `xtask/src/compositor_tests/session.rs` is the reference. Nothing is
+  installed, written or launched in the user's real session or home. This
+  holds for work in rinch clones too.
 - Phase 2 builds on smithay only. cosmic-comp and niri are GPL-3 reference
   reading; don't copy code from them.
 - Code reaches `main` through a pull request with CI green.
