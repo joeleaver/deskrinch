@@ -157,6 +157,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-notification-service"
+version = "0.1.0"
+dependencies = [
+ "futures-core",
+ "serde",
+ "tempfile",
+ "thiserror",
+ "zbus",
+]
+
+[[package]]
 name = "deskrinch-window-management"
 version = "0.1.0"
 dependencies = [
