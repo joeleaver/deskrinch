@@ -6,33 +6,34 @@
 //! objects that actions are sent on) is in [`Shared`], behind a mutex that is
 //! never held while the subscriber runs.
 
+mod outputs;
 mod plasma;
 mod wlr;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_callback::{self, WlCallback};
-use wayland_client::protocol::wl_output::{self, WlOutput};
+use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_seat::{self, WlSeat};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
 use wayland_protocols_plasma::plasma_window_management::client::org_kde_plasma_window::OrgKdePlasmaWindow;
 use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1;
 
-use crate::capabilities::{Action, Capabilities};
+use crate::capabilities::{Action, Capabilities, Protocol};
+use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
+
+use self::outputs::Outputs;
 use crate::error::{ActionError, ConnectError, EndReason};
-use crate::model::WindowList;
+use crate::layout::{self, Rect};
+use crate::model::{Change, WindowList};
 use crate::window::{Event, WindowId};
 
 /// The globals a backend exists for, in order of preference.
 pub(crate) const SUPPORTED_GLOBALS: [&str; 2] = [wlr::GLOBAL, plasma::GLOBAL];
 
-/// `wl_output.name` arrived in version 4.
-const OUTPUT_VERSION: u32 = 4;
-/// `wl_output.release` arrived in version 3.
-const OUTPUT_RELEASE_SINCE: u32 = 3;
 /// Activation only names the seat; any version will do.
 const SEAT_VERSION: u32 = 1;
 
@@ -98,19 +99,22 @@ impl Inner {
     }
 }
 
-/// A bound `wl_output`.
+/// Where a window is, as its protocol reports it.
 #[derive(Debug)]
-struct Output {
-    proxy: WlOutput,
-    name: Option<String>,
+enum Placement {
+    /// On these outputs, by registry name.
+    Outputs(BTreeSet<u32>),
+    /// At this rectangle in the global layout.
+    Geometry(Rect),
 }
 
 /// The dispatch state of one connection.
 pub(crate) struct State {
     shared: Arc<Shared>,
     subscriber: Subscriber,
-    /// Bound outputs, by registry name.
-    outputs: HashMap<u32, Output>,
+    outputs: Outputs,
+    /// Where each window is, for those whose protocol has said.
+    placements: HashMap<WindowId, Placement>,
 }
 
 impl std::fmt::Debug for State {
@@ -118,6 +122,7 @@ impl std::fmt::Debug for State {
         f.debug_struct("State")
             .field("shared", &self.shared)
             .field("outputs", &self.outputs)
+            .field("placements", &self.placements)
             .finish_non_exhaustive()
     }
 }
@@ -140,6 +145,7 @@ impl State {
 
     /// Stops tracking a window the protocol ended.
     fn untrack(&mut self, id: WindowId) {
+        self.placements.remove(&id);
         self.update(|inner| {
             inner.handles.remove(&id);
             inner.list.remove(id)
@@ -148,6 +154,7 @@ impl State {
 
     /// The connection is over: forget everything and say why, once.
     pub(crate) fn end(&mut self, reason: EndReason) {
+        self.placements.clear();
         let first = {
             let mut inner = self.shared.lock();
             let first = !inner.ended;
@@ -166,13 +173,67 @@ impl State {
         self.shared.lock().ended
     }
 
-    /// The name of a bound output, once the compositor has sent it.
-    fn output_name(&self, output: &WlOutput) -> Option<String> {
-        let global = output.data::<u32>()?;
-        self.outputs.get(global)?.name.clone()
+    /// A window entered (`entered`) or left an output, as part of a batch of
+    /// changes its protocol commits later.
+    fn output_entered(&mut self, id: WindowId, output: &WlOutput, entered: bool) {
+        let Some(global) = Outputs::global_of(output) else {
+            return;
+        };
+        let placement = self
+            .placements
+            .entry(id)
+            .or_insert_with(|| Placement::Outputs(BTreeSet::new()));
+        let Placement::Outputs(globals) = placement else {
+            return;
+        };
+        if entered {
+            globals.insert(global);
+        } else {
+            globals.remove(&global);
+        }
+        let names = self.outputs.names(globals);
+        self.update(|inner| {
+            inner.list.stage(id, Change::Outputs(names));
+            None
+        });
     }
 
-    /// Binds the globals both backends use: every output, and one seat.
+    /// A window's geometry changed; its outputs follow at once.
+    fn moved(&mut self, id: WindowId, geometry: Rect) {
+        self.placements.insert(id, Placement::Geometry(geometry));
+        let names = self.names_at(geometry);
+        self.update(|inner| inner.list.apply_live(id, Change::Outputs(names)));
+    }
+
+    /// The outputs' names or layout changed: every placed window's outputs
+    /// are worked out again.
+    fn outputs_changed(&mut self) {
+        let changes: Vec<_> = self
+            .placements
+            .iter()
+            .map(|(&id, placement)| {
+                let names = match placement {
+                    Placement::Outputs(globals) => self.outputs.names(globals),
+                    &Placement::Geometry(geometry) => self.names_at(geometry),
+                };
+                (id, names)
+            })
+            .collect();
+        self.update(|inner| {
+            changes
+                .into_iter()
+                .filter_map(|(id, names)| inner.list.apply_live(id, Change::Outputs(names)))
+                .collect::<Vec<_>>()
+        });
+    }
+
+    /// The names of the outputs under `geometry`.
+    fn names_at(&self, geometry: Rect) -> BTreeSet<String> {
+        layout::outputs_under(geometry, self.outputs.layout())
+    }
+
+    /// Binds the globals both backends use: every output (with its xdg-output
+    /// description), and one seat.
     fn global_added(
         &mut self,
         registry: &WlRegistry,
@@ -182,8 +243,9 @@ impl State {
         qh: &QueueHandle<Self>,
     ) {
         if interface == WlOutput::interface().name {
-            let proxy = registry.bind(name, version.min(OUTPUT_VERSION), qh, name);
-            self.outputs.insert(name, Output { proxy, name: None });
+            self.outputs.add(registry, name, version, qh);
+        } else if interface == ZxdgOutputManagerV1::interface().name {
+            self.outputs.add_manager(registry, name, version, qh);
         } else if interface == WlSeat::interface().name {
             let mut inner = self.shared.lock();
             if inner.seat.is_none() {
@@ -192,16 +254,15 @@ impl State {
         }
     }
 
-    /// An output went away: windows leave it.
+    /// A global went away; if an output, windows leave it.
     fn global_removed(&mut self, name: u32) {
-        let Some(output) = self.outputs.remove(&name) else {
-            return;
-        };
-        if output.proxy.version() >= OUTPUT_RELEASE_SINCE {
-            output.proxy.release();
-        }
-        if let Some(output_name) = output.name {
-            self.update(|inner| inner.list.forget_output(&output_name));
+        if self.outputs.remove(name) {
+            for placement in self.placements.values_mut() {
+                if let Placement::Outputs(globals) = placement {
+                    globals.remove(&name);
+                }
+            }
+            self.outputs_changed();
         }
     }
 }
@@ -227,9 +288,16 @@ pub(crate) fn connect(
     let mut state = State {
         shared: Arc::clone(&shared),
         subscriber,
-        outputs: HashMap::new(),
+        outputs: Outputs::default(),
+        placements: HashMap::new(),
     };
-    for global in globals.contents().clone_list() {
+    let list = globals.contents().clone_list();
+    // The xdg-output manager first, so that each output is described as it
+    // is bound.
+    let (managers, others): (Vec<_>, Vec<_>) = list
+        .iter()
+        .partition(|global| global.interface == ZxdgOutputManagerV1::interface().name);
+    for global in managers.into_iter().chain(others) {
         state.global_added(
             globals.registry(),
             global.name,
@@ -243,7 +311,15 @@ pub(crate) fn connect(
         .roundtrip(&mut state)
         .map_err(ConnectError::InitialSync)?;
 
-    let (capabilities, roundtrips) = bind_backend(&globals, &qh)?;
+    let output_names = outputs::names_available(&list);
+    let output_layout = outputs::layout_available(&list);
+    let (mut capabilities, roundtrips) = bind_backend(&globals, &qh)?;
+    capabilities.outputs = output_names
+        && match capabilities.protocol {
+            Protocol::WlrForeignToplevel => true,
+            // KWin reports geometry; outputs are where it lies in the layout.
+            Protocol::PlasmaWindowManagement => output_layout,
+        };
     for _ in 0..roundtrips {
         queue
             .roundtrip(&mut state)
@@ -307,23 +383,6 @@ impl Dispatch<WlRegistry, GlobalListContents> for State {
             } => state.global_added(registry, name, &interface, version, qh),
             wl_registry::Event::GlobalRemove { name } => state.global_removed(name),
             _ => {}
-        }
-    }
-}
-
-impl Dispatch<WlOutput, u32> for State {
-    fn event(
-        state: &mut Self,
-        _: &WlOutput,
-        event: wl_output::Event,
-        global: &u32,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-        if let wl_output::Event::Name { name } = event
-            && let Some(output) = state.outputs.get_mut(global)
-        {
-            output.name = Some(name);
         }
     }
 }

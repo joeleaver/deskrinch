@@ -75,6 +75,13 @@ pub struct Window {
     /// `DP-1`). Empty when the connection does not report outputs (see
     /// [`Capabilities::outputs`](crate::Capabilities::outputs)).
     pub outputs: BTreeSet<String>,
+    /// The window this one belongs to, such as the main window of a dialog;
+    /// `None` for a top-level window, and always `None` when the connection
+    /// does not report parents (see
+    /// [`Capabilities::parent`](crate::Capabilities::parent)). A taskbar
+    /// usually lists only windows without one. When the parent goes, this
+    /// becomes `None`.
+    pub parent: Option<WindowId>,
 }
 
 impl Window {
@@ -86,6 +93,7 @@ impl Window {
             app_id: String::new(),
             state: WindowState::empty(),
             outputs: BTreeSet::new(),
+            parent: None,
         }
     }
 }

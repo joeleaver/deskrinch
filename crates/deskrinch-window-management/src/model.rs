@@ -7,7 +7,7 @@
 //! until `done`, KDE applies each at once after `initial_state`), and both map
 //! onto the same two steps.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::window::{Event, Window, WindowId, WindowState};
 
@@ -20,10 +20,10 @@ pub(crate) enum Change {
     AppId(String),
     /// Its whole state.
     State(WindowState),
-    /// It entered the named output.
-    OutputEnter(String),
-    /// It left the named output.
-    OutputLeave(String),
+    /// It is on exactly these outputs.
+    Outputs(BTreeSet<String>),
+    /// Its parent window, or none.
+    Parent(Option<WindowId>),
 }
 
 /// A window the protocol knows about.
@@ -85,26 +85,30 @@ impl WindowList {
         if announced { self.commit(id) } else { None }
     }
 
-    /// Stops tracking a window. [`Event::Removed`] if it had been announced.
-    pub(crate) fn remove(&mut self, id: WindowId) -> Option<Event> {
-        let entry = self.entries.remove(&id)?;
-        entry.announced.map(|_| Event::Removed(id))
-    }
-
-    /// An output went away: every window leaves it, and those already
-    /// announced are re-announced.
-    pub(crate) fn forget_output(&mut self, name: &str) -> Vec<Event> {
-        let affected: Vec<_> = self
+    /// Stops tracking a window: [`Event::Removed`] if it had been
+    /// announced. Its children lose their parent, so that no window names one
+    /// that is gone; those already announced are re-announced.
+    pub(crate) fn remove(&mut self, id: WindowId) -> Vec<Event> {
+        let Some(entry) = self.entries.remove(&id) else {
+            return Vec::new();
+        };
+        let removed = entry.announced.map(|_| Event::Removed(id));
+        let orphans: Vec<_> = self
             .entries
             .iter_mut()
-            .filter_map(|(&id, entry)| {
-                let left = entry.pending.outputs.remove(name);
-                (left && entry.announced.is_some()).then_some(id)
+            .filter(|(_, child)| child.pending.parent == Some(id))
+            .map(|(&child_id, child)| {
+                child.pending.parent = None;
+                (child_id, child.announced.is_some())
             })
             .collect();
-        affected
+        let reannounced = orphans
             .into_iter()
-            .filter_map(|id| self.commit(id))
+            .filter(|&(_, announced)| announced)
+            .filter_map(|(child_id, _)| self.commit(child_id));
+        removed
+            .into_iter()
+            .chain(reannounced.collect::<Vec<_>>())
             .collect()
     }
 
@@ -127,12 +131,8 @@ fn apply(window: &mut Window, change: Change) {
         Change::Title(title) => window.title = title,
         Change::AppId(app_id) => window.app_id = app_id,
         Change::State(state) => window.state = state,
-        Change::OutputEnter(output) => {
-            window.outputs.insert(output);
-        }
-        Change::OutputLeave(output) => {
-            window.outputs.remove(&output);
-        }
+        Change::Outputs(outputs) => window.outputs = outputs,
+        Change::Parent(parent) => window.parent = parent,
     }
 }
 
@@ -167,7 +167,7 @@ mod tests {
         list.stage(id, Change::Title("Editor".into()));
         list.stage(id, Change::AppId("org.example.Editor".into()));
         list.stage(id, Change::State(WindowState::ACTIVE));
-        list.stage(id, Change::OutputEnter("DP-1".into()));
+        list.stage(id, Change::Outputs(["DP-1".to_owned()].into()));
         assert_eq!(list.snapshot(), [], "nothing announced before commit");
 
         let window = added(list.commit(id));
@@ -213,8 +213,8 @@ mod tests {
     fn removing_an_announced_window_reports_it() {
         let (mut list, id) = tracked();
         added(list.commit(id));
-        assert!(matches!(list.remove(id), Some(Event::Removed(gone)) if gone == id));
-        assert!(list.remove(id).is_none(), "it is gone");
+        assert!(matches!(list.remove(id)[..], [Event::Removed(gone)] if gone == id));
+        assert!(list.remove(id).is_empty(), "it is gone");
         assert_eq!(list.snapshot(), []);
     }
 
@@ -222,7 +222,7 @@ mod tests {
     fn a_window_removed_before_it_was_announced_is_never_heard_of() {
         let (mut list, id) = tracked();
         list.stage(id, Change::Title("brief".into()));
-        assert!(list.remove(id).is_none());
+        assert!(list.remove(id).is_empty());
         assert!(
             list.commit(id).is_none(),
             "a removed window cannot come back"
@@ -239,40 +239,7 @@ mod tests {
                 .is_none()
         );
         assert!(list.commit(stranger).is_none());
-        assert!(list.remove(stranger).is_none());
-    }
-
-    #[test]
-    fn leaving_an_output_removes_it() {
-        let (mut list, id) = tracked();
-        list.stage(id, Change::OutputEnter("DP-1".into()));
-        list.stage(id, Change::OutputEnter("HDMI-A-1".into()));
-        list.stage(id, Change::OutputLeave("DP-1".into()));
-        let window = added(list.commit(id));
-        assert_eq!(window.outputs.iter().collect::<Vec<_>>(), ["HDMI-A-1"]);
-    }
-
-    #[test]
-    fn a_vanished_output_is_left_by_announced_windows_with_an_event() {
-        let mut list = WindowList::default();
-        let [on, off, unannounced] = [WindowId::next(), WindowId::next(), WindowId::next()];
-        for id in [on, off, unannounced] {
-            list.insert(id);
-        }
-        list.stage(on, Change::OutputEnter("DP-1".into()));
-        list.stage(unannounced, Change::OutputEnter("DP-1".into()));
-        added(list.commit(on));
-        added(list.commit(off));
-
-        let events = list.forget_output("DP-1");
-        assert_eq!(events.len(), 1, "{events:?}");
-        let window = changed(events.into_iter().next());
-        assert_eq!(window.id, on);
-        assert!(window.outputs.is_empty());
-        assert!(
-            added(list.commit(unannounced)).outputs.is_empty(),
-            "an unannounced window forgets the output too"
-        );
+        assert!(list.remove(stranger).is_empty());
     }
 
     #[test]
@@ -295,6 +262,57 @@ mod tests {
         added(list.commit(id));
         list.clear();
         assert_eq!(list.snapshot(), []);
-        assert!(list.remove(id).is_none());
+        assert!(list.remove(id).is_empty());
+    }
+
+    #[test]
+    fn outputs_are_replaced_as_a_whole() {
+        let (mut list, id) = tracked();
+        list.stage(
+            id,
+            Change::Outputs(["DP-1".to_owned(), "DP-2".to_owned()].into()),
+        );
+        list.stage(id, Change::Outputs(["HDMI-A-1".to_owned()].into()));
+        let window = added(list.commit(id));
+        assert_eq!(window.outputs.iter().collect::<Vec<_>>(), ["HDMI-A-1"]);
+    }
+
+    #[test]
+    fn a_parent_is_reported() {
+        let mut list = WindowList::default();
+        let [parent, child] = [WindowId::next(), WindowId::next()];
+        list.insert(parent);
+        list.insert(child);
+        list.stage(child, Change::Parent(Some(parent)));
+        added(list.commit(parent));
+        assert_eq!(added(list.commit(child)).parent, Some(parent));
+        list.stage(child, Change::Parent(None));
+        assert_eq!(changed(list.commit(child)).parent, None);
+    }
+
+    #[test]
+    fn removing_a_parent_orphans_its_children() {
+        let mut list = WindowList::default();
+        let [parent, child, unannounced, other] = [
+            WindowId::next(),
+            WindowId::next(),
+            WindowId::next(),
+            WindowId::next(),
+        ];
+        for id in [parent, child, unannounced, other] {
+            list.insert(id);
+        }
+        list.stage(child, Change::Parent(Some(parent)));
+        list.stage(unannounced, Change::Parent(Some(parent)));
+        added(list.commit(parent));
+        added(list.commit(child));
+        added(list.commit(other));
+
+        let events = list.remove(parent);
+        assert_eq!(events.len(), 2, "{events:?}");
+        assert!(matches!(events[0], Event::Removed(gone) if gone == parent));
+        let orphan = changed(events.into_iter().nth(1));
+        assert_eq!((orphan.id, orphan.parent), (child, None));
+        assert_eq!(added(list.commit(unannounced)).parent, None);
     }
 }
