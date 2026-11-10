@@ -36,8 +36,14 @@ impl Image {
         &self.rgba
     }
 
-    /// Validates a sender's `(iiibiiay)` image and decodes it.
-    pub(crate) fn decode(raw: &RawImage<'_>, max_side: u32) -> Result<Self, ImageError> {
+    /// Validates a sender's `(iiibiiay)` image and decodes it, refusing one
+    /// wider or taller than `max_side` pixels or with more than `max_bytes`
+    /// of decoded RGBA. The size is checked before anything is allocated.
+    pub(crate) fn decode(
+        raw: &RawImage<'_>,
+        max_side: u32,
+        max_bytes: usize,
+    ) -> Result<Self, ImageError> {
         let side = |v: i32| u32::try_from(v).ok().filter(|v| (1..=max_side).contains(v));
         let (Some(width), Some(height)) = (side(raw.width), side(raw.height)) else {
             return Err(ImageError::Dimensions {
@@ -56,6 +62,11 @@ impl Image {
             });
         }
         let (width_px, height_px) = (width as usize, height as usize);
+        let decoded = width_px
+            .checked_mul(height_px)
+            .and_then(|n| n.checked_mul(4))
+            .filter(|n| *n <= max_bytes)
+            .ok_or(ImageError::TooLarge { width, height })?;
         let row_bytes = width_px * channels;
         let stride = usize::try_from(raw.rowstride)
             .ok()
@@ -75,7 +86,7 @@ impl Image {
                 actual: raw.data.len(),
             });
         }
-        let mut rgba = Vec::with_capacity(width_px * height_px * 4);
+        let mut rgba = Vec::with_capacity(decoded);
         for row in 0..height_px {
             let start = row * stride;
             let pixels = &raw.data[start..start + row_bytes];
@@ -123,6 +134,8 @@ pub(crate) struct RawImage<'a> {
 pub(crate) enum ImageError {
     #[error("{width}×{height} is not a supported size")]
     Dimensions { width: i32, height: i32 },
+    #[error("{width}×{height} decodes to more bytes than one image may hold")]
+    TooLarge { width: u32, height: u32 },
     #[error("{0} bits per sample, not 8")]
     BitsPerSample(i32),
     #[error("{channels} channels do not match has_alpha = {has_alpha}")]

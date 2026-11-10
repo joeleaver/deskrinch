@@ -177,7 +177,7 @@ impl Request<'_> {
 /// Decodes `raw` if it is valid and fits `budget`, taking its size from the
 /// budget.
 fn decode(raw: &RawImage<'_>, limits: &Limits, budget: &mut usize) -> Option<Image> {
-    let image = Image::decode(raw, limits.max_image_side).ok()?;
+    let image = Image::decode(raw, limits.max_image_side, limits.max_image_bytes).ok()?;
     *budget = budget.checked_sub(image.rgba().len())?;
     Some(image)
 }
