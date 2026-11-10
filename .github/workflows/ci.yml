@@ -115,3 +115,34 @@ jobs:
         with:
           packages: ${{ matrix.packages }}
       - run: cargo xtask compositor-tests ${{ matrix.compositor }}
+
+  # The desktop-entries launch into a real transient scope. The runner has
+  # systemd as PID 1 but no user session; lingering starts the runner
+  # user's systemd instance, and dbus-user-session gives it a user bus.
+  systemd-scope-tests:
+    name: Systemd scope test
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: dbus-user-session
+      - name: Start the runner user's systemd instance
+        run: |
+          sudo loginctl enable-linger "$USER"
+          runtime="/run/user/$(id -u)"
+          for _ in $(seq 100); do
+            [ -S "$runtime/bus" ] && break
+            sleep 0.1
+          done
+          test -S "$runtime/bus"
+          echo "XDG_RUNTIME_DIR=$runtime" >> "$GITHUB_ENV"
+          echo "DBUS_SESSION_BUS_ADDRESS=unix:path=$runtime/bus" >> "$GITHUB_ENV"
+      - run: systemctl --user show --property=Version,SystemState
+      - run: cargo xtask systemd-scope-tests
