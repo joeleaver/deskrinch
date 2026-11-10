@@ -4,6 +4,8 @@
 #[cfg(test)]
 mod load;
 #[cfg(test)]
+mod subscriptions;
+#[cfg(test)]
 mod support;
 #[cfg(test)]
 mod watch;

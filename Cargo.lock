@@ -180,8 +180,8 @@ dependencies = [
 name = "deskrinch-config"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-watch",
  "deskrinch-xdg",
- "notify",
  "serde",
  "serde_ignored",
  "serde_path_to_error",
