@@ -61,19 +61,32 @@ cargo xtask session sway sh -c 'foot & sleep 2; grim shot.png'
 cargo xtask session --outputs 2 kwin sh -c 'foot --maximized & sleep 3; spectacle -b -n -f -o shot.png'
 ```
 
-What the command, and everything it starts, gets:
+What the command, and everything it starts, sees:
 
-- Private `XDG_RUNTIME_DIR`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`,
-  `XDG_CACHE_HOME` and `XDG_STATE_HOME` under a fresh
-  `/tmp/deskrinch-session-*` (also `$DESKRINCH_SESSION_DIR`); `HOME` is
-  unchanged.
-- None of your session's `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`,
-  `WAYLAND_SOCKET`, `SWAYSOCK`, `I3SOCK` or `DBUS_SESSION_BUS_ADDRESS`.
-  `WAYLAND_DISPLAY` names the nested compositor (and `SWAYSOCK` its IPC under
-  sway). There is no X server: KWin runs without Xwayland.
-- A private `dbus-daemon` with service activation off, in
-  `DBUS_SESSION_BUS_ADDRESS`, which the compositor uses too: no portal,
-  secret service or notification daemon is ever started on demand.
+- `HOME`, `XDG_RUNTIME_DIR`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`,
+  `XDG_CACHE_HOME` and `XDG_STATE_HOME`: private directories under a fresh
+  `/tmp/deskrinch-session-*` (also `$DESKRINCH_SESSION_DIR`).
+- `XDG_CONFIG_DIRS=/etc/xdg` and `XDG_DATA_DIRS=/usr/local/share/:/usr/share/`,
+  the XDG specification's defaults, not yours.
+- `CARGO_HOME` and `RUSTUP_HOME` at your real ones, so cargo and rustup work.
+- `WAYLAND_DISPLAY` naming the nested compositor (and `SWAYSOCK` its IPC
+  under sway). There is no X server: KWin runs without Xwayland.
+- `DBUS_SESSION_BUS_ADDRESS` naming a private `dbus-daemon` with service
+  activation off, which the compositor uses too: no portal, secret service
+  or notification daemon is ever started on demand.
+- `XDG_CURRENT_DESKTOP` only when `--current-desktop NAME` sets it.
+- None of your `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `WAYLAND_SOCKET`,
+  `SWAYSOCK`, `I3SOCK`, `DBUS_SESSION_BUS_ADDRESS`, `XDG_CURRENT_DESKTOP`, or
+  the login session's `XDG_SESSION_ID`, `XDG_SESSION_CLASS`,
+  `XDG_SESSION_DESKTOP`, `XDG_SESSION_TYPE`, `XDG_SESSION_PATH`, `XDG_SEAT`,
+  `XDG_SEAT_PATH` and `XDG_VTNR`.
+- Everything else as you have it (`PATH`, the locale, `TERM`, `CARGO_*` and
+  `RUST*` settings, ...).
+
+Caches follow `XDG_CACHE_HOME` and `HOME`, so a GPU client's shader cache
+(Mesa's `mesa_shader_cache`, for one) is inside the session and starts empty
+each time; set `MESA_SHADER_CACHE_DIR` in the command to keep one.
+
 - Standard input closed, and the working directory you called it from.
 - One process group with the compositor. When the command exits, or the task
   gets `SIGINT`, `SIGTERM` or `SIGHUP`, the group gets `SIGTERM`, then

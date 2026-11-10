@@ -54,7 +54,7 @@ enum Task {
         compositors: Vec<session::Compositor>,
     },
     /// Run a command in an isolated, nested, headless compositor session.
-    #[command(long_about = run_in_session::LONG_ABOUT)]
+    #[command(long_about = run_in_session::long_about())]
     Session {
         /// How many outputs the compositor has, side by side, 1280x720 each.
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=8))]
@@ -63,6 +63,10 @@ enum Task {
         /// whatever the command wrote to `$DESKRINCH_SESSION_DIR`).
         #[arg(long)]
         keep: bool,
+        /// `XDG_CURRENT_DESKTOP` for the compositor and the command (unset
+        /// otherwise), such as `KDE` or `sway`.
+        #[arg(long, value_name = "NAME")]
+        current_desktop: Option<OsString>,
         /// The compositor to run.
         #[arg(value_enum)]
         compositor: session::Compositor,
@@ -89,6 +93,7 @@ impl Task {
             Self::Session {
                 outputs,
                 keep,
+                current_desktop,
                 compositor,
                 program,
                 args,
@@ -96,6 +101,7 @@ impl Task {
                 compositor,
                 outputs,
                 keep,
+                current_desktop,
                 program,
                 args,
             }),

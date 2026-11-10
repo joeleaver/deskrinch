@@ -57,7 +57,7 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
 /// Runs the tests in one fresh session of `compositor`. Returns whether they
 /// passed; on failure, prints the compositor's log.
 fn run_in(compositor: Compositor, binaries: &TestBinaries) -> Result<bool, Error> {
-    let session = Session::start(compositor, OUTPUTS, |data_home| match compositor {
+    let session = Session::start(compositor, OUTPUTS, None, |data_home| match compositor {
         Compositor::Kwin => grant(&binaries.compositor, data_home),
         Compositor::Sway | Compositor::Labwc => Ok(()),
     })?;
