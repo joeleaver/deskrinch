@@ -6,7 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use crate::catalog::{Catalog, Found};
+use crate::catalog::{Catalog, Found, Program};
 use crate::entry::{DesktopEntry, DesktopId};
 use crate::env::Environment;
 use crate::error::{Problem, ProblemKind, ScanError};
@@ -25,7 +25,7 @@ impl Catalog {
         for dir in application_dirs(env) {
             walk(&dir, &dir, &mut visited, &mut found);
         }
-        Self::build(found, env, |program| try_exec_exists(program, &env.path))
+        Self::build(found, env, |program| program_exists(program, &env.path))
     }
 }
 
@@ -80,14 +80,42 @@ pub(crate) fn read_entry(id: DesktopId, path: PathBuf) -> Found {
         })
 }
 
-/// Whether `program` (an absolute path, or a name looked up in `path`) is
-/// an executable file.
-pub(crate) fn try_exec_exists(program: &str, path: &[PathBuf]) -> bool {
-    let program = Path::new(program);
-    if program.is_absolute() {
-        return is_executable(program);
+/// Whether `program` is an executable file, with `path` as the `PATH`
+/// searched.
+///
+/// A `TryExec` value is an absolute path or is looked up in `PATH`, as the
+/// specification says. An `Exec` program is found the way the launch's
+/// `execvp` finds it: an absolute path as it is, a path containing `/`
+/// relative to the working directory the launch runs it in (the entry's
+/// `Path`, or else the current directory), and a bare name in `PATH`.
+pub(crate) fn program_exists(program: Program<'_>, path: &[PathBuf]) -> bool {
+    let in_path = |name: &Path| path.iter().any(|dir| is_executable(&dir.join(name)));
+    match program {
+        Program::TryExec(program) => {
+            let program = Path::new(program);
+            if program.is_absolute() {
+                is_executable(program)
+            } else {
+                in_path(program)
+            }
+        }
+        Program::Exec {
+            program,
+            working_dir,
+        } => {
+            let as_path = Path::new(program);
+            if as_path.is_absolute() {
+                is_executable(as_path)
+            } else if program.contains('/') {
+                match working_dir {
+                    Some(dir) => is_executable(&dir.join(as_path)),
+                    None => is_executable(as_path),
+                }
+            } else {
+                in_path(as_path)
+            }
+        }
     }
-    path.iter().any(|dir| is_executable(&dir.join(program)))
 }
 
 fn is_executable(path: &Path) -> bool {

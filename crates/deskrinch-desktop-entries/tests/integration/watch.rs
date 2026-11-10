@@ -87,7 +87,7 @@ fn reports_entries_added_changed_and_removed() {
 }
 
 #[test]
-fn refresh_re_evaluates_try_exec() {
+fn refresh_re_evaluates_try_exec_and_exec() {
     let root = tempfile::tempdir().unwrap();
     let (home, bin) = (root.path().join("home"), root.path().join("bin"));
     fs::create_dir_all(&bin).unwrap();
@@ -106,14 +106,20 @@ fn refresh_re_evaluates_try_exec() {
     let first = catalog.iter().next().unwrap();
     assert_eq!(first.visibility, Visibility::TryExecMissing);
 
-    // Installing the program touches no watched directory: nothing is
-    // reported until a refresh.
-    script(&bin.join("late-tool"), "true\n");
-    assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
-    watcher.refresh();
-    match events.recv_timeout(PATIENCE).expect("no event arrived") {
-        Event::Changed(e) => assert_eq!(e.visibility, Visibility::Shown),
-        other => panic!("unexpected event {other:?}"),
+    // Installing a program touches no watched directory: nothing is
+    // reported until a refresh. With `TryExec` found, the entry's `Exec`
+    // program (`run`) is still missing; installing it shows the entry.
+    for (program, visibility) in [
+        ("late-tool", Visibility::ExecMissing),
+        ("run", Visibility::Shown),
+    ] {
+        script(&bin.join(program), "true\n");
+        assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+        watcher.refresh();
+        match events.recv_timeout(PATIENCE).expect("no event arrived") {
+            Event::Changed(e) => assert_eq!(e.visibility, visibility, "{program}"),
+            other => panic!("unexpected event {other:?}"),
+        }
     }
     // A refresh that finds nothing new reports nothing.
     watcher.refresh();

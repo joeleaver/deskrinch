@@ -119,6 +119,8 @@ fn checks_try_exec_against_path_and_absolute_paths() {
     let (home, bin) = (root.path().join("home"), root.path().join("bin"));
     std::fs::create_dir_all(&bin).unwrap();
     script(&bin.join("present"), "true\n");
+    // The program every entry here runs.
+    script(&bin.join("run"), "true\n");
     std::fs::write(bin.join("not-executable"), "").unwrap();
     let absolute = bin.join("present");
     write(
@@ -150,6 +152,74 @@ fn checks_try_exec_against_path_and_absolute_paths() {
     assert_eq!(visibility("absolute.desktop"), Visibility::Shown);
     assert_eq!(visibility("missing.desktop"), Visibility::TryExecMissing);
     assert_eq!(visibility("noexec.desktop"), Visibility::TryExecMissing);
+}
+
+#[test]
+fn hides_applications_whose_exec_program_is_missing() {
+    let root = tempfile::tempdir().unwrap();
+    let (home, bin, work) = (
+        root.path().join("home"),
+        root.path().join("bin"),
+        root.path().join("work"),
+    );
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(work.join("sub")).unwrap();
+    script(&bin.join("on-path"), "true\n");
+    script(&work.join("sub/relative"), "true\n");
+    std::fs::write(bin.join("not-executable"), "").unwrap();
+    let absolute = bin.join("on-path");
+    let entries = [
+        ("path", "Exec=on-path %U\n".to_owned()),
+        ("absolute", format!("Exec=\"{}\"\n", absolute.display())),
+        (
+            "relative",
+            format!("Exec=sub/relative\nPath={}\n", work.display()),
+        ),
+        ("uninstalled", "Exec=uninstalled-app\n".to_owned()),
+        ("not-executable", "Exec=not-executable\n".to_owned()),
+        // A bare name is looked up in PATH, never in `Path`.
+        (
+            "bare-in-path-dir",
+            format!("Exec=relative\nPath={}\n", work.join("sub").display()),
+        ),
+        (
+            "dbus",
+            "DBusActivatable=true\nExec=uninstalled-app\n".to_owned(),
+        ),
+    ];
+    for (id, body) in &entries {
+        let text = format!("[Desktop Entry]\nType=Application\nName={id}\n{body}");
+        write(&home, &format!("applications/{id}.desktop"), &text);
+    }
+    let mut env = environment(&home, &[]);
+    env.path = vec![bin];
+    let catalog = Catalog::scan(&env);
+
+    let visibility = |i: &str| {
+        catalog
+            .get(&id(&format!("{i}.desktop")))
+            .unwrap()
+            .visibility
+    };
+    assert_eq!(visibility("path"), Visibility::Shown);
+    assert_eq!(visibility("absolute"), Visibility::Shown);
+    assert_eq!(visibility("relative"), Visibility::Shown);
+    assert_eq!(visibility("uninstalled"), Visibility::ExecMissing);
+    assert_eq!(visibility("not-executable"), Visibility::ExecMissing);
+    assert_eq!(visibility("bare-in-path-dir"), Visibility::ExecMissing);
+    assert_eq!(visibility("dbus"), Visibility::Shown);
+    let shown: Vec<_> = catalog.shown().map(|e| e.id.to_string()).collect();
+    assert_eq!(
+        shown,
+        [
+            "absolute.desktop",
+            "dbus.desktop",
+            "path.desktop",
+            "relative.desktop"
+        ]
+    );
+    // Tools still see the hidden entries, and why.
+    assert_eq!(catalog.len(), entries.len());
 }
 
 #[test]
