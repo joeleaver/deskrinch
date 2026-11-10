@@ -90,8 +90,8 @@ jobs:
 
   # The window-management crate against real compositors, nested and
   # headless. Ubuntu 24.04's packages are older than a current desktop's
-  # (KWin 5.27, sway 1.9), so this checks the protocols as those versions
-  # speak them.
+  # (KWin 5.27, sway 1.9, labwc 0.7), so this checks the protocols as those
+  # versions speak them.
   compositor-tests:
     name: Compositor tests (${{ matrix.compositor }})
     runs-on: ubuntu-24.04
@@ -103,6 +103,8 @@ jobs:
             packages: kwin-wayland dbus-daemon
           - compositor: sway
             packages: sway
+          - compositor: labwc
+            packages: labwc
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

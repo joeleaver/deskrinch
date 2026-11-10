@@ -44,7 +44,8 @@ enum Task {
     /// Each compositor runs in a session of its own (temporary runtime,
     /// data, configuration and cache directories, and a private D-Bus bus
     /// for KWin), so nothing reaches the real desktop session. Needs
-    /// `kwin_wayland` and `dbus-run-session` for KWin, `sway` for sway.
+    /// `kwin_wayland` and `dbus-run-session` for KWin, and `sway` and
+    /// `labwc` for those.
     CompositorTests {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
