@@ -44,17 +44,9 @@ pub(crate) fn measure(mut command: Command, program: &str, timing: Timing) -> Re
             source,
         })?;
     let watch = Watch::default();
-    let readers = [
-        child.stdout.take().map(|s| watch.follow(s)),
-        child.stderr.take().map(|s| watch.follow(s)),
-    ];
+    watch.follow_child(&mut child);
     let result = measure_child(&mut child, &watch, program, start, timing);
     stop(&mut child);
-    for reader in readers.into_iter().flatten() {
-        // A reader ends when the stream closes, which `stop` caused; one
-        // that panicked has nothing more to give.
-        reader.join().ok();
-    }
     result
 }
 
@@ -93,7 +85,7 @@ fn startup(
             return Err(Error::MeasuredExited {
                 program: program.to_owned(),
                 status,
-                output: watch.tail(),
+                output: watch.last_words(),
             });
         }
         if start.elapsed() >= timeout {
@@ -265,7 +257,7 @@ fn wait(child: &mut Child, watch: &Watch, program: &str, duration: Duration) -> 
             return Err(Error::MeasuredExited {
                 program: program.to_owned(),
                 status,
-                output: watch.tail(),
+                output: watch.last_words(),
             });
         }
         thread::sleep((end - Instant::now()).min(Duration::from_millis(100)));

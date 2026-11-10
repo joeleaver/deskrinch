@@ -50,16 +50,9 @@ pub(crate) fn measure(
             source,
         })?;
     let watch = Watch::default();
-    let readers = [
-        child.stdout.take().map(|s| watch.follow(s)),
-        child.stderr.take().map(|s| watch.follow(s)),
-    ];
+    watch.follow_child(&mut child);
     let result = run_child(&mut child, &watch, &control, program, out, timing);
     probe::stop(&mut child);
-    for reader in readers.into_iter().flatten() {
-        // One that panicked has nothing more to give.
-        reader.join().ok();
-    }
     result
 }
 
@@ -82,7 +75,7 @@ fn run_child(
             return Err(Error::MeasuredExited {
                 program: program.to_owned(),
                 status,
-                output: watch.tail(),
+                output: watch.last_words(),
             });
         }
         if start.elapsed() >= timing.first_frame {

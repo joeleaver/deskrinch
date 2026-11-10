@@ -150,6 +150,14 @@ every later start in a real session finds it. Measure GPU costs under KWin
 sway and labwc render with pixman and offer no dmabuf, so wgpu falls back to a
 software Vulkan driver there. `cargo xtask measure --help` has the details.
 
+Its end-to-end tests measure stand-in scripts in isolated sessions, and are
+ignored by `cargo test` like the session's (they do not cover
+`--instructions`, which needs Valgrind):
+
+```sh
+DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure -- --ignored
+```
+
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists
 them. Local Cargo settings, such as a `[patch]` for unmerged rinch work, go in
 the gitignored `.cargo/config.local.toml`.

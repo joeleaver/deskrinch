@@ -4,6 +4,7 @@
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
+use std::process::Child;
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -12,6 +13,8 @@ use super::client_log::{self, Adapter};
 
 /// How many of the last lines are kept.
 const TAIL: usize = 20;
+/// How long an exited program's streams are given to close.
+const LAST_WORDS: Duration = Duration::from_secs(2);
 
 /// What the program has written so far.
 #[derive(Debug, Default)]
@@ -43,6 +46,19 @@ impl Watch {
             seen.lock().unwrap_or_else(PoisonError::into_inner).closed += 1;
             changed.notify_all();
         })
+    }
+
+    /// Follows `child`'s standard output and error, each on a thread of its
+    /// own. The threads are not joined: a process the program started may
+    /// hold the streams open until its session ends, after the measurement
+    /// is done; they end then.
+    pub(crate) fn follow_child(&self, child: &mut Child) {
+        if let Some(stdout) = child.stdout.take() {
+            drop(self.follow(stdout));
+        }
+        if let Some(stderr) = child.stderr.take() {
+            drop(self.follow(stderr));
+        }
     }
 
     /// Records one line.
@@ -100,6 +116,28 @@ impl Watch {
         self.lock().adapter.clone()
     }
 
+    /// The last lines of a program that has exited: [`tail`](Self::tail)
+    /// once both streams have closed, so that what it wrote just before
+    /// exiting is read, or after [`LAST_WORDS`] if something it started
+    /// still holds them open.
+    pub(crate) fn last_words(&self) -> String {
+        let (seen, changed) = &*self.seen;
+        let deadline = Instant::now() + LAST_WORDS;
+        let mut guard = seen.lock().unwrap_or_else(PoisonError::into_inner);
+        while guard.closed < 2 {
+            let now = Instant::now();
+            if now >= deadline {
+                break;
+            }
+            guard = changed
+                .wait_timeout(guard, deadline - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+        drop(guard);
+        self.tail()
+    }
+
     /// The last lines written, oldest first.
     pub(crate) fn tail(&self) -> String {
         self.lock()
@@ -147,5 +185,6 @@ mod tests {
         }
         assert_eq!(watch.wait_first_frame(Duration::from_secs(60)), None);
         assert_eq!(watch.tail(), "error");
+        assert_eq!(watch.last_words(), "error");
     }
 }
