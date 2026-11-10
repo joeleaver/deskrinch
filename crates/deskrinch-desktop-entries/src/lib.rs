@@ -54,6 +54,7 @@ mod entry;
 mod env;
 mod error;
 pub mod exec;
+mod fold;
 mod keyfile;
 mod launch;
 mod locale;
@@ -71,5 +72,5 @@ pub use error::{
 pub use exec::Target;
 pub use launch::{DirectReason, LaunchContext, Launched, Placement, launch};
 pub use locale::{Locale, Localized, LocalizedList, LocalizedString};
-pub use search::{Match, MatchField, MatchKind, search};
+pub use search::{Coverage, Match, MatchField, MatchKind, search};
 pub use watch::{Event, Watcher};
