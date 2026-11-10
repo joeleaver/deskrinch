@@ -51,6 +51,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
+      # The notification service's tests run on private D-Bus daemons and
+      # check interoperability with libnotify's notify-send.
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: dbus-daemon libnotify-bin
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
@@ -106,8 +111,7 @@ jobs:
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
-      - name: Install ${{ matrix.compositor }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ${{ matrix.packages }}
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: ${{ matrix.packages }}
       - run: cargo xtask compositor-tests ${{ matrix.compositor }}

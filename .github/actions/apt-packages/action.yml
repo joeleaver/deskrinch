@@ -1,0 +1,22 @@
+name: Install system packages
+description: >-
+  Installs Ubuntu packages a job needs beyond what the runner image has, such
+  as the D-Bus daemon the notification service's tests run on.
+
+inputs:
+  packages:
+    description: Space-separated Ubuntu package names.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install the packages
+      shell: bash
+      env:
+        PACKAGES: ${{ inputs.packages }}
+      run: |
+        sudo apt-get update
+        # Word splitting of the list into package names is intended.
+        # shellcheck disable=SC2086
+        sudo apt-get install --yes --no-install-recommends $PACKAGES

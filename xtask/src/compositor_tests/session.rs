@@ -31,24 +31,6 @@ const POLL: Duration = Duration::from_millis(50);
 /// The KWin socket's name; sway picks its own.
 const KWIN_SOCKET: &str = "wayland-0";
 
-/// A session bus that serves only what connects to it: no service
-/// activation, so nothing (such as the desktop portals, whose document
-/// portal mounts a FUSE file system in the runtime directory) is started on
-/// demand.
-const DBUS_CONFIG: &str = r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
- "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
-<busconfig>
-  <type>session</type>
-  <listen>unix:dir=@RUNTIME@</listen>
-  <auth>EXTERNAL</auth>
-  <policy context="default">
-    <allow send_destination="*" eavesdrop="true"/>
-    <allow eavesdrop="true"/>
-    <allow own="*"/>
-  </policy>
-</busconfig>
-"#;
-
 /// Variables of the real session that would lead a nested program back to
 /// it.
 const REAL_SESSION_VARIABLES: &[&str] = &[
@@ -204,7 +186,12 @@ fn compositor_command(compositor: Compositor, dir: &Path) -> Result<Command, Err
         Compositor::Kwin => {
             let runtime = dir.join("run");
             let config = dir.join("dbus.conf");
-            let contents = DBUS_CONFIG.replace("@RUNTIME@", &runtime.to_string_lossy());
+            // A session bus that serves only what connects to it: no service
+            // activation, so nothing (such as the desktop portals, whose
+            // document portal mounts a FUSE file system in the runtime
+            // directory) is started on demand.
+            let contents =
+                deskrinch_test_dbus::config(&format!("unix:dir={}", runtime.to_string_lossy()));
             fs::write(&config, contents).map_err(|source| Error::Io {
                 what: format!("write {}", config.display()),
                 source,

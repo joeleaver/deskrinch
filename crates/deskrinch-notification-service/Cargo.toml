@@ -1,0 +1,25 @@
+[package]
+name = "deskrinch-notification-service"
+description = "The org.freedesktop.Notifications service and the notification model behind it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+futures-core.workspace = true
+percent-encoding.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+# zbus's own runtime (`default-rt`) drives the connection on a helper thread,
+# so callers need no async runtime; `service` serves the object, `proxy`
+# brings the `fdo` signal types the name handling reads.
+zbus = { workspace = true, features = ["default-rt", "service", "proxy"] }
+
+[dev-dependencies]
+deskrinch-test-dbus.workspace = true
+
+[lints]
+workspace = true
