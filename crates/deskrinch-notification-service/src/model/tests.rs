@@ -4,6 +4,7 @@ use super::*;
 use crate::capabilities::Capabilities;
 use crate::limits::Limits;
 use crate::notification::Urgency;
+use crate::policy::Ownership;
 use crate::request::Hints;
 
 const SECOND: Duration = Duration::from_secs(1);
@@ -13,10 +14,15 @@ fn model() -> Model {
 }
 
 fn model_with(limits: Limits) -> Model {
+    model_owned(limits, Ownership::AnySender)
+}
+
+fn model_owned(limits: Limits, ownership: Ownership) -> Model {
     Model::new(Policy {
         limits,
         capabilities: Capabilities::default(),
         default_timeout: Some(5 * SECOND),
+        ownership,
     })
 }
 
@@ -68,20 +74,67 @@ fn replacement_keeps_the_id_and_the_place_and_restarts_the_timer() {
 }
 
 #[test]
-fn replacing_an_id_that_is_not_live_shows_a_new_notification() {
+fn replacing_an_id_that_is_not_live_shows_a_new_notification_with_that_id() {
     let mut m = model();
     let now = Instant::now();
-    let (id, change) = m
+    let (taken, change) = m
         .notify(
             &Request {
-                replaces_id: 42,
-                ..request("a")
+                replaces_id: 2,
+                ..request("fixed id")
             },
             now,
         )
         .unwrap();
-    assert_eq!(id.get(), 1);
-    assert!(matches!(change, Change::Shown(_)));
+    assert_eq!(
+        taken.get(),
+        2,
+        "the specification: the same value as replaces_id"
+    );
+    assert!(matches!(change, Change::Shown(ref n) if n.id == taken));
+    // The counter hands out 1, then skips 2 while it is live.
+    let (first, _) = m.notify(&request("a"), now).unwrap();
+    let (second, _) = m.notify(&request("b"), now).unwrap();
+    assert_eq!((first.get(), second.get()), (1, 3));
+}
+
+#[test]
+fn only_the_original_sender_may_replace_or_close_when_so_configured() {
+    let from = |sender: &str, replaces_id: u32| Request {
+        sender: Some(sender.into()),
+        replaces_id,
+        ..request("x")
+    };
+    let now = Instant::now();
+
+    let mut strict = model_owned(Limits::default(), Ownership::OriginalSender);
+    let (a, _) = strict.notify(&from(":1.1", 0), now).unwrap();
+    assert_eq!(
+        strict.notify(&from(":1.2", a.get()), now),
+        Err(Refused::NotOwner)
+    );
+    assert_eq!(
+        strict.close_from_sender(a, Some(":1.2")),
+        Err(CloseRefused::NotOwner)
+    );
+    assert!(matches!(
+        strict.notify(&from(":1.1", a.get()), now),
+        Ok((_, Change::Replaced(_)))
+    ));
+    assert!(strict.close_from_sender(a, Some(":1.1")).is_ok());
+    assert_eq!(
+        strict.close_from_sender(a, Some(":1.1")),
+        Err(CloseRefused::NotFound)
+    );
+
+    let mut open = model();
+    let (b, _) = open.notify(&from(":1.1", 0), now).unwrap();
+    let (_, change) = open.notify(&from(":1.2", b.get()), now).unwrap();
+    assert!(
+        matches!(change, Change::Replaced(ref n) if n.sender.as_deref() == Some(":1.2")),
+        "the replacing sender becomes the current sender"
+    );
+    assert!(open.close_from_sender(b, Some(":1.3")).is_ok());
 }
 
 #[test]
@@ -115,7 +168,8 @@ fn expiry_closes_due_notifications_only() {
         m.expire(t0 + SECOND),
         [Change::Closed {
             id: e,
-            reason: CloseReason::Expired
+            reason: CloseReason::Expired,
+            sender: Some(":1.1".into()),
         }]
     );
     assert_eq!(m.expire(t0 + 5 * SECOND).len(), 1);
@@ -134,7 +188,8 @@ fn close_and_dismiss_report_their_reason() {
         m.close(a, CloseReason::Closed),
         Some(Change::Closed {
             id: a,
-            reason: CloseReason::Closed
+            reason: CloseReason::Closed,
+            sender: Some(":1.1".into()),
         })
     );
     assert_eq!(m.close(a, CloseReason::Closed), None, "already gone");
@@ -175,11 +230,13 @@ fn invoking_an_action_dismisses_unless_resident() {
             Change::ActionInvoked {
                 id: p,
                 key: "reply".into(),
-                activation_token: Some("token".into())
+                activation_token: Some("token".into()),
+                sender: Some(":1.1".into()),
             },
             Change::Closed {
                 id: p,
-                reason: CloseReason::Dismissed
+                reason: CloseReason::Dismissed,
+                sender: Some(":1.1".into()),
             }
         ]
     );
@@ -286,4 +343,39 @@ fn the_image_budget_is_shared_by_live_notifications() {
     };
     let (_, change) = m.notify(&replacement, now).unwrap();
     assert!(matches!(change, Change::Replaced(ref n) if n.image.is_some()));
+}
+
+#[test]
+fn a_paused_notification_keeps_its_remaining_time() {
+    let mut m = model();
+    let t0 = Instant::now();
+    let (a, _) = m.notify(&request("a"), t0).unwrap();
+    assert_eq!(m.pause(a, t0 + 2 * SECOND), Some(()));
+    assert_eq!(m.next_expiry(), None, "a paused timer is no deadline");
+    assert_eq!(m.expire(t0 + 60 * SECOND), []);
+    assert_eq!(m.resume(a, t0 + 60 * SECOND), Some(()));
+    assert_eq!(m.next_expiry(), Some(t0 + 63 * SECOND), "3 s were left");
+    assert_eq!(m.pause(id(99), t0), None);
+    assert_eq!(m.resume(id(99), t0), None);
+}
+
+#[test]
+fn a_replacement_of_a_paused_notification_stays_paused() {
+    let mut m = model();
+    let t0 = Instant::now();
+    let (a, _) = m.notify(&request("a"), t0).unwrap();
+    m.pause(a, t0 + 4 * SECOND);
+    let replacement = Request {
+        replaces_id: a.get(),
+        ..request("a2")
+    };
+    m.notify(&replacement, t0 + 10 * SECOND).unwrap();
+    assert_eq!(
+        m.get(a).unwrap().expiry,
+        Expiry::Paused {
+            remaining: 5 * SECOND
+        }
+    );
+    m.resume(a, t0 + 20 * SECOND);
+    assert_eq!(m.next_expiry(), Some(t0 + 25 * SECOND));
 }

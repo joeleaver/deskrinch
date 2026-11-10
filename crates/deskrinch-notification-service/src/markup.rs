@@ -421,4 +421,6 @@ fn entity(s: &str) -> Option<(char, usize)> {
 }
 
 #[cfg(test)]
+mod props;
+#[cfg(test)]
 mod tests;

@@ -16,8 +16,10 @@
 //!   [`NotificationId`] and goes after the others.
 //! - **Replaced** ([`Event::Replaced`]): a `Notify` call named it in
 //!   `replaces_id`. It keeps its id and its place; its content and its timer
-//!   start over. Naming an id that is no longer live shows a new
-//!   notification instead.
+//!   start over. Naming an id that is not live shows a new notification
+//!   with that id: the specification says "If `replaces_id` is not 0, the
+//!   returned value is the same value as `replaces_id`." Which senders may
+//!   replace or close a notification is [`Config::ownership`].
 //! - **Closed** ([`Event::Closed`]), once, with a [`CloseReason`]:
 //!   - [`Expired`](CloseReason::Expired): its timeout passed. A timeout of
 //!     `-1` is [`Config::default_timeout`], `0` is never, a positive one is
@@ -29,8 +31,9 @@
 //!     `CloseNotification`.
 //!
 //! The bus hears the same steps through `NotificationClosed`, and actions
-//! through `ActivationToken` and `ActionInvoked`. `GetCapabilities` reports
-//! [`Capabilities`], which the model follows.
+//! through `ActivationToken` and `ActionInvoked`; by default only the
+//! notification's current sender receives them ([`Config::signal_delivery`]).
+//! `GetCapabilities` reports [`Capabilities`], which the model follows.
 //!
 //! # Untrusted input
 //!
@@ -82,6 +85,9 @@ mod limits;
 mod markup;
 mod model;
 mod notification;
+mod policy;
+#[cfg(test)]
+mod props;
 mod request;
 mod service;
 mod text;
@@ -93,4 +99,5 @@ pub use image::{IconName, Image, ImageSource};
 pub use limits::Limits;
 pub use markup::{Body, Link, Span, Style};
 pub use notification::{Action, CloseReason, Expiry, Notification, NotificationId, Sound, Urgency};
+pub use policy::{Ownership, SignalDelivery};
 pub use service::{Bus, Config, Event, Handle, OperationError, ServerInfo, Service, StartError};

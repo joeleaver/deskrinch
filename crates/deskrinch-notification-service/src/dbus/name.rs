@@ -156,10 +156,13 @@ async fn watch(mut signals: MessageStream, shared: &Shared, stop: &Stop, mut own
         }
         owned = acquired;
         shared.set_owns_name(owned);
-        shared.push_event(if owned {
-            Event::NameAcquired
+        if owned {
+            shared.push_event(Event::NameAcquired);
         } else {
-            Event::NameLost
-        });
+            // Another service now shows notifications; the ones shown here
+            // are closed (reason 4) so their senders are not left waiting.
+            shared.close_all();
+            shared.push_event(Event::NameLost);
+        }
     }
 }

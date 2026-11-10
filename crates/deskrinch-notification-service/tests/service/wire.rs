@@ -2,8 +2,11 @@
 //! advertises is what it supports.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
-use deskrinch_notification_service::{Config, ImageSource, Limits, Urgency};
+use deskrinch_notification_service::{
+    Config, ImageSource, Limits, ManualClock, Ownership, Urgency,
+};
 use zbus::Variant;
 
 use crate::common::{Client, PrivateBus, start, start_with};
@@ -85,7 +88,7 @@ fn a_notification_arrives_parsed_with_its_hints() {
     );
     assert_eq!(spans[3].link, None);
     assert_eq!(n.urgency, Urgency::Critical);
-    assert_eq!(n.timeout(), None, "critical never expires");
+    assert_eq!(n.timeout, None, "critical never expires");
     assert_eq!(n.category.as_deref(), Some("email.arrived"));
     assert_eq!(n.desktop_entry.as_deref(), Some("org.example.Mail"));
     let Some(ImageSource::Pixels(image)) = &n.image else {
@@ -129,7 +132,7 @@ fn a_sender_over_its_bound_gets_an_error() {
         },
         ..bus.config()
     };
-    let clock = std::sync::Arc::new(deskrinch_notification_service::ManualClock::new());
+    let clock = Arc::new(ManualClock::new());
     let (_service, events) = start_with(config, clock);
     let client = Client::new(&bus);
     client.simple(0, "1", "", 0);
@@ -150,4 +153,34 @@ fn a_sender_over_its_bound_gets_an_error() {
         .map(|_| events.next_shown().summary.clone())
         .collect();
     assert_eq!(summaries, ["1", "2", "other"]);
+}
+
+#[test]
+fn with_original_sender_ownership_others_are_denied() {
+    let bus = PrivateBus::start();
+    let config = Config {
+        ownership: Ownership::OriginalSender,
+        ..bus.config()
+    };
+    let (_service, _events) = start_with(config, Arc::new(ManualClock::new()));
+    let owner = Client::new(&bus);
+    let other = Client::new(&bus);
+    let n = owner.simple(0, "mine", "", 0);
+    let denied = |err: zbus::Error| match err {
+        zbus::Error::MethodError(name, _, _) => {
+            assert_eq!(
+                name.as_str(),
+                "org.freedesktop.Notifications.Error.AccessDenied"
+            );
+        }
+        other => panic!("expected a method error, got {other:?}"),
+    };
+    denied(
+        other
+            .send(n, "theirs", "", &[], &HashMap::new(), 0)
+            .unwrap_err(),
+    );
+    denied(other.close(n).unwrap_err());
+    assert_eq!(owner.simple(n, "still mine", "", 0), n);
+    owner.close(n).unwrap();
 }
