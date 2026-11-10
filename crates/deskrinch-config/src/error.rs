@@ -1,11 +1,6 @@
-//! The crate's error types. Problems in the files are not errors but
-//! [`Diagnostic`](crate::Diagnostic)s: they never stop a component.
-
-use std::error::Error as StdError;
-use std::io;
-
-/// A boxed error from the file-watching backend.
-pub type BoxedError = Box<dyn StdError + Send + Sync>;
+//! The crate's error type. Problems in the files are not errors but
+//! [`Diagnostic`](crate::Diagnostic)s: they never stop a component;
+//! watching fails with [`deskrinch_watch::WatchError`].
 
 /// A settings type's defaults are unusable. This is a bug in the type, not
 /// in any file.
@@ -35,18 +30,4 @@ pub enum DefaultsError {
         /// Why.
         message: String,
     },
-}
-
-/// Why watching the configuration failed.
-#[derive(Debug, thiserror::Error)]
-pub enum WatchError {
-    /// The settings type's defaults are unusable.
-    #[error(transparent)]
-    Defaults(#[from] DefaultsError),
-    /// The file-watching backend failed.
-    #[error("the file-watching backend failed")]
-    Backend(#[source] BoxedError),
-    /// The worker thread could not be started.
-    #[error("cannot start the watcher thread")]
-    Thread(#[source] io::Error),
 }

@@ -206,8 +206,8 @@ dependencies = [
 name = "deskrinch-config"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-watch",
  "deskrinch-xdg",
- "notify",
  "serde",
  "serde_ignored",
  "serde_path_to_error",
@@ -251,6 +251,16 @@ name = "deskrinch-test-dbus"
 version = "0.1.0"
 dependencies = [
  "rustix",
+ "tempfile",
+ "thiserror",
+]
+
+[[package]]
+name = "deskrinch-watch"
+version = "0.1.0"
+dependencies = [
+ "libc",
+ "notify",
  "tempfile",
  "thiserror",
 ]

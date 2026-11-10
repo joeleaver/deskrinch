@@ -1,7 +1,7 @@
 //! A component's settings: its section of every layer, validated layer by
 //! layer against its type, and merged.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
 use serde::Serialize;
@@ -39,9 +39,14 @@ impl<T> Settings for T where
 /// using the file's last good version, so a half-finished edit does not
 /// throw the component back to the layers below. A file broken from the
 /// first resolve is skipped.
+///
+/// Given the names of every table the shell knows
+/// ([`with_known_tables`](Self::with_known_tables)), it also reports any
+/// other top-level key, usually a misspelled table, as a warning.
 #[derive(Debug, Clone)]
 pub struct Section<T> {
     name: String,
+    known: Option<BTreeSet<String>>,
     defaults: Node,
     base: T,
     kept: HashMap<PathBuf, Node>,
@@ -85,10 +90,23 @@ impl<T: Settings> Section<T> {
         };
         Ok(Self {
             name: section,
+            known: None,
             defaults,
             base,
             kept: HashMap::new(),
         })
+    }
+
+    /// Reports every top-level key of a file that is neither this section
+    /// nor one of `tables` (`[pannel]`, a stray `height = 3`) as a
+    /// [`Problem::UnknownTable`] warning, where the file has it.
+    #[must_use]
+    pub fn with_known_tables<S: Into<String>>(
+        mut self,
+        tables: impl IntoIterator<Item = S>,
+    ) -> Self {
+        self.known = Some(tables.into_iter().map(Into::into).collect());
+        self
     }
 
     /// The section's name.
@@ -118,6 +136,7 @@ impl<T: Settings> Section<T> {
                 Contents::Absent => continue,
                 Contents::Broken(diagnostic) => state.diagnostics.push(diagnostic.clone()),
                 Contents::Parsed { file: source, root } => {
+                    self.report_unknown_tables(source, root, &mut state.diagnostics);
                     let Some(entry) = root.table().and_then(|table| table.get(&self.name)) else {
                         continue;
                     };
@@ -152,6 +171,30 @@ impl<T: Settings> Section<T> {
             diagnostics: state.diagnostics,
             effective: Effective::new(&self.name, &effective, snapshot),
         }
+    }
+}
+
+impl<T> Section<T> {
+    fn report_unknown_tables(
+        &self,
+        source: &SourceFile,
+        root: &Node,
+        diagnostics: &mut Vec<Diagnostic>,
+    ) {
+        let (Some(known), Some(table)) = (&self.known, root.table()) else {
+            return;
+        };
+        // The table is in key order; the file's order is the locations'.
+        let mut unknown: Vec<Diagnostic> = table
+            .iter()
+            .filter(|(key, _)| **key != self.name && !known.contains(*key))
+            .map(|(key, entry)| {
+                let problem = Problem::UnknownTable { table: key.clone() };
+                Diagnostic::at_origin(source, &entry.key, problem)
+            })
+            .collect();
+        unknown.sort_by_key(|diagnostic| diagnostic.location);
+        diagnostics.append(&mut unknown);
     }
 }
 

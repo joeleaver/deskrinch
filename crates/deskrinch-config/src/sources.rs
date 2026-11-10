@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use deskrinch_xdg::BaseDirs;
 
-use crate::error::DefaultsError;
 use crate::section::{Resolved, Section, Settings};
 use crate::snapshot::Snapshot;
 
@@ -77,16 +76,12 @@ fn read_file(path: &Path) -> io::Result<Option<Vec<u8>>> {
     }
 }
 
-/// Reads the files of `sources` and resolves the section `name` from them:
-/// the one-shot form of [`Section::resolve`].
-///
-/// # Errors
-///
-/// [`DefaultsError`] when `T`'s defaults are unusable; see
-/// [`Section::new`]. Problems in the files are never errors: they are
-/// [`Resolved::diagnostics`].
-pub fn load<T: Settings>(sources: &Sources, name: &str) -> Result<Resolved<T>, DefaultsError> {
-    Ok(Section::new(name)?.resolve(&Snapshot::read(sources)))
+/// Reads the files of `sources` and resolves `section` from them: the
+/// one-shot form of [`Section::resolve`]. Problems in the files are never
+/// errors: they are [`Resolved::diagnostics`].
+#[must_use]
+pub fn load<T: Settings>(sources: &Sources, mut section: Section<T>) -> Resolved<T> {
+    section.resolve(&Snapshot::read(sources))
 }
 
 #[cfg(test)]
