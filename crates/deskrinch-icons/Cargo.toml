@@ -1,0 +1,23 @@
+[package]
+name = "deskrinch-icons"
+description = "Icon names resolved to files by the freedesktop Icon Theme Specification, and followed as themes change."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+deskrinch-keyfile.workspace = true
+deskrinch-watch.workspace = true
+deskrinch-xdg.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+# The index_cost example reads this thread's CPU clock.
+rustix = { workspace = true, features = ["time"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

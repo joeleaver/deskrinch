@@ -744,6 +744,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-icons"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-keyfile",
+ "deskrinch-watch",
+ "deskrinch-xdg",
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "deskrinch-keyfile"
 version = "0.1.0"
 dependencies = [
