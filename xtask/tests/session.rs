@@ -29,17 +29,52 @@ mod session {
     /// `xtask session <compositor> <command…>`, with a real-looking session
     /// in its own environment for the session to remove.
     fn session(command: &[&str]) -> Command {
+        session_with(&[], command)
+    }
+
+    /// [`session`] with options for `xtask session` before the compositor.
+    fn session_with(options: &[&str], command: &[&str]) -> Command {
         let mut xtask = Command::new(env!("CARGO_BIN_EXE_xtask"));
         xtask
             .arg("session")
+            .args(options)
             .arg(compositor())
             .args(command)
-            .env("DISPLAY", ":99")
-            .env("XAUTHORITY", "/nonexistent/xauthority")
-            .env("WAYLAND_DISPLAY", "wayland-real")
-            .env("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/bus")
+            .envs(REAL_LOOKING)
             .stdin(Stdio::null());
         xtask
+    }
+
+    /// A real session's variables, as an agent's shell would have them.
+    const REAL_LOOKING: [(&str, &str); 13] = [
+        ("DISPLAY", ":99"),
+        ("XAUTHORITY", "/nonexistent/xauthority"),
+        ("WAYLAND_DISPLAY", "wayland-real"),
+        ("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/bus"),
+        ("XDG_CURRENT_DESKTOP", "KDE"),
+        (
+            "XDG_CONFIG_DIRS",
+            "/nonexistent/home/.config/kdedefaults:/etc/xdg",
+        ),
+        (
+            "XDG_DATA_DIRS",
+            "/nonexistent/flatpak/exports/share:/usr/share",
+        ),
+        ("XDG_SESSION_ID", "1"),
+        ("XDG_SESSION_CLASS", "user"),
+        ("XDG_SESSION_DESKTOP", "KDE"),
+        ("XDG_SESSION_TYPE", "wayland"),
+        ("XDG_SEAT", "seat0"),
+        ("XDG_VTNR", "1"),
+    ];
+
+    /// The environment a command printed with `env`.
+    fn environment(stdout: &[u8]) -> HashMap<String, String> {
+        String::from_utf8_lossy(stdout)
+            .lines()
+            .filter_map(|line| line.split_once('='))
+            .map(|(name, value)| (name.to_owned(), value.to_owned()))
+            .collect()
     }
 
     fn run(command: &[&str]) -> Output {
@@ -87,18 +122,39 @@ mod session {
             .output()
             .unwrap();
         assert!(output.status.success(), "{output:?}");
-        let text = String::from_utf8(output.stdout).unwrap();
-        let env: HashMap<_, _> = text
-            .lines()
-            .filter_map(|line| line.split_once('='))
+        let env = environment(&output.stdout);
+        let env: HashMap<&str, &str> = env
+            .iter()
+            .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect();
 
-        for real in ["DISPLAY", "XAUTHORITY", "WAYLAND_SOCKET"] {
+        for real in [
+            "DISPLAY",
+            "XAUTHORITY",
+            "WAYLAND_SOCKET",
+            "XDG_CURRENT_DESKTOP",
+            "XDG_SESSION_ID",
+            "XDG_SESSION_CLASS",
+            "XDG_SESSION_DESKTOP",
+            "XDG_SESSION_TYPE",
+            "XDG_SEAT",
+            "XDG_VTNR",
+        ] {
             assert!(!env.contains_key(real), "{real} leaked: {:?}", env[real]);
         }
+        assert_eq!(env["XDG_CONFIG_DIRS"], "/etc/xdg");
+        assert_eq!(env["XDG_DATA_DIRS"], "/usr/local/share/:/usr/share/");
         let root = env["DESKRINCH_SESSION_DIR"];
         assert!(root.starts_with("/tmp/deskrinch-session-"), "{root}");
+        // cargo and rustup keep the real homes while HOME moves.
+        let real = |variable: &str, default: &str| {
+            std::env::var(variable)
+                .unwrap_or_else(|_| format!("{}/{default}", std::env::var("HOME").unwrap()))
+        };
+        assert_eq!(env["CARGO_HOME"], real("CARGO_HOME", ".cargo"));
+        assert_eq!(env["RUSTUP_HOME"], real("RUSTUP_HOME", ".rustup"));
         for (variable, sub) in [
+            ("HOME", "home"),
             ("XDG_RUNTIME_DIR", "run"),
             ("XDG_DATA_HOME", "data"),
             ("XDG_CONFIG_HOME", "config"),
@@ -125,6 +181,17 @@ mod session {
         );
         // And the session is gone afterwards.
         assert!(!Path::new(root).exists(), "{root} was left behind");
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn sets_the_current_desktop_only_when_asked() {
+        let output = session_with(&["--current-desktop", "deskrinch"], &["env"])
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let env = environment(&output.stdout);
+        assert_eq!(env["XDG_CURRENT_DESKTOP"], "deskrinch");
     }
 
     #[test]

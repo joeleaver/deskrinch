@@ -2,10 +2,12 @@
 //!
 //! What a session is, which [`Session::client`] commands share:
 //!
-//! - Its own `XDG_RUNTIME_DIR`, `XDG_DATA_HOME`, `XDG_CONFIG_HOME`,
-//!   `XDG_CACHE_HOME` and `XDG_STATE_HOME`, private directories under a fresh
-//!   `/tmp/deskrinch-session-*` root, and none of the real session's display
-//!   or bus variables ([`session::REAL_SESSION_VARIABLES`]).
+//! - The explicit environment of `deskrinch-test-dbus`'s
+//!   [`session::isolate`]: its own `HOME` and XDG directories, private
+//!   directories under a fresh `/tmp/deskrinch-session-*` root, the XDG
+//!   search paths at their defaults, and none of the real session's display,
+//!   bus or login-session variables ([`session::REAL_SESSION_VARIABLES`]);
+//!   `XDG_CURRENT_DESKTOP` only when the caller asks for one.
 //! - A private D-Bus session bus ([`PrivateBus`]) with no service activation,
 //!   named in `DBUS_SESSION_BUS_ADDRESS` for the compositor and every client.
 //! - The compositor, headless, and every client in one process group of
@@ -23,7 +25,7 @@ mod compositor;
 pub(crate) mod interrupt;
 mod leftovers;
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -41,6 +43,10 @@ use tempfile::TempDir;
 pub(crate) use self::compositor::Compositor;
 pub(crate) use self::leftovers::Leftover;
 use crate::error::Error;
+
+/// The variable naming the desktop that runs, which the session leaves
+/// unset unless asked.
+const CURRENT_DESKTOP: &str = "XDG_CURRENT_DESKTOP";
 
 /// How long a compositor has to open its socket.
 const STARTUP: Duration = Duration::from_secs(20);
@@ -60,6 +66,7 @@ pub(crate) struct Session {
     child: Child,
     group: Pid,
     socket: String,
+    current_desktop: Option<OsString>,
     keep: bool,
     ended: bool,
 }
@@ -71,6 +78,7 @@ impl Session {
     pub(crate) fn start(
         compositor: Compositor,
         outputs: u32,
+        current_desktop: Option<&OsStr>,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<Self, Error> {
         interrupt::install()?;
@@ -104,6 +112,9 @@ impl Session {
 
         let mut command = compositor.command(&root, outputs)?;
         isolate(&mut command, &root);
+        if let Some(desktop) = current_desktop {
+            command.env(CURRENT_DESKTOP, desktop);
+        }
         command
             .env("DBUS_SESSION_BUS_ADDRESS", bus.address())
             .stdin(Stdio::null())
@@ -126,6 +137,7 @@ impl Session {
             child,
             group,
             socket: String::new(),
+            current_desktop: current_desktop.map(ToOwned::to_owned),
             keep: false,
             ended: false,
         };
@@ -199,6 +211,9 @@ impl Session {
             .env("DESKRINCH_SESSION_DIR", &self.root)
             .envs(self.compositor.client_env(&self.root.join("run")))
             .stdin(Stdio::null());
+        if let Some(desktop) = &self.current_desktop {
+            command.env(CURRENT_DESKTOP, desktop);
+        }
         command
     }
 
