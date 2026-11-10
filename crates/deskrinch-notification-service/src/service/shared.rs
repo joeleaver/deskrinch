@@ -298,9 +298,28 @@ impl Shared {
         self.owns_name.store(owns, Ordering::SeqCst);
     }
 
-    /// Tells the worker to deliver what is queued and stop.
+    /// Closes every live notification with reason 4, so that senders waiting
+    /// on one are released.
+    pub(crate) fn close_all(&self) {
+        let mut state = self.lock();
+        for change in state.model.close_all(CloseReason::Undefined) {
+            state.record(change);
+        }
+        drop(state);
+        self.wake.notify_all();
+    }
+
+    /// Closes every live notification (as [`close_all`](Self::close_all)),
+    /// then tells the worker to deliver what is queued and stop.
     pub(crate) fn stop(&self) {
-        self.lock().stopping = true;
+        let mut state = self.lock();
+        if !state.stopping {
+            for change in state.model.close_all(CloseReason::Undefined) {
+                state.record(change);
+            }
+            state.stopping = true;
+        }
+        drop(state);
         self.wake.notify_all();
     }
 }

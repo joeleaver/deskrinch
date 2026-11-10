@@ -8,7 +8,7 @@ use deskrinch_notification_service::{CloseReason, Event, ImageSource, Urgency};
 
 use crate::common::{PATIENCE, PrivateBus, start};
 
-fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
+pub(crate) fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
     Command::new("notify-send")
         .args(args)
         .env("DBUS_SESSION_BUS_ADDRESS", bus.address())
@@ -19,7 +19,7 @@ fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
 }
 
 /// Waits for `child` to exit, within the tests' patience.
-fn finish(child: Child) -> Output {
+pub(crate) fn finish(child: Child) -> Output {
     let (tx, rx) = mpsc::channel();
     thread::spawn(move || {
         let _sent = tx.send(child.wait_with_output());

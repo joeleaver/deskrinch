@@ -184,6 +184,19 @@ impl Model {
         })
     }
 
+    /// Removes every live notification, paused ones included, in order,
+    /// for `reason`.
+    pub(crate) fn close_all(&mut self, reason: CloseReason) -> Vec<Change> {
+        self.live
+            .drain(..)
+            .map(|n| Change::Closed {
+                id: n.id,
+                reason,
+                sender: n.sender.clone(),
+            })
+            .collect()
+    }
+
     /// The user invoked the action `key` on `id`. Unless the notification is
     /// resident, invoking an action also dismisses it.
     pub(crate) fn invoke_action(

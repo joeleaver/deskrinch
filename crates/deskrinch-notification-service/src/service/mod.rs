@@ -110,6 +110,11 @@ pub enum Event {
     /// it back).
     NameAcquired,
     /// Another service took the name; notifications no longer reach this one.
+    /// The live notifications were closed just before, with
+    /// [`CloseReason::Undefined`]. Those `NotificationClosed` signals leave
+    /// after the name has gone, so a client that only accepts signals from
+    /// the name's current owner (libnotify, through `GDBusProxy`) ignores
+    /// them: `notify-send --wait` stays waiting.
     NameLost,
     /// The bus connection ended. The service receives nothing more; the
     /// daemon decides whether to start another.
@@ -154,7 +159,12 @@ pub enum OperationError {
     Stopped,
 }
 
-/// The running service. Dropping it stops it and releases the name.
+/// The running service.
+///
+/// Dropping it is an orderly stop: every live notification (paused ones
+/// too) is closed with [`CloseReason::Undefined`], the subscriber hears of
+/// each and the senders get `NotificationClosed`, and only then is the
+/// connection closed and the name released.
 ///
 /// Dropping, like [`Service::start`], blocks the calling thread on the bus,
 /// so neither may happen inside an async runtime's task.

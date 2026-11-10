@@ -19,4 +19,6 @@ mod names;
 #[cfg(test)]
 mod pause;
 #[cfg(test)]
+mod stop;
+#[cfg(test)]
 mod wire;
