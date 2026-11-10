@@ -760,7 +760,10 @@ name = "deskrinch-panel"
 version = "0.1.0"
 dependencies = [
  "deskrinch-clock",
+ "deskrinch-config",
+ "deskrinch-xdg",
  "rinch",
+ "serde",
  "thiserror 2.0.21",
 ]
 

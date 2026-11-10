@@ -1,13 +1,24 @@
-//! `deskrinch-panel`: the desktop panel, a bar along the bottom edge of the
-//! output that windows keep clear of, with the clock at its right end.
+//! `deskrinch-panel`: the desktop panel, a bar along an edge of the output
+//! that windows keep clear of, with the clock at its right end.
 //!
 //! - The window is a `wlr-layer-shell` surface (see [`surface`]): the full
-//!   width of the output, 40 logical pixels high, reserving its height.
-//!   rinch makes it one through `WindowProps::wayland_layer`; on a
+//!   width of the output, along its bottom or top edge, reserving its
+//!   height. rinch makes it one through `WindowProps::wayland_layer`; on a
 //!   compositor without the layer shell (GNOME) rinch falls back to an
 //!   ordinary window, with a warning.
 //! - The content is the [`bar`]: left, centre and right regions holding
 //!   [`widgets`].
+//!
+//! # Settings
+//!
+//! The `[panel]` table of deskrinch's configuration
+//! (`$XDG_CONFIG_HOME/deskrinch/config.toml`, over the same file in each of
+//! `$XDG_CONFIG_DIRS`) sets the edge, the height and what the clock shows;
+//! [`settings`] lists the keys, their values and their defaults. The panel
+//! follows the file while it runs ([`config`]): a change moves or resizes
+//! the window, or restarts the clock, without a restart of the panel.
+//! Mistakes are written to standard error with their file, line and
+//! column, and leave the last good settings in place.
 //!
 //! # Rendering
 //!
@@ -25,14 +36,21 @@
 //! build has none.
 
 mod bar;
+mod config;
+mod log;
+mod panel;
+mod settings;
 mod surface;
 mod widgets;
 
+use deskrinch_xdg::BaseDirs;
 use rinch::prelude::*;
 
 fn main() {
-    App::new(bar::bar)
-        .window_props(surface::window_props())
+    let config = config::Config::start(&BaseDirs::from_process());
+    let window = surface::window_props(config.initial.placement());
+    App::new(move |scope| panel::panel(scope, config))
+        .window_props(window)
         .theme(ThemeProviderProps {
             dark_mode: true,
             ..ThemeProviderProps::default()
