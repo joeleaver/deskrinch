@@ -61,6 +61,9 @@ it. Only the project manager writes to Pimble.
   `xtask/src/compositor_tests/session.rs` is the reference. Nothing is
   installed, written or launched in the user's real session or home. This
   holds for work in rinch clones too.
+- **Temporary files are your own.** Agents share scratch directories. Never
+  write a fixed file name there (a PR description, a script, a log): make a
+  directory with `mktemp -d` and work in it.
 - Phase 2 builds on smithay only. cosmic-comp and niri are GPL-3 reference
   reading; don't copy code from them.
 - Code reaches `main` through a pull request with CI green.
