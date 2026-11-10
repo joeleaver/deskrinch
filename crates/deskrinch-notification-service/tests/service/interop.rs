@@ -9,9 +9,8 @@ use deskrinch_notification_service::{CloseReason, Event, ImageSource, Urgency};
 use crate::common::{PATIENCE, PrivateBus, start};
 
 pub(crate) fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
-    Command::new("notify-send")
+    bus.command("notify-send")
         .args(args)
-        .env("DBUS_SESSION_BUS_ADDRESS", bus.address())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -48,6 +48,12 @@ impl PrivateBus {
         zbus::block_on(zbus::connection::Builder::address(self.address()).build()).unwrap()
     }
 
+    /// A command for `program` in the bus's isolated session, pointed at
+    /// the bus.
+    pub(crate) fn command(&self, program: &str) -> std::process::Command {
+        self.0.command(program)
+    }
+
     /// Stops the daemon now.
     pub(crate) fn kill(&mut self) {
         self.0.stop();

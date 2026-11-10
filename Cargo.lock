@@ -250,6 +250,7 @@ dependencies = [
 name = "deskrinch-test-dbus"
 version = "0.1.0"
 dependencies = [
+ "rustix",
  "tempfile",
  "thiserror",
 ]
