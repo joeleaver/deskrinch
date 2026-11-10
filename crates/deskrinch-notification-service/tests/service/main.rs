@@ -9,6 +9,8 @@
 #[cfg(test)]
 mod common;
 #[cfg(test)]
+mod delivery;
+#[cfg(test)]
 mod interop;
 #[cfg(test)]
 mod lifecycle;

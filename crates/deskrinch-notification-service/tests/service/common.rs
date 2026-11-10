@@ -176,6 +176,12 @@ pub(crate) enum Signal {
 pub(crate) struct Signals(Receiver<Signal>);
 
 impl Signals {
+    /// Listens on a connection of its own that sends nothing: it sees only
+    /// signals broadcast to everyone.
+    pub(crate) fn bystander(bus: &PrivateBus) -> Self {
+        Self::on(&bus.client())
+    }
+
     /// Starts listening on `connection`; signals it receives after this
     /// returns are all seen.
     pub(crate) fn on(connection: &Connection) -> Self {

@@ -5,6 +5,7 @@ use std::mem;
 use std::sync::{Arc, PoisonError};
 
 use zbus::Connection;
+use zbus::names::BusName;
 use zbus::object_server::SignalEmitter;
 
 use crate::dbus::interface::{NotificationsSignals as _, PATH};
@@ -23,13 +24,20 @@ pub(crate) fn run(shared: &Arc<Shared>, connection: &Connection, subscriber: &Su
         for output in batch {
             match output {
                 Output::Event(event) => subscriber(event),
-                Output::Signal(signal) => {
-                    if let Ok(emitter) = &emitter {
-                        // A signal fails to go out only when the connection is
-                        // gone, which the name watcher reports as
-                        // `Event::Disconnected`; there is nobody to tell else.
-                        let _sent = zbus::block_on(emit(emitter, signal));
-                    }
+                Output::Signal { signal, to } => {
+                    let Ok(emitter) = &emitter else {
+                        continue;
+                    };
+                    let emitter = match to.as_deref().map(BusName::try_from) {
+                        None => emitter.clone(),
+                        Some(Ok(to)) => emitter.clone().set_destination(to),
+                        // A sender's unique name came from the bus; it is valid.
+                        Some(Err(_)) => continue,
+                    };
+                    // A signal fails to go out only when the connection is
+                    // gone, which the name watcher reports as
+                    // `Event::Disconnected`; there is nobody to tell else.
+                    let _sent = zbus::block_on(emit(&emitter, signal));
                 }
             }
         }

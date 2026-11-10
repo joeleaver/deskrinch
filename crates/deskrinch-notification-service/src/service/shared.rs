@@ -14,6 +14,7 @@ use std::task::Wake;
 use crate::clock::Clock;
 use crate::model::{ActionRefused, Change, CloseRefused, Model, Refused};
 use crate::notification::{CloseReason, Notification, NotificationId};
+use crate::policy::SignalDelivery;
 use crate::request::{Policy, Request};
 use crate::service::{Event, OperationError, ServerInfo};
 
@@ -75,13 +76,18 @@ impl From<Stopped> for CloseError {
 #[derive(Debug, Clone)]
 pub(crate) enum Output {
     Event(Event),
-    Signal(Signal),
+    Signal {
+        signal: Signal,
+        /// The unique name to send it to; `None` broadcasts it.
+        to: Option<String>,
+    },
 }
 
 pub(crate) struct State {
     pub(crate) model: Model,
     pub(crate) outbox: VecDeque<Output>,
     pub(crate) stopping: bool,
+    delivery: SignalDelivery,
 }
 
 impl State {
@@ -90,26 +96,38 @@ impl State {
         match change {
             Change::Shown(n) => self.outbox.push_back(Output::Event(Event::Shown(n))),
             Change::Replaced(n) => self.outbox.push_back(Output::Event(Event::Replaced(n))),
-            Change::Closed { id, reason } => {
+            Change::Closed { id, reason, sender } => {
                 self.outbox
                     .push_back(Output::Event(Event::Closed { id, reason }));
-                self.outbox
-                    .push_back(Output::Signal(Signal::NotificationClosed { id, reason }));
+                self.signal(Signal::NotificationClosed { id, reason }, sender.as_deref());
             }
             Change::ActionInvoked {
                 id,
                 key,
                 activation_token,
+                sender,
             } => {
                 // The specification: the token comes before ActionInvoked.
                 if let Some(token) = activation_token {
-                    self.outbox
-                        .push_back(Output::Signal(Signal::ActivationToken { id, token }));
+                    self.signal(Signal::ActivationToken { id, token }, sender.as_deref());
                 }
-                self.outbox
-                    .push_back(Output::Signal(Signal::ActionInvoked { id, key }));
+                self.signal(Signal::ActionInvoked { id, key }, sender.as_deref());
             }
         }
+    }
+
+    /// Queues `signal` about a notification whose current sender is
+    /// `sender`, addressed as the delivery policy says. With sender-only
+    /// delivery and no sender (a peer-to-peer connection) it goes nowhere.
+    fn signal(&mut self, signal: Signal, sender: Option<&str>) {
+        let to = match self.delivery {
+            SignalDelivery::Broadcast => None,
+            SignalDelivery::Sender => match sender {
+                Some(sender) => Some(sender.to_owned()),
+                None => return,
+            },
+        };
+        self.outbox.push_back(Output::Signal { signal, to });
     }
 }
 
@@ -124,12 +142,18 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
-    pub(crate) fn new(policy: Policy, clock: Arc<dyn Clock>, server: ServerInfo) -> Arc<Self> {
+    pub(crate) fn new(
+        policy: Policy,
+        delivery: SignalDelivery,
+        clock: Arc<dyn Clock>,
+        server: ServerInfo,
+    ) -> Arc<Self> {
         let shared = Arc::new(Self {
             state: Mutex::new(State {
                 model: Model::new(policy),
                 outbox: VecDeque::new(),
                 stopping: false,
+                delivery,
             }),
             wake: Condvar::new(),
             clock,

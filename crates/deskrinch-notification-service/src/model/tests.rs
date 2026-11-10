@@ -168,7 +168,8 @@ fn expiry_closes_due_notifications_only() {
         m.expire(t0 + SECOND),
         [Change::Closed {
             id: e,
-            reason: CloseReason::Expired
+            reason: CloseReason::Expired,
+            sender: Some(":1.1".into()),
         }]
     );
     assert_eq!(m.expire(t0 + 5 * SECOND).len(), 1);
@@ -187,7 +188,8 @@ fn close_and_dismiss_report_their_reason() {
         m.close(a, CloseReason::Closed),
         Some(Change::Closed {
             id: a,
-            reason: CloseReason::Closed
+            reason: CloseReason::Closed,
+            sender: Some(":1.1".into()),
         })
     );
     assert_eq!(m.close(a, CloseReason::Closed), None, "already gone");
@@ -228,11 +230,13 @@ fn invoking_an_action_dismisses_unless_resident() {
             Change::ActionInvoked {
                 id: p,
                 key: "reply".into(),
-                activation_token: Some("token".into())
+                activation_token: Some("token".into()),
+                sender: Some(":1.1".into()),
             },
             Change::Closed {
                 id: p,
-                reason: CloseReason::Dismissed
+                reason: CloseReason::Dismissed,
+                sender: Some(":1.1".into()),
             }
         ]
     );

@@ -19,12 +19,16 @@ pub(crate) enum Change {
     Closed {
         id: NotificationId,
         reason: CloseReason,
+        /// Its sender when it closed.
+        sender: Option<String>,
     },
     /// The user invoked an action.
     ActionInvoked {
         id: NotificationId,
         key: String,
         activation_token: Option<String>,
+        /// The notification's current sender.
+        sender: Option<String>,
     },
 }
 
@@ -172,8 +176,12 @@ impl Model {
     /// Removes `id` for `reason`. `None` when it is not live.
     pub(crate) fn close(&mut self, id: NotificationId, reason: CloseReason) -> Option<Change> {
         let at = self.position(id)?;
-        self.live.remove(at);
-        Some(Change::Closed { id, reason })
+        let closed = self.live.remove(at);
+        Some(Change::Closed {
+            id,
+            reason,
+            sender: closed.sender.clone(),
+        })
     }
 
     /// The user invoked the action `key` on `id`. Unless the notification is
@@ -192,6 +200,7 @@ impl Model {
             id,
             key: action.key.clone(),
             activation_token,
+            sender: notification.sender.clone(),
         }];
         if !notification.resident {
             changes.extend(self.close(id, CloseReason::Dismissed));
@@ -208,6 +217,7 @@ impl Model {
                 changes.push(Change::Closed {
                     id: n.id,
                     reason: CloseReason::Expired,
+                    sender: n.sender.clone(),
                 });
             }
             !expired

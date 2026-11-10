@@ -31,8 +31,9 @@
 //!     `CloseNotification`.
 //!
 //! The bus hears the same steps through `NotificationClosed`, and actions
-//! through `ActivationToken` and `ActionInvoked`. `GetCapabilities` reports
-//! [`Capabilities`], which the model follows.
+//! through `ActivationToken` and `ActionInvoked`; by default only the
+//! notification's current sender receives them ([`Config::signal_delivery`]).
+//! `GetCapabilities` reports [`Capabilities`], which the model follows.
 //!
 //! # Untrusted input
 //!

@@ -19,7 +19,7 @@ use crate::dbus::interface::{NAME, Notifications, PATH};
 use crate::dbus::name::{self, NameRequest, NameStatus, Watcher};
 use crate::limits::Limits;
 use crate::notification::{CloseReason, Notification, NotificationId};
-use crate::policy::Ownership;
+use crate::policy::{Ownership, SignalDelivery};
 use crate::request::Policy;
 use shared::Shared;
 
@@ -71,6 +71,8 @@ pub struct Config {
     pub default_timeout: Option<Duration>,
     /// Which senders may replace or close a notification.
     pub ownership: Ownership,
+    /// Who receives the signals about a notification.
+    pub signal_delivery: SignalDelivery,
 }
 
 impl Default for Config {
@@ -83,6 +85,7 @@ impl Default for Config {
             limits: Limits::default(),
             default_timeout: Some(Duration::from_secs(5)),
             ownership: Ownership::default(),
+            signal_delivery: SignalDelivery::default(),
         }
     }
 }
@@ -191,7 +194,7 @@ impl Service {
             default_timeout: config.default_timeout,
             ownership: config.ownership,
         };
-        let shared = Shared::new(policy, clock, config.server);
+        let shared = Shared::new(policy, config.signal_delivery, clock, config.server);
         let object = Notifications {
             shared: Arc::clone(&shared),
         };
