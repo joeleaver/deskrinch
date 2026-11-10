@@ -22,9 +22,9 @@ use crate::widgets::ClockWidget;
 const REGION: &str = "display: flex; flex-direction: row; align-items: center; \
                       gap: var(--rinch-spacing-sm); height: 100%;";
 
-/// The panel's content.
+/// The panel's content: its three regions and their widgets.
 #[component]
-pub(crate) fn bar() -> NodeHandle {
+pub(crate) fn Bar() -> NodeHandle {
     rsx! {
         div {
             class: "bar",

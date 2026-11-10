@@ -24,7 +24,7 @@ fn a_launch_and_its_children_land_in_a_real_transient_scope() {
     let dir = tempfile::tempdir().unwrap();
     let text = format!(
         "[Desktop Entry]\nType=Application\nName=deskrinch scope test\nExec={}\n",
-        recorder(dir.path()).display()
+        recorder(dir.path())
     );
     let app = entry(dir.path(), "org.deskrinch.ScopeTest.desktop", &text);
     let context = LaunchContext::new(&env)
