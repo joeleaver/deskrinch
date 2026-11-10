@@ -14,12 +14,13 @@
 //! ```
 //! use deskrinch_keyfile::{Deviation, KeyFile};
 //!
-//! let text = "[Icon Theme]\nName=Example\nDirectories=48x48/apps;\n\n\
+//! let text = "[Icon Theme]\nName=Example\nDirectories=48x48/apps,scalable/apps\n\n\
 //!             [48x48/apps]\nSize=48\nType=Fixed\n";
 //! let mut deviations = Vec::<Deviation>::new();
 //! let file = KeyFile::parse(text.as_bytes(), &mut deviations)?;
 //! let theme = file.group("Icon Theme").unwrap();
-//! assert_eq!(theme.list("Directories", &mut deviations), ["48x48/apps"]);
+//! let dirs = theme.list_separated("Directories", ',', &mut deviations);
+//! assert_eq!(dirs, ["48x48/apps", "scalable/apps"]);
 //! let dir = file.group("48x48/apps").unwrap();
 //! assert_eq!(dir.integer("Size", &mut deviations), Some(48));
 //! assert!(deviations.is_empty());

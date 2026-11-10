@@ -9,8 +9,9 @@ pub struct KeyFile {
     groups: Vec<Group>,
 }
 
-/// One `[Group Name]` and its keys, values still escaped; the accessors in
-/// [`group`](crate::group) read them.
+/// One `[Group Name]` and its keys, values still escaped until an accessor
+/// such as [`string`](Self::string) or [`integer`](Self::integer) reads
+/// them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Group {
     pub(crate) name: String,

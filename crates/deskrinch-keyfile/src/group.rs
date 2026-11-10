@@ -2,7 +2,7 @@
 //! `localestring`, `boolean`, `numeric` integers and lists.
 
 use crate::error::{Deviation, Report};
-use crate::escape::{split_list_checked, unescape_checked};
+use crate::escape::{split_list_checked, split_list_with, unescape_checked};
 use crate::file::{Group, KeyLocale};
 use crate::locale::{Locale, Localized};
 
@@ -29,10 +29,22 @@ impl Group {
     /// The unlocalised value of `key` as a list of `string`s: split at
     /// unescaped `;`, empty elements dropped. Absent is empty.
     pub fn list(&self, key: &str, deviations: &mut impl Report) -> Vec<String> {
+        self.list_separated(key, ';', deviations)
+    }
+
+    /// [`list`](Self::list) with another separator: icon themes separate
+    /// `Directories` and `Inherits` with `,` (GTK sets the key file's list
+    /// separator to `,` for them).
+    pub fn list_separated(
+        &self,
+        key: &str,
+        separator: char,
+        deviations: &mut impl Report,
+    ) -> Vec<String> {
         let Some(raw) = self.raw(key) else {
             return Vec::new();
         };
-        let (items, clean) = split_list_checked(raw);
+        let (items, clean) = split_list_with(raw, separator);
         self.note_escapes(key, clean, deviations);
         items
     }

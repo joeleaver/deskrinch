@@ -42,18 +42,24 @@ pub(crate) fn unescape_checked(raw: &str) -> (String, bool) {
     (out, clean)
 }
 
-/// Splits a list value at unescaped `;`, undoes `\;`, then unescapes each
-/// element as a `string`. Empty elements, including the one after the
-/// terminating `;`, carry nothing and are dropped.
+/// [`split_list_with`] at `;`, the separator desktop entries use.
 pub(crate) fn split_list_checked(raw: &str) -> (Vec<String>, bool) {
+    split_list_with(raw, ';')
+}
+
+/// Splits a list value at unescaped `separator`, undoes the escaped
+/// separator, then unescapes each element as a `string`. Empty elements,
+/// including the one after a terminating separator, carry nothing and are
+/// dropped.
+pub(crate) fn split_list_with(raw: &str, separator: char) -> (Vec<String>, bool) {
     let mut items = Vec::new();
     let mut current = String::new();
     let mut chars = raw.chars();
     while let Some(c) = chars.next() {
         match c {
-            ';' => items.push(std::mem::take(&mut current)),
+            c if c == separator => items.push(std::mem::take(&mut current)),
             '\\' => match chars.next() {
-                Some(';') => current.push(';'),
+                Some(c) if c == separator => current.push(c),
                 Some(other) => {
                     current.push('\\');
                     current.push(other);
@@ -100,5 +106,11 @@ mod tests {
         assert_eq!(items(r"a\;b;c\sd;;"), ["a;b", "c d"]);
         assert_eq!(items(""), Vec::<String>::new());
         assert!(!split_list_checked(r"a\$;").1);
+        let commas = |raw| split_list_with(raw, ',').0;
+        assert_eq!(
+            commas("48x48/apps,scalable/apps,"),
+            ["48x48/apps", "scalable/apps"]
+        );
+        assert_eq!(commas(r"a\,b,c;d"), ["a,b", "c;d"]);
     }
 }
