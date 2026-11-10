@@ -9,36 +9,15 @@
 //! without one is refused.
 
 mod build;
-mod session;
 
 use std::path::Path;
 
 use deskrinch_window_management::kwin_access::DesktopEntry;
 
 use self::build::TestBinaries;
-use self::session::Session;
 use crate::Outcome;
 use crate::error::Error;
-
-/// A compositor the tests can run in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum Compositor {
-    /// KWin, `kwin_wayland --virtual`: `org_kde_plasma_window_management`.
-    Kwin,
-    /// sway, on the wlroots headless backend:
-    /// `zwlr_foreign_toplevel_management_v1`.
-    Sway,
-}
-
-impl Compositor {
-    /// Its name, as the tests read it from `DESKRINCH_TEST_COMPOSITOR`.
-    fn name(self) -> &'static str {
-        match self {
-            Self::Kwin => "kwin",
-            Self::Sway => "sway",
-        }
-    }
-}
+use crate::session::{Compositor, Session};
 
 /// The desktop file id the `compositor` test binary is granted under.
 const DESKTOP_ID: &str = "org.deskrinch.WindowManagementTests";

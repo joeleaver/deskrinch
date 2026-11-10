@@ -8,8 +8,11 @@ mod compositor_tests;
 mod error;
 mod file_length;
 mod git;
+mod run_in_session;
+mod session;
 
 use std::error::Error as _;
+use std::ffi::OsString;
 use std::path::Path;
 use std::process::ExitCode;
 
@@ -47,7 +50,25 @@ enum Task {
     CompositorTests {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
-        compositors: Vec<compositor_tests::Compositor>,
+        compositors: Vec<session::Compositor>,
+    },
+    /// Run a command in a nested, headless compositor session.
+    ///
+    /// The session is isolated as the compositor tests' are, and the
+    /// command runs as its client (`WAYLAND_DISPLAY`, and `SWAYSOCK` under
+    /// sway, point at it) in its process group: when the command exits, the
+    /// session ends with everything the command left running. For running a
+    /// shell component by hand, for example
+    /// `cargo xtask session sway sh -c 'deskrinch-panel & sleep 2; grim out.png'`.
+    Session {
+        /// The compositor to run.
+        #[arg(value_enum)]
+        compositor: session::Compositor,
+        /// The program to run in the session.
+        program: OsString,
+        /// Its arguments.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
     },
 }
 
@@ -56,6 +77,11 @@ impl Task {
         match self {
             Self::FileLength => file_length::run(root),
             Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
+            Self::Session {
+                compositor,
+                program,
+                args,
+            } => run_in_session::run(compositor, &program, &args),
         }
     }
 }

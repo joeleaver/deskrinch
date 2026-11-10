@@ -6,7 +6,7 @@
 //! own, which is ended as a whole when the session is dropped. Nothing it
 //! starts can reach the real session's sockets, bus or files.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::os::unix::fs::FileTypeExt;
 use std::os::unix::process::CommandExt;
@@ -18,7 +18,6 @@ use std::time::{Duration, Instant};
 use rustix::process::{Pid, Signal, kill_process_group, test_kill_process_group};
 use tempfile::TempDir;
 
-use super::Compositor;
 use crate::error::Error;
 
 /// How long a compositor has to open its socket.
@@ -42,9 +41,29 @@ const REAL_SESSION_VARIABLES: &[&str] = &[
     "DBUS_SESSION_BUS_ADDRESS",
 ];
 
+/// A compositor a session can run.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Compositor {
+    /// KWin, `kwin_wayland --virtual`: `org_kde_plasma_window_management`.
+    Kwin,
+    /// sway, on the wlroots headless backend:
+    /// `zwlr_foreign_toplevel_management_v1`.
+    Sway,
+}
+
+impl Compositor {
+    /// Its name, as the tests read it from `DESKRINCH_TEST_COMPOSITOR`.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            Self::Kwin => "kwin",
+            Self::Sway => "sway",
+        }
+    }
+}
+
 /// A running nested compositor.
 #[derive(Debug)]
-pub(super) struct Session {
+pub(crate) struct Session {
     compositor: Compositor,
     dir: TempDir,
     child: Child,
@@ -54,7 +73,7 @@ pub(super) struct Session {
 impl Session {
     /// Starts `compositor` in a new isolated session, after `prepare` has
     /// set up the session's data directory (`XDG_DATA_HOME`).
-    pub(super) fn start(
+    pub(crate) fn start(
         compositor: Compositor,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<Self, Error> {
@@ -107,13 +126,9 @@ impl Session {
 
     /// Runs a test binary's ignored tests in the session, one at a time.
     /// Returns whether they passed.
-    pub(super) fn run_tests(&self, binary: &Path) -> Result<bool, Error> {
-        let mut command = Command::new(binary);
-        isolate(&mut command, self.dir.path());
-        command
-            .args(["--ignored", "--test-threads=1"])
-            .env("WAYLAND_DISPLAY", &self.socket)
-            .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name());
+    pub(crate) fn run_tests(&self, binary: &Path) -> Result<bool, Error> {
+        let mut command = self.client(binary.as_os_str());
+        command.args(["--ignored", "--test-threads=1"]);
         let status = command.status().map_err(|source| Error::Spawn {
             program: binary.display().to_string(),
             source,
@@ -121,8 +136,46 @@ impl Session {
         Ok(status.success())
     }
 
+    /// A command that runs `program` as a client of the session: isolated
+    /// from the real session, pointed at this compositor (and at KWin's
+    /// private bus or sway's IPC socket), and in the session's process
+    /// group, so that whatever it leaves running ends with the session.
+    pub(crate) fn client(&self, program: &OsStr) -> Command {
+        let mut command = Command::new(program);
+        isolate(&mut command, self.dir.path());
+        command
+            .env("WAYLAND_DISPLAY", &self.socket)
+            .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
+            .process_group(Pid::from_child(&self.child).as_raw_nonzero().get());
+        match self.compositor {
+            // KWin's own bus, which its D-Bus interfaces are on.
+            Compositor::Kwin => {
+                command.env("DBUS_SESSION_BUS_ADDRESS", bus_address(self.dir.path()));
+            }
+            Compositor::Sway => {
+                if let Some(ipc) = self.sway_ipc() {
+                    command.env("SWAYSOCK", ipc);
+                }
+            }
+        }
+        command
+    }
+
+    /// sway's IPC socket in the session's runtime directory.
+    fn sway_ipc(&self) -> Option<PathBuf> {
+        fs::read_dir(self.dir.path().join("run"))
+            .ok()?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .find(|path| {
+                path.file_name()
+                    .and_then(|name| name.to_str())
+                    .is_some_and(is_sway_ipc_name)
+            })
+    }
+
     /// The compositor's output so far.
-    pub(super) fn log(&self) -> String {
+    pub(crate) fn log(&self) -> String {
         fs::read_to_string(self.dir.path().join("compositor.log")).unwrap_or_default()
     }
 
@@ -180,18 +233,23 @@ impl Drop for Session {
     }
 }
 
+/// The address of the private session bus of the KWin session in `dir`:
+/// the conventional `bus` socket in its runtime directory.
+fn bus_address(dir: &Path) -> String {
+    format!("unix:path={}", dir.join("run/bus").to_string_lossy())
+}
+
 /// The command that starts `compositor` with its session directory `dir`.
 fn compositor_command(compositor: Compositor, dir: &Path) -> Result<Command, Error> {
     match compositor {
         Compositor::Kwin => {
-            let runtime = dir.join("run");
             let config = dir.join("dbus.conf");
             // A session bus that serves only what connects to it: no service
             // activation, so nothing (such as the desktop portals, whose
             // document portal mounts a FUSE file system in the runtime
-            // directory) is started on demand.
-            let contents =
-                deskrinch_test_dbus::config(&format!("unix:dir={}", runtime.to_string_lossy()));
+            // directory) is started on demand. At a known path, so the
+            // session's clients can be given it too.
+            let contents = deskrinch_test_dbus::config(&bus_address(dir));
             fs::write(&config, contents).map_err(|source| Error::Io {
                 what: format!("write {}", config.display()),
                 source,
@@ -274,9 +332,23 @@ fn is_wayland_socket_name(name: &str) -> bool {
         .is_some_and(|rest| !rest.is_empty() && !rest.contains('.'))
 }
 
+/// Whether `name` is sway's IPC socket, `sway-ipc.<uid>.<pid>.sock`.
+fn is_sway_ipc_name(name: &str) -> bool {
+    name.strip_prefix("sway-ipc.")
+        .and_then(|rest| rest.strip_suffix(".sock"))
+        .is_some_and(|middle| !middle.is_empty())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn recognises_sways_ipc_socket() {
+        assert!(is_sway_ipc_name("sway-ipc.1000.4242.sock"));
+        assert!(!is_sway_ipc_name("wayland-1"));
+        assert!(!is_sway_ipc_name("sway-ipc.1000.4242.sock.lock"));
+    }
 
     #[test]
     fn recognises_wayland_sockets() {

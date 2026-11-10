@@ -36,6 +36,15 @@ sessions that touch nothing in your own (it needs `kwin_wayland`,
 cargo xtask compositor-tests [kwin] [sway]
 ```
 
+To try a shell component by hand, run it in such a session rather than in
+your own: the command is the session's client, and when it exits the session
+ends with everything it started.
+
+```sh
+cargo xtask session sway sh -c 'foot & sleep 2; grim shot.png'
+cargo xtask session kwin sh -c 'foot --maximized & sleep 3; spectacle -b -n -f -o shot.png'
+```
+
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists
 them. Local Cargo settings, such as a `[patch]` for unmerged rinch work, go in
 the gitignored `.cargo/config.local.toml`.
