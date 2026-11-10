@@ -6,11 +6,12 @@ use deskrinch_desktop_entries::{
     DirectReason, Environment, LaunchContext, LaunchError, Launched, Placement, Target, launch,
 };
 
-use crate::support::{entry, recorded, recorder};
+use crate::support::{entry, recorded, recorder, without_real_session};
 
 /// A context with no session bus, recording into `out`.
 fn context(out: &Path) -> LaunchContext {
-    LaunchContext::new(&Environment::default()).with_env("DESKRINCH_TEST_OUT", out)
+    without_real_session(LaunchContext::new(&Environment::default()))
+        .with_env("DESKRINCH_TEST_OUT", out)
 }
 
 fn pids(launched: &[Launched]) -> Vec<u32> {
@@ -194,6 +195,33 @@ fn a_dbus_activatable_entry_falls_back_to_exec_without_a_bus() {
         launch(&no_exec, None, &[], &context(dir.path())),
         Err(LaunchError::NoCommand)
     ));
+}
+
+#[test]
+fn removes_variables_in_the_order_given() {
+    let dir = tempfile::tempdir().unwrap();
+    let text = format!(
+        "[Desktop Entry]\nType=Application\nName=R\nExec={}\n",
+        recorder(dir.path()).display()
+    );
+    let app = entry(dir.path(), "r.desktop", &text);
+    let context = context(dir.path())
+        // A launcher's private variable, kept out.
+        .with_env("DESKRINCH_TEST_PRIVATE", "secret")
+        .without_env("DESKRINCH_TEST_PRIVATE")
+        // Removed, then set again: the later one wins.
+        .without_env("DESKRINCH_TEST_EXTRA")
+        .with_env("DESKRINCH_TEST_EXTRA", "back");
+    let record = recorded(
+        dir.path(),
+        pids(&launch(&app, None, &[], &context).unwrap())[0],
+    );
+    assert!(
+        !record["var"]
+            .iter()
+            .any(|name| name == "DESKRINCH_TEST_PRIVATE")
+    );
+    assert_eq!(record["extra"], ["back"]);
 }
 
 /// This process's session ID.

@@ -39,7 +39,9 @@ pub struct LaunchContext {
     session_bus: Option<String>,
     terminal: Option<Vec<OsString>>,
     activation_token: Option<String>,
-    extra_env: Vec<(OsString, OsString)>,
+    /// Changes to the inherited environment, in the order given: a value
+    /// sets the variable, `None` removes it.
+    env_changes: Vec<(OsString, Option<OsString>)>,
     scope: ScopePolicy,
 }
 
@@ -102,7 +104,7 @@ impl LaunchContext {
             session_bus: env.session_bus.clone(),
             terminal: None,
             activation_token: None,
-            extra_env: Vec::new(),
+            env_changes: Vec::new(),
             scope: ScopePolicy::Systemd { launcher: None },
         }
     }
@@ -128,11 +130,26 @@ impl LaunchContext {
         self
     }
 
-    /// An extra environment variable for launched processes. Variables
-    /// set here win over the token and the inherited environment.
+    /// An extra environment variable for launched processes.
+    ///
+    /// The launched environment is the caller's, without its activation
+    /// token, with the context's token, and then with every
+    /// [`with_env`](Self::with_env) and
+    /// [`without_env`](Self::without_env) applied in the order they were
+    /// given: the last one for a name wins.
     #[must_use]
     pub fn with_env(mut self, name: impl Into<OsString>, value: impl Into<OsString>) -> Self {
-        self.extra_env.push((name.into(), value.into()));
+        self.env_changes.push((name.into(), Some(value.into())));
+        self
+    }
+
+    /// Keeps the variable `name` out of launched processes' environment:
+    /// for a launcher's own private variables, or a session's that the
+    /// application must not see. Ordered with
+    /// [`with_env`](Self::with_env) as it describes.
+    #[must_use]
+    pub fn without_env(mut self, name: impl Into<OsString>) -> Self {
+        self.env_changes.push((name.into(), None));
         self
     }
 
@@ -265,7 +282,12 @@ pub fn launch(
             if let Some(token) = &context.activation_token {
                 command.env("XDG_ACTIVATION_TOKEN", token);
             }
-            command.envs(context.extra_env.iter().map(|(k, v)| (k, v)));
+            for (name, value) in &context.env_changes {
+                match value {
+                    Some(value) => command.env(name, value),
+                    None => command.env_remove(name),
+                };
+            }
             let (pid, placement) = spawn::spawn_detached(&mut command, |pid| match &systemd {
                 Ok(connection) => place(connection, context, entry.id.app_id(), description, pid),
                 Err(reason) => Placement::Direct(reason.clone()),

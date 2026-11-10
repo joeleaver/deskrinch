@@ -1,12 +1,13 @@
 //! Watching the data directories for entries added, changed or removed.
 //!
-//! The watcher runs on a thread of its own. It watches every `applications`
-//! directory recursively and, for one that does not exist yet, the nearest
-//! existing parent (so its creation is noticed). After a burst of changes
-//! settles it rescans everything, diffs the new catalog against the last
-//! one and reports the difference: rescanning applies precedence, `Hidden`
-//! and the visibility rules exactly as [`Catalog::scan`] does, at the cost
-//! of reading a few hundred small files.
+//! Every `applications` directory is watched as a tree through
+//! `deskrinch-watch`: recursively once it exists, through its nearest
+//! existing ancestor until then (so its creation is noticed), and where a
+//! symbolic link to it points. After a burst of changes settles the
+//! watcher rescans everything, diffs the new catalog against the last one
+//! and reports the difference: rescanning applies precedence, `Hidden` and
+//! the visibility rules exactly as [`Catalog::scan`] does, at the cost of
+//! reading a few hundred small files.
 //!
 //! Only the data directories are watched, not `PATH`. An entry's visibility
 //! also depends on whether its `TryExec` program exists; that is
@@ -14,23 +15,13 @@
 //! a launcher calls it when it opens to show nothing stale.
 
 use std::collections::BTreeSet;
-use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
-use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
 
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher as _};
+use deskrinch_watch::{Armed, Target, Timing, WatchError};
 
 use crate::catalog::{Catalog, CatalogEntry};
 use crate::entry::DesktopId;
 use crate::env::Environment;
-use crate::error::WatchError;
 use crate::scan::application_dirs;
-
-/// How long changes must pause before a rescan.
-const QUIET: Duration = Duration::from_millis(100);
-/// The longest a rescan waits during a continuous stream of changes.
-const MAX_DELAY: Duration = Duration::from_secs(1);
 
 /// A change to the catalog.
 #[derive(Debug)]
@@ -51,14 +42,7 @@ pub enum Event {
 /// until dropped.
 #[derive(Debug)]
 pub struct Watcher {
-    messages: Sender<Message>,
-    worker: Option<JoinHandle<()>>,
-}
-
-enum Message {
-    Changed(notify::Result<notify::Event>),
-    Refresh,
-    Stop,
+    watch: deskrinch_watch::Watcher,
 }
 
 impl Watcher {
@@ -69,45 +53,32 @@ impl Watcher {
     /// # Errors
     ///
     /// [`WatchError`] when the file-watching backend or the thread cannot
-    /// be started, or a directory cannot be watched (for example when the
-    /// inotify watch limit is reached).
+    /// be started, or a directory cannot be watched (for example
+    /// [`WatchError::WatchLimit`], when the inotify watch limit is reached).
     pub fn start(
         env: Environment,
         subscriber: impl Fn(Event) + Send + 'static,
     ) -> Result<(Self, Catalog), WatchError> {
-        let (messages, inbox) = mpsc::channel();
-        let forward = messages.clone();
-        let backend = notify::recommended_watcher(move |change| {
-            // A send fails only once the worker has stopped, when there is
-            // no one left to tell.
-            forward.send(Message::Changed(change)).ok();
-        })
-        .map_err(|error| WatchError::Backend(Box::new(error)))?;
-        let mut worker = Worker {
-            backend,
-            targets: Targets::default(),
-            env,
-            catalog: Catalog::default(),
-            subscriber: Box::new(subscriber),
-        };
+        let targets = application_dirs(&env)
+            .into_iter()
+            .map(Target::Tree)
+            .collect();
         // Watch first, then scan: a change between the two is reported
         // rather than lost.
-        if let Some(error) = worker.retarget().into_iter().next() {
-            return Err(error);
-        }
-        worker.catalog = Catalog::scan(&worker.env);
-        let catalog = worker.catalog.clone();
-        let handle = thread::Builder::new()
-            .name("desktop-entries-watch".into())
-            .spawn(move || worker.run(&inbox))
-            .map_err(WatchError::Thread)?;
-        Ok((
-            Self {
-                messages,
-                worker: Some(handle),
-            },
-            catalog,
-        ))
+        let armed = Armed::new(targets, Timing::default())?;
+        let catalog = Catalog::scan(&env);
+        let mut last = catalog.clone();
+        let watch = armed.start("desktop-entries-watch", move |event| match event {
+            deskrinch_watch::Event::Changed => {
+                let newer = Catalog::scan(&env);
+                for event in diff(&last, &newer) {
+                    subscriber(event);
+                }
+                last = newer;
+            }
+            deskrinch_watch::Event::Error(error) => subscriber(Event::Error(error)),
+        })?;
+        Ok((Self { watch }, catalog))
     }
 
     /// Rescans now, re-evaluating every entry's visibility, and reports the
@@ -118,141 +89,7 @@ impl Watcher {
     /// such as when the launcher opens. It returns at once; the events
     /// follow on the watcher's thread.
     pub fn refresh(&self) {
-        // Fails only once the worker has stopped.
-        self.messages.send(Message::Refresh).ok();
-    }
-}
-
-impl Drop for Watcher {
-    fn drop(&mut self) {
-        self.messages.send(Message::Stop).ok();
-        if let Some(worker) = self.worker.take() {
-            // A panic in the subscriber ended the thread already; there is
-            // nothing more to stop.
-            worker.join().ok();
-        }
-    }
-}
-
-struct Worker {
-    backend: RecommendedWatcher,
-    targets: Targets,
-    env: Environment,
-    catalog: Catalog,
-    subscriber: Box<dyn Fn(Event) + Send>,
-}
-
-impl Worker {
-    fn run(mut self, inbox: &Receiver<Message>) {
-        loop {
-            let relevant = match inbox.recv() {
-                // A refresh is asked for now: no waiting for quiet.
-                Ok(Message::Refresh) => true,
-                Ok(Message::Changed(change)) => {
-                    let mut relevant = self.consider(change);
-                    let deadline = Instant::now() + MAX_DELAY;
-                    loop {
-                        let wait = QUIET.min(deadline.saturating_duration_since(Instant::now()));
-                        match inbox.recv_timeout(wait) {
-                            Ok(Message::Changed(change)) => relevant |= self.consider(change),
-                            Ok(Message::Refresh) => relevant = true,
-                            Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                            Err(RecvTimeoutError::Timeout) => break,
-                        }
-                    }
-                    relevant
-                }
-                Ok(Message::Stop) | Err(_) => return,
-            };
-            if relevant {
-                for error in self.retarget() {
-                    (self.subscriber)(Event::Error(error));
-                }
-                self.rescan();
-            }
-        }
-    }
-
-    /// Whether a change needs a rescan. Reading files (as the scan itself
-    /// does) changes nothing; nor does a change beside a missing
-    /// `applications` directory's path.
-    fn consider(&self, change: notify::Result<notify::Event>) -> bool {
-        match change {
-            Ok(event) => {
-                !matches!(event.kind, EventKind::Access(_))
-                    && event.paths.iter().any(|path| self.targets.concerns(path))
-            }
-            Err(error) => {
-                (self.subscriber)(Event::Error(WatchError::Backend(Box::new(error))));
-                true
-            }
-        }
-    }
-
-    /// Watches what the directories now need, and returns the watches that
-    /// could not be added.
-    fn retarget(&mut self) -> Vec<WatchError> {
-        let wanted = Targets::for_dirs(&application_dirs(&self.env));
-        for (path, _) in self.targets.watched.difference(&wanted.watched) {
-            // The path may be gone already, which removed its watch.
-            self.backend.unwatch(path).ok();
-        }
-        let mut errors = Vec::new();
-        for (path, recursive) in wanted.watched.difference(&self.targets.watched) {
-            let mode = if *recursive {
-                RecursiveMode::Recursive
-            } else {
-                RecursiveMode::NonRecursive
-            };
-            if let Err(error) = self.backend.watch(path, mode) {
-                errors.push(WatchError::Backend(Box::new(error)));
-            }
-        }
-        self.targets = wanted;
-        errors
-    }
-
-    fn rescan(&mut self) {
-        let newer = Catalog::scan(&self.env);
-        for event in diff(&self.catalog, &newer) {
-            (self.subscriber)(event);
-        }
-        self.catalog = newer;
-    }
-}
-
-/// The paths watched: `(path, recursive)`.
-#[derive(Debug, Default, PartialEq, Eq)]
-struct Targets {
-    watched: BTreeSet<(PathBuf, bool)>,
-    /// The `applications` directories, existing or not.
-    dirs: Vec<PathBuf>,
-}
-
-impl Targets {
-    fn for_dirs(dirs: &[PathBuf]) -> Self {
-        let watched = dirs
-            .iter()
-            .filter_map(|dir| {
-                if dir.is_dir() {
-                    return Some((dir.clone(), true));
-                }
-                let parent = dir.ancestors().skip(1).find(|a| a.is_dir())?;
-                Some((parent.to_path_buf(), false))
-            })
-            .collect();
-        Self {
-            watched,
-            dirs: dirs.to_vec(),
-        }
-    }
-
-    /// Whether a change at `path` may affect an `applications` directory:
-    /// it is inside one, or on the way to one.
-    fn concerns(&self, path: &Path) -> bool {
-        self.dirs
-            .iter()
-            .any(|dir| path.starts_with(dir) || dir.starts_with(path))
+        self.watch.refresh();
     }
 }
 
