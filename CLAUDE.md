@@ -1,21 +1,53 @@
 # deskrinch — agent notes
 
 A rinch-based Wayland desktop: shell first (layer-shell surfaces under KWin),
-then a smithay compositor.
+then a smithay compositor. Written in Rust.
 
-Start every session by reading:
-1. [PLAN.md](PLAN.md): current status and the next unchecked step.
-2. [DESIGN.md](DESIGN.md): canonical design. Change it when a decision changes.
+## Where things live
 
-Rules:
+- **Plan, design, decisions, knowledge base and tracking** are in Pimble, at
+  `Personal/deskrinch`, read through the Pimble MCP tools. Start with its
+  Board (what is in flight and what is next) and its Design. It is the only
+  copy: don't recreate plan or design files in this repository.
+- **This repository** holds the code, its rustdoc, the README and these rules.
+- **GitHub issues** on deskrinch are for issues filed from outside. Internal
+  work is tracked on the Pimble Board, not as issues.
+
+## How work is run
+
+One session is the project manager: it makes the decisions, briefs the work,
+reviews every diff, merges, and keeps Pimble current. Implementation is done
+by Opus 5.5 agents at medium effort, one Board card each.
+
+If you were dispatched with a brief: do that card, report what you did and
+what you could not verify, and raise a design question instead of deciding
+it. Only the project manager writes to Pimble.
+
+## Rules
+
+- **Rust is the language**, tooling included: repository tasks are
+  `cargo xtask` subcommands, not shell or Python scripts.
+- **No tech debt, ever.** Do it right the first time, even when that means
+  rework now or pausing to build a dependency first. Time and cost are not
+  constraints. No stubs, no TODOs left behind, nothing "for now".
+- **Small files.** No source file much above 500 lines; CI fails at 600.
+  Split by responsibility before a file gets there.
+- **Don't repeat yourself.** Shared code goes in a library crate, and one
+  fact has one home.
+- **Best practice is the default:** `cargo fmt`, clippy clean with warnings
+  denied, tests in the same change as the code, rustdoc on public items,
+  errors as typed values, no `unsafe` without a written safety argument.
 - **Mechanism vs policy.** Generic windowing capability (layer surfaces,
-  outputs) is fixed in rinch (`~/dev/rinch`, `joeleaver/rinch`), following
-  that repo's own AGENTS.md/CLAUDE.md. Never work around a rinch gap from
-  here; desktop policy (what a panel is, per-output layout, daemons) lives
-  here.
-- rinch is a git dependency on `main`, never a path dependency. Local rinch
-  work goes through the gitignored `.cargo/config.toml` `[patch]`.
+  outputs, several windows in a process) belongs in rinch. Never work around
+  a rinch gap from here; desktop policy (what a panel is, per-output layout,
+  daemons) lives here.
+- **rinch is changed only through PRs.** The local checkout at `~/dev/rinch`
+  is read-only from here. Work in a fresh clone under the gitignored `.work/`,
+  follow rinch's own `AGENTS.md`/`CLAUDE.md`, and open a PR against
+  `joeleaver/rinch`. The same goes for rinch's forks. Merging is rinch's.
+- rinch is a git dependency on `main`, never a path dependency, and needs no
+  `[patch.crates-io]` lines. Unmerged rinch work is tested through the
+  gitignored `.cargo/config.toml` `[patch]`.
 - Phase 2 builds on smithay only. cosmic-comp and niri are GPL-3 reference
   reading; don't copy code from them.
-- Correctness over shortcuts; no tech debt.
-- Keep PLAN.md's Status line and checkboxes current as work lands.
+- Code reaches `main` through a pull request with CI green.
