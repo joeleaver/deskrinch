@@ -16,8 +16,8 @@
 //!   specification's precedence and `Hidden` rules applied and each entry's
 //!   [`Visibility`] (`NoDisplay`, `OnlyShowIn`/`NotShowIn`, `TryExec`, and
 //!   whether the program `Exec` runs is installed).
-//! - [`search`] ranks entries against a query; the ranking is specified in
-//!   [`search`'s module](crate::search).
+//! - [`search()`] ranks entries against a query; the ranking is specified
+//!   in [`search`'s module](mod@crate::search).
 //! - [`launch`] runs an entry: `Exec` expanded by [`exec::expand`], in a
 //!   terminal when `Terminal=true`, or by D-Bus activation when
 //!   `DBusActivatable=true`. Policy such as the terminal emulator comes in a
@@ -56,14 +56,15 @@ mod env;
 mod error;
 pub mod exec;
 mod fold;
-mod keyfile;
 mod launch;
-mod locale;
 mod scan;
 pub mod search;
 mod watch;
 
 pub use catalog::{Catalog, CatalogEntry, Visibility};
+pub use deskrinch_keyfile::{
+    Deviation as KeyFileDeviation, Locale, Localized, LocalizedList, LocalizedString, SyntaxError,
+};
 pub use deskrinch_watch::WatchError;
 pub use deskrinch_xdg::BaseDirs;
 pub use deviation::Deviation;
@@ -72,6 +73,5 @@ pub use env::Environment;
 pub use error::{BoxedError, ExecError, LaunchError, ParseError, Problem, ProblemKind, ScanError};
 pub use exec::Target;
 pub use launch::{DirectReason, LaunchContext, Launched, Placement, launch};
-pub use locale::{Locale, Localized, LocalizedList, LocalizedString};
 pub use search::{Coverage, Match, MatchField, MatchKind, search};
 pub use watch::{Event, Watcher};

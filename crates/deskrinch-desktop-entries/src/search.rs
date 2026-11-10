@@ -48,7 +48,7 @@
 use crate::entry::DesktopEntry;
 use crate::exec;
 use crate::fold::fold;
-use crate::locale::{Locale, Localized};
+use deskrinch_keyfile::{Locale, Localized};
 
 /// How a field matched, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

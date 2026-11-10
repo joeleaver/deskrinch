@@ -15,7 +15,7 @@ use crate::entry::DesktopEntry;
 use crate::env::Environment;
 use crate::error::LaunchError;
 use crate::exec::{self, Fields, Target};
-use crate::locale::Locale;
+use deskrinch_keyfile::Locale;
 
 /// How long an application has to answer D-Bus activation, which may
 /// include starting it: the D-Bus default.

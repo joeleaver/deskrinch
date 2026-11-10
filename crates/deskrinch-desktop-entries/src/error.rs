@@ -19,19 +19,10 @@ pub type BoxedError = Box<dyn StdError + Send + Sync>;
 /// recorded as a [`Deviation`](crate::Deviation) instead.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ParseError {
-    /// A line is neither a comment, a group header nor a `Key=value`, or
-    /// its group or key name is malformed.
-    #[error("line {line} is malformed")]
-    InvalidLine {
-        /// The 1-based line number.
-        line: usize,
-    },
-    /// A key comes before the first group header.
-    #[error("line {line} has a key outside any group")]
-    KeyOutsideGroup {
-        /// The 1-based line number.
-        line: usize,
-    },
+    /// The key-file syntax is broken: a malformed line, group or key name,
+    /// or a key before the first group.
+    #[error(transparent)]
+    Syntax(#[from] deskrinch_keyfile::SyntaxError),
     /// The first group is not `[Desktop Entry]`, or there is none.
     #[error("the file does not start with a [Desktop Entry] group")]
     MissingDesktopEntryGroup,

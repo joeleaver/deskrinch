@@ -26,10 +26,12 @@ ctrlc = { version = "3.5.2", features = ["termination"] }
 deskrinch-clock = { path = "crates/deskrinch-clock" }
 deskrinch-component = { path = "crates/deskrinch-component" }
 deskrinch-config = { path = "crates/deskrinch-config" }
+deskrinch-icons = { path = "crates/deskrinch-icons" }
+deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
-deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-watch = { path = "crates/deskrinch-watch" }
+deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
 futures-core = "0.3.34"
 icu_casemap = "2.4.0"

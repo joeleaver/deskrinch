@@ -3,7 +3,8 @@
 use std::os::unix::fs::symlink;
 
 use deskrinch_desktop_entries::{
-    Catalog, DesktopId, Deviation, ParseError, ProblemKind, ScanError, Visibility,
+    Catalog, DesktopId, Deviation, KeyFileDeviation, ParseError, ProblemKind, ScanError,
+    SyntaxError, Visibility,
 };
 
 use crate::support::{environment, script, write};
@@ -102,11 +103,17 @@ fn skips_unusable_files_and_warns_about_deviant_ones() {
         [
             (
                 broken,
-                format!("skipped: {:?}", ParseError::InvalidLine { line: 3 })
+                format!(
+                    "skipped: {:?}",
+                    ParseError::Syntax(SyntaxError::InvalidLine { line: 3 })
+                )
             ),
             (
                 binary,
-                format!("warning: {:?}", Deviation::NotUtf8 { line: 4 })
+                format!(
+                    "warning: {:?}",
+                    Deviation::KeyFile(KeyFileDeviation::NotUtf8 { line: 4 })
+                )
             ),
         ]
     );
