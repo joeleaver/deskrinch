@@ -5,8 +5,8 @@ use std::path::{Component, Path, PathBuf};
 
 use crate::deviation::Deviation;
 use crate::error::ParseError;
-use crate::keyfile::{Group, KeyFile};
-use crate::locale::{Localized, LocalizedList, LocalizedString};
+use deskrinch_keyfile::{Group, KeyFile};
+use deskrinch_keyfile::{Localized, LocalizedList, LocalizedString};
 
 /// The group every desktop entry file starts with.
 const MAIN_GROUP: &str = "Desktop Entry";

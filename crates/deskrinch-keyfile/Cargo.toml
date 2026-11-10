@@ -1,0 +1,15 @@
+[package]
+name = "deskrinch-keyfile"
+description = "The freedesktop key-file format of desktop entries and icon themes, read as GLib reads it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[lints]
+workspace = true

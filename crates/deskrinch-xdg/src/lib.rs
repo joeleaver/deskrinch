@@ -62,6 +62,9 @@ use std::path::{Path, PathBuf};
 /// them, most important first.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct BaseDirs {
+    /// `$HOME`, when it is absolute: what the `*_home` defaults are under,
+    /// and where pre-XDG locations such as `~/.icons` are.
+    pub home: Option<PathBuf>,
     /// `$XDG_DATA_HOME`: the user's data files.
     pub data_home: Option<PathBuf>,
     /// `$XDG_CONFIG_HOME`: the user's configuration files.
@@ -111,6 +114,7 @@ impl BaseDirs {
             data_dirs: system_dirs("XDG_DATA_DIRS", &["/usr/local/share", "/usr/share"]),
             config_dirs: system_dirs("XDG_CONFIG_DIRS", &["/etc/xdg"]),
             runtime_dir: absolute(var("XDG_RUNTIME_DIR")),
+            home,
         }
     }
 
@@ -188,6 +192,7 @@ mod tests {
     #[test]
     fn applies_the_defaults() {
         let d = dirs(&[("HOME", "/home/u")]);
+        assert_eq!(d.home, Some("/home/u".into()));
         assert_eq!(d.data_home, Some("/home/u/.local/share".into()));
         assert_eq!(d.config_home, Some("/home/u/.config".into()));
         assert_eq!(d.state_home, Some("/home/u/.local/state".into()));
@@ -238,6 +243,7 @@ mod tests {
     #[test]
     fn needs_an_absolute_home_for_the_home_defaults() {
         for d in [dirs(&[]), dirs(&[("HOME", "home")])] {
+            assert_eq!(d.home, None);
             assert_eq!(d.data_home, None);
             assert_eq!(d.config_home, None);
             assert_eq!(d.state_home, None);

@@ -1,5 +1,5 @@
 use super::*;
-use crate::keyfile::unescape;
+use deskrinch_keyfile::unescape;
 
 fn run(exec: &str, targets: &[Target]) -> Result<Vec<Vec<String>>, ExecError> {
     let fields = Fields {
