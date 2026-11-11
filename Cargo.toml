@@ -31,6 +31,7 @@ deskrinch-config = { path = "crates/deskrinch-config" }
 deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
+deskrinch-status-notifier = { path = "crates/deskrinch-status-notifier" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-theme = { path = "crates/deskrinch-theme" }
@@ -39,6 +40,7 @@ deskrinch-watch = { path = "crates/deskrinch-watch" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
 futures-core = "0.3.34"
+futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
 icu_casemap = "2.4.0"
 icu_datetime = "2.4.0"
 icu_locale_core = "2.4.0"
@@ -47,6 +49,10 @@ icu_properties = "2.4.0"
 icu_provider = { version = "2.4.0", default-features = false }
 jiff = { version = "0.2.42", default-features = false }
 jiff-icu = { version = "0.2.4", default-features = false }
+# A StatusNotifierItem implementation, only for the status-notifier host's
+# interoperability test. Its own default runtime is tokio; async-io pulls in
+# less.
+ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
 libc = "0.2.191"
 notify = { version = "8.2.2", default-features = false }
 percent-encoding = "2.3.2"

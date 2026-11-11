@@ -58,6 +58,14 @@ confidence-threshold = 0.93
 # The list is written for the dependencies to come, so a licence nothing uses
 # yet is expected, not a mistake worth a warning.
 unused-allowed-license = "allow"
+# Licences allowed for one crate only, each with its reason.
+exceptions = [
+    # ksni is dedicated to the public domain with the Unlicense. It is the
+    # StatusNotifierItem library rinch's own tray uses, and here only a
+    # dev-dependency: the status-notifier host's interoperability test runs a
+    # real item made with it. Nothing deskrinch ships links it.
+    { allow = ["Unlicense"], crate = "ksni" },
+]
 
 [bans]
 # A `*` version requirement is never acceptable. A versionless `path`
