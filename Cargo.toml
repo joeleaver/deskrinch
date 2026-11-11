@@ -36,6 +36,7 @@ deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-status-notifier = { path = "crates/deskrinch-status-notifier" }
 deskrinch-test-client = { path = "crates/deskrinch-test-client" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
+deskrinch-test-input = { path = "crates/deskrinch-test-input" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
 deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }
@@ -81,6 +82,7 @@ toml = { version = "1.2.1", default-features = false }
 tracing = "0.1.44"
 wayland-client = "0.31.15"
 wayland-protocols = "0.32.13"
+wayland-protocols-misc = "0.3.12"
 wayland-protocols-plasma = "0.3.12"
 wayland-protocols-wlr = "0.3.12"
 zbus = { version = "6.2.1", default-features = false }

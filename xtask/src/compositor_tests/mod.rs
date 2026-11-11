@@ -3,10 +3,11 @@
 //!
 //! The suites ([`suites::SUITES`]) are the window-management crate's
 //! (windows listed and acted on), `deskrinch-test-screen`'s (outputs
-//! captured) and the launcher's (its process, the real binary). For each compositor it builds the test binaries, starts an
-//! isolated [`Session`] at scale 1 and runs every suite meant for that
-//! compositor, one binary after another; then a second session at scale 2
-//! for the suites that check scaling.
+//! captured), `deskrinch-test-input`'s (keys typed into a window) and the
+//! launcher's (its process, the real binary). For each compositor it builds
+//! the test binaries, starts an isolated [`Session`] at scale 1 and runs
+//! every suite meant for that compositor, one binary after another; then a
+//! second session at scale 2 for the suites that check scaling.
 //!
 //! Under KWin each binary that needs a restricted interface is granted it
 //! the way an installed deskrinch is: one desktop file per binary, in the
