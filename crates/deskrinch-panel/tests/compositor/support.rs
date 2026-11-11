@@ -222,7 +222,9 @@ fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
 
 /// Captures every output until exactly one shows the panel at `band`
 /// against `before`, the others unchanged; returns that output's name and
-/// pictures.
+/// pictures, taken once the screen is still ([`Pictures::still`]): KWin
+/// fades a panel in, and the band is already the band halfway through, but
+/// not yet the panel's own pixels, which a later check compares with.
 ///
 /// # Panics
 ///
@@ -230,7 +232,7 @@ fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
 pub(crate) fn wait_band(screen: &mut Screen, before: &Pictures, band: Band) -> (String, Pictures) {
     let deadline = Instant::now() + PATIENCE;
     loop {
-        let now = Pictures::take(screen);
+        let now = Pictures::still(screen);
         let why = wrong(before, &now, band);
         let Some(why) = why else {
             let shown = before
