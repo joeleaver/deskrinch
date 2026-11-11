@@ -26,6 +26,9 @@ env:
 # warm cache, leaving room for a cold build of the whole workspace and for
 # the package install, which bounds itself at ten minutes.
 #
+# Packages are installed after the toolchain and the cache, by
+# `cargo xtask ci-packages`, which needs none of them to build.
+#
 # Third-party actions are pinned to a full commit SHA, with the release it is
 # in the comment beside it. The commands are the ones README.md lists.
 jobs:
@@ -49,12 +52,12 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
-      - uses: ./.github/actions/apt-packages
-        with:
-          packages: ${{ env.RINCH_BUILD_PACKAGES }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: ${{ env.RINCH_BUILD_PACKAGES }}
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
@@ -68,14 +71,14 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The notification service's tests run on private D-Bus daemons and
       # check interoperability with libnotify's notify-send.
       - uses: ./.github/actions/apt-packages
         with:
           packages: dbus-daemon libnotify-bin ${{ env.RINCH_BUILD_PACKAGES }}
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --workspace --locked
 
   deny:

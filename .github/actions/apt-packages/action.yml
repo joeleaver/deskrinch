@@ -1,9 +1,10 @@
 name: Install system packages
 description: >-
   Installs Ubuntu packages a job needs beyond what the runner image has, such
-  as the D-Bus daemon the notification service's tests run on. An unreachable
-  package server fails the step within minutes, saying so, instead of
-  holding the job for an hour.
+  as the D-Bus daemon the notification service's tests run on, with
+  `cargo xtask ci-packages`: an unreachable package server fails the step
+  within minutes, saying so. Runs after the toolchain is set up; xtask builds
+  without any of these packages.
 
 inputs:
   packages:
@@ -17,51 +18,6 @@ runs:
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
-        # Each request gives up after 20 s without an answer and is tried
-        # twice more. A name that does not resolve has no apt option of its
-        # own, so each apt-get run is also bounded: 5 minutes, 10 for the
-        # step.
-        APT_OPTIONS: >-
-          -o Acquire::Retries=2
-          -o Acquire::http::Timeout=20
-          -o Acquire::https::Timeout=20
-        RUN_LIMIT: 5m
-      run: |
-        # Each failure is handled below, so that it can say what it means.
-        set +e +o pipefail
-        log="$(mktemp)"
-        # What apt-get update could not reach, if anything.
-        update_sign=""
-        unreachable() {
-          echo "::error title=Package servers unreachable::apt could not reach Ubuntu's package servers ($1). This is the runner's network, not the code: re-run the job."
-          exit 1
-        }
-        run_apt() {
-          : > "$log"
-          # Word splitting of the options and the package list is intended.
-          # shellcheck disable=SC2086
-          timeout "$RUN_LIMIT" sudo apt-get $APT_OPTIONS "$@" 2>&1 | tee "$log"
-          status="${PIPESTATUS[0]}"
-          if [ "$status" = 124 ]; then
-            unreachable "apt-get $1 did not finish within $RUN_LIMIT"
-          fi
-          sign="$(grep -m1 -oE "Temporary failure resolving '[^']*'|Could not resolve '[^']*'|Could not connect to [^ ]*|Connection timed out|Failed to fetch [^ ]*" "$log")"
-          # An index that failed to download leaves apt-get update content
-          # (the runner image lists sources the job may not need); the
-          # install then fails if a package it needs is out of reach.
-          if [ -n "$sign" ] && [ "$1" = update ] && [ "$status" = 0 ]; then
-            echo "::warning title=Package index not updated::$sign"
-            update_sign="$sign"
-          elif [ -n "$sign" ]; then
-            unreachable "$sign"
-          elif [ "$status" != 0 ] && [ -n "$update_sign" ]; then
-            unreachable "$update_sign"
-          fi
-          if [ "$status" != 0 ]; then
-            echo "::error title=apt-get $1 failed::apt-get $1 exited with $status; see its output above."
-            exit "$status"
-          fi
-        }
-        run_apt update
-        # shellcheck disable=SC2086
-        run_apt install --yes --no-install-recommends $PACKAGES
+      # Word splitting of the list into package names is intended.
+      # shellcheck disable=SC2086
+      run: cargo xtask ci-packages $PACKAGES
