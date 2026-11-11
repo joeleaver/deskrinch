@@ -51,25 +51,41 @@ pub(crate) fn wait_window_size(
 
 /// What is wrong with `image` for a maximised [`WINDOW`] beside the panel at
 /// `band`, if anything: every row outside the band is the window's colour,
-/// and the band is `panel` (the panel's own rows, as captured without the
-/// window). Rows within `scale` of the band's edge are left out, where the
-/// compositor filters the window it enlarges.
+/// and the band is the panel's: none of its pixels is the window's, and
+/// each row starts as in `panel` (the panel's rows, as captured without the
+/// window). Only its first pixel, in the bar's padding, is compared: what
+/// the bar shows changes on its own (the clock, on the minute). Pixels
+/// within `scale` of the window's edges (the band's, and the output's own)
+/// are left out, where the compositor filters the window it enlarges
+/// (labwc blends its top row at scale 2).
 fn wrong(image: &Image, panel: &Image, band: Band, scale: u32) -> Option<String> {
     let rows = band.rows_in(image.height());
-    for y in 0..image.height() {
-        let near = y.abs_diff(rows.start) <= scale || y.abs_diff(rows.end) <= scale;
-        if near {
+    let (width, height) = (image.width(), image.height());
+    let near = |at: u32, edges: &[u32]| edges.iter().any(|&edge| at.abs_diff(edge) <= scale);
+    let columns = usize::try_from(scale).unwrap()..usize::try_from(width - scale).unwrap();
+    for y in 0..height {
+        if near(y, &[0, rows.start, rows.end, height - 1]) {
             continue;
         }
-        let row = image.row(y).unwrap();
+        let row = &image.row(y).unwrap()[columns.clone()];
+        let at = |x: usize| x + columns.start;
         if rows.contains(&y) {
-            if row != panel.row(y).unwrap() {
-                return Some(format!("row {y}, in the panel's band, is not the panel's"));
+            if let Some(x) = row.iter().position(|&pixel| pixel == WINDOW) {
+                return Some(format!(
+                    "row {y}, in the panel's band, has the window at {}",
+                    at(x)
+                ));
+            }
+            if row.first() != panel.row(y).unwrap().get(columns.start) {
+                return Some(format!(
+                    "row {y}, in the panel's band, does not start as the panel's"
+                ));
             }
         } else if let Some(x) = row.iter().position(|&pixel| pixel != WINDOW) {
             return Some(format!(
-                "row {y}, outside the panel's band, is {} at {x}, not the window's {WINDOW}",
-                row[x]
+                "row {y}, outside the panel's band, is {} at {}, not the window's {WINDOW}",
+                row[x],
+                at(x)
             ));
         }
     }

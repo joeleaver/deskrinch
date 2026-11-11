@@ -2,8 +2,8 @@
 //! session and ended with the test.
 
 use std::io;
-use std::process::{Child, Command, Stdio};
-use std::time::Duration;
+use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::{Duration, Instant};
 
 use crate::log;
 use crate::watch::{Presented, Watch};
@@ -113,6 +113,27 @@ impl Component {
         self.child.id()
     }
 
+    /// Waits up to `patience` for it to exit (a client that hands its work
+    /// to another process and leaves); its status, or `None` while it still
+    /// runs. What a process it started writes to the streams it inherited
+    /// is still watched after it exits.
+    ///
+    /// # Errors
+    ///
+    /// When its status cannot be read.
+    pub fn wait_exit(&mut self, patience: Duration) -> io::Result<Option<ExitStatus>> {
+        let deadline = Instant::now() + patience;
+        loop {
+            if let Some(status) = self.child.try_wait()? {
+                return Ok(Some(status));
+            }
+            if Instant::now() >= deadline {
+                return Ok(None);
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     /// Waits up to `patience` for its first frame, then for its saying
     /// which renderer presented it; returns that.
     ///
@@ -138,6 +159,28 @@ impl Component {
                 self.watch.tail()
             )
         })
+    }
+
+    /// Waits as [`wait_presented`](Self::wait_presented) does, and checks
+    /// that `renderer` is what presented.
+    ///
+    /// # Errors
+    ///
+    /// As `wait_presented`, and when another renderer presented.
+    pub fn wait_presented_with(
+        &self,
+        renderer: Renderer,
+        patience: Duration,
+    ) -> Result<(), String> {
+        let presented = self.wait_presented(patience)?;
+        if renderer.presented(&presented) {
+            Ok(())
+        } else {
+            Err(format!(
+                "it was to present with the {} renderer, but {presented:?} presented",
+                renderer.env()
+            ))
+        }
     }
 }
 
@@ -193,8 +236,46 @@ mod tests {
         let component = Component::start(command, Renderer::Software).unwrap();
         let presented = component.wait_presented(Duration::from_secs(600)).unwrap();
         assert_eq!(presented, Presented::Software);
+        let patience = Duration::from_secs(600);
+        component
+            .wait_presented_with(Renderer::Software, patience)
+            .unwrap();
+        let wrong = component.wait_presented_with(Renderer::Gpu, patience);
+        assert!(wrong.unwrap_err().contains("gpu renderer, but Software"));
         let id = component.id();
         drop(component);
         assert!(!std::path::Path::new(&format!("/proc/{id}")).exists());
+    }
+
+    #[test]
+    fn waits_for_an_exit_and_still_watches_what_it_started() {
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            // The frame comes from what it left behind, after it exits.
+            "(sleep 0.2; echo \"[PERF] frame 1: x\" >&2) & exit 3",
+        ]);
+        let mut client = Component::start(command, Renderer::Software).unwrap();
+        let status = client.wait_exit(Duration::from_secs(600)).unwrap().unwrap();
+        assert_eq!(status.code(), Some(3));
+        assert!(
+            client
+                .watch()
+                .wait_first_frame(Duration::from_secs(600))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn a_running_program_has_not_exited() {
+        let mut command = Command::new("sleep");
+        command.arg("600");
+        let mut component = Component::start(command, Renderer::Software).unwrap();
+        assert!(
+            component
+                .wait_exit(Duration::from_millis(100))
+                .unwrap()
+                .is_none()
+        );
     }
 }

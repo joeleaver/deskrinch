@@ -975,6 +975,7 @@ dependencies = [
  "deskrinch-icons",
  "deskrinch-settings",
  "deskrinch-test-client",
+ "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-screen",

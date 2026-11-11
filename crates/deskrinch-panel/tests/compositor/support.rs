@@ -72,14 +72,9 @@ impl Panel {
     pub(crate) fn start() -> Self {
         let renderer = Renderer::of_run();
         let component = Component::start(Command::new(PANEL), renderer).unwrap();
-        let presented = component
-            .wait_presented(PATIENCE)
-            .unwrap_or_else(|why| panic!("the panel did not present: {why}"));
-        assert!(
-            renderer.presented(&presented),
-            "the run asked for the {} renderer, but {presented:?} presented",
-            renderer.env()
-        );
+        if let Err(why) = component.wait_presented_with(renderer, PATIENCE) {
+            panic!("the panel: {why}");
+        }
         Self { component }
     }
 
