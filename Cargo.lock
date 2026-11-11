@@ -1066,6 +1066,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-taskbar"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-gestures",
+ "deskrinch-window-management",
+]
+
+[[package]]
 name = "deskrinch-test-client"
 version = "0.1.0"
 dependencies = [
