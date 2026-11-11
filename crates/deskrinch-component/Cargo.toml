@@ -18,6 +18,8 @@ rinch = { workspace = true, features = ["desktop"] }
 tracing.workspace = true
 
 [dev-dependencies]
+# The tests define a second table type.
+serde = { workspace = true, features = ["derive"] }
 tempfile.workspace = true
 
 [lints]

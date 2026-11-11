@@ -33,8 +33,6 @@ use std::ops::RangeInclusive;
 
 use serde::{Deserialize, Serialize};
 
-use crate::Table;
-
 /// The `[panel]` table.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -45,10 +43,6 @@ pub struct PanelSettings {
     pub height: Height,
     /// What the clock shows: `[panel.clock]`.
     pub clock: ClockSettings,
-}
-
-impl Table for PanelSettings {
-    const NAME: &'static str = "panel";
 }
 
 /// `edge`: the edge of the output the panel runs along.

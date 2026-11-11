@@ -14,13 +14,14 @@ use rinch::reactive::Effect;
 use crate::bar::Bar;
 use crate::surface::{self, Placement};
 
-/// The panel, following `live`, which it keeps until it closes.
+/// The panel, following `live` until it closes.
 #[component]
 pub(crate) fn panel(live: LiveSettings<PanelSettings>) -> NodeHandle {
-    let settings = Signal::new(live.initial.clone());
+    // Where the window was made.
+    let mut placed = Placement::of(&live.initial);
+    let settings = live.into_signal();
     create_context(settings);
     let placement = Memo::new(move || Placement::of(&settings.get()));
-    let mut placed = Placement::of(&live.initial);
     Effect::new(move || {
         let wanted = placement.get();
         if wanted != placed {
@@ -28,10 +29,6 @@ pub(crate) fn panel(live: LiveSettings<PanelSettings>) -> NodeHandle {
             placed = wanted;
         }
     });
-    if let Some(newer) = live.connect(settings) {
-        settings.set(newer);
-    }
-    rinch::reactive::on_cleanup(move || drop(live));
     rsx! {
         Bar {}
     }

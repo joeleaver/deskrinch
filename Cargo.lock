@@ -718,6 +718,7 @@ dependencies = [
  "deskrinch-settings",
  "deskrinch-xdg",
  "rinch",
+ "serde",
  "tempfile",
  "tracing",
 ]

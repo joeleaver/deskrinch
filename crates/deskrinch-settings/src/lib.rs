@@ -39,14 +39,41 @@ use deskrinch_config::{DefaultsError, Section, Settings};
 
 /// A table of the configuration file: a settings type and the name of the
 /// table it is read from.
-pub trait Table: Settings {
+///
+/// It is implemented only by this crate's `tables!` declaration, the one
+/// place a table is declared, which also lists it in [`KNOWN_TABLES`]: a
+/// table cannot exist without being known, or be known under another name.
+/// The trait is sealed, so no other crate can implement it.
+pub trait Table: Settings + sealed::Sealed {
     /// The table's name, as the file writes it (`panel` for `[panel]`).
     const NAME: &'static str;
 }
 
-/// The name of every table of the configuration file, from the tables'
-/// own [`Table::NAME`]s.
-pub const KNOWN_TABLES: &[&str] = &[panel::PanelSettings::NAME];
+mod sealed {
+    /// Implemented by the `tables!` declaration alone.
+    pub trait Sealed {}
+}
+
+/// Declares every table of the configuration file, each once: its type
+/// implements [`Table`] with its name, and the names make
+/// [`KNOWN_TABLES`].
+macro_rules! tables {
+    ($($table:ty => $name:literal),+ $(,)?) => {
+        $(
+            impl sealed::Sealed for $table {}
+            impl Table for $table {
+                const NAME: &'static str = $name;
+            }
+        )+
+
+        /// The name of every table of the configuration file.
+        pub const KNOWN_TABLES: &[&str] = &[$($name),+];
+    };
+}
+
+tables! {
+    panel::PanelSettings => "panel",
+}
 
 /// The section for table `T`, which reports any top-level table that is
 /// not one of the [`KNOWN_TABLES`].
@@ -63,26 +90,25 @@ pub fn section<T: Table>() -> Result<Section<T>, DefaultsError> {
 mod tests {
     use super::*;
     use deskrinch_config::{Problem, Snapshot};
-
-    /// Every table type, by its name; a new table is added here and to
-    /// [`KNOWN_TABLES`].
-    const TABLE_NAMES: &[&str] = &[panel::PanelSettings::NAME];
+    use std::collections::BTreeSet;
 
     #[test]
-    fn every_table_is_known_once() {
-        for name in TABLE_NAMES {
-            assert_eq!(
-                KNOWN_TABLES.iter().filter(|known| *known == name).count(),
-                1,
-                "{name}"
-            );
-        }
-        assert_eq!(KNOWN_TABLES.len(), TABLE_NAMES.len());
+    fn every_table_has_a_name_of_its_own() {
+        let names: BTreeSet<_> = KNOWN_TABLES.iter().collect();
+        assert_eq!(names.len(), KNOWN_TABLES.len(), "{KNOWN_TABLES:?}");
+        assert!(
+            KNOWN_TABLES
+                .iter()
+                .all(|name| !name.is_empty() && !name.contains(['.', '[', ']', ' '])),
+            "{KNOWN_TABLES:?}"
+        );
     }
 
     #[test]
     fn every_tables_defaults_make_a_section() {
-        assert_eq!(section::<panel::PanelSettings>().unwrap().name(), "panel");
+        let section = section::<panel::PanelSettings>().unwrap();
+        assert_eq!(section.name(), panel::PanelSettings::NAME);
+        assert!(KNOWN_TABLES.contains(&section.name()));
     }
 
     #[test]

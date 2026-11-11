@@ -15,7 +15,7 @@
 //! keys, values and defaults are documented in `deskrinch-settings`
 //! (`deskrinch_settings::panel`), the reference for the configuration file.
 //! The panel follows the file while it runs (`deskrinch-component`'s
-//! `LiveSettings`): a change moves or resizes the window, or restarts the
+//! `Configuration` and `LiveSettings`): a change moves or resizes the window, or restarts the
 //! clock, without a restart of the panel. Mistakes are reported with their
 //! file, line and column, and leave the last good settings in place.
 //!
@@ -45,7 +45,7 @@ mod panel;
 mod surface;
 mod widgets;
 
-use deskrinch_component::{LiveSettings, report};
+use deskrinch_component::{Configuration, report};
 use deskrinch_settings::panel::PanelSettings;
 use deskrinch_xdg::BaseDirs;
 use rinch::prelude::*;
@@ -53,7 +53,7 @@ use rinch::prelude::*;
 fn main() {
     // Before the configuration is read, so that its diagnostics are shown.
     report::init();
-    let live = LiveSettings::<PanelSettings>::start(&BaseDirs::from_process());
+    let live = Configuration::start(&BaseDirs::from_process()).follow::<PanelSettings>();
     let window = surface::window_props(surface::Placement::of(&live.initial));
     App::new(move |scope| panel::panel(scope, live))
         .window_props(window)
