@@ -297,6 +297,36 @@ fn a_read_from_an_owner_that_was_replaced_is_stale_not_gone() {
 }
 
 #[test]
+fn a_late_answer_from_an_owner_that_was_replaced_is_not_the_item_s() {
+    let mut model = model();
+    let service = "org.kde.StatusNotifierItem-1-1";
+    let id = model
+        .register(target(service), ":1.5", t(0))
+        .unwrap()
+        .unwrap()
+        .id;
+    model.read_done(&id, ":1.5", read_of(&id, "A"), t(0));
+    // A signal starts a read from :1.5; the name moves while it is in
+    // flight, which asks for one more.
+    let read = model.signalled(":1.5", PATH, t(500)).pop().unwrap();
+    assert_eq!(model.source(&read.id).unwrap().owner, ":1.5");
+    let moved = model.owner_changed(service, Some(":1.9"), t(510));
+    assert_eq!(moved.reads, Vec::<Due>::new());
+    // :1.5, still connected, answers: not stored, not reported.
+    let done = model.read_done(&id, ":1.5", read_of(&id, "old"), t(520));
+    assert_eq!(done.change, None);
+    assert!(!done.unregistered);
+    assert_eq!(model.item(&id).unwrap().title, "A");
+    // The read the move asked for follows, from :1.9, and is the item's.
+    let next = done.next.unwrap();
+    let source = model.source(&next.id).unwrap();
+    assert_eq!(source.owner, ":1.9");
+    let done = model.read_done(&id, &source.owner, read_of(&id, "B"), next.at);
+    assert_eq!(done.change, Some(Change::Changed(model.item(&id).unwrap())));
+    assert_eq!(model.item(&id).unwrap().title, "B");
+}
+
+#[test]
 fn a_read_waiting_for_its_start_goes_to_the_owner_at_the_start() {
     let mut model = model();
     let interval = Limits::default().min_read_interval;

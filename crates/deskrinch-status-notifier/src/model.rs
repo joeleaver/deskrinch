@@ -235,11 +235,13 @@ impl Model {
         let Some(index) = self.entries.iter().position(|e| &e.id == id) else {
             return done;
         };
-        // A connection that is gone but no longer the owner says nothing
-        // about the item.
-        let outcome = match outcome {
-            Outcome::Gone if self.entries[index].owner != owner => Outcome::Failed,
-            outcome => outcome,
+        // A connection that no longer owns the item says nothing about it,
+        // whatever it answered: gone or not, its properties are not the
+        // item's. The read the move asked for follows.
+        let outcome = if self.entries[index].owner == owner {
+            outcome
+        } else {
+            Outcome::Failed
         };
         match outcome {
             Outcome::Gone => {
