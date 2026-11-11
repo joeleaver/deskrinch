@@ -91,10 +91,15 @@ impl Compositor {
             }
             Self::Sway => {
                 // No bar, background, key bindings or `exec` lines: only the
-                // outputs' scale and transform.
+                // outputs' scale and transform, and no borders or title bars,
+                // so that a tiled window fills the area it is given (sway
+                // draws them around a tiled window even when it asks to
+                // decorate itself).
                 let config = root.join("sway.conf");
                 let contents = format!(
-                    "output * scale {} transform {}\n",
+                    "output * scale {} transform {}\n\
+                     default_border none\n\
+                     default_floating_border none\n",
                     outputs.scale,
                     outputs.transform.sway_name()
                 );

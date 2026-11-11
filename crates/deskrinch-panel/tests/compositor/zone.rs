@@ -40,14 +40,13 @@ pub(crate) fn wait_window_size(
 ) {
     let (width, height) = client.output_info(output).unwrap().logical_size.unwrap();
     let wanted = (width, height - reserved.cast_signed());
-    let drawn = window.wait_drawn("the output's size less the panel's zone", |size| {
+    if let Err(error) = window.wait_drawn("the output's size less the panel's zone", |size| {
         size == wanted
-    });
-    assert_eq!(
-        drawn.ok(),
-        Some(wanted),
-        "the maximised window on {output} is not {wanted:?}"
-    );
+    }) {
+        panic!(
+            "the maximised window is not {wanted:?}, {output}'s logical size less the zone: {error}"
+        );
+    }
 }
 
 /// What is wrong with `image` for a maximised [`WINDOW`] beside the panel at
