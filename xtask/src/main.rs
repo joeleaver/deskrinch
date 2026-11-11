@@ -100,6 +100,14 @@ enum Task {
         /// otherwise), such as `KDE` or `sway`.
         #[arg(long, value_name = "NAME")]
         current_desktop: Option<OsString>,
+        /// What the compositor renders with: `software` (wlroots' pixman
+        /// renderer for sway and labwc), or `gpu` (wlroots' GLES2 renderer on
+        /// the GPU's render node, which a client presenting through Vulkan
+        /// needs). KWin composites with OpenGL either way. `gpu` fails (70)
+        /// where the machine has no GPU, and when the compositor does not say
+        /// it renders on it.
+        #[arg(long, value_enum, default_value = "software")]
+        compositor_renderer: session::CompositorRenderer,
         /// The compositor to run.
         #[arg(value_enum)]
         compositor: session::Compositor,
@@ -243,11 +251,13 @@ impl Task {
                 transform,
                 keep,
                 current_desktop,
+                compositor_renderer,
                 compositor,
                 program,
                 args,
             } => run_in_session::run(&run_in_session::Request {
                 compositor,
+                compositor_renderer,
                 outputs: session::Outputs {
                     count: outputs,
                     scale,

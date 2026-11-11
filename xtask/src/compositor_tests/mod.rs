@@ -28,7 +28,7 @@ use self::build::Target;
 use self::suites::{Pass, SUITES, Suite};
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Session};
+use crate::session::{Compositor, CompositorRenderer, Session};
 
 /// Runs the tests in each of `compositors` (all of them when empty), the
 /// suites that render once per renderer `renderers` asks for.
@@ -97,6 +97,7 @@ fn run_in(
 ) -> Result<bool, Error> {
     let session = Session::start(
         compositor,
+        CompositorRenderer::Software,
         pass.outputs(),
         None,
         |data_home| match compositor {

@@ -48,7 +48,7 @@ use std::time::Duration;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Outputs, Session};
+use crate::session::{Compositor, CompositorRenderer, Outputs, Session};
 
 /// `cargo xtask measure --help`: what is measured, and how.
 pub(crate) const LONG_ABOUT: &str = "\
@@ -215,6 +215,15 @@ pub(crate) struct Request {
     pub(crate) summons: Option<Summons>,
 }
 
+impl Request {
+    /// What each run's compositor renders with: the GPU when rinch's GPU
+    /// renderer is asked for under sway or labwc, the only session it can
+    /// present on there ([`CompositorRenderer::for_client`]).
+    fn compositor_renderer(&self) -> CompositorRenderer {
+        CompositorRenderer::for_client(self.compositor, self.renderer == Some(Renderer::Gpu))
+    }
+}
+
 /// Runs the measurement and prints its report.
 pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let program = request.program.to_string_lossy().into_owned();
@@ -311,7 +320,13 @@ fn in_session<T>(
     request: &Request,
     measure: impl FnOnce(&Session) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    let session = Session::start(request.compositor, Outputs::plain(1), None, |_| Ok(()))?;
+    let session = Session::start(
+        request.compositor,
+        request.compositor_renderer(),
+        Outputs::plain(1),
+        None,
+        |_| Ok(()),
+    )?;
     let result = measure(&session);
     let ended = session.end();
     let value = result?;
