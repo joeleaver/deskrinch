@@ -64,7 +64,6 @@ jiff-icu = { version = "0.2.4", default-features = false }
 # less.
 ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
 libc = "0.2.191"
-notify = { version = "8.2.2", default-features = false }
 percent-encoding = "2.3.2"
 # The version rinch's image stack already locks; it has no default features.
 png = "0.18.1"
