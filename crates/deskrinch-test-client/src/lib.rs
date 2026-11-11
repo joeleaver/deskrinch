@@ -5,9 +5,16 @@
 //!   thread so that it answers pings and configures like a live
 //!   application. Its [`TestWindow`]s are mapped `xdg_toplevel`s that draw
 //!   a [`Paint`] (nothing, one colour, or four quarters) at whatever size
-//!   the compositor asks for, with a buffer scale of 1, and note whether
-//!   they have the keyboard focus and the keys pressed while they do
-//!   ([`TestWindow::wait_key`]).
+//!   the compositor asks for, with a buffer scale of 1.
+//! - The keyboard: the client takes the seat's keyboard whenever the seat
+//!   has one (on a headless wlroots compositor, only once
+//!   `deskrinch-test-input` has made a virtual keyboard). A window notes
+//!   whether it has the keyboard focus ([`TestWindow::has_keyboard`],
+//!   [`TestWindow::wait_keyboard`]) and records each key pressed while it
+//!   does, by evdev code, in order ([`TestWindow::keys`],
+//!   [`TestWindow::wait_key`]). That is all it does with the keyboard: a
+//!   release, a repeat, the keymap and the modifiers are not kept, and keys
+//!   pressed while another window has the focus are not its own.
 //! - [`Compositor::current`] says which nested compositor the tests run
 //!   in, and refuses to go on outside one.
 //! - [`configure_output`] changes an output's scale or transform, under a
