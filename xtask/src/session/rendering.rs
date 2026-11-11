@@ -12,7 +12,7 @@
 use std::path::PathBuf;
 use std::process::Command;
 
-use super::{Compositor, RenderNodes};
+use super::{Compositor, RenderNodes, Session};
 use crate::error::Error;
 
 /// What the compositor renders with.
@@ -60,7 +60,9 @@ impl CompositorRenderer {
 }
 
 impl Wlroots {
-    /// Sets `command`'s wlroots renderer variables.
+    /// Sets `command`'s wlroots renderer variables. On the GPU, the
+    /// compositor also logs at `info` (`--verbose`, which sway and labwc
+    /// both take), where wlroots says which renderer it created and on what.
     pub(crate) fn apply(&self, command: &mut Command) {
         match self {
             Self::Pixman => {
@@ -69,8 +71,60 @@ impl Wlroots {
             Self::Gles2(node) => {
                 command
                     .env("WLR_RENDERER", "gles2")
-                    .env("WLR_RENDER_DRM_DEVICE", node);
+                    .env("WLR_RENDER_DRM_DEVICE", node)
+                    .arg("--verbose");
             }
+        }
+    }
+}
+
+/// wlroots' line when it has created its GLES2 renderer.
+const CREATED_GLES2: &str = "Creating GLES2 renderer";
+/// wlroots' line naming the GL implementation it renders with.
+const GL_RENDERER: &str = "GL renderer: ";
+/// Mesa's software rasterisers, which a GL renderer line can name: GLES2 on
+/// one of them is no GPU.
+const SOFTWARE_GL: &[&str] = &["llvmpipe", "softpipe"];
+
+/// Why a wlroots compositor asked to render on the GPU is not doing so.
+const NOT_ON_THE_GPU: &str = "the compositor was to render on the GPU, but it does not: \
+     a client presenting with rinch's GPU renderer would test something else";
+
+/// What `log`, a wlroots compositor's `--verbose` log, says about its
+/// renderer: the GL renderer it names when it created its GLES2 renderer
+/// on a GPU, or the line that says otherwise (`(none)` when it said
+/// nothing).
+fn gpu_renderer(log: &str) -> Result<&str, String> {
+    if !log.lines().any(|line| line.contains(CREATED_GLES2)) {
+        return Err(format!("no \"{CREATED_GLES2}\" line"));
+    }
+    let named = log
+        .lines()
+        .find_map(|line| line.split_once(GL_RENDERER).map(|(_, named)| named.trim()));
+    match named {
+        Some(named) if !SOFTWARE_GL.iter().any(|software| named.contains(software)) => Ok(named),
+        Some(named) => Err(format!("{GL_RENDERER}{named}")),
+        None => Err(format!("{GL_RENDERER}(none)")),
+    }
+}
+
+impl Session {
+    /// Fails the session unless a wlroots compositor asked to render on the
+    /// GPU says it does: it created its GLES2 renderer, on a GL that is not
+    /// Mesa's software rasteriser.
+    pub(super) fn check_wlroots_renderer(&self) -> Result<(), Error> {
+        if self.renderer != CompositorRenderer::Gpu || self.compositor == Compositor::Kwin {
+            return Ok(());
+        }
+        let log = self.log();
+        match gpu_renderer(&log) {
+            Ok(_) => Ok(()),
+            Err(line) => Err(Error::CompositorUnfit {
+                compositor: self.compositor.name(),
+                why: NOT_ON_THE_GPU,
+                line,
+                log,
+            }),
         }
     }
 }
@@ -87,6 +141,57 @@ mod tests {
             .find(|(key, _)| *key == OsStr::new(name))
             .and_then(|(_, value)| value)
             .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    /// As sway 1.11 and labwc 0.9.3 (wlroots 0.19) log it with `--verbose`.
+    const ON_THE_GPU: &str = "\
+00:00:00.025 [INFO] [wlr] [render/wlr_renderer.c:157] Opening DRM render node '/dev/dri/renderD128' from WLR_RENDER_DRM_DEVICE
+00:00:00.233 [INFO] [wlr] [render/gles2/renderer.c:538] Creating GLES2 renderer
+00:00:00.233 [INFO] [wlr] [render/gles2/renderer.c:541] GL renderer: AMD Radeon 890M Graphics (radeonsi, strix1, ACO, DRM 3.64, 7.0.0-42-generic)
+";
+
+    #[test]
+    fn reads_what_wlroots_renders_with() {
+        assert_eq!(
+            gpu_renderer(ON_THE_GPU),
+            Ok("AMD Radeon 890M Graphics (radeonsi, strix1, ACO, DRM 3.64, 7.0.0-42-generic)")
+        );
+        let llvmpipe = ON_THE_GPU.replace(
+            "AMD Radeon 890M Graphics (radeonsi, strix1, ACO, DRM 3.64, 7.0.0-42-generic)",
+            "llvmpipe (LLVM 20.1.8, 256 bits)",
+        );
+        assert_eq!(
+            gpu_renderer(&llvmpipe),
+            Err("GL renderer: llvmpipe (LLVM 20.1.8, 256 bits)".to_owned())
+        );
+        let pixman =
+            "00:00:00.020 [INFO] [wlr] [render/pixman/renderer.c:306] Creating pixman renderer\n";
+        assert_eq!(
+            gpu_renderer(pixman),
+            Err("no \"Creating GLES2 renderer\" line".to_owned())
+        );
+        let unnamed = "[render/gles2/renderer.c:538] Creating GLES2 renderer\n";
+        assert_eq!(gpu_renderer(unnamed), Err("GL renderer: (none)".to_owned()));
+    }
+
+    #[test]
+    fn a_gpu_client_gets_a_gpu_session_only_where_it_needs_one() {
+        assert_eq!(
+            CompositorRenderer::for_client(Compositor::Sway, true),
+            CompositorRenderer::Gpu
+        );
+        assert_eq!(
+            CompositorRenderer::for_client(Compositor::Labwc, true),
+            CompositorRenderer::Gpu
+        );
+        assert_eq!(
+            CompositorRenderer::for_client(Compositor::Kwin, true),
+            CompositorRenderer::Software
+        );
+        assert_eq!(
+            CompositorRenderer::for_client(Compositor::Sway, false),
+            CompositorRenderer::Software
+        );
     }
 
     #[test]

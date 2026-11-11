@@ -1,24 +1,23 @@
 //! Which of rinch's renderers a run tests the suites that render with.
 //!
 //! The software renderer always. The GPU renderer where the machine seems to
-//! have a GPU, and only under KWin: the sessions run sway and labwc with
-//! `WLR_RENDERER=pixman`, which offers no dmabuf, so rinch's GPU renderer
-//! cannot present there.
+//! have a GPU, under every compositor: under sway and labwc in a session
+//! whose compositor renders on the GPU too (wlroots' pixman renderer offers
+//! no dmabuf, so rinch's GPU renderer cannot present on it).
 
 use deskrinch_test_component::Renderer;
 
-use crate::session::{Compositor, RenderNodes};
+use crate::session::RenderNodes;
 
 /// The renderers `cargo xtask compositor-tests --renderer` asks for.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Choice {
     /// rinch's software renderer only.
     Software,
-    /// rinch's GPU renderer only, under KWin; fails where the machine has no
-    /// GPU.
+    /// rinch's GPU renderer only; fails where the machine has no GPU.
     Gpu,
-    /// The software renderer, and the GPU renderer under KWin where the
-    /// machine has a GPU.
+    /// The software renderer, and the GPU renderer where the machine has a
+    /// GPU.
     All,
 }
 
@@ -51,14 +50,14 @@ impl Plan {
                     software: false,
                     gpu: true,
                 },
-                format!("renderers: gpu under KWin only (as asked; {nodes})"),
+                format!("renderers: gpu only (as asked; {nodes})"),
             )),
             (Choice::All, true) => Ok((
                 Self {
                     software: true,
                     gpu: true,
                 },
-                format!("renderers: software, and gpu under KWin ({nodes})"),
+                format!("renderers: software, and gpu ({nodes})"),
             )),
             (Choice::All, false) => Ok((
                 Self {
@@ -75,13 +74,13 @@ impl Plan {
         Self::new(choice, &RenderNodes::of_machine())
     }
 
-    /// The renderers a rendering suite runs with under `compositor`.
-    pub(crate) fn under(&self, compositor: Compositor) -> Vec<Renderer> {
+    /// The renderers a rendering suite runs with.
+    pub(crate) fn renderers(&self) -> Vec<Renderer> {
         let mut renderers = Vec::new();
         if self.software {
             renderers.push(Renderer::Software);
         }
-        if self.gpu && compositor == Compositor::Kwin {
+        if self.gpu {
             renderers.push(Renderer::Gpu);
         }
         renderers
@@ -96,22 +95,19 @@ mod tests {
     fn plans_say_what_they_leave_out() {
         let none = RenderNodes::default();
         let (plan, said) = Plan::new(Choice::All, &none).unwrap();
-        assert_eq!(plan.under(Compositor::Kwin), [Renderer::Software]);
+        assert_eq!(plan.renderers(), [Renderer::Software]);
         assert!(said.contains("left out: no render node"), "{said}");
         assert!(Plan::new(Choice::Gpu, &none).is_err());
 
         let gpu = RenderNodes {
             nodes: vec![("renderD128".into(), Some("amdgpu".into()))],
         };
-        let (plan, _) = Plan::new(Choice::All, &gpu).unwrap();
-        assert_eq!(
-            plan.under(Compositor::Kwin),
-            [Renderer::Software, Renderer::Gpu]
-        );
-        assert_eq!(plan.under(Compositor::Sway), [Renderer::Software]);
+        let (plan, said) = Plan::new(Choice::All, &gpu).unwrap();
+        assert_eq!(plan.renderers(), [Renderer::Software, Renderer::Gpu]);
+        assert_eq!(said, "renderers: software, and gpu (renderD128 (amdgpu))");
         let (plan, _) = Plan::new(Choice::Gpu, &gpu).unwrap();
-        assert_eq!(plan.under(Compositor::Labwc), []);
+        assert_eq!(plan.renderers(), [Renderer::Gpu]);
         let (plan, _) = Plan::new(Choice::Software, &gpu).unwrap();
-        assert_eq!(plan.under(Compositor::Kwin), [Renderer::Software]);
+        assert_eq!(plan.renderers(), [Renderer::Software]);
     }
 }

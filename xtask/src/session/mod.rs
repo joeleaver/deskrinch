@@ -175,6 +175,7 @@ impl Session {
         };
         session.socket = session.wait_for_socket()?;
         session.wait_for_bus_names()?;
+        session.check_wlroots_renderer()?;
         session.set_up_outputs(outputs)?;
         Ok(session)
     }

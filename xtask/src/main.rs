@@ -61,10 +61,12 @@ enum Task {
         #[arg(value_enum)]
         compositors: Vec<session::Compositor>,
         /// The renderers the suites that draw run with: `software`; `gpu`
-        /// (under KWin, failing where the machine has no GPU); or `all`,
-        /// software and, where the machine has a GPU, the GPU under KWin
-        /// (sway and labwc run on pixman, which the GPU renderer cannot
-        /// present on). The run says which it chose, and why.
+        /// (failing where the machine has no GPU); or `all`, software and,
+        /// where the machine has a GPU, the GPU. Under sway and labwc the
+        /// GPU pass runs in a session of its own whose compositor renders on
+        /// the GPU too (wlroots' pixman renderer, which every other session
+        /// has, offers nothing the GPU renderer can present on). The run
+        /// says which it chose, and why.
         #[arg(long, value_enum, default_value = "all")]
         renderer: compositor_tests::renderers::Choice,
     },

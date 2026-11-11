@@ -73,6 +73,13 @@ vgem's and Mesa's software driver. --scale and --transform under KWin run
 kscreen-doctor, which needs Qt's Wayland xdg-shell integration
 (libqt6wlshellintegration6).
 
+sway and labwc render with wlroots' pixman renderer, which offers no dmabuf.
+With --compositor-renderer gpu they render with its GLES2 renderer on the
+GPU's render node (WLR_RENDER_DRM_DEVICE; a render node only, no KMS, seat or
+logind) and log at info level, and the session fails unless their own log
+says they created the GLES2 renderer on a GL that is not Mesa's software
+rasteriser; it fails too on a machine without a GPU.
+
 How it runs and ends:
   - Standard input is closed: the session's process group is not the
     terminal's, so a command that read the terminal would hang. The working

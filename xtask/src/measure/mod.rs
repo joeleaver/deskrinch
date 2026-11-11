@@ -48,7 +48,7 @@ use std::time::Duration;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, CompositorRenderer, Outputs, Session};
+use crate::session::{Compositor, CompositorRenderer, Outputs, RenderNodes, Session};
 
 /// `cargo xtask measure --help`: what is measured, and how.
 pub(crate) const LONG_ABOUT: &str = "\
@@ -79,10 +79,11 @@ Each session starts with an empty shader cache (--shader-cache cold);
 outside the sessions, for every run.
 
 Under sway and labwc the compositor renders with pixman and offers no dmabuf,
-so the GPU cannot present there and wgpu offers only a software Vulkan driver
-(lavapipe). rinch's default renderer declines it and presents with its
-software renderer; --renderer gpu makes it use lavapipe. Measure GPU costs
-under kwin, which composites with the GPU.
+so wgpu would offer only a software Vulkan driver (lavapipe), which rinch's
+default renderer declines for its software renderer. --renderer gpu under
+sway or labwc therefore gets a session whose compositor renders on the GPU
+(wlroots' GLES2 renderer on the GPU's render node), and fails where the
+machine has none. KWin composites with the GPU either way.
 
 --summon ARGS --dismiss ARGS measures showing instead of starting: the
 program starts hidden, settles, and is shown --shows times by running it
@@ -388,16 +389,22 @@ fn header(request: &Request) -> String {
         request.program.to_string_lossy(),
         args.join(" "),
         request.compositor.name(),
-        match request.compositor {
-            Compositor::Kwin => "it composites with the GPU through EGL",
-            Compositor::Sway | Compositor::Labwc => match request.renderer {
-                Some(Renderer::Gpu) =>
-                    "wlroots with the pixman renderer offers no dmabuf, so the GPU renderer \
-                     presents through a software Vulkan driver",
-                Some(Renderer::Software) => "wlroots with the pixman renderer",
-                Some(Renderer::Auto) | None =>
-                    "wlroots with the pixman renderer offers no dmabuf; rinch's GPU renderer \
-                     would have only a software Vulkan driver, which its default declines",
+        match (request.compositor, request.compositor_renderer()) {
+            (Compositor::Kwin, _) => "it composites with the GPU through EGL".to_owned(),
+            (_, CompositorRenderer::Gpu) => format!(
+                "wlroots with the GLES2 renderer on {}, as its log says",
+                RenderNodes::of_machine()
+                    .gpu()
+                    .map_or_else(|| "the GPU".to_owned(), |node| node.display().to_string())
+            ),
+            (_, CompositorRenderer::Software) => match request.renderer {
+                Some(Renderer::Auto) | None => "wlroots with the pixman renderer, which offers no \
+                     dmabuf; rinch's GPU renderer would have only a software Vulkan driver, which \
+                     its default declines"
+                    .to_owned(),
+                Some(Renderer::Software | Renderer::Gpu) => {
+                    "wlroots with the pixman renderer".to_owned()
+                }
             },
         },
         request
