@@ -772,6 +772,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-keyfile",
  "deskrinch-test-dbus",
+ "deskrinch-timer",
  "deskrinch-watch",
  "deskrinch-xdg",
  "futures-core",
@@ -881,6 +882,10 @@ dependencies = [
  "rinch",
  "tempfile",
 ]
+
+[[package]]
+name = "deskrinch-timer"
+version = "0.1.0"
 
 [[package]]
 name = "deskrinch-untrusted"
