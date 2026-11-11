@@ -3,13 +3,15 @@
 
 use crate::text;
 
+mod png;
+
 /// Decoded pixels: `width` × `height`, tightly packed, 8-bit RGBA, not
 /// premultiplied, rows top to bottom.
 ///
 /// Every `Image` was validated on its way in: each wire format's decoder
 /// (the notification service's `(iiibiiay)`, the status notifier's ARGB32)
 /// checks the peer's sizes and data against its bounds before building one
-/// with [`Image::new`].
+/// with [`Image::new`], and PNG bytes are decoded by [`Image::from_png`].
 #[derive(Clone, PartialEq, Eq)]
 pub struct Image {
     width: u32,
