@@ -58,7 +58,7 @@ fn two_tables_follow_one_watcher() {
         "[panel]\nheight = 48\n[other]\naccent = \"red\"\n",
     );
     let configuration = Configuration::start(&dirs(root.path()));
-    assert!(configuration.is_watched());
+    assert!(format!("{configuration:?}").contains("watched: true"));
     let panel = configuration.follow::<PanelSettings>();
     let other = configuration.follow_section(Section::<Other>::new("other").unwrap());
     assert_eq!(panel.initial.height.get(), 48);

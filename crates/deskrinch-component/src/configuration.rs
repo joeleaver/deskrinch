@@ -17,7 +17,6 @@ use crate::report;
 /// [`start`](Self::start) it once; [`follow`](Self::follow) each table.
 /// Every [`LiveSettings`] holds the watcher, so it runs for as long as any
 /// table follows it, whether or not this value is kept.
-#[derive(Clone)]
 pub struct Configuration {
     shared: Arc<Shared>,
 }
@@ -73,19 +72,13 @@ impl Configuration {
         resolved.diagnostics.iter().for_each(report::diagnostic);
         LiveSettings::fixed(resolved.settings, Arc::clone(&self.shared))
     }
-
-    /// Whether changes to the files are followed.
-    #[must_use]
-    pub fn is_watched(&self) -> bool {
-        self.shared.watcher.is_some()
-    }
 }
 
 impl fmt::Debug for Configuration {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Configuration")
             .field("files", &self.shared.sources.files().collect::<Vec<_>>())
-            .field("watched", &self.is_watched())
+            .field("watched", &self.shared.watcher.is_some())
             .finish()
     }
 }
