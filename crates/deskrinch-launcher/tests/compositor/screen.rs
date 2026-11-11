@@ -19,7 +19,7 @@ use deskrinch_test_input::{Input, Key};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use tempfile::TempDir;
 
-use crate::support::{Launcher, PATIENCE, eventually, in_nested_session, launcher, stays};
+use crate::support::{Launcher, PATIENCE, client, eventually, in_nested_session, launcher, stays};
 
 /// The launcher's size on the screen (scale 1): its layer surface's.
 const WIDTH: u32 = 640;
@@ -82,11 +82,17 @@ impl Shown {
         shown
     }
 
-    /// Captures until `accept` takes an image.
+    /// Captures until `accept` takes an image; panics, with what the
+    /// launcher logged, when none comes.
     fn see(&mut self, what: &str, accept: impl Fn(&Image) -> bool) -> Image {
         self.screen
             .capture_until(&self.output, PATIENCE, accept)
-            .unwrap_or_else(|error| panic!("{what}: {error}"))
+            .unwrap_or_else(|error| {
+                panic!(
+                    "{what}: {error}\nthe launcher logged:\n{}",
+                    self.launcher.stderr.log()
+                )
+            })
     }
 
     /// What the applications started so far were run with, one list of
@@ -228,6 +234,21 @@ fn escape_hides_and_starts_nothing() {
         "{:?}",
         shown.started()
     );
+}
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn shown_again_it_starts_empty_with_the_keyboard_in_the_field() {
+    let mut shown = Shown::start("");
+    shown.input.type_text("plain").unwrap();
+    shown.see("the results of the query", results_drawn);
+    shown.input.press(Key::ESCAPE).unwrap();
+    shown.see("the launcher hidden", |image| at_centre(image).is_none());
+    assert!(client(&["show"]).success());
+    let empty = shown.see("the launcher shown again", |image| bands(image) > 0);
+    assert_eq!(bands(&empty), 1, "the last query's results are gone");
+    shown.input.type_text("plain").unwrap();
+    shown.see("the results of the query", results_drawn);
 }
 
 #[test]

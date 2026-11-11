@@ -60,6 +60,11 @@ impl Stderr {
         self.frames.load(Ordering::SeqCst)
     }
 
+    /// Every line other than a frame's, for a failure's message.
+    pub(crate) fn log(&self) -> String {
+        self.lines.lock().unwrap().join("\n")
+    }
+
     /// Whether a line other than a frame's has `text` in it.
     pub(crate) fn said(&self, text: &str) -> bool {
         self.lines

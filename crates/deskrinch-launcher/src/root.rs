@@ -112,8 +112,11 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
     let (content, field) = view::view(__scope, model, index, on_query, on_key, on_pointer);
 
     // The window follows `Visibility`; showing puts the keyboard in the
-    // field, hiding empties the model.
+    // field (a window made shown too), hiding empties the model.
     {
+        if made_shown {
+            focus_soon(&field);
+        }
         let mut applied_shown = made_shown;
         Effect::new(move || {
             let wanted = shown.get();
@@ -123,8 +126,7 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
             applied_shown = wanted;
             if wanted {
                 show_current_window();
-                let field = field.clone();
-                set_timeout(0, move || field.focus());
+                focus_soon(&field);
             } else {
                 hide_current_window();
                 untracked(|| model.update(Model::clear));
@@ -154,6 +156,12 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
         });
     }
     content
+}
+
+/// Puts the keyboard in the query field once the window is up.
+fn focus_soon(field: &NodeHandle) {
+    let field = field.clone();
+    set_timeout(0, move || field.focus());
 }
 
 /// Gives the model `input`; answers what to do.
