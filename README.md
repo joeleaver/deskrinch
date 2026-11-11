@@ -41,7 +41,10 @@ The window-management crate's compositor tests drive a real compositor and
 are ignored by `cargo test`. This runs them in nested, headless KWin, sway and
 labwc sessions that touch nothing in your own (the isolated sessions
 `cargo xtask session` gives; it needs `dbus-daemon`, `kwin_wayland`, `sway` and
-`labwc`; name compositors to run only those):
+`labwc`; name compositors to run only those). Under KWin the tests are granted
+KWin's restricted interfaces by desktop files, which KWin reads through KDE's
+service cache: that needs `kbuildsycoca6` (on Debian and Ubuntu,
+`libkf6service-bin`, which a minimal install of `kwin-wayland` leaves out):
 
 ```sh
 cargo xtask compositor-tests [kwin] [sway] [labwc]

@@ -108,8 +108,11 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # KWin grants restricted interfaces from KDE's service cache,
+          # which it has kbuildsycoca6 build; apt leaves that out of a
+          # --no-install-recommends install.
           - compositor: kwin
-            packages: kwin-wayland dbus-daemon
+            packages: kwin-wayland dbus-daemon libkf6service-bin
             version: kwin_wayland --version
           - compositor: sway
             packages: sway dbus-daemon
