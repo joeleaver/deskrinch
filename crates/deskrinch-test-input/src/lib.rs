@@ -7,10 +7,13 @@
 //!   the devices it injects through:
 //!   - under sway and labwc, wlroots' `zwp_virtual_keyboard_v1` (with a US
 //!     keymap) and `zwlr_virtual_pointer_v1`. On a headless wlroots seat
-//!     they are the seat's only keyboard and pointer, so they are made
-//!     before the windows that are to hear them, and kept while they should
-//!     (a window that connected earlier learns of them when the seat says
-//!     what it has again, but its first enter may then be missed);
+//!     they are the seat's only keyboard and pointer: the seat says it has
+//!     neither until they exist, then says so again to every client, so a
+//!     window that connected earlier takes them then. The pointer reaches
+//!     such a window like any other. The keyboard is made before the
+//!     windows that are to hear it all the same, since a compositor gives a
+//!     window the keyboard focus as it maps, and a seat without a keyboard
+//!     gives none;
 //!   - under KWin, `org_kde_kwin_fake_input`, a restricted interface that
 //!     KWin offers only to a binary granted [`KWIN_FAKE_INPUT_INTERFACE`]
 //!     (`cargo xtask compositor-tests` grants it through its suites table).
