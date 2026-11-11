@@ -283,14 +283,22 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "nested compositor")]
     fn refuses_to_start_anything_outside_a_nested_session() {
-        // `cargo test` runs outside one: the guard must stop it before
-        // anything is spawned (a program that would leave a mark).
-        assert!(std::env::var_os("DESKRINCH_TEST_COMPOSITOR").is_none());
-        let mut command = Command::new("sh");
-        command.args(["-c", "exit 0"]);
-        drop(Component::start(command, Renderer::Software));
+        if std::env::var_os("DESKRINCH_TEST_COMPOSITOR").is_some() {
+            // Run inside a nested session, where starting is allowed: there
+            // is nothing to refuse, and nothing is started.
+            eprintln!("in a nested session: the guard lets components start here");
+            return;
+        }
+        // The guard must stop it before anything is spawned.
+        let refused = std::panic::catch_unwind(|| {
+            let mut command = Command::new("sh");
+            command.args(["-c", "exit 0"]);
+            drop(Component::start(command, Renderer::Software));
+        });
+        let why = refused.expect_err("it started a component outside a nested session");
+        let message = why.downcast_ref::<&str>().copied().unwrap_or_default();
+        assert!(message.contains("nested compositor"), "{message:?}");
     }
 
     #[test]
