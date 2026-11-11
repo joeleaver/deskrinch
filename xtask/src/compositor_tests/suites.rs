@@ -7,6 +7,7 @@ use crate::session::{Compositor, Outputs, Scale};
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
+const LAUNCHER: &str = "deskrinch-launcher";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
@@ -79,7 +80,7 @@ pub(super) struct Suite {
 pub(super) const SESSION_END: &str = "session_end::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 6] = [
+pub(super) const SUITES: [Suite; 7] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -139,6 +140,17 @@ pub(super) const SUITES: [Suite; 6] = [
         grant: None,
         compositors: KWIN,
         passes: PLAIN,
+        filter: &[],
+    },
+    // The launcher's process, its real binary: no restricted interface.
+    Suite {
+        target: Target {
+            package: LAUNCHER,
+            test: "process",
+        },
+        grant: None,
+        compositors: ALL,
+        scaled: false,
         filter: &[],
     },
     // Last: it ends the session.
