@@ -73,7 +73,7 @@ impl Shown {
         let config = config.replace("{recorder}", &recorder.display().to_string());
         fs::create_dir_all(dirs.path().join("config/deskrinch")).unwrap();
         fs::write(dirs.path().join("config/deskrinch/config.toml"), config).unwrap();
-        let launcher = Launcher::spawn(&mut in_dirs(launcher(&["--show"]), dirs.path()));
+        let launcher = Launcher::spawn(in_dirs(launcher(&["--show"]), dirs.path()));
         let mut shown = Self {
             dirs,
             input,
@@ -81,6 +81,7 @@ impl Shown {
             output: String::new(),
             launcher,
         };
+        shown.launcher.wait_presented();
         shown.output = shown.find_output();
         shown
     }
@@ -100,7 +101,7 @@ impl Shown {
             assert!(
                 Instant::now() < deadline,
                 "the launcher was not drawn on any of {outputs:?}\nthe launcher logged:\n{}",
-                self.launcher.stderr.log()
+                self.launcher.log()
             );
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -114,7 +115,7 @@ impl Shown {
             .unwrap_or_else(|error| {
                 panic!(
                     "{what}: {error}\nthe launcher logged:\n{}",
-                    self.launcher.stderr.log()
+                    self.launcher.log()
                 )
             })
     }
@@ -301,10 +302,7 @@ fn a_terminal_application_without_a_terminal_is_reported_and_not_started() {
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     assert!(
-        eventually(|| shown
-            .launcher
-            .stderr
-            .said("runs in a terminal, and there is none")),
+        eventually(|| shown.launcher.said("runs in a terminal, and there is none")),
         "the missing terminal was not reported"
     );
     assert!(

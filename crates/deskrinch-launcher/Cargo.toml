@@ -48,6 +48,8 @@ zbus = { workspace = true, features = ["default-rt", "service"] }
 [dev-dependencies]
 # The compositor tests refuse to run outside a nested session.
 deskrinch-test-client.workspace = true
+# The compositor tests start the launcher and read its frames.
+deskrinch-test-component.workspace = true
 deskrinch-test-dbus.workspace = true
 # The compositor tests type into the launcher, and look at what it draws.
 deskrinch-test-input.workspace = true

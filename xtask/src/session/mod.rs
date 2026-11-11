@@ -189,11 +189,17 @@ impl Session {
     ///
     /// The tests are told the compositor and the session's process group, so
     /// that one can end the session underneath a connection.
-    pub(crate) fn run_tests(&self, binary: &Path, filter: &[&str]) -> Result<bool, Error> {
+    pub(crate) fn run_tests(
+        &self,
+        binary: &Path,
+        filter: &[&str],
+        env: &[(&str, &str)],
+    ) -> Result<bool, Error> {
         let mut command = self.outside_client(binary.as_os_str());
         command
             .args(["--ignored", "--test-threads=1"])
             .args(filter)
+            .envs(env.iter().copied())
             .env(
                 "DESKRINCH_TEST_SESSION_GROUP",
                 self.group.as_raw_nonzero().to_string(),

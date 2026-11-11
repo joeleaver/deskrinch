@@ -33,5 +33,17 @@ deskrinch-xdg.workspace = true
 rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 thiserror.workspace = true
 
+[dev-dependencies]
+deskrinch-test-client.workspace = true
+deskrinch-test-component.workspace = true
+deskrinch-test-screen.workspace = true
+
+# The compositor tests run inside nested compositors that
+# `cargo xtask compositor-tests` starts; they are ignored by a plain
+# `cargo test`.
+[[test]]
+name = "compositor"
+path = "tests/compositor/main.rs"
+
 [lints]
 workspace = true

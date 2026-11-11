@@ -168,7 +168,17 @@ jobs:
           sudo udevadm settle
           sudo chmod a+rw /dev/dri/card* /dev/dri/renderD*
           ls -l /dev/dri
-      - run: cargo xtask compositor-tests ${{ matrix.compositor }}
+      # The runner's only DRM device is vgem, which is not a GPU.
+      - run: cargo xtask compositor-tests --renderer software ${{ matrix.compositor }}
+      # The real panel, measured once, presenting with rinch's software
+      # renderer: a check that measure still reads rinch's frames and
+      # renderer lines from a real component.
+      - name: Measure the panel under sway
+        if: matrix.compositor == 'sway'
+        run: |
+          cargo build -p deskrinch-panel --locked
+          cargo xtask measure --compositor sway --runs 1 --settle 1 --idle 5 \
+            --renderer software --expect-renderer software target/debug/deskrinch-panel
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
         run: cargo test -p xtask --test session --test measure --locked -- --ignored
         env:
