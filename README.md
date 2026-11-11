@@ -141,7 +141,8 @@ that scale before the command starts, so it never sees scale 1: sway through
 its configuration, labwc through `wlr-output-management`, and KWin with KDE's
 `kscreen-doctor`, which a KWin session then needs (on Debian and Ubuntu,
 `libkscreen-bin`, or `libkf5screen-bin` for Plasma 5). The session fails (70)
-if an output then reports another scale.
+if an output then reports another scale: its whole scale on `wl_output`, and
+its logical size on `xdg-output` against its mode (853x480 at 1.5).
 
 From outside this repository, for example in a rinch clone under `.work/`,
 name xtask's manifest; the command still runs in your directory:

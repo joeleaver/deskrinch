@@ -14,7 +14,7 @@ deskrinch-test-screen.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 wayland-client.workspace = true
-wayland-protocols = { workspace = true, features = ["client"] }
+wayland-protocols = { workspace = true, features = ["client", "unstable"] }
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 
 [lints]

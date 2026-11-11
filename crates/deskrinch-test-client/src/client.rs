@@ -13,7 +13,7 @@ use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_buffer::{self, WlBuffer};
 use wayland_client::protocol::wl_callback::WlCallback;
 use wayland_client::protocol::wl_compositor::WlCompositor;
-use wayland_client::protocol::wl_output::{self, WlOutput};
+use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
@@ -21,7 +21,9 @@ use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
 use wayland_protocols::xdg::shell::client::xdg_toplevel::XdgToplevel;
 use wayland_protocols::xdg::shell::client::xdg_wm_base::{self, XdgWmBase};
+use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 
+use crate::output_info::OutputInfo;
 use crate::window::{Shared, Status, TestWindow};
 use crate::{Error, Paint, lock};
 
@@ -30,9 +32,9 @@ use crate::{Error, Paint, lock};
 pub(crate) struct Client {
     pub(crate) shm: WlShm,
     /// Outputs by name, as `wl_output` names them.
-    outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
-    /// Each output's integer scale, as `wl_output` reports it.
-    scales: Arc<Mutex<HashMap<ObjectId, i32>>>,
+    pub(crate) outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
+    /// What each output reports about itself.
+    pub(crate) infos: Arc<Mutex<HashMap<ObjectId, OutputInfo>>>,
 }
 
 /// One Wayland client, which may have several windows.
@@ -47,7 +49,7 @@ pub struct TestClient {
     compositor: WlCompositor,
     wm_base: XdgWmBase,
     outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
-    scales: Arc<Mutex<HashMap<ObjectId, i32>>>,
+    infos: Arc<Mutex<HashMap<ObjectId, OutputInfo>>>,
     /// The interfaces of the globals the compositor announced.
     globals: Vec<String>,
     stop: Arc<AtomicBool>,
@@ -92,23 +94,28 @@ impl TestClient {
         let wm_base: XdgWmBase = globals
             .bind(&qh, 1..=1, ())
             .map_err(bind_error("xdg_wm_base"))?;
+        // Logical sizes, where the compositor offers them (all three do).
+        let xdg_outputs: Option<ZxdgOutputManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
         let announced = globals.contents().clone_list();
         for global in &announced {
             if global.interface == WlOutput::interface().name {
-                globals.registry().bind::<WlOutput, _, _>(
+                let output = globals.registry().bind::<WlOutput, _, _>(
                     global.name,
                     global.version.min(4),
                     &qh,
                     (),
                 );
+                if let Some(manager) = &xdg_outputs {
+                    manager.get_xdg_output(&output, &qh, output.id());
+                }
             }
         }
         let outputs = Arc::new(Mutex::new(HashMap::new()));
-        let scales = Arc::new(Mutex::new(HashMap::new()));
+        let infos = Arc::new(Mutex::new(HashMap::new()));
         let mut client = Client {
             shm,
             outputs: Arc::clone(&outputs),
-            scales: Arc::clone(&scales),
+            infos: Arc::clone(&infos),
         };
         queue.roundtrip(&mut client).map_err(Error::Dispatch)?;
 
@@ -123,7 +130,7 @@ impl TestClient {
             compositor,
             wm_base,
             outputs,
-            scales,
+            infos,
             globals: announced
                 .into_iter()
                 .map(|global| global.interface)
@@ -148,12 +155,21 @@ impl TestClient {
         names
     }
 
+    /// What the output named `name` reports about itself, as of now.
+    #[must_use]
+    pub fn output_info(&self, name: &str) -> Option<OutputInfo> {
+        let output = lock(&self.outputs).get(name)?.id();
+        Some(lock(&self.infos).get(&output).copied().unwrap_or_default())
+    }
+
     /// The scale `wl_output` reports for the output named `name`: a whole
-    /// number, rounded up from a fractional scale.
+    /// number, rounded up from a fractional scale (see [`output_info`] for
+    /// its logical size, which tells them apart).
+    ///
+    /// [`output_info`]: Self::output_info
     #[must_use]
     pub fn output_scale(&self, name: &str) -> Option<i32> {
-        let output = lock(&self.outputs).get(name)?.id();
-        lock(&self.scales).get(&output).copied()
+        self.output_info(name).map(|info| info.scale)
     }
 
     /// Opens a transparent window and returns once it has drawn its first
@@ -271,27 +287,6 @@ fn run(mut queue: EventQueue<Client>, mut client: Client, stop: &AtomicBool) {
     while !stop.load(Ordering::Acquire) {
         if queue.blocking_dispatch(&mut client).is_err() {
             return;
-        }
-    }
-}
-
-impl Dispatch<WlOutput, ()> for Client {
-    fn event(
-        client: &mut Self,
-        output: &WlOutput,
-        event: wl_output::Event,
-        (): &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-        match event {
-            wl_output::Event::Name { name } => {
-                lock(&client.outputs).insert(name, output.clone());
-            }
-            wl_output::Event::Scale { factor } => {
-                lock(&client.scales).insert(output.id(), factor);
-            }
-            _ => {}
         }
     }
 }

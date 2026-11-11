@@ -135,17 +135,12 @@ pub(crate) enum Error {
         log: String,
     },
     /// The nested compositor's outputs do not have the scale asked for.
-    #[error(
-        "{compositor} did not take scale {asked}: wl_output should report {whole}, \
-         but {outputs}; its log:\n{log}"
-    )]
+    #[error("{compositor} did not take scale {asked}: {outputs}; its log:\n{log}")]
     WrongScale {
         /// The compositor.
         compositor: &'static str,
         /// The scale asked for.
         asked: String,
-        /// The whole scale `wl_output` should report for it.
-        whole: i32,
         /// The outputs at another scale, and theirs.
         outputs: String,
         /// What it printed.

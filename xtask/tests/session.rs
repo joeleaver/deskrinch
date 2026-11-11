@@ -194,9 +194,12 @@ mod session {
         assert_eq!(env["XDG_CURRENT_DESKTOP"], "deskrinch");
     }
 
-    /// The session checks the scale every output reports before the command
-    /// starts, and fails (70) if it differs; so a command that runs at all
-    /// runs at the scale asked for.
+    /// The session checks every output before the command starts: the
+    /// whole scale `wl_output` reports, and the logical size `xdg-output`
+    /// reports against the mode (853x480 for 1280x720 at 1.5, which a
+    /// compositor that rounded up to 2 would report as 640x360), and fails
+    /// (70) if either is off; so a command that runs at all runs at the scale
+    /// asked for.
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn starts_the_command_at_the_scale_asked_for() {

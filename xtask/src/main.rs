@@ -67,7 +67,8 @@ enum Task {
         /// labwc, which has no such setting, through wlr-output-management,
         /// and KWin through `kscreen-doctor` (needed then), both before the
         /// command starts. The session fails (70) if an output then reports
-        /// another scale.
+        /// another scale (its whole scale, or a logical size that is not its
+        /// mode over the scale).
         #[arg(long, default_value = "1", value_name = "SCALE")]
         scale: session::Scale,
         /// Keep the session's directory afterwards (its compositor log, and

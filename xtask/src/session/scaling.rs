@@ -3,7 +3,7 @@
 
 use std::ffi::OsStr;
 
-use deskrinch_test_client::{OutputChange, TestClient, configure_every_output};
+use deskrinch_test_client::{OutputChange, OutputInfo, TestClient, configure_every_output};
 
 use super::{Scale, Session};
 use crate::error::Error;
@@ -91,20 +91,19 @@ impl Session {
         }
     }
 
-    /// Checks that every output reports `scale`, as `wl_output` reports it
-    /// (a whole number, rounded up), so that a compositor that ignored the
-    /// setting fails the session instead of running at another scale.
+    /// Checks that every output is at `scale`: the whole scale `wl_output`
+    /// reports (rounded up) cannot tell 1.5 from 2, so its logical size
+    /// (`xdg-output`) must also be its mode divided by `scale`. A compositor
+    /// that ignored or rounded the setting fails the session instead of
+    /// running at another scale.
     fn check_scale(&self, scale: Scale) -> Result<(), Error> {
         let client = self.connect_client()?;
         let wrong: Vec<String> = client
             .output_names()
             .into_iter()
             .filter_map(|name| {
-                let reported = client.output_scale(&name);
-                (reported != Some(scale.whole())).then(|| match reported {
-                    Some(reported) => format!("{name} reports {reported}"),
-                    None => format!("{name} reports none"),
-                })
+                let info = client.output_info(&name).unwrap_or_default();
+                mismatch(scale, info).map(|why| format!("{name} {why}"))
             })
             .collect();
         if wrong.is_empty() {
@@ -113,8 +112,7 @@ impl Session {
             Err(Error::WrongScale {
                 compositor: self.compositor.name(),
                 asked: scale.to_string(),
-                whole: scale.whole(),
-                outputs: wrong.join(", "),
+                outputs: wrong.join("; "),
                 log: self.log(),
             })
         }
@@ -128,5 +126,75 @@ impl Session {
             source: Box::new(source),
             log: self.log(),
         })
+    }
+}
+
+/// Why an output reporting `info` is not at `scale`, if it is not.
+fn mismatch(scale: Scale, info: OutputInfo) -> Option<String> {
+    if info.scale != scale.whole() {
+        return Some(format!(
+            "reports whole scale {}, not {}",
+            info.scale,
+            scale.whole()
+        ));
+    }
+    let (Some(mode), Some(logical)) = (info.mode, info.logical_size) else {
+        return Some("reports no mode or no logical size".into());
+    };
+    // Compositors round the logical size either way: within one pixel.
+    let fits = |physical: i32, logical: i32| {
+        (f64::from(physical) / scale.get() - f64::from(logical)).abs() < 1.0
+    };
+    let upright = fits(mode.0, logical.0) && fits(mode.1, logical.1);
+    let turned = fits(mode.0, logical.1) && fits(mode.1, logical.0);
+    (!upright && !turned).then(|| {
+        format!(
+            "is {}x{} logical for a {}x{} mode, not that mode at {scale}",
+            logical.0, logical.1, mode.0, mode.1
+        )
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn info(scale: i32, logical: (i32, i32)) -> OutputInfo {
+        OutputInfo {
+            scale,
+            mode: Some((1280, 720)),
+            logical_size: Some(logical),
+        }
+    }
+
+    fn scale(text: &str) -> Scale {
+        text.parse().unwrap()
+    }
+
+    #[test]
+    fn a_fractional_scale_is_told_from_the_whole_one_above() {
+        assert_eq!(mismatch(scale("1.5"), info(2, (853, 480))), None);
+        assert_eq!(mismatch(scale("1.5"), info(2, (854, 480))), None);
+        let rounded = mismatch(scale("1.5"), info(2, (640, 360))).unwrap();
+        assert!(rounded.contains("640x360"), "{rounded}");
+        assert_eq!(mismatch(scale("2"), info(2, (640, 360))), None);
+        assert!(mismatch(scale("2"), info(2, (853, 480))).is_some());
+    }
+
+    #[test]
+    fn the_whole_scale_must_match_too() {
+        let ignored = mismatch(scale("2"), info(1, (1280, 720))).unwrap();
+        assert!(ignored.contains("whole scale 1"), "{ignored}");
+        assert_eq!(mismatch(Scale::ONE, info(1, (1280, 720))), None);
+    }
+
+    #[test]
+    fn a_turned_output_fits_and_a_silent_one_does_not() {
+        assert_eq!(mismatch(scale("2"), info(2, (360, 640))), None);
+        let silent = OutputInfo {
+            logical_size: None,
+            ..info(2, (0, 0))
+        };
+        assert!(mismatch(scale("2"), silent).is_some());
     }
 }

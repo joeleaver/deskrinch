@@ -19,6 +19,7 @@
 
 mod client;
 mod compositor;
+mod output_info;
 mod outputs;
 mod paint;
 mod window;
@@ -28,6 +29,7 @@ use std::time::Duration;
 
 pub use client::TestClient;
 pub use compositor::Compositor;
+pub use output_info::OutputInfo;
 pub use outputs::{OutputChange, OutputSettings, configure_every_output, configure_output};
 pub use paint::Paint;
 pub use window::TestWindow;
