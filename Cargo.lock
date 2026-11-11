@@ -803,9 +803,11 @@ dependencies = [
 name = "deskrinch-panel"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-appearance",
  "deskrinch-clock",
  "deskrinch-component",
  "deskrinch-settings",
+ "deskrinch-theme",
  "deskrinch-xdg",
  "rinch",
  "thiserror 2.0.21",
@@ -826,6 +828,19 @@ dependencies = [
  "rustix",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "deskrinch-theme"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-appearance",
+ "deskrinch-component",
+ "deskrinch-settings",
+ "deskrinch-test-dbus",
+ "deskrinch-xdg",
+ "rinch",
+ "tempfile",
 ]
 
 [[package]]

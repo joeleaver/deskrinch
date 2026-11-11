@@ -8,15 +8,18 @@
 
 use deskrinch_component::LiveSettings;
 use deskrinch_settings::panel::PanelSettings;
+use deskrinch_theme::Theme;
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
 use crate::bar::Bar;
 use crate::surface::{self, Placement};
 
-/// The panel, following `live` until it closes.
+/// The panel, following `live` and `theme` until it closes.
 #[component]
-pub(crate) fn panel(live: LiveSettings<PanelSettings>) -> NodeHandle {
+pub(crate) fn panel(live: LiveSettings<PanelSettings>, theme: Theme) -> NodeHandle {
+    // The panel needs only the look applied, not the scheme itself.
+    let _scheme = theme.apply();
     // Where the window was made.
     let mut placed = Placement::of(&live.initial);
     let settings = live.into_signal();

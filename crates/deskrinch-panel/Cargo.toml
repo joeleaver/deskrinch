@@ -18,13 +18,16 @@ path = "src/main.rs"
 debug = ["rinch/debug"]
 
 [dependencies]
+deskrinch-appearance.workspace = true
 deskrinch-clock.workspace = true
 deskrinch-component.workspace = true
 deskrinch-settings.workspace = true
+deskrinch-theme.workspace = true
 deskrinch-xdg.workspace = true
 # `gpu` adds the GPU renderer beside the software one rinch always has on
 # the desktop; which one draws is chosen at run time (see the crate docs).
-# `theme`: the theme variables the bar is styled with.
+# `theme`: the theme variables the bar is styled with (the look itself is
+# `deskrinch-theme`'s).
 rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 thiserror.workspace = true
 

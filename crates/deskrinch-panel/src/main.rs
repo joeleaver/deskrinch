@@ -19,6 +19,13 @@
 //! clock, without a restart of the panel. Mistakes are reported with their
 //! file, line and column, and leave the last good settings in place.
 //!
+//! # Look
+//!
+//! The shell's one look (`deskrinch-theme`): dark or light as `[general]`
+//! `color-scheme` says, following the desktop's colour scheme by default,
+//! and changing while the panel runs. The panel writes no colour or metric
+//! of its own.
+//!
 //! # Logging
 //!
 //! Through `tracing`, set up first (`deskrinch_component::report::init`):
@@ -45,21 +52,23 @@ mod panel;
 mod surface;
 mod widgets;
 
+use deskrinch_appearance::Bus;
 use deskrinch_component::{Configuration, report};
 use deskrinch_settings::panel::PanelSettings;
+use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 use rinch::prelude::*;
 
 fn main() {
     // Before the configuration is read, so that its diagnostics are shown.
     report::init();
-    let live = Configuration::start(&BaseDirs::from_process()).follow::<PanelSettings>();
+    let configuration = Configuration::start(&BaseDirs::from_process());
+    let live = configuration.follow::<PanelSettings>();
+    let theme = Theme::start(&configuration, Bus::Session);
     let window = surface::window_props(surface::Placement::of(&live.initial));
-    App::new(move |scope| panel::panel(scope, live))
+    let first_theme = theme.initial();
+    App::new(move |scope| panel::panel(scope, live, theme))
         .window_props(window)
-        .theme(ThemeProviderProps {
-            dark_mode: true,
-            ..ThemeProviderProps::default()
-        })
+        .theme(first_theme)
         .run();
 }

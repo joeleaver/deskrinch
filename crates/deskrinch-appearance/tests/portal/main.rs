@@ -132,13 +132,33 @@ mod activation {
     use crate::support::{StandIn, activating_bus, bus, follow, next, number, quiet};
 
     /// The stand-in portal the bus starts; not a test of its own.
+    ///
+    /// It answers `STAND_IN_SCHEME`. With `STAND_IN_FILE` it answers the
+    /// number in that file instead, and changes when the file does (checked
+    /// ten times a second, for up to an hour): what a manual check of a
+    /// component in an isolated session runs, with `DBUS_STARTER_ADDRESS`
+    /// naming the session's bus.
     #[test]
     #[ignore = "run by dbus-daemon when it activates the stand-in portal"]
     fn stand_in() {
-        let (Ok(address), Ok(scheme)) = (
-            std::env::var("DBUS_STARTER_ADDRESS"),
-            std::env::var("STAND_IN_SCHEME"),
-        ) else {
+        let Ok(address) = std::env::var("DBUS_STARTER_ADDRESS") else {
+            return;
+        };
+        if let Some(path) = std::env::var_os("STAND_IN_FILE") {
+            let read =
+                || -> Option<u32> { std::fs::read_to_string(&path).ok()?.trim().parse().ok() };
+            let mut shown = read().unwrap_or(0);
+            let portal = StandIn::start_at(&address, Some(number(shown)), false);
+            for _ in 0..36_000 {
+                std::thread::sleep(Duration::from_millis(100));
+                if let Some(now) = read().filter(|now| *now != shown) {
+                    portal.set(number(now));
+                    shown = now;
+                }
+            }
+            return;
+        }
+        let Ok(scheme) = std::env::var("STAND_IN_SCHEME") else {
             return;
         };
         let _portal = StandIn::start_at(&address, Some(number(scheme.parse().unwrap())), false);

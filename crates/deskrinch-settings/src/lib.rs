@@ -7,6 +7,7 @@
 //!
 //! | Table | Read by | Reference |
 //! |---|---|---|
+//! | `[general]` | every component | [`general`] |
 //! | `[panel]` | `deskrinch-panel` | [`panel`] |
 //!
 //! Any other top-level table is reported as unknown (usually a misspelling),
@@ -33,6 +34,7 @@
 //! # Ok::<(), deskrinch_config::DefaultsError>(())
 //! ```
 
+pub mod general;
 pub mod panel;
 
 use deskrinch_config::{DefaultsError, Section, Settings};
@@ -72,6 +74,7 @@ macro_rules! tables {
 }
 
 tables! {
+    general::GeneralSettings => "general",
     panel::PanelSettings => "panel",
 }
 
@@ -106,21 +109,25 @@ mod tests {
 
     #[test]
     fn every_tables_defaults_make_a_section() {
-        let section = section::<panel::PanelSettings>().unwrap();
-        assert_eq!(section.name(), panel::PanelSettings::NAME);
-        assert!(KNOWN_TABLES.contains(&section.name()));
+        fn check<T: Table>() {
+            let section = section::<T>().unwrap();
+            assert_eq!(section.name(), T::NAME);
+            assert!(KNOWN_TABLES.contains(&section.name()));
+        }
+        check::<general::GeneralSettings>();
+        check::<panel::PanelSettings>();
     }
 
     #[test]
     fn a_table_no_component_reads_is_unknown() {
-        let text = "[general]\n[panel]\n".to_owned();
+        let text = "[launcher]\n[panel]\n".to_owned();
         let snapshot = Snapshot::from_texts([("config.toml".into(), Some(text))]);
         let resolved = section::<panel::PanelSettings>()
             .unwrap()
             .resolve(&snapshot);
         let problems: Vec<_> = resolved.diagnostics.iter().map(|d| &d.problem).collect();
         assert!(
-            matches!(problems.as_slice(), [Problem::UnknownTable { table }] if table == "general"),
+            matches!(problems.as_slice(), [Problem::UnknownTable { table }] if table == "launcher"),
             "{problems:?}"
         );
     }
