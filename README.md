@@ -4,7 +4,9 @@ A Wayland desktop built on [rinch](https://github.com/joeleaver/rinch): a shell
 first (panel, launcher, notifications on `wlr-layer-shell`, running under KWin),
 then a smithay-based compositor.
 
-Early days: the libraries the shell rests on, and a panel (`deskrinch-panel`).
+Early days: the libraries the shell rests on, a panel (`deskrinch-panel`),
+and the launcher's process (`deskrinch-launcher`: `deskrinch-launcher toggle`
+from a key binding shows and hides it; its view is still to come).
 
 The configuration file, `~/.config/deskrinch/config.toml`, is documented in
 the `deskrinch-settings` crate (`cargo doc -p deskrinch-settings --open`).
@@ -155,6 +157,17 @@ every later start in a real session finds it. Measure GPU costs under KWin
 (`--compositor kwin`, the default), which composites with the GPU: headless
 sway and labwc render with pixman and offer no dmabuf, so wgpu falls back to a
 software Vulkan driver there. `cargo xtask measure --help` has the details.
+
+A component that starts hidden and is summoned, such as the launcher, is
+measured by its shows instead: `--summon` and `--dismiss` give the program's
+own arguments that show and hide it, and each show's CPU time (or
+instructions) is taken from the summon command to the first frame after it,
+the first show cold and the later ones after a hide:
+
+```sh
+cargo build --release -p deskrinch-launcher
+cargo xtask measure --renderer software --summon show --dismiss hide target/release/deskrinch-launcher
+```
 
 Its end-to-end tests measure stand-in scripts in isolated sessions, and are
 ignored by `cargo test` like the session's (they do not cover

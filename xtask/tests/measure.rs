@@ -147,4 +147,63 @@ mod measure {
         assert!(stderr.contains("waiting for nothing"), "{stderr}");
         assert_session_ended(dir.path());
     }
+
+    /// The stand-in's summon and dismiss: scripts in `dir` that `sh` runs
+    /// when the measurement runs the program (`sh`) with their paths. The
+    /// summon asks the stand-in to draw, through a file it watches.
+    fn summons(dir: &Path) -> (String, String) {
+        let summon = dir.join("summon.sh");
+        fs::write(&summon, format!("touch {}/show\n", dir.display())).unwrap();
+        let dismiss = dir.join("dismiss.sh");
+        fs::write(&dismiss, "true\n").unwrap();
+        (summon.display().to_string(), dismiss.display().to_string())
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn reports_each_show() {
+        let dir = tempfile::tempdir().unwrap();
+        let (summon, dismiss) = summons(dir.path());
+        let shown = dir.path().join("show");
+        let script = format!(
+            "{}n=0; while :; do if [ -e {flag} ]; then rm {flag}; n=$((n + 1)); \
+             echo \"[PERF] frame $n: paint_frames=1\" >&2; fi; sleep 0.05; done",
+            record(dir.path(), false),
+            flag = shown.display()
+        );
+        let output = measure(
+            &["--summon", &summon, "--dismiss", &dismiss, "--shows", "2"],
+            &script,
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        for section in [
+            "shows: CPU from each summon to its first frame",
+            "show 1: CPU from the summon to its first frame",
+            "show 2: CPU from the summon to its first frame",
+            "show 1: wall time",
+            "load average after the shows",
+        ] {
+            assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
+        }
+        assert!(!stdout.contains("idle CPU per minute"), "{stdout}");
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_program_shown_before_its_summon_is_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let (summon, dismiss) = summons(dir.path());
+        let script = format!(
+            "{}echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600",
+            record(dir.path(), false)
+        );
+        let output = measure(&["--summon", &summon, "--dismiss", &dismiss], &script);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(stderr.contains("before it was summoned"), "{stderr}");
+        assert_session_ended(dir.path());
+    }
 }
