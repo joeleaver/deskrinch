@@ -15,7 +15,7 @@ use deskrinch_test_dbus::session;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Session, interrupt};
+use crate::session::{Compositor, Scale, Session, interrupt};
 
 /// `cargo xtask session --help`: what the session is, exactly. The lists of
 /// variables come from `deskrinch-test-dbus`, which sets them.
@@ -117,6 +117,7 @@ pub(crate) const SESSION_FAILED: u8 = 70;
 pub(crate) struct Request {
     pub(crate) compositor: Compositor,
     pub(crate) outputs: u32,
+    pub(crate) scale: Scale,
     pub(crate) keep: bool,
     pub(crate) current_desktop: Option<OsString>,
     pub(crate) program: OsString,
@@ -129,6 +130,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let mut session = Session::start(
         request.compositor,
         request.outputs,
+        request.scale,
         request.current_desktop.as_deref(),
         |_| Ok(()),
     )?;
@@ -136,9 +138,10 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         session.keep();
     }
     eprintln!(
-        "session: {} with {} output(s) in {}",
+        "session: {} with {} output(s) at scale {} in {}",
         request.compositor.name(),
         request.outputs,
+        request.scale,
         session.root().display()
     );
     let status = session

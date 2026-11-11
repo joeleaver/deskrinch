@@ -25,7 +25,10 @@ clap = { version = "4.6.7", features = ["derive"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }
 deskrinch-clock = { path = "crates/deskrinch-clock" }
 deskrinch-config = { path = "crates/deskrinch-config" }
+deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
+deskrinch-test-client = { path = "crates/deskrinch-test-client" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
+deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-watch = { path = "crates/deskrinch-watch" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }

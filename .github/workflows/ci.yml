@@ -98,10 +98,10 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask file-length
 
-  # The window-management crate against real compositors, nested and
-  # headless. Ubuntu 24.04's packages are older than a current desktop's
-  # (KWin 5.27, sway 1.9, labwc 0.7), so this checks the protocols as those
-  # versions speak them.
+  # The window-management and screen-capture crates against real
+  # compositors, nested and headless. Ubuntu 24.04's packages are older than
+  # a current desktop's (KWin 5.27, sway 1.9, labwc 0.7), so this checks the
+  # protocols as those versions speak them.
   compositor-tests:
     name: Compositor tests (${{ matrix.compositor }})
     runs-on: ubuntu-24.04
@@ -109,8 +109,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # kscreen-doctor sets the outputs' scale of a KWin session.
           - compositor: kwin
-            packages: kwin-wayland dbus-daemon
+            packages: kwin-wayland dbus-daemon libkf5screen-bin
           - compositor: sway
             packages: sway dbus-daemon
           - compositor: labwc

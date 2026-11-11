@@ -1,0 +1,18 @@
+[package]
+name = "deskrinch-kwin-access"
+description = "How KWin grants a client its restricted Wayland globals and D-Bus interfaces, and the desktop file that does it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true

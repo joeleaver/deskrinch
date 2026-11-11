@@ -7,6 +7,7 @@ use std::process::Command;
 
 use deskrinch_test_dbus::session;
 
+use super::{Scale, Scaling};
 use crate::error::Error;
 
 /// The KWin socket's name; the wlroots compositors pick their own.
@@ -39,8 +40,9 @@ impl Compositor {
     }
 
     /// The command that starts it with `outputs` outputs side by side, in
-    /// the session whose root is `root` (the caller isolates it).
-    pub(super) fn command(self, root: &Path, outputs: u32) -> Result<Command, Error> {
+    /// the session whose root is `root` (the caller isolates it), at `scale`
+    /// where it takes a scale at start-up ([`Scaling::StartUp`]).
+    pub(super) fn command(self, root: &Path, outputs: u32, scale: Scale) -> Result<Command, Error> {
         match self {
             Self::Kwin => {
                 // No `--xwayland`: KWin then starts neither Xwayland nor the
@@ -57,13 +59,20 @@ impl Compositor {
                     .arg(format!("--output-count={outputs}"))
                     .arg(format!("--width={}", OUTPUT_SIZE.0))
                     .arg(format!("--height={}", OUTPUT_SIZE.1));
+                // Not `--scale`, which enlarges the mode instead; the session
+                // scales KWin's outputs once it runs.
                 Ok(command)
             }
             Self::Sway => {
-                // An empty configuration: no bar, background, key bindings or
-                // `exec` lines.
+                // No bar, background, key bindings or `exec` lines: only the
+                // outputs' scale.
                 let config = root.join("sway.conf");
-                fs::write(&config, "").map_err(|source| Error::Io {
+                let contents = if scale.is_one() {
+                    String::new()
+                } else {
+                    format!("output * scale {scale}\n")
+                };
+                fs::write(&config, contents).map_err(|source| Error::Io {
                     what: format!("write {}", config.display()),
                     source,
                 })?;
@@ -90,6 +99,27 @@ impl Compositor {
                 wlroots_headless(&mut command, outputs);
                 Ok(command)
             }
+        }
+    }
+
+    /// How its outputs get the session's scale.
+    pub(super) fn scaling(self) -> Scaling {
+        match self {
+            Self::Kwin => Scaling::KscreenDoctor,
+            Self::Sway => Scaling::StartUp,
+            Self::Labwc => Scaling::OutputManagement,
+        }
+    }
+
+    /// The D-Bus names it owns on the session's bus once it has started,
+    /// in the order it takes them: a session is ready for its clients only
+    /// when it owns them all. KWin registers its services on the bus after
+    /// it opens its Wayland socket, the screenshot interface last among
+    /// those clients use; the wlroots compositors own none.
+    pub(super) fn bus_names(self) -> &'static [&'static str] {
+        match self {
+            Self::Kwin => &["org.kde.KWin", "org.kde.KWin.ScreenShot2"],
+            Self::Sway | Self::Labwc => &[],
         }
     }
 

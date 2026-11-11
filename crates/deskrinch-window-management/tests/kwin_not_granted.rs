@@ -2,10 +2,7 @@
 //! installed desktop file grants it to. `cargo xtask compositor-tests` runs
 //! this binary in the nested KWin without installing one for it.
 
-#[path = "support/compositor.rs"]
-mod compositor;
-
-use compositor::Compositor;
+use deskrinch_test_client::Compositor;
 use deskrinch_window_management::{ConnectError, connect};
 
 #[test]

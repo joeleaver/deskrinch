@@ -31,15 +31,41 @@ The notification service's tests also start private D-Bus daemons, and run
 libnotify's `notify-send` against them (on Debian and Ubuntu, the
 `libnotify-bin` package). They never touch the session bus.
 
-The window-management crate's compositor tests drive a real compositor and
-are ignored by `cargo test`. This runs them in nested, headless KWin, sway and
-labwc sessions that touch nothing in your own (the isolated sessions
-`cargo xtask session` gives; it needs `dbus-daemon`, `kwin_wayland`, `sway` and
-`labwc`; name compositors to run only those):
+The compositor tests of the window-management crate and of
+`deskrinch-test-screen` drive a real compositor and are ignored by
+`cargo test`. This runs them in nested, headless KWin, sway and labwc sessions
+that touch nothing in your own (the isolated sessions `cargo xtask session`
+gives; it needs `dbus-daemon`, `kwin_wayland`, `sway`, `labwc`, and KDE's
+`kscreen-doctor` for KWin at a scale; name compositors to run only those). The
+screen tests run twice per compositor, at scale 1 and at scale 2:
 
 ```sh
 cargo xtask compositor-tests [kwin] [sway] [labwc]
 ```
+
+### Checking what is on screen
+
+A compositor test that checks what a component draws captures an output with
+`deskrinch-test-screen` (a dev-dependency) and compares pixels; its windows of
+known content come from `deskrinch-test-client`:
+
+```rust
+let mut screen = deskrinch_test_screen::Screen::connect()?;
+let output = &screen.outputs()[0];
+let image = screen.capture_until(output, PATIENCE, |image| {
+    image.pixel(0, 0) == Some(Rgba::opaque(30, 30, 30))
+})?;
+```
+
+An `Image` is the output's physical pixels, upright, as `Rgba` rows from the
+top. The crate captures through `ext-image-copy-capture` (sway, labwc),
+`wlr-screencopy`, or KWin's `org.kde.KWin.ScreenShot2`, whichever the
+compositor offers. Under KWin the test binary must be granted the screenshot
+interface: `cargo xtask compositor-tests` installs a desktop file for each test
+binary, built with `deskrinch-kwin-access` from the interface constants of the
+crates it uses (`deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE`, ...). A
+rotated output is tested under sway and labwc only: KWin has no start-up
+transform, and its output protocol cannot be driven from Rust here.
 
 One desktop-entries test launches into a real transient scope of your
 systemd user instance, and is ignored by `cargo test`. It starts only its
@@ -93,11 +119,23 @@ each time; set `MESA_SHADER_CACHE_DIR` in the command to keep one.
   `SIGKILL`, and the bus is stopped. A process that escaped the group is then
   found by its environment, killed, and reported as a failure.
 
+The command starts once the session is ready: the compositor's socket is
+open, under KWin its D-Bus services (`org.kde.KWin`, and
+`org.kde.KWin.ScreenShot2`) are on the bus, and every output reports the
+scale asked for.
+
 It exits with the command's status (128 + N for signal N), 130 when
 interrupted, and 70 when the session could not be set up or did not end
-cleanly. `--outputs N` sets the number of outputs, `--keep` keeps the
-session's directory (with the compositor's log); `cargo xtask session --help`
-has the details.
+cleanly. `--outputs N` sets the number of outputs (1280x720 each), `--keep`
+keeps the session's directory (with the compositor's log);
+`cargo xtask session --help` has the details.
+
+`--scale S` (a positive decimal, such as `2` or `1.5`) puts every output at
+that scale before the command starts, so it never sees scale 1: sway through
+its configuration, labwc through `wlr-output-management`, and KWin with KDE's
+`kscreen-doctor`, which a KWin session then needs (on Debian and Ubuntu,
+`libkscreen-bin`, or `libkf5screen-bin` for Plasma 5). The session fails (70)
+if an output then reports another scale.
 
 From outside this repository, for example in a rinch clone under `.work/`,
 name xtask's manifest; the command still runs in your directory:
