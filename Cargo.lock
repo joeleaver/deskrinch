@@ -869,6 +869,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-applications"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-component",
+ "deskrinch-desktop-entries",
+ "deskrinch-icons",
+ "deskrinch-theme",
+ "rinch",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "deskrinch-bus"
 version = "0.1.0"
 dependencies = [
@@ -938,6 +951,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-gestures"
+version = "0.1.0"
+
+[[package]]
 name = "deskrinch-icons"
 version = "0.1.0"
 dependencies = [
@@ -969,9 +986,11 @@ name = "deskrinch-launcher"
 version = "0.1.0"
 dependencies = [
  "clap",
+ "deskrinch-applications",
  "deskrinch-bus",
  "deskrinch-component",
  "deskrinch-desktop-entries",
+ "deskrinch-gestures",
  "deskrinch-icons",
  "deskrinch-settings",
  "deskrinch-test-client",

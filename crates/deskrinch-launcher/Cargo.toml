@@ -19,11 +19,16 @@ debug = ["rinch/debug"]
 
 [dependencies]
 clap.workspace = true
+# The installed applications and their icons, followed.
+deskrinch-applications.workspace = true
 deskrinch-bus.workspace = true
 deskrinch-component.workspace = true
 # The installed applications, their search ranking and their launch.
 deskrinch-desktop-entries.workspace = true
-# The icon theme's files, for the results' icons.
+# A click on a result: a press and a release on it.
+deskrinch-gestures.workspace = true
+# The icon theme's index and search path, which the results' icons come
+# from.
 deskrinch-icons.workspace = true
 # `[general]`: the terminal applications run in.
 deskrinch-settings.workspace = true

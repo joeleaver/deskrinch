@@ -13,18 +13,16 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{DesktopEntry, Environment};
-use deskrinch_icons::SearchPath;
 use deskrinch_launcher::{Action, Input, Model, Visibility};
 use deskrinch_settings::general::GeneralSettings;
-use deskrinch_theme::{Theme, resolve_icon_theme};
+use deskrinch_theme::Theme;
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 use rinch::windows::{hide_current_window, show_current_window};
 
-use crate::apps::Apps;
-use crate::icons::Icons;
 use crate::start::start;
 use crate::view;
 
@@ -36,9 +34,8 @@ pub(crate) struct Parts {
     pub(crate) visibility: Arc<Visibility>,
     /// Whether the window was made shown.
     pub(crate) made_shown: bool,
-    pub(crate) apps: Apps,
+    pub(crate) installed: Installed,
     pub(crate) icons: Icons,
-    pub(crate) search_path: SearchPath,
     pub(crate) env: Environment,
 }
 
@@ -50,19 +47,20 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
         general,
         visibility,
         made_shown,
-        apps,
+        installed,
         icons,
-        search_path,
         env,
     } = parts;
     let applied = theme.apply();
     let general = general.into_signal();
     let env = Rc::new(env);
-    let entries = apps.into_signal();
+    let installed = installed.into_signal();
+    // The ones shown in menus: unchanged by a change to the others.
+    let entries = Memo::new(move || installed.with(|all| all.shown()));
     let model = Signal::new(Model::new());
     let shown = visibility.signal();
 
-    follow_icon_theme(applied.icon_theme, &icons, search_path);
+    icons.follow_theme(applied.icon_theme);
     let index = icons.signal();
 
     // The applications changed: search them again for the same query.
@@ -171,7 +169,7 @@ fn input(model: Signal<Model>, input: Input) -> Action {
 fn act(
     action: Action,
     visibility: &Arc<Visibility>,
-    entries: Signal<Arc<Vec<DesktopEntry>>>,
+    entries: Memo<Arc<Vec<DesktopEntry>>>,
     general: Signal<GeneralSettings>,
     env: &Rc<Environment>,
 ) {
@@ -179,7 +177,7 @@ fn act(
         Action::Stay => {}
         Action::Hide => visibility.hide(),
         Action::Launch(id) => {
-            let Some(entry) = entries.with(|all| all.iter().find(|e| e.id == id).cloned()) else {
+            let Some(entry) = entries.get().iter().find(|e| e.id == id).cloned() else {
                 return;
             };
             let setting = general.with(|g| g.terminal.clone());
@@ -194,25 +192,4 @@ fn act(
             });
         }
     }
-}
-
-/// Resolves the icon theme against what is installed whenever its inputs
-/// change, and has `icons` follow it.
-fn follow_icon_theme(
-    choice: Memo<deskrinch_theme::IconThemeChoice>,
-    icons: &Icons,
-    search_path: SearchPath,
-) {
-    let theme = Memo::new(move || {
-        let choice = choice.get();
-        let resolved = resolve_icon_theme(&choice.setting, &choice.portal, |name| {
-            search_path.has_theme(name)
-        });
-        for missing in &resolved.not_installed {
-            tracing::warn!("the icon theme {missing:?} is not installed");
-        }
-        resolved.name
-    });
-    let follow = icons.follower();
-    Effect::new(move || follow(theme.get()));
 }

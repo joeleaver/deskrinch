@@ -18,8 +18,6 @@
 //! (`RINCH_RENDERER` overrides). Built with the `debug` feature it runs
 //! rinch's debug server, for the rinch MCP tools.
 
-mod apps;
-mod icons;
 mod root;
 mod start;
 mod surface;
@@ -29,6 +27,7 @@ use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
 
 use clap::{Parser, Subcommand};
+use deskrinch_applications::{Icons, Installed};
 use deskrinch_bus::Bus;
 use deskrinch_component::{Configuration, report};
 use deskrinch_desktop_entries::Environment;
@@ -142,17 +141,15 @@ fn run(show: bool) -> ExitCode {
     let general = configuration.follow::<GeneralSettings>();
     let first_theme = theme.initial();
     let env = Environment::from_process();
-    let apps = apps::Apps::start(&env);
-    let search_path = SearchPath::new(&base_dirs);
-    let icons = icons::Icons::start(search_path.clone());
+    let installed = Installed::start(&env);
+    let icons = Icons::start(SearchPath::new(&base_dirs));
     let parts = root::Parts {
         theme,
         general,
         visibility,
         made_shown: show,
-        apps,
+        installed,
         icons,
-        search_path,
         env,
     };
     App::new(move |scope| root::launcher(scope, parts))

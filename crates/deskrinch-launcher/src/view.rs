@@ -9,12 +9,14 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use deskrinch_applications::{icon_scale, path_of};
 use deskrinch_desktop_entries::DesktopId;
 use deskrinch_icons::Index;
 use deskrinch_launcher::{Input, Model, Row};
 use rinch::prelude::*;
 
-use crate::icons::{SIZE, path_of};
+/// The size the results' icons are drawn at, in logical pixels.
+const SIZE: u32 = 32;
 
 /// The launcher's content, and its query field (to focus at each show).
 pub(crate) fn view(
@@ -116,15 +118,6 @@ fn pointer(
     }
 }
 
-/// The icon scale for a window scale: the next whole one up.
-fn icon_scale(factor: f64) -> u32 {
-    match factor {
-        f if f > 2.0 => 3,
-        f if f > 1.0 => 2,
-        _ => 1,
-    }
-}
-
 /// The row's icon, from the icon theme's index once there is one (its own,
 /// else the generic program's: [`path_of`]); an empty square of the same
 /// size until then, or when the theme has neither.
@@ -133,7 +126,7 @@ fn icon(__scope: &mut RenderScope, row: &Row, index: Signal<Option<Arc<Index>>>)
     let path = Memo::new(move || {
         let index = index.get()?;
         let scale = icon_scale(scale_factor());
-        path_of(&index, wanted.as_ref(), scale)
+        path_of(&index, wanted.as_ref(), SIZE, scale)
     });
     let square = format!("width: {SIZE}px; height: {SIZE}px; flex: none;");
     let image = square.clone();
