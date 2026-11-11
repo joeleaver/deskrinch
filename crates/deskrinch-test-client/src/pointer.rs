@@ -69,14 +69,22 @@ pub(crate) struct Pointer {
 
 impl Pointer {
     /// Takes the seat's pointer when it `has` one, and lets it go when it no
-    /// longer does.
+    /// longer does, as a [`PointerEvent::Left`] for the window it was over.
+    /// KWin takes the pointer away whenever its last fake-input device goes,
+    /// and gives it back a moment after the next one comes, not before it
+    /// is used: a test waits for a window to hear the pointer at a point
+    /// before it presses a button there.
     pub(crate) fn follow(&mut self, seat: &WlSeat, has: bool, qh: &QueueHandle<Client>) {
         match (&self.pointer, has) {
             (None, true) => self.pointer = Some(seat.get_pointer(qh, ())),
             (Some(pointer), false) => {
                 pointer.release();
                 self.pointer = None;
-                self.focus = None;
+                // The pointer is no longer over it: the window hears it leave,
+                // and waits for the next pointer's enter.
+                if let Some(window) = self.focus.take() {
+                    hear(&window, PointerEvent::Left);
+                }
             }
             _ => {}
         }
