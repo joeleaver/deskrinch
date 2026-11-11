@@ -6,6 +6,9 @@ then a smithay-based compositor.
 
 Early days: the libraries the shell rests on, and a panel (`deskrinch-panel`).
 
+The configuration file, `~/.config/deskrinch/config.toml`, is documented in
+the `deskrinch-settings` crate (`cargo doc -p deskrinch-settings --open`).
+
 ## Building and checking
 
 `rust-toolchain.toml` pins the compiler; rustup installs it on first use. CI
