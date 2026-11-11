@@ -15,7 +15,7 @@ use deskrinch_test_dbus::session;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Scale, Session, interrupt};
+use crate::session::{Compositor, Outputs, Session, interrupt};
 
 /// `cargo xtask session --help`: what the session is, exactly. The lists of
 /// variables come from `deskrinch-test-dbus`, which sets them.
@@ -67,8 +67,9 @@ MESA_SHADER_CACHE_DIR in the command to keep one across sessions.
 Under KWin the session also checks that KWin composites with OpenGL (its
 own support information says so), and fails if not: with QPainter its
 ScreenShot2 captures nothing. Without a GPU that needs a DRM device such as
-vgem's and Mesa's software driver. --scale under KWin runs kscreen-doctor,
-which needs Qt's Wayland xdg-shell integration (libqt6wlshellintegration6).
+vgem's and Mesa's software driver. --scale and --transform under KWin run
+kscreen-doctor, which needs Qt's Wayland xdg-shell integration
+(libqt6wlshellintegration6).
 
 How it runs and ends:
   - Standard input is closed: the session's process group is not the
@@ -124,8 +125,7 @@ pub(crate) const SESSION_FAILED: u8 = 70;
 #[derive(Debug)]
 pub(crate) struct Request {
     pub(crate) compositor: Compositor,
-    pub(crate) outputs: u32,
-    pub(crate) scale: Scale,
+    pub(crate) outputs: Outputs,
     pub(crate) keep: bool,
     pub(crate) current_desktop: Option<OsString>,
     pub(crate) program: OsString,
@@ -138,7 +138,6 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let mut session = Session::start(
         request.compositor,
         request.outputs,
-        request.scale,
         request.current_desktop.as_deref(),
         |_| Ok(()),
     )?;
@@ -146,10 +145,9 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         session.keep();
     }
     eprintln!(
-        "session: {} with {} output(s) at scale {} in {}",
+        "session: {} with {} in {}",
         request.compositor.name(),
         request.outputs,
-        request.scale,
         session.root().display()
     );
     let status = session

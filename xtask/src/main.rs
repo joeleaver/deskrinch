@@ -72,6 +72,14 @@ enum Task {
         /// mode over the scale).
         #[arg(long, default_value = "1", value_name = "SCALE")]
         scale: session::Scale,
+        /// The outputs' transform from the start, as `wl_output` names it
+        /// (rotations counter-clockwise): normal, 90, 180, 270, flipped,
+        /// flipped-90, flipped-180 or flipped-270. sway gets it in its
+        /// configuration, labwc through wlr-output-management and KWin
+        /// through `kscreen-doctor`, as the scale; the session fails (70) if
+        /// an output then reports another.
+        #[arg(long, default_value = "normal", value_name = "TRANSFORM")]
+        transform: session::OutputTransform,
         /// Keep the session's directory afterwards (its compositor log, and
         /// whatever the command wrote to `$DESKRINCH_SESSION_DIR`).
         #[arg(long)]
@@ -191,6 +199,7 @@ impl Task {
             Self::Session {
                 outputs,
                 scale,
+                transform,
                 keep,
                 current_desktop,
                 compositor,
@@ -198,8 +207,11 @@ impl Task {
                 args,
             } => run_in_session::run(&run_in_session::Request {
                 compositor,
-                outputs,
-                scale,
+                outputs: session::Outputs {
+                    count: outputs,
+                    scale,
+                    transform,
+                },
                 keep,
                 current_desktop,
                 program,

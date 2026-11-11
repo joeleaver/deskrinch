@@ -24,17 +24,10 @@ use std::path::{Path, PathBuf};
 use deskrinch_kwin_access::DesktopEntry;
 
 use self::build::Target;
-use self::suites::{SUITES, Suite};
+use self::suites::{Pass, SUITES, Suite};
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Scale, Session};
-
-/// How many outputs the sessions have, side by side: the window-management
-/// tests move windows between two, and the screen tests tell them apart.
-const OUTPUTS: u32 = 2;
-
-/// The scale of the second session, for the suites that check scaling.
-const SCALED: Scale = Scale::TWO;
+use crate::session::{Compositor, Session};
 
 /// Runs the tests in each of `compositors` (all of them when empty).
 pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Error> {
@@ -60,10 +53,11 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
     let binaries: Vec<PathBuf> = SUITES.iter().map(binary).collect();
     let mut failed = Vec::new();
     for &compositor in compositors {
-        for scale in [Scale::ONE, SCALED] {
-            println!("compositor-tests: {} at scale {scale}", compositor.name());
-            if !run_in(compositor, scale, &binaries)? {
-                failed.push(format!("{} at scale {scale}", compositor.name()));
+        for pass in Pass::ALL {
+            let outputs = pass.outputs();
+            println!("compositor-tests: {} with {outputs}", compositor.name());
+            if !run_in(compositor, pass, &binaries)? {
+                failed.push(format!("{} with {outputs}", compositor.name()));
             }
         }
     }
@@ -76,14 +70,13 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
     }
 }
 
-/// Runs the suites meant for `compositor` at `scale` in one fresh session;
+/// Runs the suites meant for `compositor` in `pass` in one fresh session;
 /// `binaries` are [`SUITES`]' binaries. Returns whether they passed; on
 /// failure, prints the compositor's log.
-fn run_in(compositor: Compositor, scale: Scale, binaries: &[PathBuf]) -> Result<bool, Error> {
+fn run_in(compositor: Compositor, pass: Pass, binaries: &[PathBuf]) -> Result<bool, Error> {
     let session = Session::start(
         compositor,
-        OUTPUTS,
-        scale,
+        pass.outputs(),
         None,
         |data_home| match compositor {
             Compositor::Kwin => grant_all(binaries, data_home),
@@ -92,7 +85,7 @@ fn run_in(compositor: Compositor, scale: Scale, binaries: &[PathBuf]) -> Result<
     )?;
     let mut passed = true;
     for (suite, binary) in SUITES.iter().zip(binaries) {
-        if !suite.compositors.contains(&compositor) || (!scale.is_one() && !suite.scaled) {
+        if !suite.compositors.contains(&compositor) || !suite.passes.contains(&pass) {
             continue;
         }
         println!(
