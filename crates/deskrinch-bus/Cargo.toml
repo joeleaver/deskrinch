@@ -1,0 +1,19 @@
+[package]
+name = "deskrinch-bus"
+description = "Which D-Bus bus a deskrinch service or client connects to, and the one way to connect to it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Connections on zbus's own runtime, so callers need no async runtime.
+zbus = { workspace = true, features = ["default-rt"] }
+
+[dev-dependencies]
+deskrinch-test-dbus.workspace = true
+
+[lints]
+workspace = true
