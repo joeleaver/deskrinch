@@ -50,7 +50,7 @@ use std::time::Duration;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Scale, Session};
+use crate::session::{Compositor, Outputs, Session};
 
 /// `cargo xtask measure --help`: what is measured, and how.
 pub(crate) const LONG_ABOUT: &str = "\
@@ -242,7 +242,7 @@ fn in_session<T>(
     request: &Request,
     measure: impl FnOnce(&Session) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    let session = Session::start(request.compositor, 1, Scale::ONE, None, |_| Ok(()))?;
+    let session = Session::start(request.compositor, Outputs::plain(1), None, |_| Ok(()))?;
     let result = measure(&session);
     let ended = session.end();
     let value = result?;

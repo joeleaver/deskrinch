@@ -1,7 +1,9 @@
 //! What a [`TestClient`](crate::TestClient) knows about each output: its
-//! whole scale and current mode from `wl_output`, and its logical size from
-//! `xdg-output`, which together tell a fractional scale from a whole one.
+//! whole scale, current mode and transform from `wl_output`, and its logical
+//! size from `xdg-output`, which together tell a fractional scale from a
+//! whole one.
 
+use deskrinch_test_wayland::Transform;
 use wayland_client::backend::ObjectId;
 use wayland_client::protocol::wl_output::{self, WlOutput};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum};
@@ -22,6 +24,8 @@ pub struct OutputInfo {
     /// The output's size in the logical layout (`xdg-output`), once
     /// reported: the mode divided by the scale, turned with the transform.
     pub logical_size: Option<(i32, i32)>,
+    /// The transform `wl_output` reports.
+    pub transform: Transform,
 }
 
 impl Default for OutputInfo {
@@ -30,6 +34,7 @@ impl Default for OutputInfo {
             scale: 1,
             mode: None,
             logical_size: None,
+            transform: Transform::Normal,
         }
     }
 }
@@ -49,6 +54,16 @@ impl Dispatch<WlOutput, ()> for Client {
             }
             wl_output::Event::Scale { factor } => {
                 lock(&client.infos).entry(output.id()).or_default().scale = factor;
+            }
+            wl_output::Event::Geometry { transform, .. } => {
+                let value = match transform {
+                    WEnum::Value(transform) => transform.into(),
+                    WEnum::Unknown(value) => value,
+                };
+                lock(&client.infos)
+                    .entry(output.id())
+                    .or_default()
+                    .transform = Transform::from_wayland(value).unwrap_or_default();
             }
             wl_output::Event::Mode {
                 flags: WEnum::Value(flags),

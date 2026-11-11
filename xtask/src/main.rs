@@ -44,13 +44,18 @@ enum Task {
         file_length::MAX_LINES,
     ))]
     FileLength,
-    /// Run the window-management compositor tests in nested, headless
+    /// Run the workspace's compositor tests in nested, headless
     /// compositors.
     ///
-    /// Each compositor runs in an isolated session of its own, the one
-    /// `cargo xtask session` describes, so nothing reaches the real desktop
-    /// session. Needs `dbus-daemon`, and `kwin_wayland`, `sway` and `labwc`
-    /// for those compositors.
+    /// The test binaries are those of the suites table
+    /// (`xtask/src/compositor_tests/suites.rs`), each with the compositors
+    /// and the passes it runs in: a pass is one isolated session per
+    /// compositor (the one `cargo xtask session` describes) with its outputs
+    /// set up a given way, at scale 1, at scale 2, turned or flipped. Under
+    /// KWin each binary is granted what it uses by a desktop file. Nothing
+    /// reaches the real desktop session. Needs `dbus-daemon`, and
+    /// `kwin_wayland` (with `kscreen-doctor`), `sway` and `labwc` for those
+    /// compositors.
     CompositorTests {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
@@ -72,6 +77,14 @@ enum Task {
         /// mode over the scale).
         #[arg(long, default_value = "1", value_name = "SCALE")]
         scale: session::Scale,
+        /// The outputs' transform from the start, as `wl_output` names it
+        /// (rotations counter-clockwise): normal, 90, 180, 270, flipped,
+        /// flipped-90, flipped-180 or flipped-270. sway gets it in its
+        /// configuration, labwc through wlr-output-management and KWin
+        /// through `kscreen-doctor`, as the scale; the session fails (70) if
+        /// an output then reports another.
+        #[arg(long, default_value = "normal", value_name = "TRANSFORM")]
+        transform: session::OutputTransform,
         /// Keep the session's directory afterwards (its compositor log, and
         /// whatever the command wrote to `$DESKRINCH_SESSION_DIR`).
         #[arg(long)]
@@ -210,6 +223,7 @@ impl Task {
             Self::Session {
                 outputs,
                 scale,
+                transform,
                 keep,
                 current_desktop,
                 compositor,
@@ -217,8 +231,11 @@ impl Task {
                 args,
             } => run_in_session::run(&run_in_session::Request {
                 compositor,
-                outputs,
-                scale,
+                outputs: session::Outputs {
+                    count: outputs,
+                    scale,
+                    transform,
+                },
                 keep,
                 current_desktop,
                 program,

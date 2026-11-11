@@ -41,8 +41,10 @@ mod compositing;
 mod compositor;
 pub(crate) mod interrupt;
 mod leftovers;
+mod outputs;
 mod scale;
 mod scaling;
+mod transform;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
@@ -61,8 +63,10 @@ use tempfile::TempDir;
 
 pub(crate) use self::compositor::Compositor;
 pub(crate) use self::leftovers::Leftover;
+pub(crate) use self::outputs::Outputs;
 pub(crate) use self::scale::Scale;
 pub(crate) use self::scaling::Scaling;
+pub(crate) use self::transform::OutputTransform;
 use crate::error::Error;
 
 /// The variable naming the desktop that runs, which the session leaves
@@ -93,13 +97,11 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Starts `compositor` with `outputs` outputs at `scale` in a new
-    /// isolated session, after `prepare` has set up the session's data
-    /// directory (`XDG_DATA_HOME`).
+    /// Starts `compositor` with `outputs` in a new isolated session, after
+    /// `prepare` has set up the session's data directory (`XDG_DATA_HOME`).
     pub(crate) fn start(
         compositor: Compositor,
-        outputs: u32,
-        scale: Scale,
+        outputs: Outputs,
         current_desktop: Option<&OsStr>,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<Self, Error> {
@@ -132,7 +134,7 @@ impl Session {
             source,
         })?;
 
-        let mut command = compositor.command(&root, outputs, scale)?;
+        let mut command = compositor.command(&root, outputs)?;
         isolate(&mut command, &root);
         if let Some(desktop) = current_desktop {
             command.env(CURRENT_DESKTOP, desktop);
@@ -165,7 +167,7 @@ impl Session {
         };
         session.socket = session.wait_for_socket()?;
         session.wait_for_bus_names()?;
-        session.scale_outputs(scale)?;
+        session.set_up_outputs(outputs)?;
         Ok(session)
     }
 
@@ -192,7 +194,6 @@ impl Session {
         command
             .args(["--ignored", "--test-threads=1"])
             .args(filter)
-            .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
             .env(
                 "DESKRINCH_TEST_SESSION_GROUP",
                 self.group.as_raw_nonzero().to_string(),
@@ -233,6 +234,8 @@ impl Session {
             .env("WAYLAND_DISPLAY", &self.socket)
             .env("DBUS_SESSION_BUS_ADDRESS", self.bus.address())
             .env("DESKRINCH_SESSION_DIR", &self.root)
+            // The tests' guard against running in the real session reads it.
+            .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
             .envs(self.compositor.client_env(&self.root.join("run")))
             .stdin(Stdio::null());
         if let Some(desktop) = &self.current_desktop {
