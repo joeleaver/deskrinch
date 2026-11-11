@@ -48,6 +48,8 @@ pub struct TestClient {
     wm_base: XdgWmBase,
     outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
     scales: Arc<Mutex<HashMap<ObjectId, i32>>>,
+    /// The interfaces of the globals the compositor announced.
+    globals: Vec<String>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
 }
@@ -90,7 +92,8 @@ impl TestClient {
         let wm_base: XdgWmBase = globals
             .bind(&qh, 1..=1, ())
             .map_err(bind_error("xdg_wm_base"))?;
-        for global in globals.contents().clone_list() {
+        let announced = globals.contents().clone_list();
+        for global in &announced {
             if global.interface == WlOutput::interface().name {
                 globals.registry().bind::<WlOutput, _, _>(
                     global.name,
@@ -121,9 +124,20 @@ impl TestClient {
             wm_base,
             outputs,
             scales,
+            globals: announced
+                .into_iter()
+                .map(|global| global.interface)
+                .collect(),
             stop,
             thread: Some(thread),
         })
+    }
+
+    /// Whether the compositor offered this client a global of `interface`
+    /// when it connected.
+    #[must_use]
+    pub fn offers(&self, interface: &str) -> bool {
+        self.globals.iter().any(|offered| offered == interface)
     }
 
     /// The names of the compositor's outputs, sorted.

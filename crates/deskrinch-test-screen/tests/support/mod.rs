@@ -53,12 +53,30 @@ pub(crate) fn fullscreen(client: &TestClient, output: &str, paint: Paint) -> Sho
     }
 }
 
+/// How far a channel may be from the colour drawn: compositors may round
+/// when they composite (labwc 0.7 under pixman gives 0xc7 for a window's
+/// 0xc8 in some regions).
+const ROUNDING: u8 = 2;
+
+/// Whether `got` is `want` within [`ROUNDING`] in each channel.
+fn close(got: Rgba, want: Rgba) -> bool {
+    [
+        (got.r, want.r),
+        (got.g, want.g),
+        (got.b, want.b),
+        (got.a, want.a),
+    ]
+    .into_iter()
+    .all(|(got, want)| got.abs_diff(want) <= ROUNDING)
+}
+
 /// Whether `image` is `paint` drawn at `size` and shown at `scale`
 /// physical pixels per logical one; `Err` says where it is not.
 ///
 /// At a scale above 1 the compositor filters as it enlarges, so the pixels
 /// within one logical pixel of a seam between two colours, or of the
-/// window's edge, are left out.
+/// window's edge, are left out. Each channel may be off by
+/// [`ROUNDING`].
 pub(crate) fn shows(
     image: &Image,
     paint: Paint,
@@ -87,7 +105,7 @@ pub(crate) fn shows(
             }
             let want = paint.color_at((x / scale, y / scale), size);
             let got = image.pixel(x, y).unwrap();
-            if got != want {
+            if !close(got, want) {
                 wrong += 1;
                 first.get_or_insert((x, y, got, want));
             }

@@ -65,6 +65,9 @@ impl Session {
         let outputs = self.connect_client()?.output_names();
         let output = self
             .client(OsStr::new(KSCREEN_DOCTOR))
+            // Qt 5 picks X11 by default, and there is no X server here;
+            // Qt 6 finds the session's Wayland on its own.
+            .env("QT_QPA_PLATFORM", "wayland")
             .args(
                 outputs
                     .iter()

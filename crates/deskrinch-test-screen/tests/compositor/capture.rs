@@ -8,16 +8,23 @@ use crate::support::{QUADRANTS, capture_showing, fullscreen};
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_method_is_what_the_compositor_offers() {
-    let expected = match Compositor::current() {
+    Compositor::current();
+    let client = TestClient::connect().unwrap();
+    let ext = client.offers("ext_image_copy_capture_manager_v1")
+        && client.offers("ext_output_image_capture_source_manager_v1");
+    let expected = if ext {
+        Method::ExtImageCopyCapture
+    } else if client.offers("zwlr_screencopy_manager_v1") {
+        Method::WlrScreencopy
+    } else {
         // KWin offers neither Wayland protocol.
-        Compositor::Kwin => Method::KwinScreenShot2,
-        Compositor::Sway | Compositor::Labwc => Method::ExtImageCopyCapture,
+        Method::KwinScreenShot2
     };
     let screen = Screen::connect().unwrap();
     assert_eq!(screen.method(), expected);
     let mut outputs = screen.outputs();
     outputs.sort();
-    assert_eq!(outputs, TestClient::connect().unwrap().output_names());
+    assert_eq!(outputs, client.output_names());
     assert_eq!(outputs.len(), 2, "{outputs:?}");
 }
 
