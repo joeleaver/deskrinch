@@ -44,13 +44,14 @@ the `libnotify-bin` package). They never touch the session bus.
 The appearance crate's tests run a stand-in settings portal on a private
 D-Bus daemon too, never the session's.
 
-The compositor tests of the window-management crate and of
-`deskrinch-test-screen` drive a real compositor and are ignored by
-`cargo test`. This runs them in nested, headless KWin, sway and labwc sessions
-that touch nothing in your own (the isolated sessions `cargo xtask session`
-gives; it needs `dbus-daemon`, `kwin_wayland`, `sway`, `labwc`, and KDE's
-`kscreen-doctor` for KWin at a scale; name compositors to run only those). The
-screen tests run twice per compositor, at scale 1 and at scale 2:
+The compositor tests (the window-management crate's, `deskrinch-test-screen`'s,
+`deskrinch-test-input`'s and the launcher's process tests) drive a real
+compositor and are ignored by `cargo test`. This runs them in nested,
+headless KWin, sway and labwc sessions that touch nothing in your own (the
+isolated sessions `cargo xtask session` gives; it needs `dbus-daemon`,
+`kwin_wayland`, `sway`, `labwc`, and KDE's `kscreen-doctor` for KWin at a
+scale; name compositors to run only those). The screen tests run twice per
+compositor, at scale 1 and at scale 2:
 
 ```sh
 cargo xtask compositor-tests [kwin] [sway] [labwc]
@@ -89,6 +90,29 @@ binary, built with `deskrinch-kwin-access` from the interface constants of the
 crates it uses (`deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE`, ...). The
 screen tests run each compositor's outputs at scale 1, at scale 2, and turned a
 quarter.
+
+### Typing into a window
+
+A compositor test that types presses keys with `deskrinch-test-input`, as a
+keyboard would, so the compositor hands them to the window with the keyboard
+focus. Make the `Input` before the windows that are to hear it: on a headless
+wlroots seat its virtual keyboard is the seat's only keyboard.
+
+```rust
+let mut input = deskrinch_test_input::Input::connect()?;
+let window = client.open("typed into", "org.deskrinch.Example")?;
+window.wait_keyboard()?;
+input.type_text("ok")?;
+input.press(Key::ENTER)?;
+window.wait_key(Key::ENTER.code())?;
+```
+
+It types through wlroots' `zwp_virtual_keyboard_v1` (sway, labwc) or KWin's
+restricted `org_kde_kwin_fake_input`, which `cargo xtask compositor-tests`
+grants the test binary like the screenshot interface
+(`deskrinch_test_input::KWIN_FAKE_INPUT_INTERFACE`). A test window
+(`deskrinch-test-client`) records the keys pressed while it has the focus, by
+evdev code.
 
 One desktop-entries test launches into a real transient scope of your
 systemd user instance, and is ignored by `cargo test`. It starts only its

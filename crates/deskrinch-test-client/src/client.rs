@@ -16,6 +16,7 @@ use wayland_client::protocol::wl_buffer::{self, WlBuffer};
 use wayland_client::protocol::wl_callback::WlCallback;
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_output::WlOutput;
+use wayland_client::protocol::wl_seat::WlSeat;
 use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::protocol::wl_surface::WlSurface;
@@ -24,6 +25,7 @@ use wayland_protocols::xdg::shell::client::xdg_toplevel::XdgToplevel;
 use wayland_protocols::xdg::shell::client::xdg_wm_base::{self, XdgWmBase};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 
+use crate::keyboard::{Keyboard, Windows};
 use crate::output_info::OutputInfo;
 use crate::window::{Shared, Status, TestWindow};
 use crate::{Error, PATIENCE, Paint, lock, waited};
@@ -36,6 +38,10 @@ pub(crate) struct Client {
     pub(crate) outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
     /// What each output reports about itself.
     pub(crate) infos: Arc<Mutex<HashMap<ObjectId, OutputInfo>>>,
+    /// The windows, by surface, for the keyboard's events.
+    pub(crate) windows: Windows,
+    /// The seat's keyboard, and which window has its focus.
+    pub(crate) keyboard: Keyboard,
 }
 
 /// One Wayland client, which may have several windows.
@@ -51,6 +57,7 @@ pub struct TestClient {
     wm_base: XdgWmBase,
     outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
     infos: Arc<Mutex<HashMap<ObjectId, OutputInfo>>>,
+    windows: Windows,
     /// The interfaces of the globals the compositor announced.
     globals: Vec<String>,
     stop: Arc<AtomicBool>,
@@ -98,6 +105,8 @@ impl TestClient {
         let wm_base: XdgWmBase = globals.bind(&qh, 1..=1, ()).map_err(Error::Bind)?;
         // Logical sizes, where the compositor offers them (all three do).
         let xdg_outputs: Option<ZxdgOutputManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
+        // The keyboard, where there is a seat: windows hear their keys.
+        let _seat: Option<WlSeat> = globals.bind(&qh, 1..=7, ()).ok();
         let announced = globals.all();
         for global in &announced {
             if global.interface == WlOutput::interface().name {
@@ -109,10 +118,13 @@ impl TestClient {
         }
         let outputs = Arc::new(Mutex::new(HashMap::new()));
         let infos = Arc::new(Mutex::new(HashMap::new()));
+        let windows = Windows::default();
         let mut client = Client {
             shm,
             outputs: Arc::clone(&outputs),
             infos: Arc::clone(&infos),
+            windows: Arc::clone(&windows),
+            keyboard: Keyboard::default(),
         };
         roundtrip(&connection, &mut queue, &mut client, deadline)
             .map_err(|error| waited(error, "learning the outputs"))?;
@@ -129,6 +141,7 @@ impl TestClient {
             wm_base,
             outputs,
             infos,
+            windows,
             globals: announced
                 .into_iter()
                 .map(|global| global.interface)
@@ -243,6 +256,7 @@ impl TestClient {
             status: Mutex::new(Status::default()),
             changed: Condvar::new(),
         });
+        lock(&self.windows).insert(surface.id(), Arc::clone(&shared));
         let xdg_surface = self
             .wm_base
             .get_xdg_surface(&surface, &self.queue, Arc::clone(&shared));
@@ -259,6 +273,7 @@ impl TestClient {
         let window = TestWindow::new(
             self.connection.clone(),
             Arc::clone(&self.outputs),
+            Arc::clone(&self.windows),
             toplevel,
             xdg_surface,
             shared,
