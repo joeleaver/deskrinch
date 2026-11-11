@@ -79,8 +79,13 @@ impl StandIn {
     /// A portal answering `value` (`None`: `NotFound`), with `ReadOne`
     /// unless `old`.
     pub(crate) fn start(bus: &PrivateBus, value: Option<OwnedVariant>, old: bool) -> Self {
+        Self::start_at(bus.address(), value, old)
+    }
+
+    /// [`start`](Self::start) on the bus at `address`.
+    pub(crate) fn start_at(address: &str, value: Option<OwnedVariant>, old: bool) -> Self {
         let value: Value = Arc::new(Mutex::new(value));
-        let builder = zbus::connection::Builder::address(bus.address()).name(PORTAL);
+        let builder = zbus::connection::Builder::address(address).name(PORTAL);
         let builder = if old {
             builder.serve_at(
                 PATH,
@@ -152,4 +157,28 @@ pub(crate) fn quiet(events: &Receiver<Event>) {
 /// A private bus for one test.
 pub(crate) fn bus() -> PrivateBus {
     PrivateBus::start().expect("the appearance tests need dbus-daemon")
+}
+
+/// A private bus that starts the stand-in portal when asked
+/// (`StartServiceByName`), answering `scheme`: the bus runs this test
+/// binary's ignored `activation::stand_in`. The directory holds the
+/// service file and must outlive the bus.
+pub(crate) fn activating_bus(scheme: u32) -> (PrivateBus, tempfile::TempDir) {
+    let services = tempfile::tempdir().unwrap();
+    let exe = std::env::current_exe().unwrap();
+    std::fs::write(
+        services.path().join(format!("{PORTAL}.service")),
+        // Through `sh` to give the test harness a standard output (the
+        // daemon's is a pipe nobody reads), and the scheme to answer.
+        format!(
+            "[D-BUS Service]\nName={PORTAL}\n\
+             Exec=/bin/sh -c 'STAND_IN_SCHEME={scheme} exec \"$0\" --exact \
+             activation::stand_in --ignored --quiet >/dev/null' {}\n",
+            exe.display()
+        ),
+    )
+    .unwrap();
+    let bus = PrivateBus::start_with_services(&[services.path()])
+        .expect("the appearance tests need dbus-daemon");
+    (bus, services)
 }

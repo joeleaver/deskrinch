@@ -70,6 +70,22 @@ pub(crate) async fn owner(connection: &Connection) -> Result<Option<String>, App
     }
 }
 
+/// Asks the bus to start the portal (D-Bus activation), as calling its
+/// name would, and waits for the bus's answer. `Ok` once it runs; an error
+/// when the bus cannot start it (no service file, or activation off).
+pub(crate) async fn start(connection: &Connection) -> Result<(), zbus::Error> {
+    connection
+        .call_method(
+            Some(BUS),
+            BUS_PATH,
+            Some(BUS),
+            "StartServiceByName",
+            &(PORTAL, 0_u32),
+        )
+        .await
+        .map(drop)
+}
+
 /// The colour scheme the portal owned by `owner` says. A portal that does
 /// not provide the key (`NotFound`) has no preference.
 pub(crate) async fn color_scheme(

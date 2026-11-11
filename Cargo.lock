@@ -702,6 +702,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-test-dbus",
  "futures-core",
+ "tempfile",
  "thiserror 2.0.21",
  "zbus",
 ]

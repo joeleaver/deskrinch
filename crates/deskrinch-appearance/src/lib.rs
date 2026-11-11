@@ -16,7 +16,11 @@
 //!
 //! # What it copes with
 //!
-//! - No portal on the bus: [`Event::NoPortal`]. A portal that appears later
+//! - A portal nothing has started yet: following asks the bus to start it
+//!   (`StartServiceByName`, the D-Bus activation every portal client
+//!   triggers by calling it), so following may start the portal.
+//! - No portal on the bus, and none the bus can start: [`Event::NoPortal`].
+//!   A portal that appears later
 //!   is noticed (through the bus's `NameOwnerChanged`) and read; one that
 //!   goes away is [`Event::NoPortal`] again.
 //! - A portal without the key: no preference.

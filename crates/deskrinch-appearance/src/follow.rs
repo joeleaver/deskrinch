@@ -148,6 +148,7 @@ async fn follow(
     subscriber: &Subscriber,
 ) {
     let mut owner = match portal::owner(connection).await {
+        Ok(None) => started(connection).await,
         Ok(owner) => owner,
         Err(error) => {
             subscriber(Event::Error(error));
@@ -167,8 +168,12 @@ async fn follow(
                 else {
                     continue;
                 };
-                owner = (!new.is_empty()).then_some(new);
-                tell(connection, owner.as_deref(), subscriber).await;
+                let new = (!new.is_empty()).then_some(new);
+                // The portal this thread started is already told.
+                if new != owner {
+                    owner = new;
+                    tell(connection, owner.as_deref(), subscriber).await;
+                }
             }
             Wake::Setting(message) => {
                 let header = message.header();
@@ -194,6 +199,14 @@ async fn follow(
             }
         }
     }
+}
+
+/// Starts the portal through the bus (D-Bus activation) and returns its
+/// owner, or `None` when the bus cannot start it: then a portal that comes
+/// later is still noticed through `NameOwnerChanged`.
+async fn started(connection: &Connection) -> Option<String> {
+    portal::start(connection).await.ok()?;
+    portal::owner(connection).await.ok().flatten()
 }
 
 /// Tells the subscriber what the portal owned by `owner` says, or that

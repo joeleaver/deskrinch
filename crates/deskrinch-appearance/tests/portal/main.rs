@@ -122,3 +122,47 @@ mod follow {
         quiet(&events);
     }
 }
+
+#[cfg(test)]
+mod activation {
+    use std::time::Duration;
+
+    use deskrinch_appearance::{ColorScheme, Event};
+
+    use crate::support::{StandIn, activating_bus, bus, follow, next, number, quiet};
+
+    /// The stand-in portal the bus starts; not a test of its own.
+    #[test]
+    #[ignore = "run by dbus-daemon when it activates the stand-in portal"]
+    fn stand_in() {
+        let (Ok(address), Ok(scheme)) = (
+            std::env::var("DBUS_STARTER_ADDRESS"),
+            std::env::var("STAND_IN_SCHEME"),
+        ) else {
+            return;
+        };
+        let _portal = StandIn::start_at(&address, Some(number(scheme.parse().unwrap())), false);
+        // Until the bus ends it, with the rest of its process group.
+        std::thread::sleep(Duration::from_secs(60));
+    }
+
+    #[test]
+    fn starts_a_portal_nothing_has_started() {
+        let (bus, _services) = activating_bus(2);
+        let (_appearance, events) = follow(&bus);
+        assert!(
+            matches!(next(&events), Event::ColorScheme(ColorScheme::PreferLight)),
+            "the bus started the stand-in and it was read"
+        );
+        // Its owner change does not repeat it.
+        quiet(&events);
+    }
+
+    #[test]
+    fn a_bus_that_cannot_start_one_has_no_portal() {
+        let bus = bus();
+        let (_appearance, events) = follow(&bus);
+        assert!(matches!(next(&events), Event::NoPortal));
+        quiet(&events);
+    }
+}
