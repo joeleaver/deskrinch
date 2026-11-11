@@ -14,6 +14,25 @@ const KWIN_SOCKET: &str = "wayland-0";
 /// Each output's size, where the compositor takes one.
 const OUTPUT_SIZE: (u32, u32) = (1280, 720);
 
+/// An XDG applications menu that lists every installed application.
+///
+/// KWin grants its restricted interfaces from the applications in KDE's
+/// service cache, which `KService` builds from the applications menu
+/// (`applications.menu`, or Plasma's `plasma-applications.menu`). Without
+/// one, on a system with KWin but not Plasma's workspace (Ubuntu 26.04's
+/// `kwin-wayland` on a CI runner; checked here by hiding the menu), KWin
+/// 6.6 logs `"applications.menu" not found` and grants nothing. The session puts this one in its own configuration
+/// directory.
+const APPLICATIONS_MENU: &str = r#"<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
+ "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
+<Menu>
+  <Name>Applications</Name>
+  <DefaultAppDirs/>
+  <DefaultDirectoryDirs/>
+  <Include><All/></Include>
+</Menu>
+"#;
+
 /// A compositor a session can run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Compositor {
@@ -57,6 +76,7 @@ impl Compositor {
                     .arg(format!("--output-count={outputs}"))
                     .arg(format!("--width={}", OUTPUT_SIZE.0))
                     .arg(format!("--height={}", OUTPUT_SIZE.1));
+                write_applications_menu(root)?;
                 Ok(command)
             }
             Self::Sway => {
@@ -104,6 +124,19 @@ impl Compositor {
             Self::Kwin | Self::Labwc => Vec::new(),
         }
     }
+}
+
+/// Writes [`APPLICATIONS_MENU`] as `menus/applications.menu` in the
+/// session's configuration directory (`XDG_CONFIG_HOME`) under `root`.
+fn write_applications_menu(root: &Path) -> Result<(), Error> {
+    let menus = root.join("config").join("menus");
+    let path = menus.join("applications.menu");
+    fs::create_dir_all(&menus)
+        .and_then(|()| fs::write(&path, APPLICATIONS_MENU))
+        .map_err(|source| Error::Io {
+            what: format!("write {}", path.display()),
+            source,
+        })
 }
 
 /// Runs a wlroots compositor on the headless backend, with software
@@ -157,6 +190,16 @@ mod tests {
     use std::os::unix::net::UnixListener;
 
     use super::*;
+
+    #[test]
+    fn the_menu_goes_only_into_the_sessions_own_configuration() {
+        let root = tempfile::tempdir_in("/tmp").unwrap();
+        write_applications_menu(root.path()).unwrap();
+        let menu = root.path().join("config/menus/applications.menu");
+        assert_eq!(fs::read_to_string(&menu).unwrap(), APPLICATIONS_MENU);
+        let written: Vec<_> = fs::read_dir(root.path()).unwrap().collect();
+        assert_eq!(written.len(), 1, "only config/ is written");
+    }
 
     #[test]
     fn recognises_sways_ipc_socket() {
