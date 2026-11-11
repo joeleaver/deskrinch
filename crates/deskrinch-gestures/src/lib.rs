@@ -12,11 +12,11 @@
 /// it was a click.
 ///
 /// `Target` is what can be clicked (a result, a window's button); `Button`
-/// is which button, a small value (`()` for a model that hears only one). A press and a
-/// release of the same button on the same target is a click on it. A
-/// release on another target, or on none, is no click, and spends the
-/// press. A release of another button than the one held is no click, and
-/// leaves the press held, since that button is still down. A new press
+/// is which button, a small value (`()` for a model that hears only one).
+/// A press and a release of the same button on the same target is a click
+/// on it. A release on another target, or on none, is no click, and spends
+/// the press. A release of another button than the one held is no click,
+/// and leaves the press held, since that button is still down. A new press
 /// replaces the one held.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Click<Target, Button = ()> {
