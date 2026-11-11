@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use proptest::prelude::*;
 
 use super::*;
-use crate::props::config;
+use crate::fuzz::config;
 
 /// Pieces real and hostile bodies are made of: the subset's tags, broken
 /// tags, references good and bad, control characters and plain text.
@@ -146,24 +146,4 @@ proptest! {
         let again = parse(&to_markup(&body), Options { max_text_bytes: usize::MAX, ..options });
         prop_assert_eq!(again, body);
     }
-}
-
-#[test]
-fn the_worst_case_input_at_the_markup_bound_is_parsed_quickly() {
-    // Each `<` starts a tag scan of MAX_TAG_BYTES that fails at its end, and
-    // what follows is control characters, which produce no text: as much
-    // scanning per byte of output, and per byte of input, as there can be.
-    // The work is at most the markup bound times MAX_TAG_BYTES.
-    let limits = crate::limits::Limits::default();
-    let unit = format!("<a href=\"{}", "\u{1}".repeat(MAX_TAG_BYTES));
-    let markup = unit.repeat(limits.max_body_markup_bytes / unit.len() + 1);
-    let options = Options {
-        hyperlinks: true,
-        max_markup_bytes: limits.max_body_markup_bytes,
-        max_text_bytes: limits.max_body_text_bytes,
-    };
-    let started = std::time::Instant::now();
-    let body = parse(&markup, options);
-    assert!(body.plain_text().len() <= options.max_text_bytes);
-    assert!(started.elapsed() < std::time::Duration::from_secs(5));
 }

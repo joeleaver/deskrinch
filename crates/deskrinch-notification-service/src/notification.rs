@@ -7,7 +7,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use crate::image::{Image, ImageSource};
-use crate::markup::Body;
+use deskrinch_untrusted::markup::Body;
 
 /// A notification's id: unique among live notifications, never 0, and not
 /// reused until the 32-bit counter wraps.

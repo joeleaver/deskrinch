@@ -8,7 +8,7 @@ use zbus::wire::serialized::{Context, Data};
 use zbus::wire::{LE, to_bytes};
 
 use super::*;
-use crate::props::config;
+use deskrinch_untrusted::fuzz::config;
 
 /// The names the decoder knows, and some it does not.
 const KEYS: &[&str] = &[

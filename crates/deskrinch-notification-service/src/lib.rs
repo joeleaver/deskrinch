@@ -82,22 +82,19 @@ mod clock;
 mod dbus;
 mod image;
 mod limits;
-mod markup;
 mod model;
 mod notification;
 mod policy;
-#[cfg(test)]
-mod props;
 mod request;
 mod service;
-mod text;
 
 pub use capabilities::Capabilities;
 pub use clock::{Clock, ManualClock, SystemClock};
 pub use dbus::name::{NameRequest, NameStatus};
+pub use deskrinch_bus::Bus;
+pub use deskrinch_untrusted::markup::{Body, Link, Span, Style};
 pub use image::{IconName, Image, ImageSource};
 pub use limits::Limits;
-pub use markup::{Body, Link, Span, Style};
 pub use notification::{Action, CloseReason, Expiry, Notification, NotificationId, Sound, Urgency};
 pub use policy::{Ownership, SignalDelivery};
-pub use service::{Bus, Config, Event, Handle, OperationError, ServerInfo, Service, StartError};
+pub use service::{Config, Event, Handle, OperationError, ServerInfo, Service, StartError};
