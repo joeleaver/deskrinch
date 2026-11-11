@@ -188,3 +188,67 @@ fn draws_the_rows_that_keep_the_selection_in_sight() {
     model.set_query("zzz", &entries, &[]);
     assert_eq!(model.visible(4), 0..0);
 }
+
+/// A model searched for "term", whose results include `term` and
+/// `terminal`.
+fn clickable() -> Model {
+    let entries = terminals();
+    let mut model = Model::new();
+    model.set_query("term", &entries, &[]);
+    assert!(ids(&model).contains(&"terminal") && ids(&model).contains(&"term"));
+    model
+}
+
+#[test]
+fn a_click_on_a_result_starts_it_without_moving_the_selection() {
+    let mut model = clickable();
+    let before = model.selected();
+    assert_eq!(
+        model.input(Input::Press(Some(id("terminal")))),
+        Action::Stay
+    );
+    assert_eq!(model.selected(), before, "no hover or press selection");
+    assert_eq!(
+        model.input(Input::Release(Some(id("terminal")))),
+        Action::Launch(id("terminal"))
+    );
+}
+
+#[test]
+fn a_press_and_a_release_on_different_results_start_nothing() {
+    let mut model = clickable();
+    model.input(Input::Press(Some(id("terminal"))));
+    assert_eq!(model.input(Input::Release(Some(id("term")))), Action::Stay);
+    // The press is spent: a release alone is no click.
+    assert_eq!(model.input(Input::Release(Some(id("term")))), Action::Stay);
+}
+
+#[test]
+fn a_press_or_a_release_off_the_results_starts_nothing() {
+    let mut model = clickable();
+    model.input(Input::Press(Some(id("terminal"))));
+    assert_eq!(model.input(Input::Release(None)), Action::Stay);
+    assert_eq!(
+        model.input(Input::Release(Some(id("terminal")))),
+        Action::Stay
+    );
+
+    model.input(Input::Press(Some(id("terminal"))));
+    model.input(Input::Press(None));
+    assert_eq!(
+        model.input(Input::Release(Some(id("terminal")))),
+        Action::Stay,
+        "a later press elsewhere replaced it"
+    );
+}
+
+#[test]
+fn a_click_on_a_result_that_went_away_meanwhile_starts_nothing() {
+    let mut model = clickable();
+    model.input(Input::Press(Some(id("terminal"))));
+    model.set_query("files", &terminals(), &[]);
+    assert_eq!(
+        model.input(Input::Release(Some(id("terminal")))),
+        Action::Stay
+    );
+}

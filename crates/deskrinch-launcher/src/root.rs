@@ -13,9 +13,11 @@
 use std::rc::Rc;
 use std::sync::Arc;
 
+use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{DesktopEntry, Environment};
 use deskrinch_icons::SearchPath;
 use deskrinch_launcher::{Action, Input, Model, Visibility};
+use deskrinch_settings::general::GeneralSettings;
 use deskrinch_theme::{Theme, resolve_icon_theme};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
@@ -29,6 +31,8 @@ use crate::view;
 /// What the launcher runs with.
 pub(crate) struct Parts {
     pub(crate) theme: Theme,
+    /// `[general]`, for the terminal applications run in.
+    pub(crate) general: LiveSettings<GeneralSettings>,
     pub(crate) visibility: Arc<Visibility>,
     /// Whether the window was made shown.
     pub(crate) made_shown: bool,
@@ -43,6 +47,7 @@ pub(crate) struct Parts {
 pub(crate) fn launcher(parts: Parts) -> NodeHandle {
     let Parts {
         theme,
+        general,
         visibility,
         made_shown,
         apps,
@@ -51,6 +56,7 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
         env,
     } = parts;
     let applied = theme.apply();
+    let general = general.into_signal();
     let env = Rc::new(env);
     let entries = apps.into_signal();
     let model = Signal::new(Model::new());
@@ -86,11 +92,24 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
                 "Escape" => Input::Escape,
                 _ => return false,
             };
-            act(self::input(model, input), &visibility, entries, &env);
+            act(
+                self::input(model, input),
+                &visibility,
+                entries,
+                general,
+                &env,
+            );
             true
         }
     };
-    let (content, field) = view::view(__scope, model, index, on_query, on_key);
+    let on_pointer: Rc<dyn Fn(Input)> = {
+        let visibility = Arc::clone(&visibility);
+        let env = Rc::clone(&env);
+        Rc::new(move |pointer: Input| {
+            act(input(model, pointer), &visibility, entries, general, &env);
+        })
+    };
+    let (content, field) = view::view(__scope, model, index, on_query, on_key, on_pointer);
 
     // The window follows `Visibility`; showing puts the keyboard in the
     // field, hiding empties the model.
@@ -126,6 +145,7 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
                         input(model, Input::KeyboardLost),
                         &visibility,
                         entries,
+                        general,
                         &env,
                     );
                 });
@@ -148,6 +168,7 @@ fn act(
     action: Action,
     visibility: &Arc<Visibility>,
     entries: Signal<Arc<Vec<DesktopEntry>>>,
+    general: Signal<GeneralSettings>,
     env: &Rc<Environment>,
 ) {
     match action {
@@ -157,13 +178,14 @@ fn act(
             let Some(entry) = entries.with(|all| all.iter().find(|e| e.id == id).cloned()) else {
                 return;
             };
+            let setting = general.with(|g| g.terminal.clone());
             let visibility = Arc::clone(visibility);
             let env = Rc::clone(env);
             // From the key press: the token names it. The launcher hides in
             // the answer, after the start: hidden first, its surface would
             // be gone and the compositor need not answer.
             request_activation_token(move |token| {
-                start(entry, token, &env);
+                start(entry, token, &env, setting);
                 visibility.hide();
             });
         }

@@ -18,7 +18,7 @@ pub struct Row {
 }
 
 /// What the user does to the launcher while it is shown.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum Input {
     /// The selection moves to the result above.
     Up,
@@ -30,6 +30,13 @@ pub enum Input {
     Escape,
     /// The launcher's surface lost the keyboard.
     KeyboardLost,
+    /// The primary pointer button went down: on the result with this id,
+    /// or (`None`) anywhere else in the launcher.
+    Press(Option<DesktopId>),
+    /// The primary pointer button came up: on the result with this id, or
+    /// (`None`) anywhere else. On the result it went down on, that is a
+    /// click, which starts it.
+    Release(Option<DesktopId>),
 }
 
 /// What the process does after an [`Input`].
@@ -52,6 +59,9 @@ pub struct Model {
     rows: Vec<Row>,
     /// An index into `rows`; `None` exactly when there are no rows.
     selected: Option<usize>,
+    /// The result the primary pointer button went down on, while it is
+    /// down.
+    pressed: Option<DesktopId>,
 }
 
 impl Model {
@@ -129,6 +139,18 @@ impl Model {
                 .selected_row()
                 .map_or(Action::Stay, |row| Action::Launch(row.id.clone())),
             Input::Escape | Input::KeyboardLost => Action::Hide,
+            Input::Press(on) => {
+                self.pressed = on;
+                Action::Stay
+            }
+            Input::Release(on) => match (self.pressed.take(), on) {
+                (Some(pressed), Some(released))
+                    if pressed == released && self.rows.iter().any(|row| row.id == released) =>
+                {
+                    Action::Launch(released)
+                }
+                _ => Action::Stay,
+            },
         }
     }
 

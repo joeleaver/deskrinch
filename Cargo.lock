@@ -973,6 +973,7 @@ dependencies = [
  "deskrinch-component",
  "deskrinch-desktop-entries",
  "deskrinch-icons",
+ "deskrinch-settings",
  "deskrinch-test-client",
  "deskrinch-test-dbus",
  "deskrinch-theme",

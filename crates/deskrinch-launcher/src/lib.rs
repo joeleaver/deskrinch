@@ -45,6 +45,13 @@
 //!   selection stays on the same application if it is still there.
 //! - Enter starts the selected application; with none selected it does
 //!   nothing. Escape hides the launcher.
+//! - A click on a result starts it: the primary pointer button going down
+//!   on it and coming up on it. Down on one result and up on another, or
+//!   off the results, starts nothing. The pointer never moves the
+//!   selection.
+//! - An application that runs in a terminal (`Terminal=true`) starts in
+//!   the one `[general]` `terminal` names, else in `xdg-terminal-exec`;
+//!   with neither, it is not started, and that is reported.
 //! - Losing the keyboard while shown hides the launcher, whatever the query
 //!   says. A compositor moves the keyboard elsewhere when the user turns to
 //!   another window, and KWin moves it to an application the launcher

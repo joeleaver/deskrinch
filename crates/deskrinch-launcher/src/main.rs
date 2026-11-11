@@ -34,6 +34,7 @@ use deskrinch_component::{Configuration, report};
 use deskrinch_desktop_entries::Environment;
 use deskrinch_icons::SearchPath;
 use deskrinch_launcher::{Answer, Request, ServeError, Service, Visibility, send};
+use deskrinch_settings::general::GeneralSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 use rinch::prelude::*;
@@ -136,6 +137,9 @@ fn run(show: bool) -> ExitCode {
     let base_dirs = BaseDirs::from_process();
     let configuration = Configuration::start(&base_dirs);
     let theme = Theme::start(&configuration, Bus::Session);
+    // For the terminal applications run in; the look follows `[general]`
+    // through the theme.
+    let general = configuration.follow::<GeneralSettings>();
     let first_theme = theme.initial();
     let env = Environment::from_process();
     let apps = apps::Apps::start(&env);
@@ -143,6 +147,7 @@ fn run(show: bool) -> ExitCode {
     let icons = icons::Icons::start(search_path.clone());
     let parts = root::Parts {
         theme,
+        general,
         visibility,
         made_shown: show,
         apps,

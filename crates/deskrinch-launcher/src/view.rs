@@ -1,14 +1,17 @@
 //! What the launcher draws: the query field, and under it the results, the
-//! selected one marked, each with its icon and name.
+//! selected one marked, each with its icon and name. Presses and releases
+//! of the primary button, on a result or anywhere else, go to the model
+//! ([`Input::Press`], [`Input::Release`]), which makes a click of them.
 //!
 //! Only [`ROWS`] results fit; the ones drawn are the stretch that keeps the
 //! selection in sight ([`Model::visible`]).
 
+use std::rc::Rc;
 use std::sync::Arc;
 
 use deskrinch_desktop_entries::DesktopId;
 use deskrinch_icons::Index;
-use deskrinch_launcher::{Model, Row};
+use deskrinch_launcher::{Input, Model, Row};
 use rinch::prelude::*;
 
 use crate::icons::{SIZE, path_of};
@@ -23,6 +26,7 @@ pub(crate) fn view(
     index: Signal<Option<Arc<Index>>>,
     on_query: impl Fn(String) + 'static,
     on_key: impl Fn(&str) -> bool + 'static,
+    on_pointer: Rc<dyn Fn(Input)>,
 ) -> (NodeHandle, NodeHandle) {
     let rows = Memo::new(move || model.with(|m| m.rows()[m.visible(ROWS)].to_vec()));
     let selected = Memo::new(move || model.with(|m| m.selected_row().map(|row| row.id.clone())));
@@ -46,6 +50,8 @@ pub(crate) fn view(
     let content = rsx! {
         div {
             class: "launcher",
+            onmousedown: pointer(&on_pointer, Input::Press, None),
+            onmouseup: pointer(&on_pointer, Input::Release, None),
             style: "width: 100%; height: 100%; box-sizing: border-box; \
                     display: flex; flex-direction: column; \
                     gap: var(--rinch-spacing-sm); \
@@ -59,7 +65,7 @@ pub(crate) fn view(
                 for row in rows.get() {
                     div {
                         key: row.id.as_str().to_owned(),
-                        {row_view(__scope, &row, selected, index)}
+                        {row_view(__scope, &row, selected, index, &on_pointer)}
                     }
                 }
             }
@@ -74,13 +80,18 @@ fn row_view(
     row: &Row,
     selected: Memo<Option<DesktopId>>,
     index: Signal<Option<Arc<Index>>>,
+    on_pointer: &Rc<dyn Fn(Input)>,
 ) -> NodeHandle {
     let id = row.id.clone();
+    let down = pointer(on_pointer, Input::Press, Some(row.id.clone()));
+    let up = pointer(on_pointer, Input::Release, Some(row.id.clone()));
     let is_selected = Memo::new(move || selected.get().as_ref() == Some(&id));
     let icon = icon(__scope, row, index);
     rsx! {
         div {
             class: {move || if is_selected.get() { "launcher-row selected" } else { "launcher-row" }},
+            onmousedown: down,
+            onmouseup: up,
             style: {move || format!(
                 "display: flex; align-items: center; gap: var(--rinch-spacing-md); \
                  padding: var(--rinch-spacing-xs) var(--rinch-spacing-sm); \
@@ -89,6 +100,21 @@ fn row_view(
             )},
             {icon}
             span { {row.name.clone()} }
+        }
+    }
+}
+
+/// A press or release handler giving the model `input(on)`, for the
+/// primary button only.
+fn pointer(
+    on_pointer: &Rc<dyn Fn(Input)>,
+    input: fn(Option<DesktopId>) -> Input,
+    on: Option<DesktopId>,
+) -> impl Fn() + 'static {
+    let on_pointer = Rc::clone(on_pointer);
+    move || {
+        if get_click_context().button == MouseButton::Left {
+            on_pointer(input(on.clone()));
         }
     }
 }
