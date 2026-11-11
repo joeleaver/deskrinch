@@ -81,12 +81,86 @@ fn follow(
     }
 }
 
-/// The file `icon` is drawn from at `scale`, if the index has one.
-pub(crate) fn path_of(index: &Index, icon: &Icon, scale: u32) -> Option<String> {
-    let name = match icon {
-        Icon::Name(name) => name.as_str(),
-        Icon::Path(path) => path.to_str()?,
+/// The icon an application is drawn with when it names none, or one the
+/// theme lacks: the naming specification's generic program.
+const FALLBACK: &str = "application-x-executable";
+
+/// The file an application with `icon` is drawn from at `scale`: its own
+/// icon when the index has it, else [`FALLBACK`]; `None` when the index has
+/// neither, and the row keeps an empty square.
+pub(crate) fn path_of(index: &Index, icon: Option<&Icon>, scale: u32) -> Option<String> {
+    let name = |icon: &Icon| match icon {
+        Icon::Name(name) => Some(name.as_str().to_owned()),
+        Icon::Path(path) => path.to_str().map(str::to_owned),
     };
+    icon.and_then(name)
+        .and_then(|name| find(index, &name, scale))
+        .or_else(|| find(index, FALLBACK, scale))
+}
+
+/// The file `name` is drawn from at `scale`, if the index has one.
+fn find(index: &Index, name: &str, scale: u32) -> Option<String> {
     let found = index.find(&Request::new(name, SIZE).at_scale(scale)).ok()?;
     found.path.to_str().map(str::to_owned)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::path::{Path, PathBuf};
+
+    use deskrinch_icons::{Index, SearchPath};
+
+    use super::*;
+
+    /// A theme `t` under `base` with one 32-pixel directory holding
+    /// `icons`, as PNG files.
+    fn index(base: &Path, icons: &[&str]) -> Index {
+        let theme = base.join("t");
+        fs::create_dir_all(theme.join("32")).unwrap();
+        fs::write(
+            theme.join("index.theme"),
+            "[Icon Theme]\nName=T\nComment=A test theme\nDirectories=32\n[32]\nSize=32\nType=Fixed\n",
+        )
+        .unwrap();
+        for icon in icons {
+            fs::write(theme.join("32").join(format!("{icon}.png")), "icon").unwrap();
+        }
+        Index::load(&SearchPath::from_dirs(vec![base.to_path_buf()]), "t")
+    }
+
+    fn png(base: &Path, icon: &str) -> String {
+        let path: PathBuf = base.join("t/32").join(format!("{icon}.png"));
+        path.to_str().unwrap().to_owned()
+    }
+
+    #[test]
+    fn an_icon_the_theme_has_is_drawn() {
+        let dir = tempfile::tempdir().unwrap();
+        let index = index(dir.path(), &["files", FALLBACK]);
+        let icon = Icon::Name("files".into());
+        assert_eq!(
+            path_of(&index, Some(&icon), 1),
+            Some(png(dir.path(), "files"))
+        );
+    }
+
+    #[test]
+    fn no_icon_or_one_the_theme_lacks_is_drawn_as_a_generic_program() {
+        let dir = tempfile::tempdir().unwrap();
+        let index = index(dir.path(), &["files", FALLBACK]);
+        let missing = Icon::Name("not-in-the-theme".into());
+        assert_eq!(path_of(&index, None, 1), Some(png(dir.path(), FALLBACK)));
+        assert_eq!(
+            path_of(&index, Some(&missing), 1),
+            Some(png(dir.path(), FALLBACK))
+        );
+    }
+
+    #[test]
+    fn without_the_generic_icon_either_there_is_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let index = index(dir.path(), &["files"]);
+        assert_eq!(path_of(&index, None, 1), None);
+    }
 }

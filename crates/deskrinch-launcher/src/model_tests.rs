@@ -171,22 +171,110 @@ fn clearing_empties_it_for_the_next_show() {
 }
 
 #[test]
-fn draws_the_rows_that_keep_the_selection_in_sight() {
-    let entries: Vec<DesktopEntry> = (0..10)
-        .map(|n| app(&format!("app{n}"), &format!("App {n}"), ""))
-        .collect();
+fn draws_the_first_rows_until_the_selection_goes_past_them() {
+    let entries = many(12);
     let mut model = Model::new();
     model.set_query("app", &entries, &[]);
-    assert_eq!(model.visible(4), 0..4);
-    for _ in 0..3 {
+    assert_eq!(model.visible(), 0..ROWS);
+    down(&mut model, ROWS - 1);
+    assert_eq!(model.visible(), 0..ROWS, "the last drawn row is selected");
+    down(&mut model, 1);
+    assert_eq!(model.visible(), 1..ROWS + 1, "one past the end moves one");
+    down(&mut model, 10);
+    assert_eq!(model.selected(), Some(11));
+    assert_eq!(model.visible(), 4..12, "the end stops it");
+}
+
+#[test]
+fn up_inside_the_drawn_rows_moves_only_the_selection() {
+    let entries = many(12);
+    let mut model = Model::new();
+    model.set_query("app", &entries, &[]);
+    down(&mut model, 11);
+    for selected in (4..11).rev() {
+        model.input(Input::Up);
+        assert_eq!(model.selected(), Some(selected));
+        assert_eq!(model.visible(), 4..12, "the list stays put");
+    }
+    model.input(Input::Up);
+    assert_eq!(model.selected(), Some(3));
+    assert_eq!(model.visible(), 3..11, "one past the top moves one");
+}
+
+#[test]
+fn a_new_query_draws_from_the_top() {
+    let entries = many(12);
+    let mut model = Model::new();
+    model.set_query("app", &entries, &[]);
+    down(&mut model, 11);
+    model.set_query("ap", &entries, &[]);
+    assert_eq!(model.visible(), 0..ROWS);
+    model.set_query("zzz", &entries, &[]);
+    assert_eq!(model.visible(), 0..0, "no results, no rows");
+}
+
+#[test]
+fn a_refresh_that_shortens_the_list_draws_what_is_left() {
+    let entries = many(12);
+    let mut model = Model::new();
+    model.set_query("app", &entries, &[]);
+    down(&mut model, 9);
+    assert_eq!(model.visible(), 2..10);
+    let kept = model.rows()[9].id.clone();
+    // Five others and the selected application are left.
+    let left: Vec<DesktopEntry> = entries
+        .iter()
+        .filter(|entry| entry.id == kept || model.rows()[..5].iter().any(|r| r.id == entry.id))
+        .cloned()
+        .collect();
+    model.refresh(&left, &[]);
+    assert_eq!(model.rows().len(), 6);
+    assert_eq!(model.selected_row().map(|row| &row.id), Some(&kept));
+    assert_eq!(model.visible(), 0..6);
+}
+
+/// `count` applications that all match "app".
+fn many(count: usize) -> Vec<DesktopEntry> {
+    (0..count)
+        .map(|n| app(&format!("app{n:02}"), &format!("App {n:02}"), ""))
+        .collect()
+}
+
+fn down(model: &mut Model, times: usize) {
+    for _ in 0..times {
         model.input(Input::Down);
     }
-    assert_eq!(model.visible(4), 0..4, "the fourth row is still in sight");
-    model.input(Input::Down);
-    assert_eq!(model.visible(4), 1..5);
-    assert_eq!(model.visible(20), 0..10, "more room than rows");
-    model.set_query("zzz", &entries, &[]);
-    assert_eq!(model.visible(4), 0..0);
+}
+
+#[test]
+fn one_application_is_started_per_show() {
+    let mut model = clickable();
+    let first = model.input(Input::Enter);
+    assert!(matches!(first, Action::Launch(_)), "{first:?}");
+    assert_eq!(model.input(Input::Enter), Action::Stay, "Enter again");
+    model.input(Input::Press(Some(id("terminal"))));
+    assert_eq!(
+        model.input(Input::Release(Some(id("terminal")))),
+        Action::Stay,
+        "a click after it"
+    );
+    model.clear();
+    model.set_query("term", &terminals(), &[]);
+    assert!(
+        matches!(model.input(Input::Enter), Action::Launch(_)),
+        "shown again, it starts one again"
+    );
+}
+
+#[test]
+fn a_click_then_enter_starts_one() {
+    let mut model = clickable();
+    model.input(Input::Press(Some(id("terminal"))));
+    assert_eq!(
+        model.input(Input::Release(Some(id("terminal")))),
+        Action::Launch(id("terminal"))
+    );
+    assert_eq!(model.input(Input::Enter), Action::Stay);
 }
 
 /// A model searched for "term", whose results include `term` and

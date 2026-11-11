@@ -62,7 +62,16 @@ pub struct Model {
     /// The result the primary pointer button went down on, while it is
     /// down.
     pressed: Option<DesktopId>,
+    /// The first of the [`ROWS`] rows drawn: it moves only when the
+    /// selection would leave them.
+    first: usize,
+    /// Whether an application was started since the last [`clear`](Self::clear):
+    /// one start per show.
+    launched: bool,
 }
+
+/// How many results are drawn at once.
+pub const ROWS: usize = 8;
 
 impl Model {
     /// An empty launcher: no query, no results.
@@ -107,6 +116,7 @@ impl Model {
         query.clone_into(&mut self.query);
         self.rows = rows(entries, &self.query, locales);
         self.selected = (!self.rows.is_empty()).then_some(0);
+        self.first = 0;
     }
 
     /// Searches `entries` again for the same query, when the applications
@@ -121,6 +131,8 @@ impl Model {
         self.rows = rows(entries, &self.query, locales);
         let kept = selected.and_then(|id| self.rows.iter().position(|row| row.id == id));
         self.selected = kept.or((!self.rows.is_empty()).then_some(0));
+        self.first = self.first.min(self.rows.len().saturating_sub(ROWS));
+        self.keep_in_sight();
     }
 
     /// What `input` does: the selection moved, or the action to take.
@@ -128,16 +140,22 @@ impl Model {
         match input {
             Input::Up => {
                 self.selected = self.selected.map(|index| index.saturating_sub(1));
+                self.keep_in_sight();
                 Action::Stay
             }
             Input::Down => {
                 let last = self.rows.len().saturating_sub(1);
                 self.selected = self.selected.map(|index| (index + 1).min(last));
+                self.keep_in_sight();
                 Action::Stay
             }
-            Input::Enter => self
-                .selected_row()
-                .map_or(Action::Stay, |row| Action::Launch(row.id.clone())),
+            Input::Enter => match self.selected_row() {
+                Some(row) => {
+                    let id = row.id.clone();
+                    self.launch(id)
+                }
+                None => Action::Stay,
+            },
             Input::Escape | Input::KeyboardLost => Action::Hide,
             Input::Press(on) => {
                 self.pressed = on;
@@ -147,22 +165,41 @@ impl Model {
                 (Some(pressed), Some(released))
                     if pressed == released && self.rows.iter().any(|row| row.id == released) =>
                 {
-                    Action::Launch(released)
+                    self.launch(released)
                 }
                 _ => Action::Stay,
             },
         }
     }
 
-    /// Which rows to draw when only `count` fit: the first `count`, or,
-    /// with the selection further down, the `count` that end with it.
+    /// Which rows are drawn: [`ROWS`] of them from the first drawn, which
+    /// moves only as far as keeps the selection among them.
     #[must_use]
-    pub fn visible(&self, count: usize) -> Range<usize> {
-        let end = self
-            .selected
-            .map_or(count, |index| (index + 1).max(count))
-            .min(self.rows.len());
-        end.saturating_sub(count)..end
+    pub fn visible(&self) -> Range<usize> {
+        self.first..(self.first + ROWS).min(self.rows.len())
+    }
+
+    /// Starts `id`, unless one was started since the last clear.
+    fn launch(&mut self, id: DesktopId) -> Action {
+        if self.launched {
+            return Action::Stay;
+        }
+        self.launched = true;
+        Action::Launch(id)
+    }
+
+    /// Moves the first drawn row only as far as brings the selection back
+    /// among the drawn rows.
+    fn keep_in_sight(&mut self) {
+        let Some(selected) = self.selected else {
+            self.first = 0;
+            return;
+        };
+        if selected < self.first {
+            self.first = selected;
+        } else if selected >= self.first + ROWS {
+            self.first = selected + 1 - ROWS;
+        }
     }
 
     /// Empties the launcher (no query, no results), for when it hides.

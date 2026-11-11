@@ -3,8 +3,8 @@
 //! of the primary button, on a result or anywhere else, go to the model
 //! ([`Input::Press`], [`Input::Release`]), which makes a click of them.
 //!
-//! Only [`ROWS`] results fit; the ones drawn are the stretch that keeps the
-//! selection in sight ([`Model::visible`]).
+//! Only [`ROWS`](deskrinch_launcher::ROWS) results fit; the ones drawn are the model's
+//! ([`Model::visible`]), which keeps the selection in sight.
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -16,9 +16,6 @@ use rinch::prelude::*;
 
 use crate::icons::{SIZE, path_of};
 
-/// How many results are drawn at once.
-pub(crate) const ROWS: usize = 8;
-
 /// The launcher's content, and its query field (to focus at each show).
 pub(crate) fn view(
     __scope: &mut RenderScope,
@@ -28,7 +25,7 @@ pub(crate) fn view(
     on_key: impl Fn(&str) -> bool + 'static,
     on_pointer: Rc<dyn Fn(Input)>,
 ) -> (NodeHandle, NodeHandle) {
-    let rows = Memo::new(move || model.with(|m| m.rows()[m.visible(ROWS)].to_vec()));
+    let rows = Memo::new(move || model.with(|m| m.rows()[m.visible()].to_vec()));
     let selected = Memo::new(move || model.with(|m| m.selected_row().map(|row| row.id.clone())));
     let field = rsx! {
         input {
@@ -128,15 +125,15 @@ fn icon_scale(factor: f64) -> u32 {
     }
 }
 
-/// The row's icon, from the icon theme's index once there is one; an empty
-/// square of the same size until then, or when the theme has none.
+/// The row's icon, from the icon theme's index once there is one (its own,
+/// else the generic program's: [`path_of`]); an empty square of the same
+/// size until then, or when the theme has neither.
 fn icon(__scope: &mut RenderScope, row: &Row, index: Signal<Option<Arc<Index>>>) -> NodeHandle {
     let wanted = row.icon.clone();
     let path = Memo::new(move || {
         let index = index.get()?;
-        let icon = wanted.as_ref()?;
         let scale = icon_scale(scale_factor());
-        path_of(&index, icon, scale)
+        path_of(&index, wanted.as_ref(), scale)
     });
     let square = format!("width: {SIZE}px; height: {SIZE}px; flex: none;");
     let image = square.clone();
