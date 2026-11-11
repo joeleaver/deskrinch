@@ -10,6 +10,8 @@
 
 use std::time::Duration;
 
+use deskrinch_bus::Bus;
+
 use super::Session;
 use crate::error::Error;
 
@@ -54,7 +56,8 @@ impl Session {
 /// KWin's support information, from the bus at `address`.
 fn support_information(address: &str, patience: Duration) -> zbus::Result<String> {
     zbus::block_on(async {
-        let connection = zbus::connection::Builder::address(address)
+        let connection = Bus::Address(address.to_owned())
+            .builder()
             .method_timeout(patience)
             .build()
             .await?;

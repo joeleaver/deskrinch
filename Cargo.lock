@@ -872,6 +872,7 @@ dependencies = [
 name = "deskrinch-test-dbus"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-bus",
  "futures-core",
  "rustix",
  "tempfile",
@@ -893,6 +894,7 @@ dependencies = [
 name = "deskrinch-test-screen"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-bus",
  "deskrinch-test-client",
  "deskrinch-test-wayland",
  "rustix",
@@ -6031,6 +6033,7 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ctrlc",
+ "deskrinch-bus",
  "deskrinch-kwin-access",
  "deskrinch-test-client",
  "deskrinch-test-dbus",

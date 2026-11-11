@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-bus.workspace = true
 futures-core.workspace = true
 rustix = { workspace = true, features = ["process"] }
 tempfile.workspace = true

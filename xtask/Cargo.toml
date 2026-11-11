@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+deskrinch-bus.workspace = true
 ctrlc.workspace = true
 deskrinch-kwin-access.workspace = true
 deskrinch-test-client.workspace = true

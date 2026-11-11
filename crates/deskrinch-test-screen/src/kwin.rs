@@ -13,6 +13,7 @@ use std::os::fd::AsFd;
 use std::thread;
 use std::time::Duration;
 
+use deskrinch_bus::Bus;
 use deskrinch_test_wayland::Deadline;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use zbus::{Connection, Fd, OwnedVariant, Variant};
@@ -38,7 +39,8 @@ impl ScreenShot2 {
     /// No call on the connection waits longer than `patience`.
     pub(crate) fn connect(patience: Duration) -> Result<Option<Self>, ConnectError> {
         zbus::block_on(async {
-            let connection = zbus::connection::Builder::session()
+            let connection = Bus::Session
+                .builder()
                 .method_timeout(patience)
                 .build()
                 .await

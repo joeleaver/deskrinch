@@ -7,6 +7,7 @@ use std::task::{Poll, Waker};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use deskrinch_bus::Bus;
 use futures_core::Stream;
 use zbus::message::Type;
 use zbus::{Connection, MatchRule, MessageStream};
@@ -53,8 +54,8 @@ pub(crate) fn wait_for_name(
         source,
     };
     zbus::block_on(async {
-        let connection = zbus::connection::Builder::address(address)
-            .build()
+        let connection = Bus::Address(address.to_owned())
+            .connect()
             .await
             .map_err(bus_error)?;
         // Subscribed first, then asked: a name taken in between is seen as
