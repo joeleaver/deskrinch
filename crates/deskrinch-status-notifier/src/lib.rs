@@ -62,7 +62,12 @@
 //! applications build their menus) and waits for its answer, but no longer
 //! than [`Limits::about_to_show_timeout`], then reads the whole layout.
 //! The subscriber hears of it as [`Event::Menu`], or [`Event::MenuFailed`]
-//! with the reason. While it is open, each `LayoutUpdated` or
+//! with the reason, or, if the application has gone, as the item's
+//! [`Event::Removed`]: one of the three always answers an opening. The host
+//! asks the bus for an open menu's signals alone (a match on its owner and
+//! object, made before the first read, moved with the menu and dropped when
+//! it closes), so menus that are not open, which applications update all
+//! the same, cost nothing. While it is open, each `LayoutUpdated` or
 //! `ItemsPropertiesUpdated` asks for the whole layout to be read again,
 //! paced and coalesced as an item's reads are, so a storm of them costs one
 //! read an interval; the menu is also read again when its item moves to
@@ -151,12 +156,12 @@
 //! |---|---|---|---|
 //! | Entry ids | a counter per process, given once to each entry: the same for its life | a counter per process, given as each entry is made: the same for its life | the entry's place in the menu, all moved past the last when the layout changes: never reused |
 //! | `children-display` | `submenu` while the entry has children | `submenu` for every submenu, empty or not | `submenu` while the entry has children |
-//! | Toggles | | `checkmark`, or `radio` in an exclusive group; state 0 or 1 | `checkmark`, `radio`; state 0 or 1 |
+//! | Toggles | from GTK: `checkmark`, or `radio` when GTK draws it as one; state 0 or 1 | `checkmark`, or `radio` in an exclusive group; state 0 or 1 | `checkmark`, `radio`; state 0 or 1 |
 //! | Icons | `icon-data`, a PNG of the GTK image | `icon-name` when the icon has a name, otherwise `icon-data`, a 16-pixel PNG | either or both, as the application gives |
-//! | Shortcuts | one shortcut, modifiers then GDK's key name | one list per step of the key sequence: `Super`, `Control`, `Alt`, `Shift`, `Num`, then Qt's key name | as the application gives |
-//! | Labels | | the first `&` made `_`; an underscore of the label's own is not doubled, and reads as a mnemonic | as the application gives |
+//! | Shortcuts | one shortcut: `Control`, `Alt`, `Shift`, `Super`, then GDK's key name | one list per step of the key sequence: `Super`, `Control`, `Alt`, `Shift`, `Num`, then Qt's key name | as the application gives |
+//! | Labels | from GTK: its `_` mnemonic as it is, every underscore doubled in a label without one, Pango markup taken out | the first `&` made `_`; an underscore of the label's own is not doubled, and reads as a mnemonic | as the application gives |
 //! | `AboutToShow` | answers false, then does its work | answers false; the application fills the menu then, and says it changed | answers false; says when the menu changed |
-//! | Properties at their default | left out | `label`, `enabled` and `visible` always sent | left out |
+//! | Properties at their default | left out: `enabled` and `visible` true, `disposition` normal, and a label of exactly `Label Empty`, libdbusmenu's default (such an entry arrives with no label) | `label`, `enabled` and `visible` always sent | left out |
 //!
 //! # Threads
 //!

@@ -231,29 +231,105 @@ impl ListChanges {
 /// (`org.freedesktop.DBus.Monitoring`) sees them.
 pub(crate) struct ReadDestinations(Receiver<String>);
 
+/// A monitor of `bus` (`org.freedesktop.DBus.Monitoring`) for the method
+/// calls `rules` match, forwarding what `pick` makes of each; every call
+/// sent after this returns is seen.
+fn monitor<T: Send + 'static>(
+    bus: &PrivateBus,
+    rules: &[&str],
+    pick: impl Fn(&Message) -> Option<T> + Send + 'static,
+) -> Receiver<T> {
+    let connection = bus.client();
+    // The monitor's own stream first, so that nothing after the call is
+    // missed.
+    let stream = MessageStream::from(&connection);
+    zbus::block_on(connection.call_method(
+        Some("org.freedesktop.DBus"),
+        "/org/freedesktop/DBus",
+        Some("org.freedesktop.DBus.Monitoring"),
+        "BecomeMonitor",
+        &(rules, 0_u32),
+    ))
+    .unwrap();
+    forward_stream(connection, stream, move |message| {
+        (message.header().message_type() == Type::MethodCall)
+            .then(|| pick(message))
+            .flatten()
+    })
+}
+
+fn member_is(message: &Message, member: &str) -> bool {
+    message
+        .header()
+        .member()
+        .map(zbus::names::MemberName::as_str)
+        == Some(member)
+}
+
+/// The match rules for the menus' interface held on the bus, as a monitor
+/// sees connections ask for them and give them up (`AddMatch`,
+/// `RemoveMatch`); only the host asks for those.
+pub(crate) struct MenuMatches {
+    calls: Receiver<(bool, String)>,
+    live: std::cell::RefCell<Vec<String>>,
+}
+
+impl MenuMatches {
+    /// Starts monitoring, before the host starts, so that every rule it
+    /// asks for is seen.
+    pub(crate) fn on(bus: &PrivateBus) -> Self {
+        let rules = [
+            "type='method_call',interface='org.freedesktop.DBus',member='AddMatch'",
+            "type='method_call',interface='org.freedesktop.DBus',member='RemoveMatch'",
+        ];
+        let calls = monitor(bus, &rules, |message| {
+            let added = member_is(message, "AddMatch");
+            let rule: String = message.body().deserialize().ok()?;
+            rule.contains("com.canonical.dbusmenu")
+                .then_some((added, rule))
+        });
+        Self {
+            calls,
+            live: std::cell::RefCell::new(Vec::new()),
+        }
+    }
+
+    /// The rules held once `settled` says they are as expected (the host
+    /// changes them on its own thread), with any further change made while
+    /// things settle.
+    pub(crate) fn live(&self, settled: impl Fn(&[String]) -> bool) -> Vec<String> {
+        fn apply(live: &mut Vec<String>, (added, rule): (bool, String)) {
+            if added {
+                live.push(rule);
+            } else if let Some(at) = live.iter().position(|r| *r == rule) {
+                live.remove(at);
+            }
+        }
+        let mut live = self.live.borrow_mut();
+        let deadline = std::time::Instant::now() + PATIENCE;
+        while !settled(&live) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            match self.calls.recv_timeout(left) {
+                Ok(call) => apply(&mut live, call),
+                Err(_) => break,
+            }
+        }
+        while let Ok(call) = self.calls.recv_timeout(QUIET) {
+            apply(&mut live, call);
+        }
+        live.clone()
+    }
+}
+
 impl ReadDestinations {
     /// Starts monitoring; reads sent after this returns are all seen.
     pub(crate) fn on(bus: &PrivateBus) -> Self {
-        let connection = bus.client();
-        // The monitor's own stream first, so that nothing after the call is
-        // missed.
-        let stream = MessageStream::from(&connection);
-        zbus::block_on(connection.call_method(
-            Some("org.freedesktop.DBus"),
-            "/org/freedesktop/DBus",
-            Some("org.freedesktop.DBus.Monitoring"),
-            "BecomeMonitor",
-            &(vec!["type='method_call',member='GetAll'"], 0_u32),
-        ))
-        .unwrap();
-        Self(forward_stream(connection, stream, |message| {
-            let header = message.header();
-            if header.message_type() != Type::MethodCall
-                || header.member().map(zbus::names::MemberName::as_str) != Some("GetAll")
-            {
+        let rules = ["type='method_call',member='GetAll'"];
+        Self(monitor(bus, &rules, |message| {
+            if !member_is(message, "GetAll") {
                 return None;
             }
-            header.destination().map(ToString::to_string)
+            message.header().destination().map(ToString::to_string)
         }))
     }
 

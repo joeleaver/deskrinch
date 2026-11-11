@@ -238,9 +238,6 @@ impl Host {
             let signals = streams::item_signals(&connection)
                 .await
                 .map_err(StartError::Connect)?;
-            let menu_signals = streams::menu_signals(&connection)
-                .await
-                .map_err(StartError::Connect)?;
             if !own(&connection, WATCHER_NAME).await? {
                 return Err(StartError::NameTaken);
             }
@@ -253,7 +250,7 @@ impl Host {
             // Items already waiting for a host learn of this one; it fails
             // only when the connection is gone, which the tracker reports.
             let _sent = Watcher::status_notifier_host_registered(&emitter).await;
-            Ok((connection, owners, [signals, menu_signals]))
+            Ok((connection, owners, signals))
         })?;
         let mut host = Self {
             shared: Arc::clone(&shared),

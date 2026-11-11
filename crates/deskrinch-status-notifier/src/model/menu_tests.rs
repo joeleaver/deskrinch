@@ -229,6 +229,7 @@ fn a_first_read_that_fails_closes_the_menu_and_a_later_one_keeps_it() {
         done,
         MenuDone {
             change: Some(Change::MenuFailed(id.clone(), MenuFailure::TimedOut)),
+            unregistered: false,
             next: None,
         }
     );
@@ -241,6 +242,81 @@ fn a_first_read_that_fails_closes_the_menu_and_a_later_one_keeps_it() {
     let done = model.menu_read_done(&source, MenuOutcome::Failed(MenuFailure::OverBound), t(200));
     assert_eq!(done.change, None);
     assert_eq!(stored(&model, &id)[0].label.text, "Open");
+}
+
+/// Every way a read can end, for an item with id `id`.
+fn outcomes(id: &ItemId) -> Vec<MenuOutcome> {
+    let mut outcomes = vec![layout(id, vec![entry(1, "Open")]), MenuOutcome::Gone];
+    outcomes.extend(
+        [
+            MenuFailure::NoMenu,
+            MenuFailure::TimedOut,
+            MenuFailure::TooLarge,
+            MenuFailure::Malformed,
+            MenuFailure::OverBound,
+            MenuFailure::Refused,
+        ]
+        .map(MenuOutcome::Failed),
+    );
+    outcomes
+}
+
+/// Whether `change` is one of the three a caller hears after opening a
+/// menu: the menu, its failure, or the item's removal.
+fn answers_the_opening(change: &Change, id: &ItemId) -> bool {
+    match change {
+        Change::Menu(menu) => menu.item == *id,
+        Change::MenuFailed(item, _) | Change::Removed(item) => item == id,
+        Change::Added(_) | Change::Changed(_) => false,
+    }
+}
+
+#[test]
+fn after_opening_the_caller_hears_the_menu_its_failure_or_the_item_leaving() {
+    let (_, id) = model();
+    for outcome in outcomes(&id) {
+        let (mut model, id) = model();
+        let source = open(&mut model, &id);
+        let gone = matches!(outcome, MenuOutcome::Gone);
+        let done = model.menu_read_done(&source, outcome, t(20));
+        let change = done.change.expect("the opening was answered");
+        assert!(answers_the_opening(&change, &id), "{change:?}");
+        assert_eq!(done.next, None);
+        // The owner gone is the item gone, though the bus never said so.
+        assert_eq!(done.unregistered, gone);
+        assert_eq!(model.registered().is_empty(), gone);
+    }
+}
+
+#[test]
+fn a_stale_answer_to_an_opening_is_followed_by_one_that_answers_it() {
+    let (_, id) = model();
+    for moved_owner in [true, false] {
+        for stale in outcomes(&id) {
+            let (mut model, id) = model();
+            let source = open(&mut model, &id);
+            if moved_owner {
+                model.owner_changed(SERVICE, Some(":1.9"), t(15));
+            } else {
+                model.signalled(":1.5", "/StatusNotifierItem", t(15));
+                model.read_done(&id, ":1.5", item(&id, Some("/Elsewhere")), t(15));
+            }
+            // Only the menu moved: its owner gone is still the item gone,
+            // which answers the opening.
+            let owner_gone = !moved_owner && matches!(stale, MenuOutcome::Gone);
+            let done = model.menu_read_done(&source, stale, t(20));
+            if owner_gone {
+                assert!(answers_the_opening(&done.change.unwrap(), &id));
+                assert!(done.unregistered);
+                continue;
+            }
+            assert_eq!((&done.change, done.unregistered), (&None, false));
+            let next = done.next.expect("the move's read follows");
+            let source = model.menu_source(&next.id).unwrap();
+            let done = model.menu_read_done(&source, layout(&id, vec![entry(1, "Open")]), next.at);
+            assert!(answers_the_opening(&done.change.unwrap(), &id));
+        }
+    }
 }
 
 #[test]

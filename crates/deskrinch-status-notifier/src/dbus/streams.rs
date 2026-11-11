@@ -22,19 +22,27 @@ pub(crate) async fn owner_changes(connection: &Connection) -> zbus::Result<Messa
 
 /// Every signal of the items' interface, from anyone.
 pub(crate) async fn item_signals(connection: &Connection) -> zbus::Result<MessageStream> {
-    signals(connection, ITEM_INTERFACE).await
-}
-
-/// Every signal of the menus' interface, from anyone: the ones of menus
-/// that are not open are dropped as they come.
-pub(crate) async fn menu_signals(connection: &Connection) -> zbus::Result<MessageStream> {
-    signals(connection, MENU_INTERFACE).await
-}
-
-async fn signals(connection: &Connection, interface: &'static str) -> zbus::Result<MessageStream> {
     let rule = MatchRule::builder()
         .msg_type(Type::Signal)
-        .interface(interface)
+        .interface(ITEM_INTERFACE)
+        .build()?;
+    MessageStream::for_match_rule(rule, connection, None).await
+}
+
+/// The signals of the one menu at `path` of connection `owner`, while it is
+/// open: the bus sends the host no other menu's, so menus that are not open
+/// cost nothing. The match is on the bus once this returns, and goes when
+/// the stream is dropped.
+pub(crate) async fn menu_signals(
+    connection: &Connection,
+    owner: &str,
+    path: &str,
+) -> zbus::Result<MessageStream> {
+    let rule = MatchRule::builder()
+        .msg_type(Type::Signal)
+        .sender(owner)
+        .path(path)
+        .interface(MENU_INTERFACE)
         .build()?;
     MessageStream::for_match_rule(rule, connection, None).await
 }

@@ -21,7 +21,7 @@ use crate::item::{Item, ItemId};
 use crate::limits::Limits;
 use crate::menu::{Menu, MenuFailure};
 use menus::OpenMenu;
-pub(crate) use menus::{MenuDue, MenuOutcome, MenuRefusal, MenuSource, MenuTarget};
+pub(crate) use menus::{MenuDue, MenuOutcome, MenuPlace, MenuRefusal, MenuSource, MenuTarget};
 use read::Reads;
 pub(crate) use read::{Due, Source};
 
@@ -267,13 +267,8 @@ impl Model {
         let interval = self.limits.min_read_interval;
         match outcome {
             Outcome::Gone => {
-                let entry = self.entries.remove(index);
                 done.unregistered = true;
-                self.image_bytes -= entry.menu_image_bytes();
-                if let Some(item) = entry.item {
-                    self.image_bytes -= item.image_bytes();
-                    done.change = Some(Change::Removed(entry.id));
-                }
+                done.change = self.remove(index);
                 return done;
             }
             Outcome::Read(item) => {
@@ -290,6 +285,17 @@ impl Model {
         let entry = &mut self.entries[index];
         done.next = entry.reads.done(now, interval).map(|at| entry.due(at));
         done
+    }
+
+    /// Removes entry `index`, whose owner has gone (unique names are never
+    /// reused), with its open menu; the change the caller hears of, if it
+    /// was told of the item.
+    fn remove(&mut self, index: usize) -> Option<Change> {
+        let entry = self.entries.remove(index);
+        self.image_bytes -= entry.menu_image_bytes();
+        let item = entry.item?;
+        self.image_bytes -= item.image_bytes();
+        Some(Change::Removed(entry.id))
     }
 
     /// Keeps `item` as entry `index`'s, unless it would take the images

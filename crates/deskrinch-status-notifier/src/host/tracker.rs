@@ -16,14 +16,14 @@ use deskrinch_timer::Timer;
 use futures_core::Stream;
 use futures_util::stream::FuturesUnordered;
 use zbus::object_server::SignalEmitter;
-use zbus::{Connection, Message, MessageStream};
+use zbus::{AsyncDrop as _, Connection, Message, MessageStream};
 
 use crate::dbus::watcher::{self, Watcher};
 use crate::dbus::{WATCHER_PATH, item, menu, streams};
 use crate::host::shared::{Call, Shared, Work};
 use crate::item::ItemId;
 use crate::limits::Limits;
-use crate::model::{Due, MenuDue, MenuOutcome, MenuSource, Outcome, Source};
+use crate::model::{Due, MenuDue, MenuOutcome, MenuPlace, MenuSource, Outcome, Source};
 
 /// The tracker's thread, stopped and joined when dropped.
 pub(super) struct Tracker {
@@ -32,11 +32,11 @@ pub(super) struct Tracker {
 }
 
 impl Tracker {
-    /// `signals` are the items' and the menus' signals.
+    /// `signals` are the items' signals.
     pub(super) fn spawn(
         connection: Connection,
         owners: MessageStream,
-        signals: [MessageStream; 2],
+        signals: MessageStream,
         shared: Arc<Shared>,
         limits: Limits,
         timer: Timer,
@@ -47,10 +47,9 @@ impl Tracker {
             limits,
             timer,
         };
-        let [items, menus] = signals;
         let thread = thread::Builder::new()
             .name("status-notifier-tracker".into())
-            .spawn(move || zbus::block_on(state.run([owners, items, menus])))?;
+            .spawn(move || zbus::block_on(state.run([owners, signals])))?;
         Ok(Self {
             shared,
             thread: Some(thread),
@@ -118,17 +117,30 @@ impl From<Vec<Due>> for Next {
     }
 }
 
+/// An open menu's signals, followed while it is open: a match on the bus
+/// for its owner and object alone.
+struct Watch {
+    menu: MenuPlace,
+    stream: MessageStream,
+}
+
 impl State {
-    /// `streams` are the owners', the items' and the menus' signals.
-    async fn run(self, mut streams: [MessageStream; 3]) {
+    /// `streams` are the owners' and the items' signals.
+    async fn run(self, mut streams: [MessageStream; 2]) {
         let mut pending: FuturesUnordered<Pending> = FuturesUnordered::new();
+        let mut watches: Vec<Watch> = Vec::new();
         // Which source is polled first, turn by turn, so that a busy one
         // cannot starve the others.
         let mut turn = 0_usize;
         loop {
             let step = poll_fn(|cx| {
                 turn = turn.wrapping_add(1);
-                poll_sources(cx, turn, &self.shared, &mut pending, &mut streams)
+                let mut sources = Sources {
+                    pending: &mut pending,
+                    streams: &mut streams,
+                    watches: &mut watches,
+                };
+                poll_sources(cx, turn, &self.shared, &mut sources)
             })
             .await;
             let next = match step {
@@ -158,6 +170,10 @@ impl State {
                 },
                 Step::Nothing => Next::default(),
             };
+            // A menu opened, closed or moved by this step is followed
+            // where it is now before any read of it starts, so that no
+            // change after the read is missed.
+            self.watch_menus(&mut watches).await;
             for due in next.reads {
                 pending.push(self.read(due));
             }
@@ -165,6 +181,34 @@ impl State {
                 pending.push(self.menu_read(due));
             }
         }
+    }
+
+    /// Follows the signals of the open menus, and of no other: a match
+    /// added for each menu opened or moved, and removed (on the bus, before
+    /// this returns) for each closed or moved.
+    async fn watch_menus(&self, watches: &mut Vec<Watch>) {
+        let open = self.shared.with_model(|m| m.open_menus());
+        let mut kept = Vec::with_capacity(open.len());
+        for watch in std::mem::take(watches) {
+            if open.contains(&watch.menu) {
+                kept.push(watch);
+            } else {
+                watch.stream.async_drop().await;
+            }
+        }
+        for menu in open {
+            if kept.iter().any(|w| w.menu == menu) {
+                continue;
+            }
+            // It fails only when the connection is gone, which the end of
+            // the owners' stream reports.
+            if let Ok(stream) =
+                streams::menu_signals(&self.connection, &menu.owner, &menu.path).await
+            {
+                kept.push(Watch { menu, stream });
+            }
+        }
+        *watches = kept;
     }
 
     /// The read `due`, once its time has come, from whoever owns the item
@@ -269,6 +313,9 @@ impl State {
                 let done = self
                     .shared
                     .with_model(|m| m.menu_read_done(&source, outcome, Instant::now()));
+                if done.unregistered {
+                    self.unregistered(std::slice::from_ref(&source.id), 0).await;
+                }
                 self.shared.report(done.change, None);
                 Next {
                     reads: Vec::new(),
@@ -339,35 +386,51 @@ impl State {
     }
 }
 
+/// What the tracker waits on, besides its inbox.
+struct Sources<'s> {
+    pending: &'s mut FuturesUnordered<Pending>,
+    /// The owners' and the items' signals.
+    streams: &'s mut [MessageStream; 2],
+    watches: &'s mut [Watch],
+}
+
 /// Polls each source once, starting from a different one each turn; the
 /// first that is ready is the step.
 fn poll_sources(
     cx: &mut Context<'_>,
     turn: usize,
     shared: &Shared,
-    pending: &mut FuturesUnordered<Pending>,
-    streams: &mut [MessageStream; 3],
+    s: &mut Sources<'_>,
 ) -> Poll<Step> {
     if let Poll::Ready(asked) = shared.poll_inbox(cx) {
         return Poll::Ready(asked.map_or(Step::Stop, Step::Work));
     }
-    let [owners, items, menus] = streams;
+    let [owners, items] = &mut *s.streams;
     for index in 0..4 {
         let step = match (turn + index) % 4 {
-            0 => match Pin::new(&mut *pending).poll_next(cx) {
+            0 => match Pin::new(&mut *s.pending).poll_next(cx) {
                 Poll::Ready(Some(finished)) => Some(Step::Finished(finished)),
                 // Nothing in flight; the inbox wakes the tracker for more.
                 Poll::Ready(None) | Poll::Pending => None,
             },
             1 => message_step(Pin::new(&mut *owners).poll_next(cx), Step::Owner),
             2 => message_step(Pin::new(&mut *items).poll_next(cx), Step::Signal),
-            _ => message_step(Pin::new(&mut *menus).poll_next(cx), Step::MenuSignal),
+            _ => poll_watches(cx, turn, s.watches),
         };
         if let Some(step) = step {
             return Poll::Ready(step);
         }
     }
     Poll::Pending
+}
+
+/// Polls each open menu's signals once, from a different one each turn.
+fn poll_watches(cx: &mut Context<'_>, turn: usize, watches: &mut [Watch]) -> Option<Step> {
+    let count = watches.len();
+    (0..count).find_map(|index| {
+        let watch = &mut watches[(turn + index) % count];
+        message_step(Pin::new(&mut watch.stream).poll_next(cx), Step::MenuSignal)
+    })
 }
 
 fn message_step(

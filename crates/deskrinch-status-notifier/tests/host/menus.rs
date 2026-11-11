@@ -8,7 +8,7 @@ use deskrinch_status_notifier::{
     EntryKind, Handle, Item, Limits, MenuFailure, OperationError, Toggle, ToggleState,
 };
 
-use crate::common::{Events, PrivateBus, start_with};
+use crate::common::{Events, MenuMatches, PrivateBus, start_with};
 use crate::stand_in::{Call, Reply, StandIn, properties, v};
 use crate::stand_in_menu::{AboutToShow, Entry, Layout, MenuCall, Prop};
 
@@ -18,6 +18,8 @@ pub(crate) const MENU: &str = "/MenuBar";
 /// A host and a stand-in item whose menu at `MENU` answers `layout`.
 pub(crate) struct Fixture {
     pub(crate) _bus: PrivateBus,
+    /// The host's matches for menu signals on the bus.
+    pub(crate) matches: MenuMatches,
     pub(crate) handle: Handle,
     pub(crate) events: Events,
     pub(crate) item: StandIn,
@@ -28,6 +30,7 @@ pub(crate) struct Fixture {
 impl Fixture {
     pub(crate) fn start(limits: Limits, layout: Layout) -> Self {
         let bus = PrivateBus::start();
+        let matches = MenuMatches::on(&bus);
         let (host, events) = start_with(bus.config(limits));
         let item = StandIn::start(&bus, PATH, Reply::Properties(properties("A")));
         item.set_layout(MENU, layout);
@@ -35,6 +38,7 @@ impl Fixture {
         let added = events.added();
         Self {
             _bus: bus,
+            matches,
             handle: host.handle(),
             events,
             item,
@@ -152,6 +156,47 @@ fn an_about_to_show_that_never_answers_delays_the_read_by_its_timeout_only() {
     let menu = f.open();
     assert!(started.elapsed() >= timeout);
     assert_eq!(menu.entries[0].label.text, "Open");
+}
+
+#[test]
+fn only_an_open_menu_s_signals_are_asked_of_the_bus() {
+    let f = Fixture::start(Limits::default(), root(vec![Entry::labelled(1, "Here")]));
+    f.item
+        .set_layout("/Other", root(vec![Entry::labelled(1, "There")]));
+    // Started and an item read, nothing open: the host has asked the bus
+    // for no menu's signals.
+    assert_eq!(f.matches.live(<[_]>::is_empty), Vec::<String>::new());
+
+    // Asked for when the menu opens, for this menu alone. (The tracker
+    // waits for the bus to have it before the first read starts.)
+    f.handle.open_menu(&f.added.id).unwrap();
+    while f.item.next_menu_call() != MenuCall::AboutToShow(MENU.into(), 0) {}
+    let owner = f.item.unique_name();
+    let here = |rule: &str, path: &str| {
+        rule.contains(&format!("sender='{owner}'")) && rule.contains(&format!("path='{path}'"))
+    };
+    let live = f.matches.live(|rules| !rules.is_empty());
+    assert!(
+        matches!(live.as_slice(), [rule] if here(rule, MENU)),
+        "{live:?}"
+    );
+    f.events.menu();
+
+    // The menu moves: the match moves with it.
+    f.move_menu("/Other");
+    f.events.changed();
+    f.events.menu();
+    let live = f
+        .matches
+        .live(|rules| matches!(rules, [rule] if here(rule, "/Other")));
+    assert!(
+        matches!(live.as_slice(), [rule] if here(rule, "/Other")),
+        "{live:?}"
+    );
+
+    // Closed: none again.
+    f.handle.close_menu(&f.added.id).unwrap();
+    assert_eq!(f.matches.live(<[_]>::is_empty), Vec::<String>::new());
 }
 
 #[test]
@@ -328,6 +373,7 @@ fn a_menu_that_moves_is_read_where_it_is_and_one_that_goes_fails() {
 fn an_item_that_leaves_takes_its_open_menu_with_it() {
     let Fixture {
         _bus,
+        matches,
         handle,
         events,
         item,
@@ -340,6 +386,7 @@ fn an_item_that_leaves_takes_its_open_menu_with_it() {
     assert_eq!(events.removed(), added.id);
     events.quiet();
     assert_eq!(handle.menu(&added.id), None);
+    assert_eq!(matches.live(<[_]>::is_empty), Vec::<String>::new());
     assert_eq!(
         handle.open_menu(&added.id),
         Err(OperationError::NotFound(added.id.clone()))

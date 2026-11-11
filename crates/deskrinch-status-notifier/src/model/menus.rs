@@ -51,6 +51,15 @@ pub(crate) struct MenuSource {
     pub(crate) about_to_show: bool,
 }
 
+/// Where the item `id`'s open menu is: the object `path` of connection
+/// `owner`, by its unique name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct MenuPlace {
+    pub(crate) id: ItemId,
+    pub(crate) owner: String,
+    pub(crate) path: String,
+}
+
 /// Where a menu's events go: the item's registered name (calls that expect
 /// no reply) and the menu's object; the item's own object for an
 /// activation token.
@@ -77,6 +86,8 @@ pub(crate) enum MenuOutcome {
 pub(crate) struct MenuDone {
     /// The change the caller hears of.
     pub(crate) change: Option<Change>,
+    /// The item left, and is no longer registered.
+    pub(crate) unregistered: bool,
     /// The next read, asked for while this one was in flight.
     pub(crate) next: Option<MenuDue>,
 }
@@ -173,15 +184,13 @@ impl Model {
 
     /// Where the item `id`'s open menu is now, for a call that expects a
     /// reply and is not a read (`AboutToShow` for a submenu).
-    pub(crate) fn menu_peer(&self, id: &ItemId) -> Option<MenuSource> {
-        let entry = self.entry(id)?;
-        let open = entry.menu.as_ref()?;
-        Some(MenuSource {
-            id: id.clone(),
-            owner: entry.owner.clone(),
-            path: open.path.clone(),
-            about_to_show: false,
-        })
+    pub(crate) fn menu_peer(&self, id: &ItemId) -> Option<MenuPlace> {
+        self.entry(id)?.menu_place()
+    }
+
+    /// Where every open menu is now, whose signals the host follows.
+    pub(crate) fn open_menus(&self) -> Vec<MenuPlace> {
+        self.entries.iter().filter_map(Entry::menu_place).collect()
     }
 
     /// The menu at `path` of connection `sender` said at `now` that it
@@ -222,7 +231,14 @@ impl Model {
     /// A read from a connection or object that is no longer the menu's
     /// says nothing about it, whatever it answered: the read that the move
     /// asked for follows. A first read that fails closes the menu, and the
-    /// caller hears why; a later one keeps what was last read.
+    /// caller hears why; a later one keeps what was last read. The owner
+    /// being gone means the item left, as for a read of the item (the bus's
+    /// report of it may never come: the owner can have left before the item
+    /// registered): the item is removed with its menu.
+    ///
+    /// So after a menu is opened, the caller hears exactly one of the menu,
+    /// its failure, or the item's removal; stale reads are followed by the
+    /// read their change asked for.
     pub(crate) fn menu_read_done(
         &mut self,
         source: &MenuSource,
@@ -238,16 +254,21 @@ impl Model {
         let Some(open) = entry.menu.as_ref() else {
             return done;
         };
-        let current = entry.owner == source.owner && open.path == source.path;
+        let owner = entry.owner == source.owner;
+        let current = owner && open.path == source.path;
         match outcome {
+            Outcome::Gone if owner => {
+                done.unregistered = true;
+                done.change = self.remove(index);
+                return done;
+            }
             Outcome::Read(menu) if current => done.change = self.store_menu(index, *menu),
             Outcome::Failed(reason) if current && open.menu.is_none() => {
                 self.close_menu(&source.id);
                 done.change = Some(Change::MenuFailed(source.id.clone(), reason));
                 return done;
             }
-            // Gone from the owner: the item left, which the bus's report of
-            // its name says. Stale, or a later read that failed: nothing.
+            // Stale, or a later read that failed: nothing.
             Outcome::Read(_) | Outcome::Failed(_) | Outcome::Gone => {}
         }
         let entry = &mut self.entries[index];
@@ -284,6 +305,16 @@ impl Model {
 }
 
 impl Entry {
+    /// Where the item's open menu is.
+    fn menu_place(&self) -> Option<MenuPlace> {
+        let open = self.menu.as_ref()?;
+        Some(MenuPlace {
+            id: self.id.clone(),
+            owner: self.owner.clone(),
+            path: open.path.clone(),
+        })
+    }
+
     /// Where events about the item's menu at `path` go.
     fn menu_target(&self, path: &str) -> MenuTarget {
         MenuTarget {
