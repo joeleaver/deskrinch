@@ -32,6 +32,28 @@ mod process {
 
     const LAUNCHER: &str = env!("CARGO_BIN_EXE_deskrinch-launcher");
 
+    /// Panics unless the tests run in a nested session started by
+    /// `cargo xtask compositor-tests`, which sets `DESKRINCH_TEST_COMPOSITOR`.
+    /// Run anywhere else, they would take the launcher's name on the real
+    /// session bus and map an overlay with the keyboard on the real
+    /// compositor. Every test calls it first, before it touches the bus or
+    /// starts a process.
+    ///
+    /// The window-management tests' `Compositor::current` is the same guard,
+    /// in their test support, where it cannot be shared; this becomes
+    /// `deskrinch_test_client::Compositor::current()` with the launcher's
+    /// `SUITES` entry, once `deskrinch-test-client` is on `main`.
+    fn in_nested_session() {
+        assert!(
+            matches!(
+                std::env::var("DESKRINCH_TEST_COMPOSITOR").as_deref(),
+                Ok("kwin" | "sway" | "labwc")
+            ),
+            "the launcher's process tests run in a nested compositor: \
+             use `cargo xtask compositor-tests`"
+        );
+    }
+
     /// Counts a process's presented frames from its standard error.
     fn count_frames(stream: impl Read + Send + 'static) -> Arc<AtomicU64> {
         let frames = Arc::new(AtomicU64::new(0));
@@ -147,6 +169,7 @@ mod process {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn starts_hidden_and_draws_nothing() {
+        in_nested_session();
         let launcher = Launcher::start(&[]);
         assert!(stays(|| launcher.frames() == 0), "a hidden launcher drew");
     }
@@ -154,6 +177,7 @@ mod process {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn toggle_shows_it_and_toggles_it_back() {
+        in_nested_session();
         let launcher = Launcher::start(&[]);
         assert!(client(&["toggle"]).success());
         assert!(
@@ -171,6 +195,7 @@ mod process {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn show_and_hide_set_it() {
+        in_nested_session();
         let launcher = Launcher::start(&[]);
         assert!(client(&["show"]).success());
         assert!(eventually(|| launcher.frames() > 0));
@@ -191,6 +216,7 @@ mod process {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn a_second_launcher_leaves_the_first_running() {
+        in_nested_session();
         let launcher = Launcher::start(&[]);
         let first = launcher.child.id();
         let second = launcher_exit(&[]);
@@ -202,6 +228,7 @@ mod process {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn a_second_launcher_asked_to_show_shows_the_first() {
+        in_nested_session();
         let launcher = Launcher::start(&[]);
         let first = launcher.child.id();
         let second = launcher_exit(&["--show"]);
@@ -216,6 +243,7 @@ mod process {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn with_none_running_hide_does_nothing() {
+        in_nested_session();
         assert_eq!(owner_pid(), None);
         assert!(client(&["hide"]).success());
         assert!(stays(|| owner_pid().is_none()), "a hide started a launcher");
@@ -224,6 +252,7 @@ mod process {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn with_none_running_toggle_starts_one_shown() {
+        in_nested_session();
         assert_eq!(owner_pid(), None);
         // The launcher the client starts inherits its standard error.
         let mut toggle = launcher(&["toggle"]).spawn().unwrap();
