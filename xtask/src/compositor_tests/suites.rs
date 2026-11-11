@@ -9,6 +9,7 @@ const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
+const PANEL: &str = "deskrinch-panel";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
@@ -92,7 +93,7 @@ pub(super) struct Suite {
 pub(super) const SESSION_END: &str = "session_end::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 8] = [
+pub(super) const SUITES: [Suite; 9] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -187,6 +188,25 @@ pub(super) const SUITES: [Suite; 8] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        filter: &[],
+    },
+    // The panel's real binary, checked by the screen: it captures under
+    // KWin. Not in the flipped pass: a full-width band along an edge is the
+    // same mirrored, so that pass adds nothing a turned output does not.
+    Suite {
+        target: Target {
+            package: PANEL,
+            test: "compositor",
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.PanelTests",
+            name: "deskrinch panel tests",
+            wayland: &[],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
+        compositors: ALL,
+        passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
+        renders: true,
         filter: &[],
     },
     // Last: it ends the session.
