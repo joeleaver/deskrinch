@@ -9,15 +9,13 @@
 
 use std::collections::HashMap;
 use std::io::{self, Read as _};
+use std::os::fd::AsFd;
+use std::thread;
 use std::time::Duration;
 
 use deskrinch_test_wayland::Deadline;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
-use std::os::fd::AsFd;
-use std::thread;
-
-use zbus::Connection;
-use zbus::{Fd, OwnedVariant, Variant};
+use zbus::{Connection, Fd, OwnedVariant, Variant};
 
 use crate::Transform;
 use crate::buffer::{Buffer, Layout};

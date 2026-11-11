@@ -332,7 +332,10 @@ mod tests {
                 if output == "HEADLESS-1" && *patience == Duration::from_secs(60)),
             "{error:?}"
         );
-        assert!(matches!(waited(WaitError::Closed, "x"), CaptureError::Connection(_)));
+        assert!(matches!(
+            waited(WaitError::Closed, "x"),
+            CaptureError::Connection(_)
+        ));
     }
 
     #[test]
