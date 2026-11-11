@@ -1,0 +1,26 @@
+[package]
+name = "deskrinch-appearance"
+description = "The system's appearance preferences from the settings portal (the colour scheme), read and followed."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# `Stream`, to poll the bus's message streams by hand.
+futures-core.workspace = true
+thiserror.workspace = true
+# The client side of D-Bus on zbus's own runtime, driven by `zbus::block_on`
+# on the crate's thread, so the API needs no async runtime.
+zbus = { workspace = true, features = ["default-rt"] }
+
+[dev-dependencies]
+deskrinch-test-dbus.workspace = true
+tempfile.workspace = true
+# The tests stand in for the portal.
+zbus = { workspace = true, features = ["default-rt", "service"] }
+
+[lints]
+workspace = true

@@ -34,6 +34,9 @@ The notification service's tests also start private D-Bus daemons, and run
 libnotify's `notify-send` against them (on Debian and Ubuntu, the
 `libnotify-bin` package). They never touch the session bus.
 
+The appearance crate's tests run a stand-in settings portal on a private
+D-Bus daemon too, never the session's.
+
 The window-management crate's compositor tests drive a real compositor and
 are ignored by `cargo test`. This runs them in nested, headless KWin, sway and
 labwc sessions that touch nothing in your own (the isolated sessions
