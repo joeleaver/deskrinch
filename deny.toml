@@ -26,6 +26,15 @@ ignore = [
     # borderless layer surface and never draws them. Tracked exception: it
     # goes with joeleaver/rinch#2434.
     { id = "RUSTSEC-2026-0192", reason = "winit's client-side decorations (sctk-adwaita), which the panel never draws; no upgrade exists; joeleaver/rinch#2434" },
+    # zvariant, zvariant_derive and zbus_names are unmaintained as crates of
+    # their own since zbus 6 took them in. They come only with zbus 5, which
+    # ksni 0.3.7 (its latest release) uses, and ksni is only a
+    # dev-dependency: the status-notifier host's interoperability test runs a
+    # real item made with it. deskrinch itself is on zbus 6. Tracked
+    # exception: it goes when ksni moves to zbus 6 or the test stops using it.
+    { id = "RUSTSEC-2026-0370", reason = "zvariant 5, only through ksni's zbus 5 in a dev-dependency; no ksni release on zbus 6" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names 4, only through ksni's zbus 5 in a dev-dependency; no ksni release on zbus 6" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive 5, only through ksni's zbus 5 in a dev-dependency; no ksni release on zbus 6" },
 ]
 
 [licenses]
@@ -58,6 +67,9 @@ confidence-threshold = 0.93
 # The list is written for the dependencies to come, so a licence nothing uses
 # yet is expected, not a mistake worth a warning.
 unused-allowed-license = "allow"
+# Dev-dependencies are not checked here (cargo-deny's default): they never
+# ship. ksni, the status-notifier host's interoperability test item, is one,
+# under the Unlicense.
 
 [bans]
 # A `*` version requirement is never acceptable. A versionless `path`
