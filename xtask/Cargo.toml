@@ -20,6 +20,9 @@ rustix = { workspace = true, features = ["param", "process"] }
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+# Asking KWin how it composites, on the session's bus, driven by
+# `zbus::block_on`.
+zbus = { workspace = true, features = ["default-rt"] }
 
 [lints]
 workspace = true

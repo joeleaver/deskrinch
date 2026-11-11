@@ -124,9 +124,13 @@ jobs:
           # kwin-common carries KWin's plugins, its screenshot interface
           # among them (kwin-wayland only recommends it); libgl1-mesa-dri
           # is Mesa's software driver, which KWin renders with on vgem's
-          # device; kscreen-doctor (libkscreen-bin) sets the outputs' scale.
+          # device; kscreen-doctor (libkscreen-bin) sets the outputs' scale,
+          # through Qt's Wayland platform, whose xdg-shell integration is
+          # libqt6wlshellintegration6.
           - compositor: kwin
-            packages: kwin-wayland kwin-common libgl1-mesa-dri dbus-daemon libkscreen-bin
+            packages: >-
+              kwin-wayland kwin-common libgl1-mesa-dri dbus-daemon
+              libkscreen-bin libqt6wlshellintegration6
             # kscreen-doctor has no --version, and starts Qt even to fail:
             # its package's version says what was installed.
             version: kwin_wayland --version && dpkg-query -W -f='${Package} ${Version}\n' libkscreen-bin
@@ -155,9 +159,13 @@ jobs:
       # own CI uses it), rendered to with Mesa's software driver.
       - name: Give KWin a DRM device to render on
         if: matrix.compositor == 'kwin'
+        # KWin's virtual backend opens vgem's primary node (card*), which
+        # udev makes root:video once it has seen the device: let it finish
+        # first, then open the nodes to the runner's user.
         run: |
           sudo modprobe vgem
-          sudo chmod a+rw /dev/dri/card*
+          sudo udevadm settle
+          sudo chmod a+rw /dev/dri/card* /dev/dri/renderD*
           ls -l /dev/dri
       - run: cargo xtask compositor-tests ${{ matrix.compositor }}
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}

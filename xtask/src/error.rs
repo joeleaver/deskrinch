@@ -124,8 +124,20 @@ pub(crate) enum Error {
         /// What it printed.
         log: String,
     },
+    /// The nested compositor could not be asked how it runs.
+    #[error("could not read {what} from {compositor}; its log:\n{log}")]
+    CompositorQuery {
+        /// The compositor.
+        compositor: &'static str,
+        /// What was asked for.
+        what: &'static str,
+        /// Why asking failed.
+        source: Box<zbus::Error>,
+        /// What it printed.
+        log: String,
+    },
     /// The nested compositor started in a state the session cannot use.
-    #[error("{why} (its log: \"{line}\"); the whole log:\n{log}")]
+    #[error("{why} ({compositor} says \"{line}\"); its log:\n{log}")]
     CompositorUnfit {
         /// The compositor.
         compositor: &'static str,

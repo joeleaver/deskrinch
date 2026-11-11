@@ -29,6 +29,7 @@
 //! The isolation itself (directories, variables, the bus) is
 //! `deskrinch-test-dbus`'s, which the D-Bus tests use too.
 
+mod compositing;
 mod compositor;
 pub(crate) mod interrupt;
 mod leftovers;
@@ -330,34 +331,19 @@ impl Session {
     /// Waits until the compositor owns each of its [`Compositor::bus_names`].
     fn wait_for_bus_names(&self) -> Result<(), Error> {
         for &name in self.compositor.bus_names() {
-            self.bus.wait_for_name(name, STARTUP).map_err(|source| {
-                let log = self.log();
-                match self.compositor.unfit(&log) {
-                    Some((why, line)) => Error::CompositorUnfit {
-                        compositor: self.compositor.name(),
-                        why,
-                        line,
-                        log,
-                    },
-                    None => Error::CompositorNotReady {
-                        compositor: self.compositor.name(),
-                        name,
-                        hint: self.compositor.missing_name_hint(name),
-                        source: Box::new(source),
-                        log,
-                    },
-                }
-            })?;
+            self.bus
+                .wait_for_name(name, STARTUP)
+                .map_err(|source| Error::CompositorNotReady {
+                    compositor: self.compositor.name(),
+                    name,
+                    hint: self.compositor.missing_name_hint(name),
+                    source: Box::new(source),
+                    log: self.log(),
+                })?;
             interrupt::check()?;
         }
-        let log = self.log();
-        if let Some((why, line)) = self.compositor.unfit(&log) {
-            return Err(Error::CompositorUnfit {
-                compositor: self.compositor.name(),
-                why,
-                line,
-                log,
-            });
+        if self.compositor.checks_opengl() {
+            self.check_kwin_compositing(STARTUP)?;
         }
         Ok(())
     }
