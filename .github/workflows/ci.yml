@@ -26,7 +26,7 @@ env:
 jobs:
   fmt:
     name: Formatting
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -36,7 +36,7 @@ jobs:
 
   clippy:
     name: Clippy
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -52,7 +52,7 @@ jobs:
 
   test:
     name: Tests
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     # The property tests bound each case (10 s) and their number (512); this
     # bounds the job as a whole should anything else hang.
     timeout-minutes: 30
@@ -73,7 +73,7 @@ jobs:
 
   deny:
     name: Licences and advisories
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -87,7 +87,7 @@ jobs:
 
   file-length:
     name: Source file length
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,22 +99,24 @@ jobs:
       - run: cargo xtask file-length
 
   # The window-management crate against real compositors, nested and
-  # headless. Ubuntu 24.04's packages are older than a current desktop's
-  # (KWin 5.27, sway 1.9, labwc 0.7), so this checks the protocols as those
-  # versions speak them.
+  # headless: the versions deskrinch targets, as Ubuntu 26.04 packages them.
+  # Each job prints the version it tested.
   compositor-tests:
     name: Compositor tests (${{ matrix.compositor }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     strategy:
       fail-fast: false
       matrix:
         include:
           - compositor: kwin
             packages: kwin-wayland dbus-daemon
+            version: kwin_wayland --version
           - compositor: sway
             packages: sway dbus-daemon
+            version: sway --version
           - compositor: labwc
             packages: labwc dbus-daemon
+            version: labwc --version
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -126,6 +128,8 @@ jobs:
       - uses: ./.github/actions/apt-packages
         with:
           packages: ${{ matrix.packages }}
+      - name: Show the ${{ matrix.compositor }} version tested
+        run: ${{ matrix.version }}
       - run: cargo xtask compositor-tests ${{ matrix.compositor }}
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
         run: cargo test -p xtask --test session --test measure --locked -- --ignored
@@ -137,7 +141,7 @@ jobs:
   # user's systemd instance, and dbus-user-session gives it a user bus.
   systemd-scope-tests:
     name: Systemd scope test
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
