@@ -20,12 +20,12 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::callgrind;
-use super::output::Watch;
 use super::probe::{self, Timing};
 use super::procfs::{self, ThreadSample};
 use super::report::{Run, Unit};
 use crate::error::Error;
 use crate::session::interrupt;
+use deskrinch_test_component::Watch;
 
 /// How often threads are sampled during a show.
 const SAMPLE: Duration = Duration::from_millis(2);
@@ -86,6 +86,7 @@ pub(crate) fn measure(
             dismiss(&mut child, &watch, ask, program, timing, summons)?;
         }
         run.note("load average after the shows", probe::load_average());
+        run.presented = watch.presented();
         Ok(run)
     })();
     probe::stop(&mut child);
@@ -122,6 +123,7 @@ pub(crate) fn measure_instructions(
             );
             dismiss(&mut child, &watch, ask, program, timing, summons)?;
         }
+        run.presented = watch.presented();
         Ok(run)
     })();
     probe::stop(&mut child);

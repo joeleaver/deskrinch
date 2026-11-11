@@ -1,15 +1,13 @@
 //! What the tests share: the launcher binary run and ended, the bus asked
 //! who owns the launcher's name, and waiting.
 
-use std::io::{BufRead, BufReader, Read};
-use std::process::{Child, Command, ExitStatus, Stdio};
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::process::{Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use deskrinch_bus::Bus;
 use deskrinch_launcher::NAME;
 use deskrinch_test_client::Compositor;
+use deskrinch_test_component::{Component, Renderer};
 
 /// How long something that should happen gets.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(30);
@@ -28,114 +26,97 @@ pub(crate) fn in_nested_session() {
     let _compositor = Compositor::current();
 }
 
-/// What a process writes to standard error, as it comes: its presented
-/// frames (rinch's `RINCH_PERF` lines) counted, every other line kept.
-pub(crate) struct Stderr {
-    frames: AtomicU64,
-    lines: Mutex<Vec<String>>,
-}
-
-impl Stderr {
-    /// Reads `stream` on a thread of its own until it ends.
-    pub(crate) fn watch(stream: impl Read + Send + 'static) -> Arc<Self> {
-        let stderr = Arc::new(Self {
-            frames: AtomicU64::new(0),
-            lines: Mutex::new(Vec::new()),
-        });
-        let reader = Arc::clone(&stderr);
-        std::thread::spawn(move || {
-            for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                if line.starts_with("[PERF] frame ") {
-                    reader.frames.fetch_add(1, Ordering::SeqCst);
-                } else {
-                    reader.lines.lock().unwrap().push(line);
-                }
-            }
-        });
-        stderr
-    }
-
-    /// The frames presented so far.
-    pub(crate) fn frames(&self) -> u64 {
-        self.frames.load(Ordering::SeqCst)
-    }
-
-    /// Every line other than a frame's, for a failure's message.
-    pub(crate) fn log(&self) -> String {
-        self.lines.lock().unwrap().join("\n")
-    }
-
-    /// Whether a line other than a frame's has `text` in it.
-    pub(crate) fn said(&self, text: &str) -> bool {
-        self.lines
-            .lock()
-            .unwrap()
-            .iter()
-            .any(|line| line.contains(text))
-    }
-}
-
 /// A launcher this test started; ended when dropped.
 pub(crate) struct Launcher {
-    pub(crate) child: Child,
-    pub(crate) stderr: Arc<Stderr>,
+    /// `None` only while it is dropped.
+    component: Option<Component>,
 }
 
 impl Launcher {
     /// `deskrinch-launcher` with `args`, once it owns the name.
     pub(crate) fn start(args: &[&str]) -> Self {
-        Self::spawn(&mut launcher(args))
+        Self::spawn(launcher(args))
     }
 
     /// `command` (a [`launcher`] command), once it owns the name.
-    pub(crate) fn spawn(command: &mut Command) -> Self {
-        let mut child = command.spawn().unwrap();
-        let stderr = Stderr::watch(child.stderr.take().unwrap());
-        let launcher = Self { child, stderr };
+    pub(crate) fn spawn(command: Command) -> Self {
+        let launcher = Self {
+            component: Some(run(command)),
+        };
         assert!(
-            eventually(|| owner_pid() == Some(launcher.child.id())),
+            eventually(|| owner_pid() == Some(launcher.id())),
             "the launcher did not take its name"
         );
         launcher
     }
 
+    fn component(&self) -> &Component {
+        self.component.as_ref().expect("dropped only once")
+    }
+
+    /// Its process id.
+    pub(crate) fn id(&self) -> u32 {
+        self.component().id()
+    }
+
+    /// The frames it has presented (rinch's `RINCH_PERF` lines).
     pub(crate) fn frames(&self) -> u64 {
-        self.stderr.frames()
+        self.component().watch().frames()
+    }
+
+    /// Waits until it has presented, with the run's renderer.
+    pub(crate) fn wait_presented(&self) {
+        if let Err(why) = self
+            .component()
+            .wait_presented_with(Renderer::of_run(), PATIENCE)
+        {
+            panic!("the launcher: {why}");
+        }
+    }
+
+    /// Its last lines, for a failure's message.
+    pub(crate) fn log(&self) -> String {
+        self.component().watch().tail()
+    }
+
+    /// Whether a line it wrote has `text` in it.
+    pub(crate) fn said(&self, text: &str) -> bool {
+        self.component()
+            .watch()
+            .wait_for_line(Duration::ZERO, |line| line.contains(text))
     }
 }
 
 impl Drop for Launcher {
     fn drop(&mut self) {
-        self.child.kill().ok();
-        self.child.wait().ok();
-        // Its name goes with it, for the next test.
+        // Killed and reaped; its name goes with it, for the next test.
+        drop(self.component.take());
         assert!(eventually(|| owner_pid().is_none()));
     }
 }
 
-/// The launcher binary with `args`, drawing with the software renderer
-/// and logging its frames.
+/// The launcher binary with `args`, for [`run`] or [`Launcher::spawn`].
 pub(crate) fn launcher(args: &[&str]) -> Command {
     let mut command = Command::new(LAUNCHER);
+    command.args(args);
     command
-        .args(args)
-        .env("RINCH_PERF", "1")
-        .env("RINCH_RENDERER", "software")
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::piped());
-    command
+}
+
+/// Starts `command` (a [`launcher`] command) with the run's renderer,
+/// logging its frames; killed when dropped. A launcher it starts in turn
+/// inherits its output, which the component's watch reads too.
+pub(crate) fn run(command: Command) -> Component {
+    Component::start(command, Renderer::of_run()).unwrap()
 }
 
 /// Runs `deskrinch-launcher` with `args` to its end.
 pub(crate) fn client(args: &[&str]) -> ExitStatus {
-    let mut command = Command::new(LAUNCHER);
-    command
-        .args(args)
+    launcher(args)
         .stdin(Stdio::null())
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
-    command.status().unwrap()
+        .stderr(Stdio::null())
+        .status()
+        .unwrap()
 }
 
 /// The process that owns the launcher's name on the session bus.

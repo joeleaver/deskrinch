@@ -14,11 +14,11 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::output::Watch;
 use super::probe::{self, Timing};
 use super::report::{Run, Unit};
 use crate::error::Error;
 use crate::session::interrupt;
+use deskrinch_test_component::Watch;
 
 /// The Valgrind arguments: Callgrind, instruction counts only, one count
 /// for all threads, written to `out` (dumps go to `out.1`, `out.2`, ...).
@@ -112,6 +112,7 @@ fn run_child(
     }
     run.note("load average at the first frame", load);
     run.note("renderer", watch.renderer());
+    run.presented = watch.presented();
     Ok(run)
 }
 

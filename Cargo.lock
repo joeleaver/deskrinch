@@ -975,6 +975,7 @@ dependencies = [
  "deskrinch-icons",
  "deskrinch-settings",
  "deskrinch-test-client",
+ "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-screen",
@@ -1011,6 +1012,9 @@ dependencies = [
  "deskrinch-clock",
  "deskrinch-component",
  "deskrinch-settings",
+ "deskrinch-test-client",
+ "deskrinch-test-component",
+ "deskrinch-test-screen",
  "deskrinch-theme",
  "deskrinch-xdg",
  "rinch",
@@ -1051,6 +1055,13 @@ dependencies = [
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
+]
+
+[[package]]
+name = "deskrinch-test-component"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-client",
 ]
 
 [[package]]
@@ -6352,6 +6363,7 @@ dependencies = [
  "deskrinch-bus",
  "deskrinch-kwin-access",
  "deskrinch-test-client",
+ "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-screen",

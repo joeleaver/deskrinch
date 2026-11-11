@@ -35,6 +35,7 @@ deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-status-notifier = { path = "crates/deskrinch-status-notifier" }
 deskrinch-test-client = { path = "crates/deskrinch-test-client" }
+deskrinch-test-component = { path = "crates/deskrinch-test-component" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
 deskrinch-test-input = { path = "crates/deskrinch-test-input" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }

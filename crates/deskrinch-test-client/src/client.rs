@@ -21,6 +21,10 @@ use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
+use wayland_protocols::xdg::decoration::zv1::client::zxdg_decoration_manager_v1::ZxdgDecorationManagerV1;
+use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::{
+    self, ZxdgToplevelDecorationV1,
+};
 use wayland_protocols::xdg::shell::client::xdg_toplevel::XdgToplevel;
 use wayland_protocols::xdg::shell::client::xdg_wm_base::{self, XdgWmBase};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
@@ -59,6 +63,11 @@ pub struct TestClient {
     queue: QueueHandle<Client>,
     compositor: WlCompositor,
     wm_base: XdgWmBase,
+    /// `xdg-decoration`, where the compositor offers it: each window asks
+    /// to draw its own decorations, that is none, so that it fills what the
+    /// compositor gives it (sway and labwc otherwise draw borders and a
+    /// title bar inside a maximised or tiled window's area).
+    decorations: Option<ZxdgDecorationManagerV1>,
     outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
     infos: Arc<Mutex<HashMap<ObjectId, OutputInfo>>>,
     windows: Windows,
@@ -109,6 +118,7 @@ impl TestClient {
         let wm_base: XdgWmBase = globals.bind(&qh, 1..=1, ()).map_err(Error::Bind)?;
         // Logical sizes, where the compositor offers them (all three do).
         let xdg_outputs: Option<ZxdgOutputManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
+        let decorations: Option<ZxdgDecorationManagerV1> = globals.bind(&qh, 1..=1, ()).ok();
         // The seat, where there is one: windows hear its keyboard and pointer.
         let _seat: Option<WlSeat> = globals.bind(&qh, 1..=7, ()).ok();
         let announced = globals.all();
@@ -144,6 +154,7 @@ impl TestClient {
             queue: qh,
             compositor,
             wm_base,
+            decorations,
             outputs,
             infos,
             windows,
@@ -266,6 +277,11 @@ impl TestClient {
             .wm_base
             .get_xdg_surface(&surface, &self.queue, Arc::clone(&shared));
         let toplevel = xdg_surface.get_toplevel(&self.queue, Arc::clone(&shared));
+        let decoration = self.decorations.as_ref().map(|manager| {
+            let decoration = manager.get_toplevel_decoration(&toplevel, &self.queue, ());
+            decoration.set_mode(zxdg_toplevel_decoration_v1::Mode::ClientSide);
+            decoration
+        });
         toplevel.set_title(title.to_owned());
         toplevel.set_app_id(app_id.to_owned());
         toplevel.set_parent(parent);
@@ -280,6 +296,7 @@ impl TestClient {
             Arc::clone(&self.outputs),
             Arc::clone(&self.windows),
             toplevel,
+            decoration,
             xdg_surface,
             shared,
         );
@@ -357,6 +374,10 @@ impl Dispatch<XdgWmBase, ()> for Client {
 }
 
 delegate_noop!(Client: WlCompositor);
+delegate_noop!(Client: ZxdgDecorationManagerV1);
+// The mode the compositor settles on is its own business: a window asks for
+// client-side decorations and draws none either way.
+delegate_noop!(Client: ignore ZxdgToplevelDecorationV1);
 delegate_noop!(Client: WlShmPool);
 delegate_noop!(Client: ignore WlSurface);
 delegate_noop!(Client: ignore WlShm);

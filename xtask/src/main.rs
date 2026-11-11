@@ -60,6 +60,13 @@ enum Task {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
         compositors: Vec<session::Compositor>,
+        /// The renderers the suites that draw run with: `software`; `gpu`
+        /// (under KWin, failing where the machine has no GPU); or `all`,
+        /// software and, where the machine has a GPU, the GPU under KWin
+        /// (sway and labwc run on pixman, which the GPU renderer cannot
+        /// present on). The run says which it chose, and why.
+        #[arg(long, value_enum, default_value = "all")]
+        renderer: compositor_tests::renderers::Choice,
     },
     /// Run a command in an isolated, nested, headless compositor session.
     #[command(long_about = run_in_session::long_about())]
@@ -117,6 +124,11 @@ enum Task {
         /// environment decides).
         #[arg(long, value_enum)]
         renderer: Option<measure::Renderer>,
+        /// Fail (exit 1), naming what did, unless every run presented with
+        /// this renderer, as rinch's own log lines say: a check that a
+        /// silent fallback, or a change in rinch's wording, is noticed.
+        #[arg(long, value_enum)]
+        expect_renderer: Option<measure::Expected>,
         /// The GPU driver's shader cache at each start.
         #[arg(long, value_enum, default_value = "cold")]
         shader_cache: measure::ShaderCache,
@@ -185,12 +197,16 @@ impl Task {
         match self {
             Self::FileLength => file_length::run(root),
             Self::CiPackages { packages } => ci_packages::run(&packages),
-            Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
+            Self::CompositorTests {
+                compositors,
+                renderer,
+            } => compositor_tests::run(root, &compositors, renderer),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Measure {
                 compositor,
                 runs,
                 renderer,
+                expect_renderer,
                 shader_cache,
                 settle,
                 idle,
@@ -206,6 +222,7 @@ impl Task {
                 compositor,
                 runs,
                 renderer,
+                expect_renderer,
                 shader_cache,
                 settle: Duration::from_secs(settle),
                 idle: Duration::from_secs(idle),

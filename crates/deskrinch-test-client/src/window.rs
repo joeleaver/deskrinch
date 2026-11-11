@@ -13,6 +13,7 @@ use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_shm;
 use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
+use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1;
 use wayland_protocols::xdg::shell::client::xdg_surface::{self, XdgSurface};
 use wayland_protocols::xdg::shell::client::xdg_toplevel::{self, XdgToplevel};
 
@@ -70,6 +71,8 @@ pub struct TestWindow {
     outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
     windows: Windows,
     toplevel: XdgToplevel,
+    /// Its `xdg-decoration` object, where the compositor offers one.
+    decoration: Option<ZxdgToplevelDecorationV1>,
     xdg_surface: XdgSurface,
     pub(crate) shared: Arc<Shared>,
 }
@@ -80,6 +83,7 @@ impl TestWindow {
         outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
         windows: Windows,
         toplevel: XdgToplevel,
+        decoration: Option<ZxdgToplevelDecorationV1>,
         xdg_surface: XdgSurface,
         shared: Arc<Shared>,
     ) -> Self {
@@ -88,6 +92,7 @@ impl TestWindow {
             outputs,
             windows,
             toplevel,
+            decoration,
             xdg_surface,
             shared,
         }
@@ -282,6 +287,10 @@ impl TestWindow {
 impl Drop for TestWindow {
     fn drop(&mut self) {
         lock(&self.windows).remove(&self.shared.surface.id());
+        // Before its toplevel, as the protocol asks.
+        if let Some(decoration) = &self.decoration {
+            decoration.destroy();
+        }
         self.toplevel.destroy();
         self.xdg_surface.destroy();
         self.shared.surface.destroy();
