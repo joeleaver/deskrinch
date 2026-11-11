@@ -18,7 +18,7 @@
 //!   decoded; any other `&` is text.
 //! - Control characters other than line breaks and tabs are dropped.
 
-use crate::text::{self, Lines};
+use deskrinch_untrusted::text::{self, Lines};
 
 /// A tag is looked for within this many bytes of its `<`, so a stray `<`
 /// costs bounded work.

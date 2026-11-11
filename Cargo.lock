@@ -791,6 +791,7 @@ name = "deskrinch-notification-service"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-dbus",
+ "deskrinch-untrusted",
  "futures-core",
  "percent-encoding",
  "proptest",
@@ -854,6 +855,10 @@ dependencies = [
  "rinch",
  "tempfile",
 ]
+
+[[package]]
+name = "deskrinch-untrusted"
+version = "0.1.0"
 
 [[package]]
 name = "deskrinch-watch"

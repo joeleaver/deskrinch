@@ -1,0 +1,12 @@
+[package]
+name = "deskrinch-untrusted"
+description = "The shared rules for an untrusted peer's strings, pixel data and icon names."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

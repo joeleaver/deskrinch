@@ -31,7 +31,7 @@ proptest! {
         data in prop::collection::vec(any::<u8>(), 0..20_000),
     ) {
         let raw = RawImage { width, height, rowstride, has_alpha, bits_per_sample, channels, data: &data };
-        if let Ok(image) = Image::decode(&raw, MAX_SIDE, MAX_BYTES) {
+        if let Ok(image) = decode_image(&raw, MAX_SIDE, MAX_BYTES) {
             prop_assert!((1..=MAX_SIDE).contains(&image.width()));
             prop_assert!((1..=MAX_SIDE).contains(&image.height()));
             let len = image.width() as usize * image.height() as usize * 4;
@@ -65,7 +65,7 @@ proptest! {
             channels: i32::try_from(channels).unwrap(),
             data: &data,
         };
-        let image = Image::decode(&raw, MAX_SIDE, usize::MAX).unwrap();
+        let image = decode_image(&raw, MAX_SIDE, usize::MAX).unwrap();
         for (y, out_row) in image.rgba().chunks(width as usize * 4).enumerate() {
             let in_row = &data[y * stride..y * stride + row];
             for (out_px, in_px) in out_row.chunks(4).zip(in_row.chunks(channels)) {

@@ -90,7 +90,6 @@ mod policy;
 mod props;
 mod request;
 mod service;
-mod text;
 
 pub use capabilities::Capabilities;
 pub use clock::{Clock, ManualClock, SystemClock};

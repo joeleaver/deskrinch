@@ -1,8 +1,8 @@
-//! Bounding and cleaning the plain strings a sender hands over.
+//! Bounding and cleaning the plain strings an untrusted peer hands over.
 
 /// Whether line breaks survive in a cleaned string.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Lines {
+pub enum Lines {
     /// `\n` and `\t` are kept; other control characters are dropped.
     Keep,
     /// `\n` and `\t` become spaces; other control characters are dropped.
@@ -11,7 +11,8 @@ pub(crate) enum Lines {
 
 /// `input` with control characters removed (see [`Lines`]), truncated at a
 /// character boundary to at most `max_bytes` bytes.
-pub(crate) fn clean(input: &str, max_bytes: usize, lines: Lines) -> String {
+#[must_use]
+pub fn clean(input: &str, max_bytes: usize, lines: Lines) -> String {
     let mut out = String::with_capacity(input.len().min(max_bytes));
     push_clean(&mut out, input, max_bytes, lines);
     out
@@ -19,7 +20,7 @@ pub(crate) fn clean(input: &str, max_bytes: usize, lines: Lines) -> String {
 
 /// Appends `input`, cleaned as [`clean`] does, to `out` while `out` stays
 /// within `max_bytes`. Returns `false` once `input` did not fit entirely.
-pub(crate) fn push_clean(out: &mut String, input: &str, max_bytes: usize, lines: Lines) -> bool {
+pub fn push_clean(out: &mut String, input: &str, max_bytes: usize, lines: Lines) -> bool {
     for c in input.chars() {
         let Some(c) = cleaned_char(c, lines) else {
             continue;
@@ -47,7 +48,8 @@ fn cleaned_char(c: char, lines: Lines) -> Option<char> {
 }
 
 /// A non-empty, cleaned, single-line string, or `None` when nothing is left.
-pub(crate) fn non_empty(input: &str, max_bytes: usize) -> Option<String> {
+#[must_use]
+pub fn non_empty(input: &str, max_bytes: usize) -> Option<String> {
     let s = clean(input.trim(), max_bytes, Lines::Join);
     (!s.is_empty()).then_some(s)
 }

@@ -14,7 +14,7 @@ fn raw(width: i32, height: i32, rowstride: i32, has_alpha: bool, data: &[u8]) ->
 
 /// Decodes with at most 64 pixels a side and no lower byte bound.
 fn decode(raw: &RawImage<'_>) -> Result<Image, ImageError> {
-    Image::decode(raw, 64, 64 * 64 * 4)
+    decode_image(raw, 64, 64 * 64 * 4)
 }
 
 #[test]
@@ -23,7 +23,7 @@ fn an_image_over_the_byte_bound_is_refused_before_allocating() {
     // comes before the length check, so nothing is allocated for it.
     let huge = raw(4096, 4096, 4096 * 4, true, &[0; 4]);
     assert_eq!(
-        Image::decode(&huge, 4096, 16 * 1024 * 1024),
+        decode_image(&huge, 4096, 16 * 1024 * 1024),
         Err(ImageError::TooLarge {
             width: 4096,
             height: 4096
@@ -33,7 +33,7 @@ fn an_image_over_the_byte_bound_is_refused_before_allocating() {
     let limits = crate::limits::Limits::default();
     let data = vec![0; 1920 * 1080 * 4];
     let full_hd = raw(1920, 1080, 1920 * 4, true, &data);
-    let image = Image::decode(&full_hd, limits.max_image_side, limits.max_image_bytes).unwrap();
+    let image = decode_image(&full_hd, limits.max_image_side, limits.max_image_bytes).unwrap();
     assert_eq!((image.width(), image.height()), (1920, 1080));
 }
 
@@ -156,7 +156,9 @@ fn references_parse_as_files_or_icon_names() {
     );
     assert_eq!(
         ImageSource::from_reference("dialog-information", 64),
-        Some(ImageSource::Icon(IconName("dialog-information".into())))
+        Some(ImageSource::Icon(
+            IconName::parse("dialog-information").unwrap()
+        ))
     );
 }
 

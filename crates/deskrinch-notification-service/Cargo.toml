@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-untrusted.workspace = true
 futures-core.workspace = true
 percent-encoding.workspace = true
 serde.workspace = true
