@@ -32,7 +32,7 @@
 //! expanded like any other, which is what real files written as
 //! `sh -c "… %%"` expect.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 
@@ -55,8 +55,8 @@ pub enum Target {
 pub struct Fields<'a> {
     /// `%c`: the translated name.
     pub name: &'a str,
-    /// `%i`: the icon, if any.
-    pub icon: Option<&'a str>,
+    /// `%i`: the icon, if any: a name or a path.
+    pub icon: Option<&'a OsStr>,
     /// `%k`: the desktop file.
     pub desktop_file: Option<&'a Path>,
 }

@@ -11,14 +11,26 @@
 //!
 //! # Settings
 //!
-//! The `[panel]` table of deskrinch's configuration
-//! (`$XDG_CONFIG_HOME/deskrinch/config.toml`, over the same file in each of
-//! `$XDG_CONFIG_DIRS`) sets the edge, the height and what the clock shows;
-//! [`settings`] lists the keys, their values and their defaults. The panel
-//! follows the file while it runs ([`config`]): a change moves or resizes
-//! the window, or restarts the clock, without a restart of the panel.
-//! Mistakes are written to standard error with their file, line and
-//! column, and leave the last good settings in place.
+//! The panel reads the `[panel]` table of deskrinch's configuration; its
+//! keys, values and defaults are documented in `deskrinch-settings`
+//! (`deskrinch_settings::panel`), the reference for the configuration file.
+//! The panel follows the file while it runs (`deskrinch-component`'s
+//! `Configuration` and `LiveSettings`): a change moves or resizes the window, or restarts the
+//! clock, without a restart of the panel. Mistakes are reported with their
+//! file, line and column, and leave the last good settings in place.
+//!
+//! # Look
+//!
+//! The shell's one look (`deskrinch-theme`): dark or light as `[general]`
+//! `color-scheme` says, following the desktop's colour scheme by default,
+//! and changing while the panel runs. The panel writes no colour or metric
+//! of its own.
+//!
+//! # Logging
+//!
+//! Through `tracing`, set up first (`deskrinch_component::report::init`):
+//! `RUST_LOG` picks what is shown, `warn` and worse by default, on standard
+//! error, rinch's own messages included.
 //!
 //! # Rendering
 //!
@@ -36,24 +48,27 @@
 //! build has none.
 
 mod bar;
-mod config;
-mod log;
 mod panel;
-mod settings;
 mod surface;
 mod widgets;
 
+use deskrinch_appearance::Bus;
+use deskrinch_component::{Configuration, report};
+use deskrinch_settings::panel::PanelSettings;
+use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 use rinch::prelude::*;
 
 fn main() {
-    let config = config::Config::start(&BaseDirs::from_process());
-    let window = surface::window_props(config.initial.placement());
-    App::new(move |scope| panel::panel(scope, config))
+    // Before the configuration is read, so that its diagnostics are shown.
+    report::init();
+    let configuration = Configuration::start(&BaseDirs::from_process());
+    let live = configuration.follow::<PanelSettings>();
+    let theme = Theme::start(&configuration, Bus::Session);
+    let window = surface::window_props(surface::Placement::of(&live.initial));
+    let first_theme = theme.initial();
+    App::new(move |scope| panel::panel(scope, live, theme))
         .window_props(window)
-        .theme(ThemeProviderProps {
-            dark_mode: true,
-            ..ThemeProviderProps::default()
-        })
+        .theme(first_theme)
         .run();
 }

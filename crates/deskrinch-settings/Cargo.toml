@@ -1,0 +1,16 @@
+[package]
+name = "deskrinch-settings"
+description = "The tables of deskrinch's configuration file: each component's settings type, its defaults and limits, and the list of known tables."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+deskrinch-config.workspace = true
+serde = { workspace = true, features = ["derive"] }
+
+[lints]
+workspace = true

@@ -15,12 +15,32 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deskrinch_clock::{Clock, ClockError, Environment, Event, FormatError, Formatter};
+use deskrinch_clock::{
+    Clock, ClockError, Environment, Event, FormatError, Formatter, Length, Precision, Style,
+};
+use deskrinch_component::report;
+use deskrinch_settings::panel::{ClockSettings, PanelSettings};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
-use crate::log;
-use crate::settings::{ClockSettings, PanelSettings};
+/// How often a clock with `settings` changes.
+fn precision(settings: ClockSettings) -> Precision {
+    if settings.seconds {
+        Precision::Seconds
+    } else {
+        Precision::Minutes
+    }
+}
+
+/// How a clock with `settings` is written, in the user's locale: the time,
+/// or the date (medium length: "10 Nov 2026") and the time.
+fn style(settings: ClockSettings) -> Style {
+    if settings.date {
+        Style::DateTime(Length::Medium, precision(settings))
+    } else {
+        Style::Time(precision(settings))
+    }
+}
 
 /// What the clock shows for `event`: the new text for a tick, nothing for
 /// an error (which is logged).
@@ -28,7 +48,7 @@ fn text_for(event: Event, format: &Formatter) -> Option<String> {
     match event {
         Event::Tick(tick) => Some(format.format(&tick.now)),
         Event::Error(error) => {
-            log::error("clock", &error);
+            report::error("clock", &error);
             None
         }
     }
@@ -40,8 +60,8 @@ fn start(
     settings: ClockSettings,
     text: Signal<String>,
 ) -> Result<Clock, StartError> {
-    let format = Formatter::new(&env.locale(), settings.style())?;
-    let clock = Clock::start(env, settings.precision(), move |event| {
+    let format = Formatter::new(&env.locale(), style(settings))?;
+    let clock = Clock::start(env, precision(settings), move |event| {
         if let Some(shown) = text_for(event, &format) {
             text.send(shown);
         }
@@ -78,7 +98,7 @@ pub(crate) fn ClockWidget() -> NodeHandle {
         follow.borrow_mut().take();
         match start(env.clone(), settings, text) {
             Ok(clock) => *follow.borrow_mut() = Some(clock),
-            Err(error) => log::error("clock", &error),
+            Err(error) => report::error("clock", &error),
         }
     });
     rinch::reactive::on_cleanup(move || drop(running.borrow_mut().take()));
@@ -108,8 +128,24 @@ mod tests {
     }
 
     fn write(posix: &str, settings: ClockSettings) -> Option<String> {
-        let format = Formatter::new(&posix_to_unicode(posix), settings.style()).unwrap();
+        let format = Formatter::new(&posix_to_unicode(posix), style(settings)).unwrap();
         text_for(tick("2026-11-10T13:05:09Z", "CET-1"), &format)
+    }
+
+    #[test]
+    fn maps_the_settings_onto_the_clocks_precision_and_style() {
+        let default = ClockSettings::default();
+        assert_eq!(precision(default), Precision::Minutes);
+        assert_eq!(style(default), Style::Time(Precision::Minutes));
+        let both = ClockSettings {
+            seconds: true,
+            date: true,
+        };
+        assert_eq!(precision(both), Precision::Seconds);
+        assert_eq!(
+            style(both),
+            Style::DateTime(Length::Medium, Precision::Seconds)
+        );
     }
 
     #[test]
@@ -138,7 +174,7 @@ mod tests {
     #[test]
     fn an_error_leaves_the_text_alone() {
         let format =
-            Formatter::new(&posix_to_unicode("C"), ClockSettings::default().style()).unwrap();
+            Formatter::new(&posix_to_unicode("C"), style(ClockSettings::default())).unwrap();
         let error = ClockError::Watch(std::io::Error::other("no inotify"));
         assert_eq!(text_for(Event::Error(error), &format), None);
     }

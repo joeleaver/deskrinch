@@ -23,14 +23,19 @@ publish = false
 bitflags = "2.13.2"
 clap = { version = "4.6.7", features = ["derive"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }
+deskrinch-appearance = { path = "crates/deskrinch-appearance" }
 deskrinch-clock = { path = "crates/deskrinch-clock" }
+deskrinch-component = { path = "crates/deskrinch-component" }
 deskrinch-config = { path = "crates/deskrinch-config" }
 deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
+deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-test-client = { path = "crates/deskrinch-test-client" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
+deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
+deskrinch-theme = { path = "crates/deskrinch-theme" }
 deskrinch-watch = { path = "crates/deskrinch-watch" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
@@ -59,6 +64,8 @@ serde_path_to_error = "0.1.20"
 tempfile = "3.27.0"
 thiserror = "2.0.21"
 toml = { version = "1.2.1", default-features = false }
+# The version rinch logs through.
+tracing = "0.1.44"
 wayland-client = "0.31.15"
 wayland-protocols = "0.32.13"
 wayland-protocols-plasma = "0.3.12"

@@ -53,6 +53,23 @@ impl SearchPath {
     pub fn dirs(&self) -> &[PathBuf] {
         &self.dirs
     }
+
+    /// Whether a theme called `name` is installed: whether one of the
+    /// directories has its `index.theme`, which is what makes a theme by
+    /// the specification. One `stat` per directory; nothing is read.
+    #[must_use]
+    pub fn has_theme(&self, name: &str) -> bool {
+        valid_theme_name(name)
+            && self
+                .dirs
+                .iter()
+                .any(|dir| dir.join(name).join("index.theme").is_file())
+    }
+}
+
+/// Whether `name` can name a theme directory: not empty, not a path.
+fn valid_theme_name(name: &str) -> bool {
+    !(name.is_empty() || name.contains('/') || name == "." || name == "..")
 }
 
 impl Index {
@@ -124,7 +141,7 @@ impl Index {
     }
 
     fn load_theme(&mut self, name: &str, listing: Listing) -> Option<Indexed> {
-        if name.is_empty() || name.contains('/') || name == "." || name == ".." {
+        if !valid_theme_name(name) {
             self.problem(name, None, ProblemKind::InvalidName);
             return None;
         }

@@ -697,6 +697,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-appearance"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-dbus",
+ "deskrinch-test-portal",
+ "futures-core",
+ "thiserror 2.0.21",
+ "zbus",
+]
+
+[[package]]
 name = "deskrinch-clock"
 version = "0.1.0"
 dependencies = [
@@ -708,6 +719,19 @@ dependencies = [
  "rustix",
  "tempfile",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "deskrinch-component"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-config",
+ "deskrinch-settings",
+ "deskrinch-xdg",
+ "rinch",
+ "serde",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]
@@ -787,12 +811,22 @@ dependencies = [
 name = "deskrinch-panel"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-appearance",
  "deskrinch-clock",
- "deskrinch-config",
+ "deskrinch-component",
+ "deskrinch-settings",
+ "deskrinch-theme",
  "deskrinch-xdg",
  "rinch",
- "serde",
  "thiserror 2.0.21",
+]
+
+[[package]]
+name = "deskrinch-settings"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-config",
+ "serde",
 ]
 
 [[package]]
@@ -819,6 +853,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-portal"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-dbus",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zbus",
+]
+
+[[package]]
 name = "deskrinch-test-screen"
 version = "0.1.0"
 dependencies = [
@@ -829,6 +873,21 @@ dependencies = [
  "wayland-protocols",
  "wayland-protocols-wlr",
  "zbus",
+]
+
+[[package]]
+name = "deskrinch-theme"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-appearance",
+ "deskrinch-component",
+ "deskrinch-icons",
+ "deskrinch-settings",
+ "deskrinch-test-dbus",
+ "deskrinch-test-portal",
+ "deskrinch-xdg",
+ "rinch",
+ "tempfile",
 ]
 
 [[package]]
