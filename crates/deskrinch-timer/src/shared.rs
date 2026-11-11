@@ -19,7 +19,9 @@ pub(crate) struct Shared {
 struct State {
     /// The deadlines of the live futures not yet reached, earliest first.
     heap: BinaryHeap<Reverse<(Instant, u64)>>,
-    /// The waker of each live future, by key; `None` until it is polled.
+    /// A slot for each deadline in `heap`, by key, holding its future's
+    /// waker (`None` until it is polled). A slot exists exactly while its
+    /// deadline is in the heap.
     wakers: HashMap<u64, Option<Waker>>,
     next_key: u64,
     /// Handles and futures alive; the thread ends when none is.
@@ -73,15 +75,20 @@ impl Shared {
         key
     }
 
-    /// Future `key` was polled with `waker`.
-    pub(crate) fn set_waker(&self, key: u64, waker: &Waker) {
+    /// Future `key` was polled with `waker`: `true` if its deadline is still
+    /// to come, with `waker` kept to wake it; `false` if the thread has
+    /// already taken the deadline, with nothing kept. Deciding under the
+    /// lock that keeps the waker is what makes a wake-up impossible to lose.
+    pub(crate) fn set_waker(&self, key: u64, waker: &Waker) -> bool {
         let mut state = self.lock();
-        if let Some(slot) = state.wakers.get_mut(&key) {
-            match slot {
-                Some(old) if old.will_wake(waker) => {}
-                _ => *slot = Some(waker.clone()),
-            }
+        let Some(slot) = state.wakers.get_mut(&key) else {
+            return false;
+        };
+        match slot {
+            Some(old) if old.will_wake(waker) => {}
+            _ => *slot = Some(waker.clone()),
         }
+        true
     }
 
     /// Future `key` is gone: its deadline and waker go with it.
@@ -111,7 +118,9 @@ impl Shared {
                     break;
                 }
                 state.heap.pop();
-                if let Some(Some(waker)) = state.wakers.get_mut(&key).map(Option::take) {
+                // The slot goes with the deadline: a later poll finds none and
+                // is ready.
+                if let Some(Some(waker)) = state.wakers.remove(&key) {
                     due.push(waker);
                 }
             }

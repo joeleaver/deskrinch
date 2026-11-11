@@ -152,11 +152,14 @@ impl Future for Sleep {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<()> {
-        if Instant::now() >= self.deadline {
-            return Poll::Ready(());
+        // Whether the deadline has passed is decided under the timer's lock,
+        // with the waker kept in the same step, never from the clock here:
+        // the thread may take the deadline at any moment.
+        if self.shared.set_waker(self.key, cx.waker()) {
+            Poll::Pending
+        } else {
+            Poll::Ready(())
         }
-        self.shared.set_waker(self.key, cx.waker());
-        Poll::Pending
     }
 }
 

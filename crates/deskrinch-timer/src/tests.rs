@@ -60,9 +60,10 @@ impl Wake for Record {
 fn deadlines_fire_in_order() {
     let timer = Timer::start().unwrap();
     let order = Arc::new(Mutex::new(Vec::new()));
-    // All four deadlines are set before any is reached, and all have passed
-    // by the time the thread wakes, so it wakes them as one batch.
-    let base = Instant::now() + ms(50);
+    // All four deadlines are set before any is reached (a second out, so a
+    // stall while setting up cannot overrun them), and the thread wakes
+    // them in deadline order.
+    let base = Instant::now() + Duration::from_secs(1);
     let mut sleeps: Vec<Sleep> = [30, 10, 20, 0]
         .into_iter()
         .map(|offset| {
@@ -90,7 +91,8 @@ fn a_dropped_future_is_never_woken_and_leaves_nothing_behind() {
     let timer = Timer::start().unwrap();
     let count = Arc::new(Count::default());
     let waker = Waker::from(Arc::clone(&count));
-    let mut sleep = timer.sleep(ms(20));
+    // A second out, so a stall cannot make the first poll ready.
+    let mut sleep = timer.sleep(Duration::from_secs(1));
     assert_eq!(
         Pin::new(&mut sleep).poll(&mut Context::from_waker(&waker)),
         Poll::Pending
@@ -98,8 +100,17 @@ fn a_dropped_future_is_never_woken_and_leaves_nothing_behind() {
     assert_eq!(timer.shared.held(), (1, 1));
     drop(sleep);
     assert_eq!(timer.shared.held(), (0, 0));
-    thread::sleep(ms(60));
+    thread::sleep(Duration::from_millis(1500));
     assert_eq!(count.0.load(Ordering::SeqCst), 0);
+}
+
+/// Waits until `done` holds, failing after a generous limit.
+fn eventually(what: &str, done: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !done() {
+        assert!(Instant::now() < deadline, "{what}");
+        thread::sleep(ms(5));
+    }
 }
 
 #[test]
@@ -107,12 +118,38 @@ fn a_polled_sleep_is_woken_once_when_its_deadline_passes() {
     let timer = Timer::start().unwrap();
     let count = Arc::new(Count::default());
     let waker = Waker::from(Arc::clone(&count));
-    let mut sleep = timer.sleep(ms(20));
+    let mut sleep = timer.sleep(Duration::from_secs(1));
     let mut cx = Context::from_waker(&waker);
     assert_eq!(Pin::new(&mut sleep).poll(&mut cx), Poll::Pending);
-    thread::sleep(ms(80));
+    eventually("the sleep was never woken", || {
+        count.0.load(Ordering::SeqCst) >= 1
+    });
+    // And only once.
+    thread::sleep(ms(100));
     assert_eq!(count.0.load(Ordering::SeqCst), 1);
     assert_eq!(Pin::new(&mut sleep).poll(&mut cx), Poll::Ready(()));
+}
+
+#[test]
+fn a_deadline_taken_before_the_first_poll_is_reported_passed_and_keeps_no_waker() {
+    // The race of a poll with the thread, made deterministic: the thread
+    // takes the deadline while nobody has polled, then the poll comes.
+    let timer = Timer::start().unwrap();
+    let key = timer.shared.insert(Instant::now());
+    eventually("the thread never took the deadline", || {
+        timer.shared.held() == (0, 0)
+    });
+    assert!(!timer.shared.set_waker(key, Waker::noop()));
+    assert_eq!(timer.shared.held(), (0, 0));
+    // A deadline still to come keeps its waker.
+    let later = timer
+        .shared
+        .insert(Instant::now() + Duration::from_secs(60));
+    assert!(timer.shared.set_waker(later, Waker::noop()));
+    assert_eq!(timer.shared.held(), (1, 1));
+    timer.shared.remove(key);
+    timer.shared.remove(later);
+    assert_eq!(timer.shared.held(), (0, 0));
 }
 
 #[test]
