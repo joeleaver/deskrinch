@@ -6354,6 +6354,7 @@ dependencies = [
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-screen",
+ "deskrinch-test-wayland",
  "deskrinch-window-management",
  "rustix",
  "serde_json",

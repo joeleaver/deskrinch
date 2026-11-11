@@ -29,14 +29,15 @@
 //! until the picture shows what a test waits for, since a client's commit
 //! reaches the screen a frame or more later.
 //!
-//! The crate's compositor tests check scale 1 and 2 under all three
-//! compositors, and an output rotated under a running client under sway and
-//! labwc only: KWin has no start-up transform, and its output protocol
-//! (`kde_output_device_v2`) cannot be used from `wayland-protocols-plasma`
-//! 0.3.12, because KWin 6.6 sends its modes an event that version does not
-//! know. So under KWin the crate takes `ScreenShot2`'s image as upright
-//! (KWin renders the output's area of its scene), and that is not checked
-//! for a rotated output.
+//! The crate's compositor tests check, under all three compositors, outputs
+//! at scale 1, at scale 2, turned a quarter from the start
+//! (`cargo xtask session --transform 90`), and mirrored and turned
+//! (`--transform flipped-90`): each image upright and unmirrored, at the
+//! turned size, pixel for pixel. Under KWin, whose `ScreenShot2` renders the
+//! output's area of its scene, that image comes upright from KWin itself;
+//! under sway and labwc the crate undoes the transform the protocol reports.
+//! An output turned under a running client is checked under sway and labwc,
+//! which can change one at run time.
 //!
 //! No async runtime is needed: each capture blocks until the compositor
 //! has copied the output, and never longer than [`CAPTURE_PATIENCE`]: a

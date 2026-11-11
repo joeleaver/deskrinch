@@ -7,7 +7,7 @@ use std::process::Command;
 
 use deskrinch_test_dbus::session;
 
-use super::{Scale, Scaling};
+use super::{Outputs, Scaling};
 use crate::error::Error;
 
 /// The KWin socket's name; the wlroots compositors pick their own.
@@ -22,8 +22,8 @@ const OUTPUT_SIZE: (u32, u32) = (1280, 720);
 /// (`applications.menu`, or Plasma's `plasma-applications.menu`). Without
 /// one, on a system with KWin but not Plasma's workspace (Ubuntu 26.04's
 /// `kwin-wayland` on a CI runner; checked here by hiding the menu), KWin
-/// 6.6 logs `"applications.menu" not found` and grants nothing. The session puts this one in its own configuration
-/// directory.
+/// 6.6 logs `"applications.menu" not found` and grants nothing. The session
+/// puts this one in its own configuration directory.
 const APPLICATIONS_MENU: &str = r#"<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
  "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
 <Menu>
@@ -58,10 +58,11 @@ impl Compositor {
         }
     }
 
-    /// The command that starts it with `outputs` outputs side by side, in
-    /// the session whose root is `root` (the caller isolates it), at `scale`
-    /// where it takes a scale at start-up ([`Scaling::StartUp`]).
-    pub(super) fn command(self, root: &Path, outputs: u32, scale: Scale) -> Result<Command, Error> {
+    /// The command that starts it with `outputs` side by side, in the
+    /// session whose root is `root` (the caller isolates it), at their scale
+    /// and transform where it takes them at start-up ([`Scaling::StartUp`]).
+    pub(super) fn command(self, root: &Path, outputs: Outputs) -> Result<Command, Error> {
+        let count = outputs.count;
         match self {
             Self::Kwin => {
                 // No `--xwayland`: KWin then starts neither Xwayland nor the
@@ -75,7 +76,7 @@ impl Compositor {
                         "--no-global-shortcuts",
                         "--no-kactivities",
                     ])
-                    .arg(format!("--output-count={outputs}"))
+                    .arg(format!("--output-count={count}"))
                     .arg(format!("--width={}", OUTPUT_SIZE.0))
                     .arg(format!("--height={}", OUTPUT_SIZE.1));
                 // Not `--scale`, which enlarges the mode instead; the session
@@ -90,20 +91,20 @@ impl Compositor {
             }
             Self::Sway => {
                 // No bar, background, key bindings or `exec` lines: only the
-                // outputs' scale.
+                // outputs' scale and transform.
                 let config = root.join("sway.conf");
-                let contents = if scale.is_one() {
-                    String::new()
-                } else {
-                    format!("output * scale {scale}\n")
-                };
+                let contents = format!(
+                    "output * scale {} transform {}\n",
+                    outputs.scale,
+                    outputs.transform.sway_name()
+                );
                 fs::write(&config, contents).map_err(|source| Error::Io {
                     what: format!("write {}", config.display()),
                     source,
                 })?;
                 let mut command = Command::new("sway");
                 command.arg("--config").arg(&config);
-                wlroots_headless(&mut command, outputs);
+                wlroots_headless(&mut command, count);
                 Ok(command)
             }
             Self::Labwc => {
@@ -121,7 +122,7 @@ impl Compositor {
                     // labwc pushes its environment into the D-Bus and systemd
                     // activation environments on a DRM backend; never here.
                     .env("LABWC_UPDATE_ACTIVATION_ENV", "false");
-                wlroots_headless(&mut command, outputs);
+                wlroots_headless(&mut command, count);
                 Ok(command)
             }
         }

@@ -127,6 +127,11 @@ mod session {
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect();
+        // The tests' guard against the real session reads it.
+        assert_eq!(
+            env.get("DESKRINCH_TEST_COMPOSITOR").copied(),
+            Some(compositor().as_str())
+        );
 
         for real in [
             "DISPLAY",
@@ -210,6 +215,25 @@ mod session {
             assert!(output.status.success(), "scale {scale}: {output:?}");
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert!(stderr.contains(&format!("at scale {scale}")), "{stderr}");
+        }
+    }
+
+    /// As for the scale: the session checks each output's transform, and
+    /// its logical size turned with it, before the command starts.
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn starts_the_command_with_the_transform_asked_for() {
+        for (options, said) in [
+            (&["--transform", "90"][..], "transform 90"),
+            (
+                &["--scale", "2", "--transform", "270"][..],
+                "at scale 2, transform 270",
+            ),
+        ] {
+            let output = session_with(options, &["true"]).output().unwrap();
+            assert!(output.status.success(), "{options:?}: {output:?}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(said), "{stderr}");
         }
     }
 
