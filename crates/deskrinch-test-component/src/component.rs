@@ -103,7 +103,7 @@ impl Component {
     /// [`start`](Self::start) without the nested-session guard, for this
     /// crate's own tests, which start `sh` and `sleep`.
     fn start_unguarded(mut command: Command, renderer: Renderer) -> io::Result<Self> {
-        let filter = format!("warn,rinch=info,{}", log::ADAPTER_DIRECTIVE);
+        let filter = log::rust_log(None);
         let mut child = command
             .env("RINCH_PERF", "1")
             .env("RINCH_RENDERER", renderer.env())

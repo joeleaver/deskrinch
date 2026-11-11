@@ -14,13 +14,19 @@
 /// The `RUST_LOG` directive that makes wgpu name the adapter it chose.
 pub const ADAPTER_DIRECTIVE: &str = "wgpu_core::instance=debug";
 
+/// The `RUST_LOG` directive that lets rinch say it presents with its
+/// software renderer (an `info` line).
+pub const RENDERER_DIRECTIVE: &str = "rinch=info";
+
 /// The `RUST_LOG` for a watched program: the caller's, if any, with the
-/// adapter directive added; otherwise warnings and the directive.
+/// renderer and adapter directives added, so that what presented is always
+/// said; otherwise warnings and the two directives.
 #[must_use]
 pub fn rust_log(callers: Option<&str>) -> String {
+    let said = format!("{RENDERER_DIRECTIVE},{ADAPTER_DIRECTIVE}");
     match callers {
-        Some(filter) if !filter.trim().is_empty() => format!("{filter},{ADAPTER_DIRECTIVE}"),
-        _ => format!("warn,{ADAPTER_DIRECTIVE}"),
+        Some(filter) if !filter.trim().is_empty() => format!("{filter},{said}"),
+        _ => format!("warn,{said}"),
     }
 }
 
@@ -191,11 +197,12 @@ mod tests {
 
     #[test]
     fn rust_log_keeps_the_callers_filter() {
-        assert_eq!(rust_log(None), "warn,wgpu_core::instance=debug");
-        assert_eq!(rust_log(Some(" ")), "warn,wgpu_core::instance=debug");
+        let said = "rinch=info,wgpu_core::instance=debug";
+        assert_eq!(rust_log(None), format!("warn,{said}"));
+        assert_eq!(rust_log(Some(" ")), format!("warn,{said}"));
         assert_eq!(
-            rust_log(Some("info,rinch=debug")),
-            "info,rinch=debug,wgpu_core::instance=debug"
+            rust_log(Some("info,naga=debug")),
+            format!("info,naga=debug,{said}")
         );
     }
 
