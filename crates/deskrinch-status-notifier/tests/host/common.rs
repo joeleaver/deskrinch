@@ -241,9 +241,22 @@ impl ReadDestinations {
         }))
     }
 
-    /// Every destination seen so far.
-    pub(crate) fn seen(&self) -> Vec<String> {
-        self.0.try_iter().collect()
+    /// The destinations of the `count` reads expected, and of any more seen
+    /// while things settle. The monitor passes on what it sees from a
+    /// thread of its own, so a read the host has finished may still be on
+    /// its way here.
+    pub(crate) fn seen(&self, count: usize) -> Vec<String> {
+        let mut seen = Vec::with_capacity(count);
+        while seen.len() < count {
+            match self.0.recv_timeout(PATIENCE) {
+                Ok(destination) => seen.push(destination),
+                Err(_) => return seen,
+            }
+        }
+        while let Ok(destination) = self.0.recv_timeout(QUIET) {
+            seen.push(destination);
+        }
+        seen
     }
 }
 

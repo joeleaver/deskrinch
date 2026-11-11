@@ -1,7 +1,7 @@
 //! Reads: to whom they go, which items a signal reads, and how often.
 
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use deskrinch_status_notifier::Limits;
 
@@ -25,7 +25,7 @@ fn reads_go_to_the_owner_s_unique_name_never_to_a_well_known_one() {
     events.changed();
 
     // A unique name is never activated, so no read can start a service.
-    assert_eq!(reads.seen(), [item.unique_name(), item.unique_name()]);
+    assert_eq!(reads.seen(2), [item.unique_name(), item.unique_name()]);
 }
 
 #[test]
@@ -50,7 +50,7 @@ fn a_well_known_name_moving_to_another_connection_is_read_from_it() {
     second.signal("NewTitle");
     assert_eq!(events.changed().title, "C");
     assert_eq!(
-        reads.seen(),
+        reads.seen(3),
         [
             first.unique_name(),
             second.unique_name(),
@@ -89,7 +89,7 @@ fn a_read_waiting_out_its_interval_goes_to_whoever_owns_the_item_when_it_starts(
     // it holds; the old owner, still connected, is not read again.
     let changed = events.changed();
     assert_eq!((changed.id.clone(), changed.title.as_str()), (id, "B"));
-    assert_eq!(reads.seen(), [first.unique_name(), second.unique_name()]);
+    assert_eq!(reads.seen(2), [first.unique_name(), second.unique_name()]);
     assert_eq!((first.reads(), second.reads()), (1, 1));
     events.quiet();
     assert_eq!(host.handle().items()[0].title, "B");
@@ -145,6 +145,9 @@ fn an_item_signalling_in_a_loop_is_read_at_the_interval() {
     assert_eq!(item.reads(), 1);
 
     // An animated icon: a burst of signals, the last with new properties.
+    // Every read from here on is asked for by one of them, so is scheduled
+    // no sooner than this.
+    let burst = Instant::now();
     item.set(Reply::Properties(properties("B")));
     for _ in 0..50 {
         item.signal("NewIcon");
@@ -153,8 +156,20 @@ fn an_item_signalling_in_a_loop_is_read_at_the_interval() {
     assert_eq!(events.changed().title, "B");
     thread::sleep(interval * 3);
     events.quiet();
-    // One read for the burst, and at most one more asked for while it ran:
-    // nowhere near one a signal.
-    let reads = item.reads();
-    assert!((2..=3).contains(&reads), "{reads} reads");
+
+    // Reads are scheduled at least the interval apart, and each arrives no
+    // sooner than it was scheduled: so the reads since the burst fit
+    // between it and the last one's arrival only that many intervals over.
+    // However long the burst took to send, that is nowhere near one read a
+    // signal. And the burst was read: at least one read since.
+    let times = item.read_times();
+    let since = &times[1..];
+    let last = *since.last().expect("the burst was never read");
+    let fit = 1 + (last - burst).as_millis() / interval.as_millis();
+    assert!(
+        since.len() as u128 <= fit,
+        "{} reads since the burst, {:?} after it; at most {fit} fit",
+        since.len(),
+        last - burst,
+    );
 }

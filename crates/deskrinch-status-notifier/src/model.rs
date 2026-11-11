@@ -285,7 +285,9 @@ impl Model {
     }
 
     /// The bus name `name` is now owned by `new_owner`, or by nobody, as of
-    /// `now`.
+    /// `now`. An item whose owner that already is has nothing new to read:
+    /// the bus's report of a name's owner can arrive after the item, with
+    /// that owner, registered.
     pub(crate) fn owner_changed(
         &mut self,
         name: &str,
@@ -295,7 +297,8 @@ impl Model {
         let mut change = OwnerChange::default();
         if let Some(new_owner) = new_owner {
             let interval = self.limits.min_read_interval;
-            for entry in self.entries.iter_mut().filter(|e| e.target.service == name) {
+            let moved = |e: &&mut Entry| e.target.service == name && e.owner != new_owner;
+            for entry in self.entries.iter_mut().filter(moved) {
                 new_owner.clone_into(&mut entry.owner);
                 change
                     .reads

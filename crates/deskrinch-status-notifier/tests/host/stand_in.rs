@@ -8,11 +8,12 @@
 use std::collections::HashMap;
 use std::future::poll_fn;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Poll, Waker};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
 use futures_core::Stream as _;
 use zbus::fdo::{RequestNameFlags, RequestNameReply};
@@ -72,7 +73,7 @@ pub(crate) struct StandIn {
     connection: Connection,
     path: String,
     reply: Arc<Mutex<Reply>>,
-    reads: Arc<AtomicUsize>,
+    reads: Arc<Mutex<Vec<Instant>>>,
     calls: Receiver<Call>,
     stop: Arc<Stop>,
     thread: Option<JoinHandle<()>>,
@@ -83,7 +84,7 @@ impl StandIn {
     pub(crate) fn start(bus: &PrivateBus, path: &str, reply: Reply) -> Self {
         let connection = bus.client();
         let reply = Arc::new(Mutex::new(reply));
-        let reads = Arc::new(AtomicUsize::new(0));
+        let reads = Arc::new(Mutex::new(Vec::new()));
         let stop = Arc::new(Stop::default());
         let (tx, calls) = mpsc::channel();
         let serve = Serve {
@@ -132,7 +133,12 @@ impl StandIn {
 
     /// How many times its properties were read.
     pub(crate) fn reads(&self) -> usize {
-        self.reads.load(Ordering::SeqCst)
+        self.read_times().len()
+    }
+
+    /// When each read of its properties arrived, in order.
+    pub(crate) fn read_times(&self) -> Vec<Instant> {
+        self.reads.lock().unwrap().clone()
     }
 
     /// Registers with the watcher, passing `service`.
@@ -195,7 +201,7 @@ struct Serve {
     connection: Connection,
     path: String,
     reply: Arc<Mutex<Reply>>,
-    reads: Arc<AtomicUsize>,
+    reads: Arc<Mutex<Vec<Instant>>>,
     calls: Sender<Call>,
     stop: Arc<Stop>,
 }
@@ -235,7 +241,7 @@ impl Serve {
         let body = message.body();
         let call = match (interface.as_deref(), member.as_str()) {
             (Some("org.freedesktop.DBus.Properties"), "GetAll") => {
-                self.reads.fetch_add(1, Ordering::SeqCst);
+                self.reads.lock().unwrap().push(Instant::now());
                 let reply = self.reply.lock().unwrap().clone();
                 if let Reply::Properties(properties) = reply {
                     let message = Message::method_return(&header).build(&properties).unwrap();

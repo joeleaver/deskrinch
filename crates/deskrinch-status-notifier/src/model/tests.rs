@@ -367,6 +367,25 @@ fn a_well_known_name_moving_to_another_owner_is_read_again_from_it() {
 }
 
 #[test]
+fn a_late_report_of_the_owner_an_item_has_asks_for_no_read() {
+    let mut model = model();
+    let first = model
+        .register(target(":1.5"), ":1.5", t(0))
+        .unwrap()
+        .unwrap();
+    // The bus reports :1.5 taking its own name only now, while the first
+    // read is in flight: nothing moved, so nothing more is asked for.
+    let change = model.owner_changed(":1.5", Some(":1.5"), t(10));
+    assert_eq!(change.reads, Vec::<Due>::new());
+    let done = model.read_done(&first.id, ":1.5", read_of(&first.id, "A"), t(20));
+    assert_eq!(done.next, None);
+    // Nor once it has been read.
+    let change = model.owner_changed(":1.5", Some(":1.5"), t(500));
+    assert_eq!(change.reads, Vec::<Due>::new());
+    assert_eq!(model.source(&first.id).unwrap().owner, ":1.5");
+}
+
+#[test]
 fn hosts_are_registered_once_bounded_and_leave_with_their_name() {
     let mut model = Model::new(Limits {
         max_hosts: 1,
