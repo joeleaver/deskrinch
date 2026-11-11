@@ -22,6 +22,11 @@ cargo deny --locked check      # cargo install cargo-deny --locked
 cargo xtask file-length
 ```
 
+CI runs them on Ubuntu 26.04, each job within a time limit. A job that
+fails in its "Install system packages" step with "Package servers
+unreachable" never reached the code: the runner could not reach Ubuntu's
+package servers, and re-running the job is the remedy.
+
 Building rinch, which the panel uses, needs the GTK 3 and libxdo development
 files for its native menus (on Debian and Ubuntu, `libgtk-3-dev` and
 `libxdo-dev`).
