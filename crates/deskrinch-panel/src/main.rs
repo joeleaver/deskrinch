@@ -58,7 +58,10 @@ mod surface;
 mod widgets;
 
 use deskrinch_appearance::Bus;
+use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::{Configuration, report};
+use deskrinch_desktop_entries::Environment;
+use deskrinch_icons::SearchPath;
 use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
@@ -67,12 +70,21 @@ use rinch::prelude::*;
 fn main() {
     // Before the configuration is read, so that its diagnostics are shown.
     report::init();
-    let configuration = Configuration::start(&BaseDirs::from_process());
+    let base_dirs = BaseDirs::from_process();
+    let configuration = Configuration::start(&base_dirs);
     let live = configuration.follow::<PanelSettings>();
     let theme = Theme::start(&configuration, Bus::Session);
     let window = surface::window_props(surface::Placement::of(&live.initial));
     let first_theme = theme.initial();
-    App::new(move |scope| panel::panel(scope, live, theme))
+    let env = Environment::from_process();
+    let parts = panel::Parts {
+        live,
+        theme,
+        installed: Installed::start(&env),
+        icons: Icons::start(SearchPath::new(&base_dirs)),
+        locales: env.locales,
+    };
+    App::new(move |scope| panel::panel(scope, parts))
         .window_props(window)
         .theme(first_theme)
         .run();

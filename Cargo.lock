@@ -1028,13 +1028,18 @@ name = "deskrinch-panel"
 version = "0.1.0"
 dependencies = [
  "deskrinch-appearance",
+ "deskrinch-applications",
  "deskrinch-clock",
  "deskrinch-component",
+ "deskrinch-desktop-entries",
+ "deskrinch-icons",
  "deskrinch-settings",
+ "deskrinch-taskbar",
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-screen",
  "deskrinch-theme",
+ "deskrinch-window-management",
  "deskrinch-xdg",
  "rinch",
  "thiserror 2.0.21",
