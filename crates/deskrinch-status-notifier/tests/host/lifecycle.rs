@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use deskrinch_status_notifier::{Item, Status};
 
-use crate::common::{PrivateBus, WatcherSignals, error_name, start, watcher_property};
+use crate::common::{ListChanges, PrivateBus, WatcherSignals, error_name, start, watcher_property};
 use crate::stand_in::{Reply, StandIn, properties, v};
 
 const NAME: &str = "org.kde.StatusNotifierItem-1-1";
@@ -120,6 +120,28 @@ fn the_watcher_lists_and_announces_items_read_or_not() {
         ("StatusNotifierItemUnregistered".into(), Some(id))
     );
     // The caller never heard of it, so it hears nothing of it leaving.
+    events.quiet();
+}
+
+#[test]
+fn the_item_list_announces_each_change_to_clients_that_cache_it() {
+    let bus = PrivateBus::start();
+    let (_host, events) = start(&bus);
+    let changes = ListChanges::on(&bus);
+    let first = StandIn::start(&bus, "/StatusNotifierItem", Reply::Silent);
+    first.register(&first.unique_name()).unwrap();
+    let first_id = format!("{}/StatusNotifierItem", first.unique_name());
+    assert_eq!(changes.next(), std::slice::from_ref(&first_id));
+
+    let second = StandIn::start(&bus, "/StatusNotifierItem", Reply::Silent);
+    second.register(&second.unique_name()).unwrap();
+    let second_id = format!("{}/StatusNotifierItem", second.unique_name());
+    assert_eq!(changes.next(), [first_id.clone(), second_id.clone()]);
+
+    drop(first);
+    assert_eq!(changes.next(), [second_id]);
+    drop(second);
+    assert_eq!(changes.next(), Vec::<String>::new());
     events.quiet();
 }
 

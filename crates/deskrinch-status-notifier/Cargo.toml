@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 deskrinch-bus.workspace = true
+# The read interval's waits.
+deskrinch-timer.workspace = true
 deskrinch-untrusted.workspace = true
 futures-core.workspace = true
 # `FuturesUnordered`: every item's read runs at once on the tracker's thread,

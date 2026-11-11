@@ -20,6 +20,8 @@ mod lifecycle;
 #[cfg(test)]
 mod names;
 #[cfg(test)]
+mod reads;
+#[cfg(test)]
 mod stand_in;
 #[cfg(test)]
 mod untrusted;

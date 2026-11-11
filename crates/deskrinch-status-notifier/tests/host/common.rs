@@ -1,6 +1,7 @@
 //! A private bus for each test, the host on it, the events it reports, and
 //! the watcher as another client sees it.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
 use std::thread;
@@ -9,7 +10,8 @@ use std::time::Duration;
 use deskrinch_status_notifier::{Bus, Config, Event, Host, Item, ItemId, Limits};
 use futures_core::Stream as _;
 use zbus::message::Type;
-use zbus::{Connection, MatchRule, MessageStream};
+use zbus::wire::OwnedVariant;
+use zbus::{Connection, MatchRule, Message, MessageStream};
 
 /// Long enough for an event that should not come to have arrived.
 pub(crate) const QUIET: Duration = Duration::from_millis(300);
@@ -123,7 +125,7 @@ pub(crate) fn call_watcher(connection: &Connection, method: &str, arg: &str) -> 
 /// The watcher's property `name`, read by another client.
 pub(crate) fn watcher_property<T>(bus: &PrivateBus, name: &str) -> T
 where
-    T: TryFrom<zbus::wire::OwnedVariant>,
+    T: TryFrom<OwnedVariant>,
     T::Error: std::fmt::Debug,
 {
     let reply = zbus::block_on(bus.client().call_method(
@@ -134,7 +136,7 @@ where
         &("org.kde.StatusNotifierWatcher", name),
     ))
     .unwrap();
-    let value: zbus::wire::OwnedVariant = reply.body().deserialize().unwrap();
+    let value: OwnedVariant = reply.body().deserialize().unwrap();
     T::try_from(value).unwrap()
 }
 
@@ -160,31 +162,15 @@ impl WatcherSignals {
     /// Listens on a connection of its own; signals sent after this returns
     /// are all seen.
     pub(crate) fn on(bus: &PrivateBus) -> Self {
-        let connection = bus.client();
         let rule = MatchRule::builder()
             .msg_type(Type::Signal)
             .interface("org.kde.StatusNotifierWatcher")
             .build()
             .unwrap();
-        let mut stream =
-            zbus::block_on(MessageStream::for_match_rule(rule, &connection, None)).unwrap();
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let _connection = connection;
-            zbus::block_on(async move {
-                while let Some(Ok(message)) =
-                    std::future::poll_fn(|cx| std::pin::Pin::new(&mut stream).poll_next(cx)).await
-                {
-                    let header = message.header();
-                    let name = header.member().unwrap().to_string();
-                    let arg = message.body().deserialize::<String>().ok();
-                    if tx.send((name, arg)).is_err() {
-                        return;
-                    }
-                }
-            });
-        });
-        Self(rx)
+        Self(forward(bus.client(), Some(rule), |message| {
+            let name = message.header().member()?.to_string();
+            Some((name, message.body().deserialize::<String>().ok()))
+        }))
     }
 
     pub(crate) fn next(&self) -> WatcherSignal {
@@ -192,4 +178,110 @@ impl WatcherSignals {
             .recv_timeout(PATIENCE)
             .expect("no watcher signal arrived in time")
     }
+}
+
+/// The values of `RegisteredStatusNotifierItems` that `PropertiesChanged`
+/// announces, as a bystander caching the watcher's properties sees them.
+pub(crate) struct ListChanges(Receiver<Vec<String>>);
+
+impl ListChanges {
+    pub(crate) fn on(bus: &PrivateBus) -> Self {
+        let rule = MatchRule::builder()
+            .msg_type(Type::Signal)
+            .interface("org.freedesktop.DBus.Properties")
+            .member("PropertiesChanged")
+            .path("/StatusNotifierWatcher")
+            .build()
+            .unwrap();
+        Self(forward(bus.client(), Some(rule), |message| {
+            let (interface, mut changed, _invalidated): (
+                String,
+                HashMap<String, OwnedVariant>,
+                Vec<String>,
+            ) = message.body().deserialize().ok()?;
+            let list = changed.remove("RegisteredStatusNotifierItems")?;
+            (interface == "org.kde.StatusNotifierWatcher").then(|| list.try_into().unwrap())
+        }))
+    }
+
+    pub(crate) fn next(&self) -> Vec<String> {
+        self.0
+            .recv_timeout(PATIENCE)
+            .expect("no change of the item list was announced in time")
+    }
+}
+
+/// The names every `GetAll` on the bus is addressed to, as a monitor
+/// (`org.freedesktop.DBus.Monitoring`) sees them.
+pub(crate) struct ReadDestinations(Receiver<String>);
+
+impl ReadDestinations {
+    /// Starts monitoring; reads sent after this returns are all seen.
+    pub(crate) fn on(bus: &PrivateBus) -> Self {
+        let connection = bus.client();
+        // The monitor's own stream first, so that nothing after the call is
+        // missed.
+        let stream = MessageStream::from(&connection);
+        zbus::block_on(connection.call_method(
+            Some("org.freedesktop.DBus"),
+            "/org/freedesktop/DBus",
+            Some("org.freedesktop.DBus.Monitoring"),
+            "BecomeMonitor",
+            &(vec!["type='method_call',member='GetAll'"], 0_u32),
+        ))
+        .unwrap();
+        Self(forward_stream(connection, stream, |message| {
+            let header = message.header();
+            if header.message_type() != Type::MethodCall
+                || header.member().map(zbus::names::MemberName::as_str) != Some("GetAll")
+            {
+                return None;
+            }
+            header.destination().map(ToString::to_string)
+        }))
+    }
+
+    /// Every destination seen so far.
+    pub(crate) fn seen(&self) -> Vec<String> {
+        self.0.try_iter().collect()
+    }
+}
+
+/// Forwards what `pick` makes of each message `rule` matches on
+/// `connection` (every message without a rule), from a thread of its own.
+fn forward<T: Send + 'static>(
+    connection: Connection,
+    rule: Option<MatchRule<'static>>,
+    pick: impl Fn(&Message) -> Option<T> + Send + 'static,
+) -> Receiver<T> {
+    let stream = match rule {
+        Some(rule) => {
+            zbus::block_on(MessageStream::for_match_rule(rule, &connection, None)).unwrap()
+        }
+        None => MessageStream::from(&connection),
+    };
+    forward_stream(connection, stream, pick)
+}
+
+fn forward_stream<T: Send + 'static>(
+    connection: Connection,
+    mut stream: MessageStream,
+    pick: impl Fn(&Message) -> Option<T> + Send + 'static,
+) -> Receiver<T> {
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let _connection = connection;
+        zbus::block_on(async move {
+            while let Some(Ok(message)) =
+                std::future::poll_fn(|cx| std::pin::Pin::new(&mut stream).poll_next(cx)).await
+            {
+                if let Some(value) = pick(&message)
+                    && tx.send(value).is_err()
+                {
+                    return;
+                }
+            }
+        });
+    });
+    rx
 }

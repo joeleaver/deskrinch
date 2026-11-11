@@ -1006,6 +1006,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-dbus",
+ "deskrinch-timer",
  "deskrinch-untrusted",
  "futures-core",
  "futures-util",

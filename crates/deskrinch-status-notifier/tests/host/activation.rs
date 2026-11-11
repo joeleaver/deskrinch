@@ -1,6 +1,6 @@
 //! The tray acting on items through the handle.
 
-use deskrinch_status_notifier::{Activation, ItemId, OperationError, Orientation};
+use deskrinch_status_notifier::{Activation, Event, ItemId, OperationError, Orientation};
 
 use crate::common::{PrivateBus, start};
 use crate::stand_in::{Call, Reply, StandIn, properties};
@@ -83,6 +83,26 @@ fn an_item_that_left_cannot_be_activated() {
         host.handle()
             .activate(&id, Activation::Primary { x: 0, y: 0 }, None),
         Err(OperationError::NotFound(id))
+    );
+}
+
+#[test]
+fn after_the_connection_ends_activation_reports_stopped() {
+    let mut bus = PrivateBus::start();
+    let (host, events) = start(&bus);
+    let item = StandIn::start(
+        &bus,
+        "/StatusNotifierItem",
+        Reply::Properties(properties("A")),
+    );
+    item.register(&item.unique_name()).unwrap();
+    let id = events.added().id.clone();
+    bus.kill();
+    assert_eq!(events.next(), Event::Disconnected);
+    assert_eq!(
+        host.handle()
+            .activate(&id, Activation::Primary { x: 0, y: 0 }, None),
+        Err(OperationError::Stopped)
     );
 }
 

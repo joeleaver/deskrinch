@@ -8,13 +8,14 @@
 use std::collections::HashMap;
 use std::future::poll_fn;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Poll, Waker};
 use std::thread::{self, JoinHandle};
 
 use futures_core::Stream as _;
+use zbus::fdo::{RequestNameFlags, RequestNameReply};
 use zbus::message::Type;
 use zbus::wire::{OwnedVariant, Variant};
 use zbus::{Connection, Message, MessageStream};
@@ -71,6 +72,7 @@ pub(crate) struct StandIn {
     connection: Connection,
     path: String,
     reply: Arc<Mutex<Reply>>,
+    reads: Arc<AtomicUsize>,
     calls: Receiver<Call>,
     stop: Arc<Stop>,
     thread: Option<JoinHandle<()>>,
@@ -81,12 +83,14 @@ impl StandIn {
     pub(crate) fn start(bus: &PrivateBus, path: &str, reply: Reply) -> Self {
         let connection = bus.client();
         let reply = Arc::new(Mutex::new(reply));
+        let reads = Arc::new(AtomicUsize::new(0));
         let stop = Arc::new(Stop::default());
         let (tx, calls) = mpsc::channel();
         let serve = Serve {
             connection: connection.clone(),
             path: path.to_owned(),
             reply: Arc::clone(&reply),
+            reads: Arc::clone(&reads),
             calls: tx,
             stop: Arc::clone(&stop),
         };
@@ -96,6 +100,7 @@ impl StandIn {
             connection,
             path: path.to_owned(),
             reply,
+            reads,
             calls,
             stop,
             thread: Some(thread),
@@ -110,6 +115,24 @@ impl StandIn {
     /// Owns the well-known `name`.
     pub(crate) fn own(&self, name: &str) {
         zbus::block_on(self.connection.request_name(name)).unwrap();
+    }
+
+    /// Owns the well-known `name`, letting another connection take it over.
+    pub(crate) fn own_replaceably(&self, name: &str) {
+        let flags = RequestNameFlags::ALLOW_REPLACEMENT | RequestNameFlags::DO_NOT_QUEUE;
+        zbus::block_on(self.connection.request_name_with_flags(name, flags)).unwrap();
+    }
+
+    /// Takes the well-known `name` over from its owner.
+    pub(crate) fn take_over(&self, name: &str) {
+        let flags = RequestNameFlags::REPLACE_EXISTING | RequestNameFlags::DO_NOT_QUEUE;
+        let reply = zbus::block_on(self.connection.request_name_with_flags(name, flags));
+        assert_eq!(reply.unwrap(), RequestNameReply::PrimaryOwner);
+    }
+
+    /// How many times its properties were read.
+    pub(crate) fn reads(&self) -> usize {
+        self.reads.load(Ordering::SeqCst)
     }
 
     /// Registers with the watcher, passing `service`.
@@ -172,6 +195,7 @@ struct Serve {
     connection: Connection,
     path: String,
     reply: Arc<Mutex<Reply>>,
+    reads: Arc<AtomicUsize>,
     calls: Sender<Call>,
     stop: Arc<Stop>,
 }
@@ -211,6 +235,7 @@ impl Serve {
         let body = message.body();
         let call = match (interface.as_deref(), member.as_str()) {
             (Some("org.freedesktop.DBus.Properties"), "GetAll") => {
+                self.reads.fetch_add(1, Ordering::SeqCst);
                 let reply = self.reply.lock().unwrap().clone();
                 if let Reply::Properties(properties) = reply {
                     let message = Message::method_return(&header).build(&properties).unwrap();

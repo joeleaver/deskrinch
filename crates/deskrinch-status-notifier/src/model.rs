@@ -3,20 +3,30 @@
 //!
 //! Every registration is accepted (within the count bounds) and listed. An
 //! item is *pending* until a read of its properties succeeds; only then does
-//! the caller hear of it. A read is started on registration and on each of
-//! the item's `New*` signals; while one is in flight, further signals ask
-//! for one more read after it, never more than one.
+//! the caller hear of it. A read is asked for on registration, on each of
+//! the item's `New*` signals, and when its service moves to another
+//! connection. While one is due or in flight, further requests ask for one
+//! more after it, never more than one, and two reads of one item never
+//! start closer together than [`Limits::min_read_interval`]. Time is given
+//! to the model, which never reads a clock.
+
+mod read;
 
 use std::sync::Arc;
+use std::time::Instant;
 
 use crate::item::{Item, ItemId};
 use crate::limits::Limits;
+pub(crate) use read::Due;
+use read::Reads;
 
 /// Where an item's properties are read, and its methods called.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Target {
     /// The name it registered under: a unique name, or a well-known name
-    /// that the bus routes to its current owner.
+    /// that the bus routes to its current owner. Only calls that expect no
+    /// reply (and start no service) go here; reads go to the owner's
+    /// unique name ([`Due`]).
     pub(crate) service: String,
     pub(crate) path: String,
 }
@@ -34,7 +44,10 @@ pub(crate) enum Change {
 pub(crate) enum Outcome {
     /// The properties, within bounds.
     Read(Box<Item>),
-    /// The item's service has no owner: it left before it was read.
+    /// The connection the read was addressed to does not exist. If it is
+    /// still the item's owner, the item left (unique names are never
+    /// reused); if the owner has changed since, the read is stale and counts
+    /// as failed, and the read that the change asked for follows.
     Gone,
     /// The read failed, timed out or was out of bounds.
     Failed,
@@ -59,16 +72,20 @@ pub(crate) struct OwnerChange {
     /// The changes the caller hears of (removals of items it was told of).
     pub(crate) changes: Vec<Change>,
     /// Items now owned by another connection, to read again.
-    pub(crate) reads: Vec<(ItemId, Target)>,
+    pub(crate) reads: Vec<Due>,
     /// Hosts that left.
     pub(crate) hosts_left: usize,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Read {
-    Idle,
-    Busy,
-    BusyThenAgain,
+/// What [`Model::read_done`] did.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub(crate) struct ReadDone {
+    /// The change the caller hears of.
+    pub(crate) change: Option<Change>,
+    /// The item left before it was read and is no longer registered.
+    pub(crate) unregistered: bool,
+    /// The next read of the item, asked for while this one was in flight.
+    pub(crate) next: Option<Due>,
 }
 
 #[derive(Debug)]
@@ -79,7 +96,19 @@ struct Entry {
     /// the item's signals come from.
     owner: String,
     item: Option<Arc<Item>>,
-    read: Read,
+    reads: Reads,
+}
+
+impl Entry {
+    /// A read of this item, from its owner, no earlier than `at`.
+    fn due(&self, at: Instant) -> Due {
+        Due {
+            id: self.id.clone(),
+            owner: self.owner.clone(),
+            path: self.target.path.clone(),
+            at,
+        }
+    }
 }
 
 /// The registered items, in the order they registered, and the hosts other
@@ -103,14 +132,15 @@ impl Model {
         }
     }
 
-    /// Registers the item at `target`, whose service `owner` owns. `None`
-    /// when it was registered already; otherwise its id and the read to
-    /// start.
+    /// Registers the item at `target`, whose service `owner` owns, at
+    /// `now`. `None` when it was registered already; otherwise its first
+    /// read, due at once.
     pub(crate) fn register(
         &mut self,
         target: Target,
         owner: &str,
-    ) -> Result<Option<(ItemId, Target)>, Refusal> {
+        now: Instant,
+    ) -> Result<Option<Due>, Refusal> {
         let id = ItemId::new(&target.service, &target.path);
         if self.entries.iter().any(|e| e.id == id) {
             return Ok(None);
@@ -122,14 +152,16 @@ impl Model {
         if from_owner >= self.limits.max_items_per_connection {
             return Err(Refusal::PerConnection);
         }
-        self.entries.push(Entry {
-            id: id.clone(),
-            target: target.clone(),
+        let entry = Entry {
+            id,
+            target,
             owner: owner.to_owned(),
             item: None,
-            read: Read::Busy,
-        });
-        Ok(Some((id, target)))
+            reads: Reads::first(now),
+        };
+        let due = entry.due(now);
+        self.entries.push(entry);
+        Ok(Some(due))
     }
 
     /// Registers another host, `service`. `false` when it was already.
@@ -167,32 +199,38 @@ impl Model {
             .map(|e| e.target.clone())
     }
 
-    /// The item at `path` of connection `sender` said something changed:
-    /// the read to start, if one is not already in flight.
-    pub(crate) fn signalled(&mut self, sender: &str, path: &str) -> Option<(ItemId, Target)> {
-        let entry = self
-            .entries
+    /// The object at `path` of connection `sender` said at `now` that
+    /// something changed: a read for every item registered at it (a
+    /// connection may register one object under its unique name and a
+    /// well-known name both), except those with a read due or in flight.
+    pub(crate) fn signalled(&mut self, sender: &str, path: &str, now: Instant) -> Vec<Due> {
+        let interval = self.limits.min_read_interval;
+        self.entries
             .iter_mut()
-            .find(|e| e.owner == sender && e.target.path == path)?;
-        match entry.read {
-            Read::Idle => {
-                entry.read = Read::Busy;
-                Some((entry.id.clone(), entry.target.clone()))
-            }
-            Read::Busy | Read::BusyThenAgain => {
-                entry.read = Read::BusyThenAgain;
-                None
-            }
-        }
+            .filter(|e| e.owner == sender && e.target.path == path)
+            .filter_map(|e| e.reads.ask(now, interval).map(|at| e.due(at)))
+            .collect()
     }
 
-    /// A read of `id` ended with `outcome`: the change the caller hears of,
-    /// whether the item was dropped (it left before it was read), and the
-    /// next read to start.
-    pub(crate) fn read_done(&mut self, id: &ItemId, outcome: Outcome) -> ReadDone {
+    /// A read of `id`, addressed to connection `owner`, ended at `now` with
+    /// `outcome`: the change the caller hears of, whether the item was
+    /// dropped (it left), and the next read.
+    pub(crate) fn read_done(
+        &mut self,
+        id: &ItemId,
+        owner: &str,
+        outcome: Outcome,
+        now: Instant,
+    ) -> ReadDone {
         let mut done = ReadDone::default();
         let Some(index) = self.entries.iter().position(|e| &e.id == id) else {
             return done;
+        };
+        // A connection that is gone but no longer the owner says nothing
+        // about the item.
+        let outcome = match outcome {
+            Outcome::Gone if self.entries[index].owner != owner => Outcome::Failed,
+            outcome => outcome,
         };
         match outcome {
             Outcome::Gone => {
@@ -207,14 +245,9 @@ impl Model {
             Outcome::Read(item) => done.change = self.store(index, *item),
             Outcome::Failed => {}
         }
+        let interval = self.limits.min_read_interval;
         let entry = &mut self.entries[index];
-        entry.read = match entry.read {
-            Read::BusyThenAgain => {
-                done.next = Some((entry.id.clone(), entry.target.clone()));
-                Read::Busy
-            }
-            Read::Idle | Read::Busy => Read::Idle,
-        };
+        done.next = entry.reads.done(now, interval).map(|at| entry.due(at));
         done
     }
 
@@ -242,19 +275,22 @@ impl Model {
         Some(change)
     }
 
-    /// The bus name `name` is now owned by `new_owner`, or by nobody.
-    pub(crate) fn owner_changed(&mut self, name: &str, new_owner: Option<&str>) -> OwnerChange {
+    /// The bus name `name` is now owned by `new_owner`, or by nobody, as of
+    /// `now`.
+    pub(crate) fn owner_changed(
+        &mut self,
+        name: &str,
+        new_owner: Option<&str>,
+        now: Instant,
+    ) -> OwnerChange {
         let mut change = OwnerChange::default();
         if let Some(new_owner) = new_owner {
+            let interval = self.limits.min_read_interval;
             for entry in self.entries.iter_mut().filter(|e| e.target.service == name) {
                 new_owner.clone_into(&mut entry.owner);
-                match entry.read {
-                    Read::Idle => {
-                        entry.read = Read::Busy;
-                        change.reads.push((entry.id.clone(), entry.target.clone()));
-                    }
-                    Read::Busy | Read::BusyThenAgain => entry.read = Read::BusyThenAgain,
-                }
+                change
+                    .reads
+                    .extend(entry.reads.ask(now, interval).map(|at| entry.due(at)));
             }
             return change;
         }
@@ -280,17 +316,6 @@ impl Model {
     fn entry(&self, id: &ItemId) -> Option<&Entry> {
         self.entries.iter().find(|e| &e.id == id)
     }
-}
-
-/// What [`Model::read_done`] did.
-#[derive(Debug, Default, PartialEq, Eq)]
-pub(crate) struct ReadDone {
-    /// The change the caller hears of.
-    pub(crate) change: Option<Change>,
-    /// The item left before it was read and is no longer registered.
-    pub(crate) unregistered: bool,
-    /// The next read of the item, asked for while this one was in flight.
-    pub(crate) next: Option<(ItemId, Target)>,
 }
 
 #[cfg(test)]

@@ -10,12 +10,13 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::thread::{self, JoinHandle};
 
 use deskrinch_bus::Bus;
+use deskrinch_timer::Timer;
 use zbus::Connection;
 use zbus::fdo::{RequestNameFlags, RequestNameReply};
 use zbus::object_server::SignalEmitter;
 
 use crate::dbus::watcher::Watcher;
-use crate::dbus::{HOST_NAME_PREFIX, WATCHER_NAME, WATCHER_PATH, item, streams};
+use crate::dbus::{HOST_NAME_PREFIX, WATCHER_NAME, WATCHER_PATH, streams};
 use crate::item::{Item, ItemId};
 use crate::limits::Limits;
 use crate::model::{Change, Model};
@@ -87,6 +88,9 @@ pub enum StartError {
     /// A thread of the host could not be started.
     #[error("could not start a host thread")]
     Thread(#[source] io::Error),
+    /// The timer that paces the reads could not be started.
+    #[error("could not start the host's timer")]
+    Timer(#[source] deskrinch_timer::StartError),
 }
 
 /// Why an operation on a [`Handle`] did nothing.
@@ -189,6 +193,7 @@ impl Host {
         subscriber: impl Fn(Event) + Send + 'static,
     ) -> Result<Self, StartError> {
         let limits = config.limits;
+        let timer = Timer::start().map_err(StartError::Timer)?;
         let shared = Shared::new(Model::new(limits.clone()));
         let watcher = Watcher {
             shared: Arc::clone(&shared),
@@ -240,7 +245,7 @@ impl Host {
                 .map_err(StartError::Thread)?,
         );
         host.tracker = Some(
-            Tracker::spawn(connection, owners, signals, shared, limits)
+            Tracker::spawn(connection, owners, signals, shared, limits, timer)
                 .map_err(StartError::Thread)?,
         );
         Ok(host)
@@ -251,7 +256,6 @@ impl Host {
     pub fn handle(&self) -> Handle {
         Handle {
             shared: Arc::clone(&self.shared),
-            connection: self.connection.clone(),
         }
     }
 }
@@ -301,7 +305,6 @@ fn host_name() -> String {
 #[derive(Clone)]
 pub struct Handle {
     shared: Arc<Shared>,
-    connection: Connection,
 }
 
 impl std::fmt::Debug for Handle {
@@ -327,8 +330,11 @@ impl Handle {
     /// xdg-activation token the tray obtained for the item to raise a
     /// window with), the item gets `ProvideXdgActivationToken` first. Items
     /// without that method ignore it, as they do in Plasma, which sends it
-    /// the same way. Nothing waits for the item, which may be slow or
-    /// broken.
+    /// the same way.
+    ///
+    /// It never waits on the bus: the call is queued for the host's own
+    /// thread, which sends the calls in the order they were queued and waits
+    /// for no reply. A UI thread may call it.
     ///
     /// # Errors
     ///
@@ -341,13 +347,6 @@ impl Handle {
         activation: Activation,
         activation_token: Option<&str>,
     ) -> Result<(), OperationError> {
-        let target = self.shared.target(id)?;
-        zbus::block_on(item::activate(
-            &self.connection,
-            &target,
-            activation,
-            activation_token,
-        ))
-        .map_err(|_| OperationError::Stopped)
+        self.shared.activate(id, activation, activation_token)
     }
 }

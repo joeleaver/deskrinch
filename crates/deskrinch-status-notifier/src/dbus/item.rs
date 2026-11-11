@@ -1,28 +1,23 @@
 //! Reading an item's properties, and calling its methods.
 
-use zbus::Connection;
 use zbus::message::{Flags, Message};
+use zbus::{Connection, DBusError as _};
 
 use crate::dbus::ITEM_INTERFACE;
 use crate::host::Activation;
-use crate::item::ItemId;
 use crate::limits::Limits;
-use crate::model::{Outcome, Target};
+use crate::model::{Due, Outcome, Target};
 use crate::parse;
 use crate::wire::Properties;
 
-/// Reads the properties of the item `id` at `target`, within `limits`. The
-/// connection's method timeout is the read's.
-pub(crate) async fn read(
-    connection: Connection,
-    id: ItemId,
-    target: Target,
-    limits: Limits,
-) -> (ItemId, Outcome) {
+/// Reads the properties of the item `due` names, within `limits`, from its
+/// owner's unique name: a unique name is never activated, so a read never
+/// starts a service. The connection's method timeout is the read's.
+pub(crate) async fn read(connection: Connection, due: Due, limits: Limits) -> (Due, Outcome) {
     let reply = connection
         .call_method(
-            Some(target.service.as_str()),
-            target.path.as_str(),
+            Some(due.owner.as_str()),
+            due.path.as_str(),
             Some("org.freedesktop.DBus.Properties"),
             "GetAll",
             &(ITEM_INTERFACE,),
@@ -32,22 +27,27 @@ pub(crate) async fn read(
         Ok(reply) if reply.data().len() <= limits.max_reply_bytes => {
             reply.body().deserialize::<Properties>().ok()
         }
-        Err(zbus::Error::MethodError(name, _, _)) if gone(name.as_str()) => {
-            return (id, Outcome::Gone);
-        }
+        Err(error) if gone(&error) => return (due, Outcome::Gone),
         // Too large, timed out, or refused by the item.
         Ok(_) | Err(_) => None,
     };
     let outcome = properties.map_or(Outcome::Failed, |properties| {
-        Outcome::Read(Box::new(parse::item(id.clone(), properties, &limits)))
+        Outcome::Read(Box::new(parse::item(due.id.clone(), properties, &limits)))
     });
-    (id, outcome)
+    (due, outcome)
 }
 
-/// Whether the bus's error for a call says its destination has no owner.
-fn gone(error: &str) -> bool {
+/// Whether the bus's error for a call says its destination does not exist.
+/// zbus hands the bus's standard errors back as `fdo::Error`s, others as
+/// method errors; either way the name decides.
+fn gone(error: &zbus::Error) -> bool {
+    let name = match error {
+        zbus::Error::FDO(error) => error.name().to_string(),
+        zbus::Error::MethodError(name, _, _) => name.to_string(),
+        _ => return false,
+    };
     matches!(
-        error,
+        name.as_str(),
         "org.freedesktop.DBus.Error.ServiceUnknown" | "org.freedesktop.DBus.Error.NameHasNoOwner"
     )
 }

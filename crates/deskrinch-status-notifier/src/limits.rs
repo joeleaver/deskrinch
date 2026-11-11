@@ -23,6 +23,10 @@ pub struct Limits {
     pub max_hosts: usize,
     /// How long one read of an item's properties may take.
     pub read_timeout: Duration,
+    /// The least time between the starts of two reads of one item. An item
+    /// that signals faster (an animated icon, say) is read at this pace,
+    /// with its latest properties.
+    pub min_read_interval: Duration,
     /// Bytes of one reply to the read of an item's properties, as it
     /// arrived; the bus has already received it whole (dbus-daemon bounds a
     /// message to 128 MiB), but nothing larger is decoded.
@@ -51,6 +55,7 @@ impl Default for Limits {
             max_items_per_connection: 16,
             max_hosts: 16,
             read_timeout: Duration::from_secs(5),
+            min_read_interval: Duration::from_millis(100),
             max_reply_bytes: 4 * 1024 * 1024,
             max_text_bytes: 256,
             max_description_markup_bytes: 16 * 1024,

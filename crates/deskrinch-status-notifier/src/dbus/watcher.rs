@@ -9,7 +9,7 @@ use zbus::names::{BusName, UniqueName};
 use zbus::object_server::SignalEmitter;
 use zbus::wire::ObjectPath;
 
-use crate::dbus::DEFAULT_ITEM_PATH;
+use crate::dbus::{DEFAULT_ITEM_PATH, WATCHER_PATH};
 use crate::host::shared::Shared;
 use crate::model::Target;
 
@@ -59,6 +59,9 @@ impl Watcher {
             // Sending fails only when the connection is gone, and then
             // nobody is left to hear it.
             let _sent = Self::status_notifier_item_registered(&emitter, id.as_str()).await;
+            let _sent = self
+                .registered_status_notifier_items_changed(&emitter)
+                .await;
         }
         Ok(())
     }
@@ -87,7 +90,7 @@ impl Watcher {
     }
 
     /// Every registered item, as `<service><path>`, whether or not this
-    /// host has read it yet.
+    /// host has read it yet. `PropertiesChanged` announces each change.
     #[zbus(property)]
     fn registered_status_notifier_items(&self) -> Vec<String> {
         self.shared.registered()
@@ -95,7 +98,7 @@ impl Watcher {
 
     /// Always true: this process is a host for as long as it serves the
     /// watcher.
-    #[zbus(property)]
+    #[zbus(property(emits_changed_signal = "const"))]
     #[expect(
         clippy::unused_self,
         reason = "zbus serves a property through a method of the object"
@@ -105,7 +108,7 @@ impl Watcher {
     }
 
     /// The protocol version; 0, as Plasma's watcher reports.
-    #[zbus(property)]
+    #[zbus(property(emits_changed_signal = "const"))]
     #[expect(
         clippy::unused_self,
         reason = "zbus serves a property through a method of the object"
@@ -182,4 +185,24 @@ async fn owner(connection: &Connection, service: &str) -> fdo::Result<String> {
         .await
         .map_err(|_| fdo::Error::ServiceUnknown(format!("{service} has no owner")))?;
     Ok(reply.body().deserialize::<String>()?)
+}
+
+/// Announces that `RegisteredStatusNotifierItems` changed, for an
+/// unregistration found outside the watcher's own methods.
+pub(crate) async fn items_changed(connection: &Connection) {
+    // The watcher is served for as long as the connection is open; the
+    // lookup and the signal fail only once it has closed, with nobody left
+    // to hear.
+    let Ok(watcher) = connection
+        .object_server()
+        .interface::<_, Watcher>(WATCHER_PATH)
+        .await
+    else {
+        return;
+    };
+    let _sent = watcher
+        .get()
+        .await
+        .registered_status_notifier_items_changed(watcher.signal_emitter())
+        .await;
 }

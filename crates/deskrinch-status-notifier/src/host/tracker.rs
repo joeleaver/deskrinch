@@ -1,6 +1,7 @@
 //! The tracker thread: follows names changing owner and items' signals,
-//! runs every read at once, and turns what happens into the model's
-//! changes, the subscriber's events and the watcher's signals.
+//! runs every read at once (each no sooner than its item's read interval
+//! allows), sends the handles' calls, and turns what happens into the
+//! model's changes, the subscriber's events and the watcher's signals.
 
 use std::future::{Future, poll_fn};
 use std::io;
@@ -8,19 +9,20 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::thread::{self, JoinHandle};
+use std::time::Instant;
 
+use deskrinch_timer::Timer;
 use futures_core::Stream;
 use futures_util::stream::FuturesUnordered;
 use zbus::object_server::SignalEmitter;
 use zbus::{Connection, Message, MessageStream};
 
-use crate::dbus::watcher::Watcher;
+use crate::dbus::watcher::{self, Watcher};
 use crate::dbus::{WATCHER_PATH, item, streams};
-use crate::host::Event;
-use crate::host::shared::Shared;
+use crate::host::shared::{Shared, Work};
 use crate::item::ItemId;
 use crate::limits::Limits;
-use crate::model::{Outcome, Target};
+use crate::model::{Due, Outcome};
 
 /// The tracker's thread, stopped and joined when dropped.
 pub(super) struct Tracker {
@@ -35,11 +37,13 @@ impl Tracker {
         signals: MessageStream,
         shared: Arc<Shared>,
         limits: Limits,
+        timer: Timer,
     ) -> io::Result<Self> {
         let state = State {
             connection,
             shared: Arc::clone(&shared),
             limits,
+            timer,
         };
         let thread = thread::Builder::new()
             .name("status-notifier-tracker".into())
@@ -62,14 +66,14 @@ impl Drop for Tracker {
     }
 }
 
-type Read = Pin<Box<dyn Future<Output = (ItemId, Outcome)> + Send>>;
+type Read = Pin<Box<dyn Future<Output = (Due, Outcome)> + Send>>;
 
 /// What woke the tracker.
 enum Step {
     Stop,
     Disconnected,
-    Start(Vec<(ItemId, Target)>),
-    Done(ItemId, Outcome),
+    Work(Work),
+    Done(Due, Outcome),
     Owner(Message),
     Signal(Message),
     Nothing,
@@ -79,6 +83,7 @@ struct State {
     connection: Connection,
     shared: Arc<Shared>,
     limits: Limits,
+    timer: Timer,
 }
 
 impl State {
@@ -100,52 +105,78 @@ impl State {
                 )
             })
             .await;
-            let started = match step {
+            let due = match step {
                 Step::Stop => return,
                 Step::Disconnected => {
-                    self.shared.report([], Some(Event::Disconnected));
+                    self.shared.disconnected();
                     return;
                 }
-                Step::Start(started) => started,
-                Step::Done(id, outcome) => self.read_done(&id, outcome).await,
+                Step::Work(work) => self.work(work).await,
+                Step::Done(due, outcome) => self.read_done(&due, outcome).await,
                 Step::Owner(message) => self.owner_changed(&message).await,
-                Step::Signal(message) => streams::item_signal(&message)
-                    .and_then(|(sender, path)| {
-                        self.shared.with_model(|m| m.signalled(&sender, &path))
-                    })
-                    .into_iter()
-                    .collect(),
+                Step::Signal(message) => match streams::item_signal(&message) {
+                    Some((sender, path)) => self
+                        .shared
+                        .with_model(|m| m.signalled(&sender, &path, Instant::now())),
+                    None => Vec::new(),
+                },
                 Step::Nothing => Vec::new(),
             };
-            for (id, target) in started {
-                reads.push(Box::pin(item::read(
-                    self.connection.clone(),
-                    id,
-                    target,
-                    self.limits.clone(),
-                )));
+            for due in due {
+                reads.push(self.read(due));
             }
         }
     }
 
+    /// The read `due`, once its time has come.
+    fn read(&self, due: Due) -> Read {
+        let wait = (due.at > Instant::now()).then(|| self.timer.sleep_until(due.at));
+        let connection = self.connection.clone();
+        let limits = self.limits.clone();
+        Box::pin(async move {
+            if let Some(wait) = wait {
+                wait.await;
+            }
+            item::read(connection, due, limits).await
+        })
+    }
+
+    /// Sends the handles' calls, in order; the reads asked for.
+    async fn work(&self, work: Work) -> Vec<Due> {
+        for call in work.calls {
+            // Sending fails only when the connection is gone, which the end
+            // of the owners' stream reports.
+            let _sent = item::activate(
+                &self.connection,
+                &call.target,
+                call.activation,
+                call.token.as_deref(),
+            )
+            .await;
+        }
+        work.reads
+    }
+
     /// Applies a finished read; the next read of the item, if one is due.
-    async fn read_done(&self, id: &ItemId, outcome: Outcome) -> Vec<(ItemId, Target)> {
-        let done = self.shared.with_model(|m| m.read_done(id, outcome));
+    async fn read_done(&self, due: &Due, outcome: Outcome) -> Vec<Due> {
+        let done = self
+            .shared
+            .with_model(|m| m.read_done(&due.id, &due.owner, outcome, Instant::now()));
         if done.unregistered {
-            self.unregistered(std::slice::from_ref(id), 0).await;
+            self.unregistered(std::slice::from_ref(&due.id), 0).await;
         }
         self.shared.report(done.change, None);
         done.next.into_iter().collect()
     }
 
     /// Applies a `NameOwnerChanged`; the reads it calls for.
-    async fn owner_changed(&self, message: &Message) -> Vec<(ItemId, Target)> {
+    async fn owner_changed(&self, message: &Message) -> Vec<Due> {
         let Some((name, new_owner)) = streams::owner_change(message) else {
             return Vec::new();
         };
         let change = self
             .shared
-            .with_model(|m| m.owner_changed(&name, new_owner.as_deref()));
+            .with_model(|m| m.owner_changed(&name, new_owner.as_deref(), Instant::now()));
         self.unregistered(&change.unregistered, change.hosts_left)
             .await;
         self.shared.report(change.changes, None);
@@ -161,6 +192,9 @@ impl State {
         // the end of the owners' stream reports.
         for id in items {
             let _sent = Watcher::status_notifier_item_unregistered(&emitter, id.as_str()).await;
+        }
+        if !items.is_empty() {
+            watcher::items_changed(&self.connection).await;
         }
         for _ in 0..hosts {
             let _sent = Watcher::status_notifier_host_unregistered(&emitter).await;
@@ -179,12 +213,12 @@ fn poll_sources(
     signals: &mut MessageStream,
 ) -> Poll<Step> {
     if let Poll::Ready(asked) = shared.poll_inbox(cx) {
-        return Poll::Ready(asked.map_or(Step::Stop, Step::Start));
+        return Poll::Ready(asked.map_or(Step::Stop, Step::Work));
     }
     for source in 0..3 {
         let step = match (turn + source) % 3 {
             0 => match Pin::new(&mut *reads).poll_next(cx) {
-                Poll::Ready(Some((id, outcome))) => Some(Step::Done(id, outcome)),
+                Poll::Ready(Some((due, outcome))) => Some(Step::Done(due, outcome)),
                 // No read in flight; the inbox wakes the tracker for more.
                 Poll::Ready(None) | Poll::Pending => None,
             },

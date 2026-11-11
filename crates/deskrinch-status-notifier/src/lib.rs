@@ -12,9 +12,12 @@
 //!
 //! - **The watcher.** It owns `org.kde.StatusNotifierWatcher` and serves it
 //!   at `/StatusNotifierWatcher`: items register with it, other hosts too,
-//!   and it lists and announces them. Every registration whose service
-//!   exists is accepted and listed, as Plasma's watcher does; whether an
-//!   item is fit to show is the host's concern.
+//!   and it lists and announces them (`RegisteredStatusNotifierItems`
+//!   sends `PropertiesChanged` at each change, for clients that cache it).
+//!   Every registration whose service exists is accepted and listed, as
+//!   Plasma's watcher does, including one made from another connection
+//!   (xembedsniproxy registers that way); whether an item is fit to show is
+//!   the host's concern.
 //! - **The host.** It owns `org.kde.StatusNotifierHost-<pid>-<n>`, reads
 //!   each registered item's properties, follows the signals that say they
 //!   changed, and follows each item's service until it has no owner.
@@ -29,8 +32,14 @@
 //!   time. Until then it is *pending*: listed by the watcher, but unknown
 //!   to the caller. A read happens on registration, on each of the item's
 //!   `New*` signals (each one is another chance for a pending item), and
-//!   when its service moves to another connection. Signals that arrive
-//!   while a read is in flight ask for one more read after it, never more.
+//!   when its service moves to another connection. A signal reads every
+//!   item registered at the object it came from (one connection may
+//!   register an object under both its unique name and a well-known one).
+//!   Signals that arrive while a read is in flight ask for one more read
+//!   after it, never more, and two reads of one item start no closer
+//!   together than [`Limits::min_read_interval`]: an item that signals in a
+//!   loop (an animated icon) is read at that pace, with its latest
+//!   properties.
 //! - **Changed** ([`Event::Changed`]): a later read found different
 //!   properties.
 //! - **Removed** ([`Event::Removed`]): the item's service has no owner any
@@ -42,6 +51,18 @@
 //! `ProvideXdgActivationToken`, to every item: as in Plasma, nothing asks
 //! the item whether it has that method, and an item without it ignores the
 //! call, which expects no reply. This crate never fetches tokens itself.
+//! `activate` never waits on the bus: the host's own thread sends the
+//! calls, in order, so a UI thread may call it.
+//!
+//! # Whom a call goes to
+//!
+//! Every call that expects a reply (reading the properties now, the menu's
+//! calls to come) goes to the unique name of the connection that owns the
+//! item. The bus never activates a unique name, so no read can start a
+//! service, even for an item registered under a well-known name that has a
+//! service file and has just left. Calls that expect no reply (the
+//! activations) go to the name the item registered and carry
+//! `NO_AUTO_START`, which says the same to the bus.
 //!
 //! # Untrusted input
 //!
@@ -49,13 +70,14 @@
 //! and per connection. A read must arrive within its timeout and its reply
 //! within its size, or it is refused as a whole: a pending item stays
 //! pending, costing only its entry, and a reported one keeps what was last
-//! read. Reads run concurrently, so a slow item delays only itself.
+//! read. Reads run concurrently, so a slow item delays only itself, and
+//! each item is read no more often than its read interval allows.
 //! Properties are decoded straight into their types; one of the wrong type
 //! reads as absent. Strings are cleaned of control characters and bounded,
 //! a tooltip's markup is parsed into plain text with no tags or entities
-//! left in it, icon names checked to be names and not paths, pixmaps validated (their
-//! data must match their size, within bounds) and decoded to RGBA. Calls to
-//! items expect no reply and start no service.
+//! left in it, icon names checked to be names and not paths, and pixmaps
+//! validated (their data must match their size, within bounds) and decoded
+//! to RGBA.
 //!
 //! # What real items send
 //!
