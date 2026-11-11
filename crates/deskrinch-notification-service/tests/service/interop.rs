@@ -1,6 +1,6 @@
 //! A real-world client, libnotify's `notify-send`, against the service.
 
-use std::process::{Child, Command, Output, Stdio};
+use std::process::{Child, Output, Stdio};
 use std::sync::mpsc;
 use std::thread;
 
@@ -100,27 +100,19 @@ fn notify_send_replaces_by_id() {
     }
 }
 
-/// Whether this `notify-send` can print the activation token: the option is
-/// newer than some distributions' libnotify (Ubuntu 24.04 has 0.8.3).
-fn reads_activation_tokens() -> bool {
-    let help = Command::new("notify-send")
-        .arg("--help")
-        .output()
-        .expect("notify-send (libnotify) must be installed to run these tests");
-    String::from_utf8_lossy(&help.stdout).contains("--activation-token-fd")
-}
-
 #[test]
 fn notify_send_hears_the_invoked_action_and_its_token() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let with_token = reads_activation_tokens();
-    let mut args = vec!["--action=reply=Reply", "--action=later=Later"];
-    if with_token {
-        args.push("--activation-token-fd=1");
-    }
-    args.push("Question");
-    let child = notify_send(&bus, &args);
+    let child = notify_send(
+        &bus,
+        &[
+            "--action=reply=Reply",
+            "--action=later=Later",
+            "--activation-token-fd=1",
+            "Question",
+        ],
+    );
     let n = events.next_shown();
     let keys: Vec<_> = n.actions.iter().map(|a| a.key.as_str()).collect();
     assert_eq!(keys, ["reply", "later"]);
@@ -132,9 +124,8 @@ fn notify_send_hears_the_invoked_action_and_its_token() {
     let printed = stdout(&output);
     let lines: Vec<_> = printed.lines().collect();
     assert!(lines.contains(&"reply"), "notify-send printed {printed:?}");
-    assert_eq!(
+    assert!(
         printed.contains("token-from-the-ui"),
-        with_token,
         "notify-send printed {printed:?}"
     );
     assert_eq!(
