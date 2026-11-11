@@ -4,9 +4,13 @@ A Wayland desktop built on [rinch](https://github.com/joeleaver/rinch): a shell
 first (panel, launcher, notifications on `wlr-layer-shell`, running under KWin),
 then a smithay-based compositor.
 
-Early days: the libraries the shell rests on, a panel (`deskrinch-panel`),
-and the launcher's process (`deskrinch-launcher`: `deskrinch-launcher toggle`
-from a key binding shows and hides it; its view is still to come).
+Early days: the libraries the shell rests on, a panel (`deskrinch-panel`:
+the taskbar and the clock), and the launcher (`deskrinch-launcher`:
+`deskrinch-launcher toggle` from a key binding shows and hides it). Under
+KWin the taskbar lists windows only once KWin has granted the panel its
+window-management interface, which an installed desktop file does
+(`deskrinch-kwin-access`); until deskrinch installs one, the taskbar is
+empty there, and says why in the log.
 
 The configuration file, `~/.config/deskrinch/config.toml`, is documented in
 the `deskrinch-settings` crate (`cargo doc -p deskrinch-settings --open`).

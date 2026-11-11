@@ -1,13 +1,25 @@
 //! `deskrinch-panel`: the desktop panel, a bar along an edge of the output
-//! that windows keep clear of, with the clock at its right end.
+//! that windows keep clear of, with the taskbar and, at its end, the clock.
 //!
 //! - The window is a `wlr-layer-shell` surface (see [`surface`]): the full
 //!   width of the output, along its bottom or top edge, reserving its
 //!   height. rinch makes it one through `WindowProps::wayland_layer`; on a
 //!   compositor without the layer shell (GNOME) rinch falls back to an
 //!   ordinary window, with a warning.
-//! - The content is the [`bar`]: left, centre and right regions holding
-//!   [`widgets`].
+//! - The content is the [`bar`]: the taskbar, taking the room the other
+//!   [`widgets`] leave, and the end region with the clock.
+//!
+//! # The taskbar
+//!
+//! A button for each open window, in the order they opened, with its
+//! application's icon and its title cut to fit; the rules are
+//! `deskrinch-taskbar`'s, and the widget is [`widgets`]' `taskbar`. The
+//! windows come from `deskrinch-window-management`, over a Wayland
+//! connection of its own: the wlroots protocol, or KWin's, which KWin
+//! offers only to a program it has granted it to by an installed desktop
+//! file (`deskrinch-kwin-access`). Without a window list (not granted, or
+//! a compositor that offers none) the taskbar is empty, and says why once
+//! in the log; so it does when the compositor stops reporting windows.
 //!
 //! # Settings
 //!
@@ -15,8 +27,8 @@
 //! keys, values and defaults are documented in `deskrinch-settings`
 //! (`deskrinch_settings::panel`), the reference for the configuration file.
 //! The panel follows the file while it runs (`deskrinch-component`'s
-//! `Configuration` and `LiveSettings`): a change moves or resizes the window, or restarts the
-//! clock, without a restart of the panel. Mistakes are reported with their
+//! `Configuration` and `LiveSettings`): a change moves or resizes the
+//! window, or restarts the clock, without a restart of the panel. Mistakes are reported with their
 //! file, line and column, and leave the last good settings in place.
 //!
 //! # Look
