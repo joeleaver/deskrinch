@@ -60,6 +60,13 @@ enum Task {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
         compositors: Vec<session::Compositor>,
+        /// The renderers the suites that draw run with: `software`; `gpu`
+        /// (under KWin, failing where the machine has no GPU); or `all`,
+        /// software and, where the machine has a GPU, the GPU under KWin
+        /// (sway and labwc run on pixman, which the GPU renderer cannot
+        /// present on). The run says which it chose, and why.
+        #[arg(long, value_enum, default_value = "all")]
+        renderer: compositor_tests::renderers::Choice,
     },
     /// Run a command in an isolated, nested, headless compositor session.
     #[command(long_about = run_in_session::long_about())]
@@ -190,7 +197,10 @@ impl Task {
         match self {
             Self::FileLength => file_length::run(root),
             Self::CiPackages { packages } => ci_packages::run(&packages),
-            Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
+            Self::CompositorTests {
+                compositors,
+                renderer,
+            } => compositor_tests::run(root, &compositors, renderer),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Measure {
                 compositor,

@@ -16,11 +16,13 @@
 //! run last.
 
 mod build;
+pub(crate) mod renderers;
 mod suites;
 
 use std::path::{Path, PathBuf};
 
 use deskrinch_kwin_access::DesktopEntry;
+use deskrinch_test_component::RENDERER_VARIABLE;
 
 use self::build::Target;
 use self::suites::{Pass, SUITES, Suite};
@@ -28,8 +30,23 @@ use crate::Outcome;
 use crate::error::Error;
 use crate::session::{Compositor, Session};
 
-/// Runs the tests in each of `compositors` (all of them when empty).
-pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Error> {
+/// Runs the tests in each of `compositors` (all of them when empty), the
+/// suites that render once per renderer `renderers` asks for.
+pub(crate) fn run(
+    root: &Path,
+    compositors: &[Compositor],
+    renderers: renderers::Choice,
+) -> Result<Outcome, Error> {
+    let plan = match renderers::Plan::for_machine(renderers) {
+        Ok((plan, said)) => {
+            println!("compositor-tests: {said}");
+            plan
+        }
+        Err(why) => {
+            eprintln!("compositor-tests: {why}");
+            return Ok(Outcome::Failed);
+        }
+    };
     let compositors = if compositors.is_empty() {
         &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc][..]
     } else {
@@ -55,7 +72,7 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
         for pass in Pass::ALL {
             let outputs = pass.outputs();
             println!("compositor-tests: {} with {outputs}", compositor.name());
-            if !run_in(compositor, pass, &binaries)? {
+            if !run_in(compositor, pass, &plan, &binaries)? {
                 failed.push(format!("{} with {outputs}", compositor.name()));
             }
         }
@@ -72,7 +89,12 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
 /// Runs the suites meant for `compositor` in `pass` in one fresh session;
 /// `binaries` are [`SUITES`]' binaries. Returns whether they passed; on
 /// failure, prints the compositor's log.
-fn run_in(compositor: Compositor, pass: Pass, binaries: &[PathBuf]) -> Result<bool, Error> {
+fn run_in(
+    compositor: Compositor,
+    pass: Pass,
+    plan: &renderers::Plan,
+    binaries: &[PathBuf],
+) -> Result<bool, Error> {
     let session = Session::start(
         compositor,
         pass.outputs(),
@@ -87,11 +109,24 @@ fn run_in(compositor: Compositor, pass: Pass, binaries: &[PathBuf]) -> Result<bo
         if !suite.compositors.contains(&compositor) || !suite.passes.contains(&pass) {
             continue;
         }
-        println!(
-            "compositor-tests: {} {}",
-            suite.target.package, suite.target.test
-        );
-        passed &= session.run_tests(binary, suite.filter)?;
+        if !suite.renders {
+            println!(
+                "compositor-tests: {} {}",
+                suite.target.package, suite.target.test
+            );
+            passed &= session.run_tests(binary, suite.filter, &[])?;
+            continue;
+        }
+        for renderer in plan.under(compositor) {
+            println!(
+                "compositor-tests: {} {} with the {} renderer",
+                suite.target.package,
+                suite.target.test,
+                renderer.env()
+            );
+            let env = [(RENDERER_VARIABLE, renderer.env())];
+            passed &= session.run_tests(binary, suite.filter, &env)?;
+        }
     }
     if !passed {
         eprintln!(

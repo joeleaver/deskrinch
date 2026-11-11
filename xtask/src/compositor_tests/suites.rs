@@ -79,6 +79,10 @@ pub(super) struct Suite {
     pub(super) compositors: &'static [Compositor],
     /// The sessions it runs in, by how their outputs are.
     pub(super) passes: &'static [Pass],
+    /// Whether it draws with rinch, and so runs once per renderer the run
+    /// tests ([`super::renderers`]), told which in
+    /// `DESKRINCH_TEST_RENDERER`.
+    pub(super) renders: bool,
     /// The libtest arguments it runs with.
     pub(super) filter: &'static [&'static str],
 }
@@ -102,6 +106,7 @@ pub(super) const SUITES: [Suite; 8] = [
         }),
         compositors: ALL,
         passes: PLAIN,
+        renders: false,
         filter: &["--skip", SESSION_END],
     },
     Suite {
@@ -112,6 +117,7 @@ pub(super) const SUITES: [Suite; 8] = [
         grant: None,
         compositors: KWIN,
         passes: PLAIN,
+        renders: false,
         filter: &[],
     },
     Suite {
@@ -127,6 +133,7 @@ pub(super) const SUITES: [Suite; 8] = [
         }),
         compositors: ALL,
         passes: &Pass::ALL,
+        renders: false,
         filter: &[],
     },
     Suite {
@@ -138,6 +145,7 @@ pub(super) const SUITES: [Suite; 8] = [
         compositors: WLROOTS,
         // It rotates an output itself.
         passes: &[Pass::Plain, Pass::Scaled],
+        renders: false,
         filter: &[],
     },
     Suite {
@@ -148,6 +156,7 @@ pub(super) const SUITES: [Suite; 8] = [
         grant: None,
         compositors: KWIN,
         passes: PLAIN,
+        renders: false,
         filter: &[],
     },
     // The input device, typing into test windows: under KWin through its
@@ -165,6 +174,7 @@ pub(super) const SUITES: [Suite; 8] = [
         }),
         compositors: ALL,
         passes: PLAIN,
+        renders: false,
         filter: &[],
     },
     // The launcher's process, its real binary: no restricted interface.
@@ -176,6 +186,7 @@ pub(super) const SUITES: [Suite; 8] = [
         grant: None,
         compositors: ALL,
         passes: PLAIN,
+        renders: false,
         filter: &[],
     },
     // Last: it ends the session.
@@ -187,6 +198,7 @@ pub(super) const SUITES: [Suite; 8] = [
         grant: None,
         compositors: ALL,
         passes: PLAIN,
+        renders: false,
         filter: &[SESSION_END],
     },
 ];
