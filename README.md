@@ -58,9 +58,10 @@ cargo xtask compositor-tests [kwin] [sway] [labwc]
 cargo xtask compositor-tests --renderer software sway
 ```
 
-The suites that start a real component (the panel's) run once per renderer,
-and each of their tests checks which one presented. `--renderer software`
-runs rinch's software renderer only, as CI does; `--renderer gpu` the GPU
+The suites that start a real component (the panel's and the launcher's) run
+once per renderer, and each of their tests checks which one presented.
+`--renderer software` runs rinch's software renderer only, as CI does;
+`--renderer gpu` the GPU
 renderer only, under KWin, and fails on a machine without a GPU; `all` (the
 default) both, the GPU under KWin only and only where the machine has one.
 Headless sway and labwc composite with pixman and offer no dmabuf, so the

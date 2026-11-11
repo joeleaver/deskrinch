@@ -149,13 +149,31 @@ out="$(dirname "$0")/started/$$"
 } > "$out.partial" && mv "$out.partial" "$out"
 "#;
 
+/// The XDG specification's default data directories, which the session
+/// sets as `XDG_DATA_DIRS`.
+const SYSTEM_DATA_DIRS: [&str; 2] = ["/usr/local/share", "/usr/share"];
+
 /// `command` with only the test's directories: its applications, its
 /// configuration, and a `PATH` with nothing on it (no `xdg-terminal-exec`).
+/// The system's data directories are replaced by stand-ins that hold only
+/// their `vulkan` directory: the Vulkan loader finds its drivers there
+/// (`vulkan/icd.d`), which the GPU renderer needs, and the launcher finds
+/// none of the system's applications.
 fn in_dirs(mut command: Command, dirs: &Path) -> Command {
     let none = dirs.join("none");
+    let mut data_dirs = Vec::new();
+    for (index, system) in SYSTEM_DATA_DIRS.iter().enumerate() {
+        let stand_in = dirs.join(format!("system-data-{index}"));
+        fs::create_dir_all(&stand_in).unwrap();
+        let vulkan = Path::new(system).join("vulkan");
+        if vulkan.is_dir() {
+            std::os::unix::fs::symlink(&vulkan, stand_in.join("vulkan")).unwrap();
+        }
+        data_dirs.push(stand_in);
+    }
     command
         .env("XDG_DATA_HOME", dirs.join("data"))
-        .env("XDG_DATA_DIRS", &none)
+        .env("XDG_DATA_DIRS", std::env::join_paths(data_dirs).unwrap())
         .env("XDG_CONFIG_HOME", dirs.join("config"))
         .env("XDG_CONFIG_DIRS", &none)
         .env("PATH", &none);
