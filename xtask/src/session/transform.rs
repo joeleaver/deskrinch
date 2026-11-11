@@ -108,8 +108,8 @@ mod tests {
         );
     }
 
-    /// As measured: sway's `transform 90` gave `wl_output` 270, and `KScreen`'s
-    /// `left` gave 90.
+    /// As measured: sway's `transform 90` gave `wl_output` 270, and
+    /// `KScreen`'s `left` gave 90.
     #[test]
     fn each_tool_gets_its_own_name() {
         let ninety = OutputTransform(Transform::Rotated90);

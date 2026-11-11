@@ -22,8 +22,8 @@ const OUTPUT_SIZE: (u32, u32) = (1280, 720);
 /// (`applications.menu`, or Plasma's `plasma-applications.menu`). Without
 /// one, on a system with KWin but not Plasma's workspace (Ubuntu 26.04's
 /// `kwin-wayland` on a CI runner; checked here by hiding the menu), KWin
-/// 6.6 logs `"applications.menu" not found` and grants nothing. The session puts this one in its own configuration
-/// directory.
+/// 6.6 logs `"applications.menu" not found` and grants nothing. The session
+/// puts this one in its own configuration directory.
 const APPLICATIONS_MENU: &str = r#"<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
  "http://www.freedesktop.org/standards/menu-spec/1.0/menu.dtd">
 <Menu>
