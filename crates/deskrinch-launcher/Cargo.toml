@@ -23,6 +23,8 @@ deskrinch-bus.workspace = true
 deskrinch-component.workspace = true
 # The installed applications, their search ranking and their launch.
 deskrinch-desktop-entries.workspace = true
+# The icon theme's files, for the results' icons.
+deskrinch-icons.workspace = true
 deskrinch-theme.workspace = true
 deskrinch-xdg.workspace = true
 # `gpu` adds the GPU renderer beside the software one rinch always has on

@@ -169,3 +169,22 @@ fn clearing_empties_it_for_the_next_show() {
     model.clear();
     assert_eq!(model, Model::new());
 }
+
+#[test]
+fn draws_the_rows_that_keep_the_selection_in_sight() {
+    let entries: Vec<DesktopEntry> = (0..10)
+        .map(|n| app(&format!("app{n}"), &format!("App {n}"), ""))
+        .collect();
+    let mut model = Model::new();
+    model.set_query("app", &entries, &[]);
+    assert_eq!(model.visible(4), 0..4);
+    for _ in 0..3 {
+        model.input(Input::Down);
+    }
+    assert_eq!(model.visible(4), 0..4, "the fourth row is still in sight");
+    model.input(Input::Down);
+    assert_eq!(model.visible(4), 1..5);
+    assert_eq!(model.visible(20), 0..10, "more room than rows");
+    model.set_query("zzz", &entries, &[]);
+    assert_eq!(model.visible(4), 0..0);
+}

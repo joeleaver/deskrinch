@@ -813,6 +813,7 @@ dependencies = [
  "deskrinch-bus",
  "deskrinch-component",
  "deskrinch-desktop-entries",
+ "deskrinch-icons",
  "deskrinch-test-dbus",
  "deskrinch-theme",
  "deskrinch-xdg",

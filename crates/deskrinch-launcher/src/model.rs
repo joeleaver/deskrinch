@@ -1,6 +1,8 @@
 //! The launcher's model: the query, the ranked results and the selection,
 //! and what each input does to them.
 
+use std::ops::Range;
+
 use deskrinch_desktop_entries::{DesktopEntry, DesktopId, Icon, Locale, search};
 
 /// One result: an application to show and start.
@@ -128,6 +130,17 @@ impl Model {
                 .map_or(Action::Stay, |row| Action::Launch(row.id.clone())),
             Input::Escape | Input::KeyboardLost => Action::Hide,
         }
+    }
+
+    /// Which rows to draw when only `count` fit: the first `count`, or,
+    /// with the selection further down, the `count` that end with it.
+    #[must_use]
+    pub fn visible(&self, count: usize) -> Range<usize> {
+        let end = self
+            .selected
+            .map_or(count, |index| (index + 1).max(count))
+            .min(self.rows.len());
+        end.saturating_sub(count)..end
     }
 
     /// Empties the launcher (no query, no results), for when it hides.
