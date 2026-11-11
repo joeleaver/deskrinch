@@ -697,6 +697,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-appearance"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-dbus",
+ "futures-core",
+ "thiserror 2.0.21",
+ "zbus",
+]
+
+[[package]]
 name = "deskrinch-clock"
 version = "0.1.0"
 dependencies = [
