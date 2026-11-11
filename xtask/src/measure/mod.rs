@@ -140,7 +140,7 @@ pub(crate) struct Request {
     pub(crate) args: Vec<OsString>,
     /// With `--summon`: the program starts hidden, and each show is measured
     /// instead of the start.
-    pub(crate) summons: Option<show::Summons>,
+    pub(crate) summons: Option<Summons>,
 }
 
 /// Runs the measurement and prints its report.

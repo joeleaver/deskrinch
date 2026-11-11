@@ -30,6 +30,8 @@ deskrinch-xdg.workspace = true
 # variables the launcher is styled with (the look is `deskrinch-theme`'s).
 rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 thiserror.workspace = true
+# What the process says it is doing, through `deskrinch-component`'s report.
+tracing.workspace = true
 # zbus's own runtime (`default-rt`) drives the connection on a helper thread,
 # so nothing here needs an async runtime; `service` serves the interface.
 zbus = { workspace = true, features = ["default-rt", "service"] }

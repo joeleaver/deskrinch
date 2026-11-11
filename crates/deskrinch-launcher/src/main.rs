@@ -130,7 +130,7 @@ fn run(show: bool) -> ExitCode {
     let configuration = Configuration::start(&BaseDirs::from_process());
     let theme = Theme::start(&configuration, Bus::Session);
     let first_theme = theme.initial();
-    App::new(move |scope| root::launcher(scope, theme, visibility, show))
+    App::new(move |scope| root::launcher(scope, theme, &visibility, show))
         .window_props(surface::window_props(show))
         .theme(first_theme)
         .run();

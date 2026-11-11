@@ -808,6 +808,7 @@ dependencies = [
  "deskrinch-xdg",
  "rinch",
  "thiserror 2.0.21",
+ "tracing",
  "zbus",
 ]
 

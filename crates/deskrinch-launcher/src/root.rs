@@ -5,8 +5,6 @@
 //! show it) and is shown and hidden from then on as `Visibility` says,
 //! through rinch's `show_current_window` and `hide_current_window`.
 
-use std::sync::Arc;
-
 use deskrinch_theme::Theme;
 use rinch::prelude::*;
 use rinch::reactive::Effect;
@@ -17,7 +15,7 @@ use deskrinch_launcher::Visibility;
 /// The launcher, following `visibility` and `theme` until it closes; its
 /// window was made shown if `made_shown`.
 #[component]
-pub(crate) fn launcher(theme: Theme, visibility: Arc<Visibility>, made_shown: bool) -> NodeHandle {
+pub(crate) fn launcher(theme: Theme, visibility: &Visibility, made_shown: bool) -> NodeHandle {
     let _scheme = theme.apply();
     // What the window is now: as it was made, until the effect changes it.
     let mut applied = made_shown;
