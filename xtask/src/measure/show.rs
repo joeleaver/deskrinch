@@ -86,6 +86,7 @@ pub(crate) fn measure(
             dismiss(&mut child, &watch, ask, program, timing, summons)?;
         }
         run.note("load average after the shows", probe::load_average());
+        run.presented = watch.presented();
         Ok(run)
     })();
     probe::stop(&mut child);
@@ -122,6 +123,7 @@ pub(crate) fn measure_instructions(
             );
             dismiss(&mut child, &watch, ask, program, timing, summons)?;
         }
+        run.presented = watch.presented();
         Ok(run)
     })();
     probe::stop(&mut child);

@@ -117,6 +117,11 @@ enum Task {
         /// environment decides).
         #[arg(long, value_enum)]
         renderer: Option<measure::Renderer>,
+        /// Fail (exit 1), naming what did, unless every run presented with
+        /// this renderer, as rinch's own log lines say: a check that a
+        /// silent fallback, or a change in rinch's wording, is noticed.
+        #[arg(long, value_enum)]
+        expect_renderer: Option<measure::Expected>,
         /// The GPU driver's shader cache at each start.
         #[arg(long, value_enum, default_value = "cold")]
         shader_cache: measure::ShaderCache,
@@ -191,6 +196,7 @@ impl Task {
                 compositor,
                 runs,
                 renderer,
+                expect_renderer,
                 shader_cache,
                 settle,
                 idle,
@@ -206,6 +212,7 @@ impl Task {
                 compositor,
                 runs,
                 renderer,
+                expect_renderer,
                 shader_cache,
                 settle: Duration::from_secs(settle),
                 idle: Duration::from_secs(idle),

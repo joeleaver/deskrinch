@@ -112,6 +112,7 @@ fn run_child(
     }
     run.note("load average at the first frame", load);
     run.note("renderer", watch.renderer());
+    run.presented = watch.presented();
     Ok(run)
 }
 

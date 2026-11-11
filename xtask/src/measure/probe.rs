@@ -124,6 +124,7 @@ fn startup(
     run.push("wall time to first frame", Unit::WallNs, nanos(wall));
     run.note("load average at the first frame", load_average());
     run.note("renderer", watch.renderer());
+    run.presented = watch.presented();
     Ok(())
 }
 

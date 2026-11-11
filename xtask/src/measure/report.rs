@@ -4,6 +4,7 @@
 //! Metrics are integers in a fixed unit, so the arithmetic is exact and
 //! tested; only printing divides.
 
+use deskrinch_test_component::Presented;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;
 
@@ -41,6 +42,8 @@ pub(crate) struct Run {
     pub(crate) metrics: Vec<Metric>,
     /// Facts that are not numbers: the GPU adapter, the load average.
     pub(crate) notes: Vec<(String, String)>,
+    /// Which renderer presented, as the program said.
+    pub(crate) presented: Option<Presented>,
 }
 
 impl Run {
