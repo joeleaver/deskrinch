@@ -63,6 +63,8 @@ ksni = { version = "0.3.7", default-features = false, features = ["async-io", "b
 libc = "0.2.191"
 notify = { version = "8.2.2", default-features = false }
 percent-encoding = "2.3.2"
+# The version rinch's image stack already locks; it has no default features.
+png = "0.18.1"
 proptest = { version = "1.12.0", default-features = false, features = ["std", "timeout"] }
 # The GUI framework, from its `main` branch: never a path. Unmerged rinch work
 # is tried through a `[patch]` in `.cargo/config.local.toml`. Its own default

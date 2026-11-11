@@ -6,6 +6,7 @@ use crate::session::Compositor;
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
 const INPUT: &str = "deskrinch-test-input";
+const LAUNCHER: &str = "deskrinch-launcher";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
@@ -40,7 +41,7 @@ pub(super) struct Suite {
 pub(super) const SESSION_END: &str = "session_end::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 7] = [
+pub(super) const SUITES: [Suite; 8] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -101,6 +102,8 @@ pub(super) const SUITES: [Suite; 7] = [
         scaled: false,
         filter: &[],
     },
+    // The input device, typing into test windows: under KWin through its
+    // restricted fake input.
     Suite {
         target: Target {
             package: INPUT,
@@ -112,6 +115,17 @@ pub(super) const SUITES: [Suite; 7] = [
             wayland: &[deskrinch_test_input::KWIN_FAKE_INPUT_INTERFACE],
             dbus: &[],
         }),
+        compositors: ALL,
+        scaled: false,
+        filter: &[],
+    },
+    // The launcher's process, its real binary: no restricted interface.
+    Suite {
+        target: Target {
+            package: LAUNCHER,
+            test: "process",
+        },
+        grant: None,
         compositors: ALL,
         scaled: false,
         filter: &[],
