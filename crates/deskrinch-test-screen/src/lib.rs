@@ -31,7 +31,10 @@
 //! for a rotated output.
 //!
 //! No async runtime is needed: each capture blocks until the compositor
-//! has copied the output.
+//! has copied the output, and never longer than [`CAPTURE_PATIENCE`]: a
+//! compositor that does not answer fails it with
+//! [`CaptureError::TimedOut`], naming the output. `Rgba` and `Transform`
+//! are `deskrinch-test-wayland`'s, which `deskrinch-test-client` paints in.
 //!
 //! # Only in a nested session
 //!
@@ -59,13 +62,12 @@ mod error;
 mod image;
 mod kwin;
 mod screen;
-mod transform;
 mod wayland;
 
+pub use deskrinch_test_wayland::{Rgba, Transform};
 pub use error::{CaptureError, ConnectError};
-pub use image::{Image, Rgba};
-pub use screen::{Method, Screen};
-pub use transform::Transform;
+pub use image::Image;
+pub use screen::{CAPTURE_PATIENCE, Method, Screen};
 
 /// The D-Bus interface KWin must grant an executable that captures under
 /// KWin: the name its desktop file lists in

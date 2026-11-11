@@ -4,12 +4,10 @@
 //! destroy it.
 
 use std::collections::HashMap;
-use std::fs::File;
-use std::os::fd::AsFd;
-use std::os::unix::fs::FileExt;
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Instant;
 
+use deskrinch_test_wayland::{ShmBuffer, ShmError};
 use wayland_client::protocol::wl_buffer::WlBuffer;
 use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_shm;
@@ -37,7 +35,7 @@ pub(crate) struct Status {
     drawn_fullscreen: bool,
     close_requested: bool,
     /// Why a buffer could not be made, if one could not.
-    failure: Option<String>,
+    failure: Option<ShmError>,
 }
 
 /// One window, shared by the test and the client's thread.
@@ -178,8 +176,8 @@ impl TestWindow {
         let deadline = Instant::now() + PATIENCE;
         let mut status = lock(&self.shared.status);
         loop {
-            if let Some(failure) = &status.failure {
-                return Err(Error::Buffer(failure.clone()));
+            if let Some(failure) = status.failure.take() {
+                return Err(Error::Buffer(failure));
             }
             if let Some(size) = done(&status) {
                 return Ok(size);
@@ -215,27 +213,28 @@ impl Drop for TestWindow {
     }
 }
 
-/// A buffer of `size` filled with `paint`, in a file of its own.
+/// A buffer of `size` filled with `paint`, in a file of its own; the client
+/// destroys it when the compositor releases it.
 fn buffer(
     client: &Client,
     paint: &Paint,
     (width, height): (i32, i32),
     qh: &QueueHandle<Client>,
-) -> Result<WlBuffer, String> {
-    let stride = width.checked_mul(4).ok_or("the width overflows")?;
-    let size = stride.checked_mul(height).ok_or("the size overflows")?;
-    let unsigned = |value: i32| u32::try_from(value).map_err(|_| "a negative size".to_owned());
-    let file: File = tempfile::tempfile().map_err(|error| format!("buffer file: {error}"))?;
-    file.set_len(u64::from(unsigned(size)?))
-        .map_err(|error| format!("sizing the buffer: {error}"))?;
-    if let Some(bytes) = paint.argb8888((unsigned(width)?, unsigned(height)?)) {
-        file.write_all_at(&bytes, 0)
-            .map_err(|error| format!("painting the buffer: {error}"))?;
-    }
-    let pool = client.shm.create_pool(file.as_fd(), size, qh, ());
-    let buffer = pool.create_buffer(0, width, height, stride, wl_shm::Format::Argb8888, qh, ());
-    pool.destroy();
-    Ok(buffer)
+) -> Result<WlBuffer, ShmError> {
+    // A configure never asks for a negative size; zero is the client's
+    // choice, resolved before this.
+    let size = (width.unsigned_abs(), height.unsigned_abs());
+    let contents = paint.argb8888(size);
+    let buffer = ShmBuffer::new(
+        &client.shm,
+        qh,
+        size,
+        size.0.saturating_mul(4),
+        wl_shm::Format::Argb8888,
+        contents.as_deref(),
+        (),
+    )?;
+    Ok(buffer.into_buffer())
 }
 
 impl Dispatch<XdgToplevel, Arc<Shared>> for Client {

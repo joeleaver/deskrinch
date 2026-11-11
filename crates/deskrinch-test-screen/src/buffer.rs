@@ -1,8 +1,8 @@
 //! Raw buffers as compositors fill them, turned into an upright [`Image`].
 
 use crate::error::CaptureError;
-use crate::image::{Image, Rgba};
-use crate::transform::Transform;
+use crate::image::Image;
+use crate::{Rgba, Transform};
 
 /// How a buffer's four bytes per pixel are laid out, in memory order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

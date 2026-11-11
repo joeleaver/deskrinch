@@ -10,11 +10,9 @@
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 
-use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_output::Transform as WlTransform;
-use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::{
-    Connection, Dispatch, EventQueue, QueueHandle, WEnum, delegate_noop, event_created_child,
+    Connection, Dispatch, QueueHandle, WEnum, delegate_noop, event_created_child,
 };
 use wayland_protocols_wlr::output_management::v1::client::zwlr_output_configuration_head_v1::ZwlrOutputConfigurationHeadV1;
 use wayland_protocols_wlr::output_management::v1::client::zwlr_output_configuration_v1::{
@@ -28,9 +26,9 @@ use wayland_protocols_wlr::output_management::v1::client::zwlr_output_manager_v1
 };
 use wayland_protocols_wlr::output_management::v1::client::zwlr_output_mode_v1::ZwlrOutputModeV1;
 
-use deskrinch_test_screen::Transform;
+use deskrinch_test_wayland::{Deadline, Globals, Transform, dispatch_until};
 
-use crate::Error;
+use crate::{Error, PATIENCE, waited};
 
 /// One head (output) as the manager describes it.
 #[derive(Debug)]
@@ -121,13 +119,19 @@ fn configure(
     which: Option<&str>,
     change: OutputChange,
 ) -> Result<Vec<OutputSettings>, Error> {
-    let (globals, mut queue) = registry_queue_init::<State>(connection).map_err(Error::Globals)?;
+    let deadline = Deadline::after(PATIENCE);
+    let mut queue = connection.new_event_queue();
+    let mut state = State::default();
+    let globals = Globals::list(connection, &mut queue, &mut state, deadline)
+        .map_err(|error| waited(error, "listing the globals"))?;
     let qh = queue.handle();
     let manager: ZwlrOutputManagerV1 = globals
         .bind(&qh, 1..=4, ())
         .map_err(|_| Error::NoOutputManagement)?;
-    let mut state = State::default();
-    dispatch_until(&mut queue, &mut state, |state| state.serial.is_some())?;
+    dispatch_until(&mut queue, &mut state, deadline, |state| {
+        state.serial.is_some()
+    })
+    .map_err(|error| waited(error, "learning the outputs"))?;
     let described = which.unwrap_or("every output");
     let refused = |reason: String| Error::OutputRefused {
         name: described.to_owned(),
@@ -162,7 +166,10 @@ fn configure(
         }
     }
     configuration.apply();
-    let applied = dispatch_until(&mut queue, &mut state, |state| state.outcome.is_some());
+    let applied = dispatch_until(&mut queue, &mut state, deadline, |state| {
+        state.outcome.is_some()
+    })
+    .map_err(|error| waited(error, "changing an output"));
     configuration.destroy();
     manager.stop();
     applied?;
@@ -172,17 +179,6 @@ fn configure(
         .unwrap_or_else(|| Err("no answer".into()))
         .map_err(refused)?;
     Ok(before)
-}
-
-fn dispatch_until(
-    queue: &mut EventQueue<State>,
-    state: &mut State,
-    done: impl Fn(&State) -> bool,
-) -> Result<(), Error> {
-    while !done(state) {
-        queue.blocking_dispatch(state).map_err(Error::Dispatch)?;
-    }
-    Ok(())
 }
 
 impl Dispatch<ZwlrOutputManagerV1, ()> for State {
@@ -268,18 +264,6 @@ impl Dispatch<ZwlrOutputConfigurationV1, ()> for State {
             }
             _ => return,
         };
-    }
-}
-
-impl Dispatch<WlRegistry, GlobalListContents> for State {
-    fn event(
-        _: &mut Self,
-        _: &WlRegistry,
-        _: wl_registry::Event,
-        _: &GlobalListContents,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
     }
 }
 

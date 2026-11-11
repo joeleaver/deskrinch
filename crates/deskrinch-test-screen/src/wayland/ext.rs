@@ -2,9 +2,8 @@
 //! (`ext-image-capture-source-v1`): the standard protocol, and the one this
 //! crate prefers.
 
-use wayland_client::globals::GlobalList;
-use wayland_client::protocol::wl_shm::WlShm;
-use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle, WEnum, delegate_noop};
+use deskrinch_test_wayland::Globals;
+use wayland_client::{Connection, Dispatch, QueueHandle, WEnum, delegate_noop};
 use wayland_protocols::ext::image_capture_source::v1::client::ext_image_capture_source_v1::ExtImageCaptureSourceV1;
 use wayland_protocols::ext::image_capture_source::v1::client::ext_output_image_capture_source_manager_v1::ExtOutputImageCaptureSourceManagerV1;
 use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_capture_frame_v1::{
@@ -17,11 +16,11 @@ use wayland_protocols::ext::image_copy_capture::v1::client::ext_image_copy_captu
     self, ExtImageCopyCaptureSessionV1,
 };
 
-use super::{ShmBuffer, State, choose_format, dispatch_until, shm_format};
+use super::{Capturing, State, choose_format, shm_format};
+use crate::Transform;
 use crate::buffer::Buffer;
 use crate::error::CaptureError;
 use crate::image::Image;
-use crate::transform::Transform;
 
 /// The two managers the protocol needs.
 #[derive(Debug)]
@@ -32,7 +31,7 @@ pub(crate) struct Ext {
 
 impl Ext {
     /// Binds the managers, when the compositor offers both.
-    pub(super) fn bind(globals: &GlobalList, qh: &QueueHandle<State>) -> Option<Self> {
+    pub(super) fn bind(globals: &Globals, qh: &QueueHandle<State>) -> Option<Self> {
         let manager = globals.bind::<ExtImageCopyCaptureManagerV1, _, _>(qh, 1..=1, ());
         let sources = globals.bind::<ExtOutputImageCaptureSourceManagerV1, _, _>(qh, 1..=1, ());
         match (manager, sources) {
@@ -52,19 +51,17 @@ impl Ext {
     /// Captures the output at `index` once.
     pub(super) fn capture(
         &self,
-        queue: &mut EventQueue<State>,
-        state: &mut State,
-        shm: &WlShm,
-        qh: &QueueHandle<State>,
+        cx: &mut Capturing<'_>,
         index: usize,
     ) -> Result<Image, CaptureError> {
+        let qh = cx.qh.clone();
         let source = self
             .sources
-            .create_source(&state.outputs[index].proxy, qh, ());
+            .create_source(&cx.state.outputs[index].proxy, &qh, ());
         let session = self
             .manager
-            .create_session(&source, Options::empty(), qh, ());
-        let result = capture_in(queue, state, shm, qh, &session);
+            .create_session(&source, Options::empty(), &qh, ());
+        let result = capture_in(cx, &session);
         session.destroy();
         source.destroy();
         result
@@ -72,15 +69,11 @@ impl Ext {
 }
 
 fn capture_in(
-    queue: &mut EventQueue<State>,
-    state: &mut State,
-    shm: &WlShm,
-    qh: &QueueHandle<State>,
+    cx: &mut Capturing<'_>,
     session: &ExtImageCopyCaptureSessionV1,
 ) -> Result<Image, CaptureError> {
-    dispatch_until(queue, state, |frame| {
-        frame.described || frame.outcome.is_some()
-    })?;
+    cx.until(|frame| frame.described || frame.outcome.is_some())?;
+    let state = &mut *cx.state;
     if let Some(Err(reason)) = state.frame.outcome.take() {
         return Err(CaptureError::Failed(reason));
     }
@@ -90,22 +83,23 @@ fn capture_in(
         .ok_or_else(|| CaptureError::Failed("the session gave no buffer size".into()))?;
     let (format, layout) = choose_format(&state.frame.formats)?;
     let stride = size.0 * 4;
-    let buffer = ShmBuffer::new(shm, qh, size, stride, format)?;
-    let frame = session.create_frame(qh, ());
-    frame.attach_buffer(&buffer.proxy);
+    let buffer = cx.buffer(size, stride, format)?;
+    let frame = session.create_frame(&cx.qh, ());
+    frame.attach_buffer(buffer.buffer());
     let (width, height) = (
         i32::try_from(size.0).unwrap_or(i32::MAX),
         i32::try_from(size.1).unwrap_or(i32::MAX),
     );
     frame.damage_buffer(0, 0, width, height);
     frame.capture();
-    let copied = dispatch_until(queue, state, |frame| frame.outcome.is_some());
+    let copied = cx.until(|frame| frame.outcome.is_some());
     frame.destroy();
     copied?;
+    let state = &mut *cx.state;
     if let Some(Err(reason)) = state.frame.outcome.take() {
         return Err(CaptureError::Failed(reason));
     }
-    let bytes = buffer.read()?;
+    let bytes = buffer.read().map_err(CaptureError::Buffer)?;
     Buffer {
         bytes: &bytes,
         width: size.0,

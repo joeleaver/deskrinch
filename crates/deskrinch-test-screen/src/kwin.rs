@@ -9,16 +9,20 @@
 
 use std::collections::HashMap;
 use std::io::{self, Read as _};
+use std::time::Duration;
+
+use deskrinch_test_wayland::Deadline;
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use std::os::fd::AsFd;
 use std::thread;
 
 use zbus::Connection;
 use zbus::{Fd, OwnedVariant, Variant};
 
+use crate::Transform;
 use crate::buffer::{Buffer, Layout};
 use crate::error::{CaptureError, ConnectError};
 use crate::image::Image;
-use crate::transform::Transform;
 
 /// KWin's screenshot service, its object and its interface: also the name
 /// KWin's grant lists.
@@ -33,9 +37,14 @@ pub(crate) struct ScreenShot2 {
 
 impl ScreenShot2 {
     /// Connects to the session bus; `None` when the service is not on it.
-    pub(crate) fn connect() -> Result<Option<Self>, ConnectError> {
+    /// No call on the connection waits longer than `patience`.
+    pub(crate) fn connect(patience: Duration) -> Result<Option<Self>, ConnectError> {
         zbus::block_on(async {
-            let connection = Connection::session().await.map_err(ConnectError::Bus)?;
+            let connection = zbus::connection::Builder::session()
+                .method_timeout(patience)
+                .build()
+                .await
+                .map_err(ConnectError::Bus)?;
             let reply = connection
                 .call_method(
                     Some("org.freedesktop.DBus"),
@@ -52,18 +61,16 @@ impl ScreenShot2 {
     }
 
     /// Captures the output named `name`, at its physical resolution and
-    /// without the cursor.
-    pub(crate) fn capture(&self, name: &str) -> Result<Image, CaptureError> {
-        let (mut reader, writer) = io::pipe().map_err(|source| CaptureError::Io {
+    /// without the cursor, by `deadline` (the call itself is bounded by the
+    /// connection's timeout, at most the same).
+    pub(crate) fn capture(&self, name: &str, deadline: Deadline) -> Result<Image, CaptureError> {
+        let (reader, writer) = io::pipe().map_err(|source| CaptureError::Io {
             what: "make the screenshot pipe",
             source,
         })?;
         // KWin writes once it has answered; read alongside, so neither side
         // waits on a full pipe.
-        let pixels = thread::spawn(move || {
-            let mut bytes = Vec::new();
-            reader.read_to_end(&mut bytes).map(|_| bytes)
-        });
+        let pixels = thread::spawn(move || read_until(&reader, deadline));
         // KWin 6.6 leaves the caller's own windows out unless told not to:
         // a test that captures the windows it opened would see none.
         let options: HashMap<&str, Variant<'_>> = HashMap::from([
@@ -80,17 +87,28 @@ impl ScreenShot2 {
         ));
         // KWin holds its own copy; the read ends when KWin closes it.
         drop(writer);
-        let bytes = pixels
-            .join()
-            .map_err(|_| CaptureError::Io {
-                what: "read the screenshot pipe",
-                source: io::Error::other("the reading thread panicked"),
-            })?
-            .map_err(|source| CaptureError::Io {
-                what: "read the screenshot pipe",
-                source,
-            })?;
-        let reply = reply.map_err(|error| refusal(error, name))?;
+        let read = pixels.join().map_err(|_| CaptureError::Io {
+            what: "read the screenshot pipe",
+            source: io::Error::other("the reading thread panicked"),
+        })?;
+        let timed_out = || CaptureError::TimedOut {
+            output: name.to_owned(),
+            patience: deadline.patience(),
+        };
+        let reply = reply.map_err(|error| match &error {
+            zbus::Error::InputOutput(io) if io.kind() == io::ErrorKind::TimedOut => timed_out(),
+            _ => refusal(error, name),
+        })?;
+        let bytes = read.map_err(|source| {
+            if source.kind() == io::ErrorKind::TimedOut {
+                timed_out()
+            } else {
+                CaptureError::Io {
+                    what: "read the screenshot pipe",
+                    source,
+                }
+            }
+        })?;
         let description: HashMap<String, OwnedVariant> =
             reply.body().deserialize().map_err(CaptureError::Bus)?;
         let description = Description::read(&description)?;
@@ -105,6 +123,35 @@ impl ScreenShot2 {
             transform: Transform::Normal,
         }
         .to_image()
+    }
+}
+
+/// Reads `reader` to its end, or until `deadline` passes (an error of kind
+/// `TimedOut`).
+fn read_until(reader: &io::PipeReader, deadline: Deadline) -> io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    let mut chunk = vec![0; 1 << 16];
+    loop {
+        let left = deadline.left();
+        if left.is_zero() {
+            return Err(io::ErrorKind::TimedOut.into());
+        }
+        let timeout = Timespec::try_from(left).unwrap_or(Timespec {
+            tv_sec: i64::MAX,
+            tv_nsec: 0,
+        });
+        let mut fds = [PollFd::new(reader, PollFlags::IN)];
+        match poll(&mut fds, Some(&timeout)) {
+            Ok(0) | Err(rustix::io::Errno::INTR) => continue,
+            Ok(_) => {}
+            Err(errno) => return Err(errno.into()),
+        }
+        match (&*reader).read(&mut chunk) {
+            Ok(0) => return Ok(bytes),
+            Ok(read) => bytes.extend_from_slice(&chunk[..read]),
+            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
+            Err(error) => return Err(error),
+        }
     }
 }
 
@@ -187,7 +234,29 @@ fn qimage_layout(format: u32) -> Option<Layout> {
 
 #[cfg(test)]
 mod tests {
+    use std::io::Write as _;
+
     use super::*;
+
+    #[test]
+    fn a_pipe_nobody_closes_times_out() {
+        let (reader, _writer) = io::pipe().unwrap();
+        let error = read_until(&reader, Deadline::after(Duration::from_millis(200))).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+    }
+
+    #[test]
+    fn a_pipe_is_read_to_its_end() {
+        let (reader, mut writer) = io::pipe().unwrap();
+        let sent = vec![7; 200_000];
+        let written = thread::spawn({
+            let sent = sent.clone();
+            move || writer.write_all(&sent)
+        });
+        let bytes = read_until(&reader, Deadline::after(Duration::from_secs(600))).unwrap();
+        written.join().unwrap().unwrap();
+        assert_eq!(bytes, sent);
+    }
 
     fn answer(entries: &[(&str, Variant<'_>)]) -> HashMap<String, OwnedVariant> {
         entries

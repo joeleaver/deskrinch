@@ -4,6 +4,8 @@ use std::fmt;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use deskrinch_test_wayland::Deadline;
+
 use crate::error::{CaptureError, ConnectError};
 use crate::image::Image;
 use crate::kwin::ScreenShot2;
@@ -11,6 +13,15 @@ use crate::wayland::{Protocol, Wayland};
 
 /// How often [`Screen::capture_until`] looks again.
 const RETRY: Duration = Duration::from_millis(50);
+
+/// How long one capture may take before it fails with
+/// [`CaptureError::TimedOut`]: generous, since a loaded machine runs nested
+/// compositors slowly.
+pub const CAPTURE_PATIENCE: Duration = Duration::from_secs(60);
+
+/// How long [`Screen::connect`] waits for the compositor to describe its
+/// outputs, or KWin to answer on the bus.
+pub(crate) const CONNECT_PATIENCE: Duration = CAPTURE_PATIENCE;
 
 /// How a [`Screen`] captures: the first of these the compositor offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -67,7 +78,7 @@ impl Screen {
         let kwin = if wayland.protocol().is_some() {
             None
         } else {
-            Some(ScreenShot2::connect()?.ok_or(ConnectError::NoMethod)?)
+            Some(ScreenShot2::connect(CONNECT_PATIENCE)?.ok_or(ConnectError::NoMethod)?)
         };
         Ok(Self { wayland, kwin })
     }
@@ -82,9 +93,9 @@ impl Screen {
     pub fn connect_with(method: Method) -> Result<Self, ConnectError> {
         let wayland = Wayland::connect(|offered| offered == method)?;
         let kwin = match method {
-            Method::KwinScreenShot2 => {
-                Some(ScreenShot2::connect()?.ok_or(ConnectError::NotOffered(method))?)
-            }
+            Method::KwinScreenShot2 => Some(
+                ScreenShot2::connect(CONNECT_PATIENCE)?.ok_or(ConnectError::NotOffered(method))?,
+            ),
             Method::ExtImageCopyCapture | Method::WlrScreencopy => {
                 if wayland.protocol().is_none() {
                     return Err(ConnectError::NotOffered(method));
@@ -118,21 +129,27 @@ impl Screen {
     ///
     /// When there is no such output, the compositor fails the capture or
     /// offers no pixel format this crate reads, KWin has not granted the
-    /// executable its screenshot interface, or the connection fails.
+    /// executable its screenshot interface, or the connection fails; and
+    /// [`CaptureError::TimedOut`] when the compositor has not finished the
+    /// capture within [`CAPTURE_PATIENCE`].
     pub fn capture(&mut self, output: &str) -> Result<Image, CaptureError> {
         match &self.kwin {
             Some(kwin) => {
                 // Named as the compositor names it, for the same errors.
                 self.wayland.output_index(output)?;
-                kwin.capture(output)
+                kwin.capture(output, Deadline::after(CAPTURE_PATIENCE))
             }
-            None => self.wayland.capture(output),
+            None => self.wayland.capture(output, CAPTURE_PATIENCE),
         }
     }
 
     /// Captures `output` until `accept` takes what it shows, and returns that
     /// image; for content a client has only just committed, which the
     /// compositor shows a frame or more later.
+    ///
+    /// It returns within `patience` plus one capture: it starts no capture
+    /// once `patience` has passed, and each capture is bounded by
+    /// [`CAPTURE_PATIENCE`].
     ///
     /// # Errors
     ///
@@ -150,14 +167,15 @@ impl Screen {
             if accept(&image) {
                 return Ok(image);
             }
-            if Instant::now() >= deadline {
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
                 return Err(CaptureError::NotSeen {
                     output: output.to_owned(),
                     patience,
                     last: Box::new(image),
                 });
             }
-            thread::sleep(RETRY);
+            thread::sleep(RETRY.min(left));
         }
     }
 }

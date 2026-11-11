@@ -7,14 +7,15 @@ use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
+use std::time::Duration;
+
+use deskrinch_test_wayland::{Deadline, Globals, WaitError, dispatch_until, roundtrip};
 
 use wayland_client::backend::ObjectId;
-use wayland_client::globals::{GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_buffer::{self, WlBuffer};
 use wayland_client::protocol::wl_callback::WlCallback;
 use wayland_client::protocol::wl_compositor::WlCompositor;
 use wayland_client::protocol::wl_output::WlOutput;
-use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::protocol::wl_surface::WlSurface;
@@ -25,7 +26,7 @@ use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::Zxd
 
 use crate::output_info::OutputInfo;
 use crate::window::{Shared, Status, TestWindow};
-use crate::{Error, Paint, lock};
+use crate::{Error, PATIENCE, Paint, lock, waited};
 
 /// The client's thread's state.
 #[derive(Debug)]
@@ -83,28 +84,24 @@ impl TestClient {
     }
 
     fn with(connection: Connection) -> Result<Self, Error> {
-        let (globals, mut queue) =
-            registry_queue_init::<Client>(&connection).map_err(Error::Globals)?;
+        let deadline = Deadline::after(PATIENCE);
+        // The globals are listed before the client's state exists, on a
+        // queue of their own: the registry keeps its own list, and nothing
+        // is dispatched to that queue's state.
+        let mut listing = connection.new_event_queue();
+        let globals = Globals::list(&connection, &mut listing, &mut Listing, deadline)
+            .map_err(|error| waited(error, "listing the globals"))?;
+        let mut queue = connection.new_event_queue();
         let qh = queue.handle();
-        let bind_error = |interface| move |source| Error::Bind { interface, source };
-        let compositor: WlCompositor = globals
-            .bind(&qh, 1..=4, ())
-            .map_err(bind_error("wl_compositor"))?;
-        let shm: WlShm = globals.bind(&qh, 1..=1, ()).map_err(bind_error("wl_shm"))?;
-        let wm_base: XdgWmBase = globals
-            .bind(&qh, 1..=1, ())
-            .map_err(bind_error("xdg_wm_base"))?;
+        let compositor: WlCompositor = globals.bind(&qh, 1..=4, ()).map_err(Error::Bind)?;
+        let shm: WlShm = globals.bind(&qh, 1..=1, ()).map_err(Error::Bind)?;
+        let wm_base: XdgWmBase = globals.bind(&qh, 1..=1, ()).map_err(Error::Bind)?;
         // Logical sizes, where the compositor offers them (all three do).
         let xdg_outputs: Option<ZxdgOutputManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
-        let announced = globals.contents().clone_list();
+        let announced = globals.all();
         for global in &announced {
             if global.interface == WlOutput::interface().name {
-                let output = globals.registry().bind::<WlOutput, _, _>(
-                    global.name,
-                    global.version.min(4),
-                    &qh,
-                    (),
-                );
+                let output: WlOutput = globals.bind_global(global, global.version.min(4), &qh, ());
                 if let Some(manager) = &xdg_outputs {
                     manager.get_xdg_output(&output, &qh, output.id());
                 }
@@ -117,7 +114,8 @@ impl TestClient {
             outputs: Arc::clone(&outputs),
             infos: Arc::clone(&infos),
         };
-        queue.roundtrip(&mut client).map_err(Error::Dispatch)?;
+        roundtrip(&connection, &mut queue, &mut client, deadline)
+            .map_err(|error| waited(error, "learning the outputs"))?;
 
         let stop = Arc::new(AtomicBool::new(false));
         let thread = thread::spawn({
@@ -283,13 +281,28 @@ impl Drop for TestClient {
     }
 }
 
+/// How often the client's thread looks whether it is to stop, while the
+/// compositor is quiet.
+const WAKE: Duration = Duration::from_millis(100);
+
+/// The client's thread: dispatches until told to stop, or the connection
+/// fails. It never waits on the compositor longer than [`WAKE`], so
+/// dropping the client ends it even when the compositor has stopped
+/// answering.
 fn run(mut queue: EventQueue<Client>, mut client: Client, stop: &AtomicBool) {
     while !stop.load(Ordering::Acquire) {
-        if queue.blocking_dispatch(&mut client).is_err() {
-            return;
+        match dispatch_until(&mut queue, &mut client, Deadline::after(WAKE), |_| false) {
+            Err(WaitError::TimedOut(_)) => {}
+            // `done` never holds, so any other end is the connection's.
+            Ok(()) | Err(_) => return,
         }
     }
 }
+
+/// The state of the queue while the globals are listed: nothing is
+/// dispatched to it.
+#[derive(Debug)]
+struct Listing;
 
 impl Dispatch<WlBuffer, ()> for Client {
     fn event(
@@ -320,18 +333,6 @@ impl Dispatch<XdgWmBase, ()> for Client {
         if let xdg_wm_base::Event::Ping { serial } = event {
             wm_base.pong(serial);
         }
-    }
-}
-
-impl Dispatch<WlRegistry, GlobalListContents> for Client {
-    fn event(
-        _: &mut Self,
-        _: &WlRegistry,
-        _: wl_registry::Event,
-        _: &GlobalListContents,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
     }
 }
 

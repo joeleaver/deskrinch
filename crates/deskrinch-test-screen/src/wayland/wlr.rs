@@ -1,15 +1,14 @@
 //! `wlr-screencopy-unstable-v1`: for a wlroots compositor that does not
 //! offer `ext-image-copy-capture-v1` yet.
 
-use wayland_client::globals::GlobalList;
-use wayland_client::protocol::wl_shm::WlShm;
-use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, delegate_noop};
+use deskrinch_test_wayland::Globals;
+use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum, delegate_noop};
 use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_frame_v1::{
     self, ZwlrScreencopyFrameV1,
 };
 use wayland_protocols_wlr::screencopy::v1::client::zwlr_screencopy_manager_v1::ZwlrScreencopyManagerV1;
 
-use super::{ShmBuffer, State, choose_format, dispatch_until, shm_format};
+use super::{Capturing, State, choose_format, shm_format};
 use crate::buffer::Buffer;
 use crate::error::CaptureError;
 use crate::image::Image;
@@ -25,7 +24,7 @@ pub(crate) struct Wlr {
 
 impl Wlr {
     /// Binds the manager, when the compositor offers it.
-    pub(super) fn bind(globals: &GlobalList, qh: &QueueHandle<State>) -> Option<Self> {
+    pub(super) fn bind(globals: &Globals, qh: &QueueHandle<State>) -> Option<Self> {
         globals
             .bind::<ZwlrScreencopyManagerV1, _, _>(qh, 1..=BUFFER_DONE, ())
             .ok()
@@ -35,34 +34,29 @@ impl Wlr {
     /// Captures the output at `index` once.
     pub(super) fn capture(
         &self,
-        queue: &mut EventQueue<State>,
-        state: &mut State,
-        shm: &WlShm,
-        qh: &QueueHandle<State>,
+        cx: &mut Capturing<'_>,
         index: usize,
     ) -> Result<Image, CaptureError> {
         let frame = self
             .manager
-            .capture_output(0, &state.outputs[index].proxy, qh, ());
-        let result = capture_in(queue, state, shm, qh, &frame, index);
+            .capture_output(0, &cx.state.outputs[index].proxy, &cx.qh, ());
+        let result = capture_in(cx, &frame, index);
         frame.destroy();
         result
     }
 }
 
 fn capture_in(
-    queue: &mut EventQueue<State>,
-    state: &mut State,
-    shm: &WlShm,
-    qh: &QueueHandle<State>,
+    cx: &mut Capturing<'_>,
     frame: &ZwlrScreencopyFrameV1,
     index: usize,
 ) -> Result<Image, CaptureError> {
     // Before version 3 the one `buffer` event is the whole offer.
     let lists_all = frame.version() >= BUFFER_DONE;
-    dispatch_until(queue, state, |frame| {
+    cx.until(|frame| {
         frame.outcome.is_some() || frame.described || (!lists_all && !frame.formats.is_empty())
     })?;
+    let state = &mut *cx.state;
     if let Some(Err(reason)) = state.frame.outcome.take() {
         return Err(CaptureError::Failed(reason));
     }
@@ -77,13 +71,14 @@ fn capture_in(
         .iter()
         .find_map(|&(offered, stride)| (offered == format).then_some(stride))
         .unwrap_or(size.0 * 4);
-    let buffer = ShmBuffer::new(shm, qh, size, stride, format)?;
-    frame.copy(&buffer.proxy);
-    dispatch_until(queue, state, |frame| frame.outcome.is_some())?;
+    let buffer = cx.buffer(size, stride, format)?;
+    frame.copy(buffer.buffer());
+    cx.until(|frame| frame.outcome.is_some())?;
+    let state = &mut *cx.state;
     if let Some(Err(reason)) = state.frame.outcome.take() {
         return Err(CaptureError::Failed(reason));
     }
-    let bytes = buffer.read()?;
+    let bytes = buffer.read().map_err(CaptureError::Buffer)?;
     Buffer {
         bytes: &bytes,
         width: size.0,

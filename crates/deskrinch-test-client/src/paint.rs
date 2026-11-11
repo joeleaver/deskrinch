@@ -1,6 +1,6 @@
 //! What a test window draws.
 
-use deskrinch_test_screen::Rgba;
+use deskrinch_test_wayland::Rgba;
 
 /// What a [`TestWindow`](crate::TestWindow) fills its buffer with, at
 /// whatever size the compositor gives it.

@@ -71,11 +71,8 @@ impl Transform {
     /// Where the upright picture's pixel `(x, y)` lies in a buffer that
     /// holds the picture with this transform applied, where `(width,
     /// height)` is the upright picture's size.
-    pub(crate) fn buffer_position(
-        self,
-        (x, y): (u32, u32),
-        (width, height): (u32, u32),
-    ) -> (u32, u32) {
+    #[must_use]
+    pub fn buffer_position(self, (x, y): (u32, u32), (width, height): (u32, u32)) -> (u32, u32) {
         let right = width.saturating_sub(1).saturating_sub(x);
         let bottom = height.saturating_sub(1).saturating_sub(y);
         match self {

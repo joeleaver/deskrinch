@@ -4,23 +4,20 @@
 mod ext;
 mod wlr;
 
-use std::fs::File;
-use std::os::fd::AsFd;
-use std::os::unix::fs::FileExt;
+use std::time::Duration;
 
-use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_init};
+use deskrinch_test_wayland::{Deadline, Globals, ShmBuffer, WaitError, dispatch_until, roundtrip};
 use wayland_client::protocol::wl_buffer::{self, WlBuffer};
 use wayland_client::protocol::wl_output::{self, WlOutput};
-use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_shm::{self, WlShm};
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, WEnum, delegate_noop};
 
+use crate::Transform;
 use crate::buffer::Layout;
 use crate::error::{CaptureError, ConnectError};
 use crate::image::Image;
-use crate::screen::Method;
-use crate::transform::Transform;
+use crate::screen::{CONNECT_PATIENCE, Method};
 
 /// The `wl_output` version that names outputs.
 const OUTPUT_NAMES: u32 = 4;
@@ -67,6 +64,7 @@ pub(crate) struct Frame {
 /// The connection, and what it has learnt.
 #[derive(Debug)]
 pub(crate) struct Wayland {
+    connection: Connection,
     queue: EventQueue<State>,
     state: State,
     shm: WlShm,
@@ -78,8 +76,15 @@ impl Wayland {
     /// capture protocol the compositor offers that `allowed` takes, if any.
     pub(crate) fn connect(allowed: impl Fn(Method) -> bool) -> Result<Self, ConnectError> {
         let connection = Connection::connect_to_env().map_err(ConnectError::Wayland)?;
-        let (globals, mut queue) =
-            registry_queue_init::<State>(&connection).map_err(ConnectError::Globals)?;
+        let mut queue = connection.new_event_queue();
+        let mut state = State::default();
+        let globals = Globals::list(
+            &connection,
+            &mut queue,
+            &mut state,
+            Deadline::after(CONNECT_PATIENCE),
+        )
+        .map_err(ConnectError::Wait)?;
         let qh = queue.handle();
         let shm: WlShm = globals
             .bind(&qh, 1..=1, ())
@@ -99,14 +104,16 @@ impl Wayland {
             }
             None => None,
         };
-        let mut state = State {
-            outputs: bind_outputs(&globals, &qh),
-            frame: Frame::default(),
-        };
-        queue
-            .roundtrip(&mut state)
-            .map_err(ConnectError::Dispatch)?;
+        state.outputs = bind_outputs(&globals, &qh);
+        roundtrip(
+            &connection,
+            &mut queue,
+            &mut state,
+            Deadline::after(CONNECT_PATIENCE),
+        )
+        .map_err(ConnectError::Wait)?;
         Ok(Self {
+            connection,
             queue,
             state,
             shm,
@@ -128,22 +135,30 @@ impl Wayland {
             .collect()
     }
 
-    /// Captures the output named `name` with the compositor's protocol.
-    pub(crate) fn capture(&mut self, name: &str) -> Result<Image, CaptureError> {
+    /// Captures the output named `name` with the compositor's protocol,
+    /// within `patience`.
+    pub(crate) fn capture(
+        &mut self,
+        name: &str,
+        patience: Duration,
+    ) -> Result<Image, CaptureError> {
+        let deadline = Deadline::after(patience);
         // Catch up on the outputs' state (a transform just changed, say).
-        self.queue
-            .roundtrip(&mut self.state)
-            .map_err(CaptureError::Dispatch)?;
+        roundtrip(&self.connection, &mut self.queue, &mut self.state, deadline)
+            .map_err(|error| waited(error, name))?;
         let index = self.output_index(name)?;
         self.state.frame = Frame::default();
-        let qh = self.queue.handle();
+        let mut cx = Capturing {
+            qh: self.queue.handle(),
+            queue: &mut self.queue,
+            state: &mut self.state,
+            shm: &self.shm,
+            deadline,
+            output: name,
+        };
         match &self.protocol {
-            Some(Protocol::Ext(ext)) => {
-                ext.capture(&mut self.queue, &mut self.state, &self.shm, &qh, index)
-            }
-            Some(Protocol::Wlr(wlr)) => {
-                wlr.capture(&mut self.queue, &mut self.state, &self.shm, &qh, index)
-            }
+            Some(Protocol::Ext(ext)) => ext.capture(&mut cx, index),
+            Some(Protocol::Wlr(wlr)) => wlr.capture(&mut cx, index),
             None => Err(CaptureError::Failed(
                 "the compositor offers no Wayland capture protocol".into(),
             )),
@@ -164,37 +179,64 @@ impl Wayland {
 }
 
 /// Binds every `wl_output` the compositor announced.
-fn bind_outputs(globals: &GlobalList, qh: &QueueHandle<State>) -> Vec<Output> {
+fn bind_outputs(globals: &Globals, qh: &QueueHandle<State>) -> Vec<Output> {
     globals
-        .contents()
-        .clone_list()
+        .all()
         .into_iter()
         .filter(|global| global.interface == WlOutput::interface().name)
         .map(|global| Output {
-            proxy: globals.registry().bind::<WlOutput, _, _>(
-                global.name,
-                global.version.min(OUTPUT_NAMES),
-                qh,
-                (),
-            ),
+            proxy: globals.bind_global(&global, global.version.min(OUTPUT_NAMES), qh, ()),
             name: None,
             transform: Transform::Normal,
         })
         .collect()
 }
 
-/// Dispatches until `done` says the frame has got far enough.
-pub(crate) fn dispatch_until(
-    queue: &mut EventQueue<State>,
-    state: &mut State,
-    done: impl Fn(&Frame) -> bool,
-) -> Result<(), CaptureError> {
-    while !done(&state.frame) {
-        queue
-            .blocking_dispatch(state)
-            .map_err(CaptureError::Dispatch)?;
+/// One capture under way: the connection's queue and state, and the
+/// deadline the capture of `output` must meet.
+#[derive(Debug)]
+pub(crate) struct Capturing<'a> {
+    pub(crate) queue: &'a mut EventQueue<State>,
+    pub(crate) state: &'a mut State,
+    pub(crate) shm: &'a WlShm,
+    pub(crate) qh: QueueHandle<State>,
+    pub(crate) deadline: Deadline,
+    pub(crate) output: &'a str,
+}
+
+impl Capturing<'_> {
+    /// Dispatches until `done` says the frame has got far enough, or the
+    /// deadline passes.
+    pub(crate) fn until(&mut self, done: impl Fn(&Frame) -> bool) -> Result<(), CaptureError> {
+        dispatch_until(self.queue, self.state, self.deadline, |state| {
+            done(&state.frame)
+        })
+        .map_err(|error| waited(error, self.output))
     }
-    Ok(())
+
+    /// A buffer for the compositor to copy the output into.
+    pub(crate) fn buffer(
+        &self,
+        size: (u32, u32),
+        stride: u32,
+        format: u32,
+    ) -> Result<ShmBuffer, CaptureError> {
+        let format = wl_shm::Format::try_from(format)
+            .map_err(|()| CaptureError::UnsupportedFormat(format!("{format:#010x}")))?;
+        ShmBuffer::new(self.shm, &self.qh, size, stride, format, None, ())
+            .map_err(CaptureError::Buffer)
+    }
+}
+
+/// The capture error for a wait on `output` that ended in `error`.
+pub(crate) fn waited(error: WaitError, output: &str) -> CaptureError {
+    match error {
+        WaitError::TimedOut(patience) => CaptureError::TimedOut {
+            output: output.to_owned(),
+            patience,
+        },
+        other => CaptureError::Connection(other),
+    }
 }
 
 /// The `wl_shm` formats this crate reads, in the order it prefers them, with
@@ -231,67 +273,6 @@ pub(crate) fn shm_format(format: WEnum<wl_shm::Format>) -> u32 {
     }
 }
 
-/// A buffer in a file of its own, for the compositor to fill.
-#[derive(Debug)]
-pub(crate) struct ShmBuffer {
-    file: File,
-    pub(crate) proxy: WlBuffer,
-    len: usize,
-}
-
-impl ShmBuffer {
-    pub(crate) fn new(
-        shm: &WlShm,
-        qh: &QueueHandle<State>,
-        (width, height): (u32, u32),
-        stride: u32,
-        format: u32,
-    ) -> Result<Self, CaptureError> {
-        let too_large = || CaptureError::BadBuffer("the buffer is too large for wl_shm".into());
-        let len = u64::from(stride) * u64::from(height);
-        let pool_size = i32::try_from(len).map_err(|_| too_large())?;
-        let width = i32::try_from(width).map_err(|_| too_large())?;
-        let height = i32::try_from(height).map_err(|_| too_large())?;
-        let stride = i32::try_from(stride).map_err(|_| too_large())?;
-        let format = wl_shm::Format::try_from(format)
-            .map_err(|()| CaptureError::UnsupportedFormat(format!("{format:#010x}")))?;
-        let file = tempfile::tempfile().map_err(|source| CaptureError::Io {
-            what: "create the buffer's file",
-            source,
-        })?;
-        file.set_len(len).map_err(|source| CaptureError::Io {
-            what: "size the buffer's file",
-            source,
-        })?;
-        let pool = shm.create_pool(file.as_fd(), pool_size, qh, ());
-        let proxy = pool.create_buffer(0, width, height, stride, format, qh, ());
-        pool.destroy();
-        Ok(Self {
-            file,
-            proxy,
-            len: usize::try_from(len).map_err(|_| too_large())?,
-        })
-    }
-
-    /// What the compositor wrote into it.
-    pub(crate) fn read(&self) -> Result<Vec<u8>, CaptureError> {
-        let mut bytes = vec![0; self.len];
-        self.file
-            .read_exact_at(&mut bytes, 0)
-            .map_err(|source| CaptureError::Io {
-                what: "read the captured buffer",
-                source,
-            })?;
-        Ok(bytes)
-    }
-}
-
-impl Drop for ShmBuffer {
-    fn drop(&mut self) {
-        self.proxy.destroy();
-    }
-}
-
 impl Dispatch<WlOutput, ()> for State {
     fn event(
         state: &mut Self,
@@ -322,19 +303,6 @@ impl Dispatch<WlOutput, ()> for State {
     }
 }
 
-impl Dispatch<WlRegistry, GlobalListContents> for State {
-    fn event(
-        _: &mut Self,
-        _: &WlRegistry,
-        _: wl_registry::Event,
-        _: &GlobalListContents,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-        // The outputs are those there were at connection time.
-    }
-}
-
 impl Dispatch<WlBuffer, ()> for State {
     fn event(
         _: &mut Self,
@@ -355,6 +323,17 @@ delegate_noop!(State: WlShmPool);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_wait_that_ran_out_names_the_output() {
+        let error = waited(WaitError::TimedOut(Duration::from_secs(60)), "HEADLESS-1");
+        assert!(
+            matches!(&error, CaptureError::TimedOut { output, patience }
+                if output == "HEADLESS-1" && *patience == Duration::from_secs(60)),
+            "{error:?}"
+        );
+        assert!(matches!(waited(WaitError::Closed, "x"), CaptureError::Connection(_)));
+    }
 
     #[test]
     fn prefers_formats_without_alpha() {

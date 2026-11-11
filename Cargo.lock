@@ -851,8 +851,7 @@ dependencies = [
 name = "deskrinch-test-client"
 version = "0.1.0"
 dependencies = [
- "deskrinch-test-screen",
- "tempfile",
+ "deskrinch-test-wayland",
  "thiserror 2.0.21",
  "wayland-client",
  "wayland-protocols",
@@ -885,12 +884,23 @@ name = "deskrinch-test-screen"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
- "tempfile",
+ "deskrinch-test-wayland",
+ "rustix",
  "thiserror 2.0.21",
  "wayland-client",
  "wayland-protocols",
  "wayland-protocols-wlr",
  "zbus",
+]
+
+[[package]]
+name = "deskrinch-test-wayland"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
+ "wayland-client",
 ]
 
 [[package]]

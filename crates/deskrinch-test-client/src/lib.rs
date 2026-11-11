@@ -34,7 +34,8 @@ pub use outputs::{OutputChange, OutputSettings, configure_every_output, configur
 pub use paint::Paint;
 pub use window::TestWindow;
 
-/// How long a window waits to be drawn as asked: generous, since a loaded
+/// How long anything here waits for the compositor (a window to be drawn
+/// as asked, a round trip, an output change): generous, since a loaded
 /// machine runs nested compositors slowly.
 pub const PATIENCE: Duration = Duration::from_secs(60);
 
@@ -54,21 +55,20 @@ pub enum Error {
         #[source]
         source: std::io::Error,
     },
-    /// The compositor's globals could not be listed.
-    #[error("could not list the compositor's globals")]
-    Globals(#[source] wayland_client::globals::GlobalError),
     /// A global the client needs could not be bound.
-    #[error("could not bind {interface}")]
-    Bind {
-        /// The global.
-        interface: &'static str,
-        /// Why.
-        #[source]
-        source: wayland_client::globals::BindError,
+    #[error("could not bind a global the client needs")]
+    Bind(#[source] deskrinch_test_wayland::BindError),
+    /// The compositor did not answer within [`PATIENCE`].
+    #[error("the compositor did not answer within {patience:?} while {what}")]
+    TimedOut {
+        /// What the client was waiting for.
+        what: &'static str,
+        /// How long it waited.
+        patience: Duration,
     },
     /// The connection failed while waiting for the compositor.
     #[error("the connection to the compositor failed")]
-    Dispatch(#[source] wayland_client::DispatchError),
+    Connection(#[source] deskrinch_test_wayland::WaitError),
     /// A request could not be sent.
     #[error("could not send to the compositor")]
     Send(#[source] wayland_client::backend::WaylandError),
@@ -86,8 +86,8 @@ pub enum Error {
         drawn: Option<(i32, i32)>,
     },
     /// A window's buffer could not be made.
-    #[error("could not make a window's buffer: {0}")]
-    Buffer(String),
+    #[error("could not make a window's buffer")]
+    Buffer(#[source] deskrinch_test_wayland::ShmError),
     /// The compositor does not offer `zwlr_output_manager_v1` (KWin, for
     /// one; see [`configure_output`]).
     #[error("the compositor does not offer zwlr_output_manager_v1")]
@@ -100,6 +100,15 @@ pub enum Error {
         /// Why, as far as it said.
         reason: String,
     },
+}
+
+/// The error for a wait on the compositor, while `what`, that ended in
+/// `error`.
+pub(crate) fn waited(error: deskrinch_test_wayland::WaitError, what: &'static str) -> Error {
+    match error {
+        deskrinch_test_wayland::WaitError::TimedOut(patience) => Error::TimedOut { what, patience },
+        other => Error::Connection(other),
+    }
 }
 
 /// Locks `mutex`, through a panic of another holder: the state it guards is

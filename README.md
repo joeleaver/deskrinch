@@ -64,7 +64,8 @@ let image = screen.capture_until(output, PATIENCE, |image| {
 ```
 
 An `Image` is the output's physical pixels, upright, as `Rgba` rows from the
-top. The crate captures through `ext-image-copy-capture` (sway, labwc),
+top. A capture the compositor does not finish within a minute fails with
+`CaptureError::TimedOut`, naming the output, instead of hanging the test. The crate captures through `ext-image-copy-capture` (sway, labwc),
 `wlr-screencopy`, or KWin's `org.kde.KWin.ScreenShot2`, whichever the
 compositor offers. Under KWin the test binary must be granted the screenshot
 interface: `cargo xtask compositor-tests` installs a desktop file for each test

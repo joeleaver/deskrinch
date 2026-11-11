@@ -12,9 +12,6 @@ pub enum ConnectError {
     /// There is no compositor to connect to, or the connection failed.
     #[error("could not connect to the compositor")]
     Wayland(#[source] wayland_client::ConnectError),
-    /// The compositor's globals could not be listed.
-    #[error("could not list the compositor's globals")]
-    Globals(#[source] wayland_client::globals::GlobalError),
     /// A global the capture needs could not be bound.
     #[error("could not bind {interface}")]
     Bind {
@@ -22,11 +19,12 @@ pub enum ConnectError {
         interface: &'static str,
         /// Why.
         #[source]
-        source: wayland_client::globals::BindError,
+        source: deskrinch_test_wayland::BindError,
     },
-    /// The connection failed while learning the outputs.
-    #[error("the connection to the compositor failed")]
-    Dispatch(#[source] wayland_client::DispatchError),
+    /// The compositor did not list its globals or describe its outputs in
+    /// time, or the connection failed meanwhile.
+    #[error("could not learn the compositor's globals and outputs")]
+    Wait(#[source] deskrinch_test_wayland::WaitError),
     /// The compositor offers neither capture protocol, and no
     /// `org.kde.KWin.ScreenShot2` is on the session bus.
     #[error(
@@ -78,9 +76,21 @@ pub enum CaptureError {
     /// says.
     #[error("the captured buffer is malformed: {0}")]
     BadBuffer(String),
+    /// The compositor did not finish the capture of `output` within
+    /// `patience`.
+    #[error("{output} was not captured within {patience:?}")]
+    TimedOut {
+        /// The output.
+        output: String,
+        /// How long the capture had.
+        patience: Duration,
+    },
     /// The connection to the compositor failed.
     #[error("the connection to the compositor failed")]
-    Dispatch(#[source] wayland_client::DispatchError),
+    Connection(#[source] deskrinch_test_wayland::WaitError),
+    /// The buffer the compositor copies into could not be made or read.
+    #[error("the capture buffer failed")]
+    Buffer(#[source] deskrinch_test_wayland::ShmError),
     /// The buffer or the pipe the pixels arrive through failed.
     #[error("could not {what}")]
     Io {
