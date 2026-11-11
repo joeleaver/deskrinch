@@ -150,7 +150,7 @@ pub(super) const SUITES: [Suite; 7] = [
         },
         grant: None,
         compositors: ALL,
-        scaled: false,
+        passes: PLAIN,
         filter: &[],
     },
     // Last: it ends the session.
