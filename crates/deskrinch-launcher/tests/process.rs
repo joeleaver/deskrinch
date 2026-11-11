@@ -23,6 +23,7 @@ mod process {
 
     use deskrinch_bus::Bus;
     use deskrinch_launcher::{Answer, NAME, Request, send};
+    use deskrinch_test_client::Compositor;
     use rustix::process::{Pid, Signal, kill_process};
 
     /// How long something that should happen gets.
@@ -33,25 +34,12 @@ mod process {
     const LAUNCHER: &str = env!("CARGO_BIN_EXE_deskrinch-launcher");
 
     /// Panics unless the tests run in a nested session started by
-    /// `cargo xtask compositor-tests`, which sets `DESKRINCH_TEST_COMPOSITOR`.
-    /// Run anywhere else, they would take the launcher's name on the real
-    /// session bus and map an overlay with the keyboard on the real
-    /// compositor. Every test calls it first, before it touches the bus or
-    /// starts a process.
-    ///
-    /// The window-management tests' `Compositor::current` is the same guard,
-    /// in their test support, where it cannot be shared; this becomes
-    /// `deskrinch_test_client::Compositor::current()` with the launcher's
-    /// `SUITES` entry, once `deskrinch-test-client` is on `main`.
+    /// `cargo xtask compositor-tests` (`Compositor::current`). Run anywhere
+    /// else, they would take the launcher's name on the real session bus and
+    /// map an overlay with the keyboard on the real compositor. Every test
+    /// calls it first, before it touches the bus or starts a process.
     fn in_nested_session() {
-        assert!(
-            matches!(
-                std::env::var("DESKRINCH_TEST_COMPOSITOR").as_deref(),
-                Ok("kwin" | "sway" | "labwc")
-            ),
-            "the launcher's process tests run in a nested compositor: \
-             use `cargo xtask compositor-tests`"
-        );
+        let _compositor = Compositor::current();
     }
 
     /// Counts a process's presented frames from its standard error.

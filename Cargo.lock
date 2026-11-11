@@ -972,6 +972,7 @@ dependencies = [
  "deskrinch-bus",
  "deskrinch-component",
  "deskrinch-desktop-entries",
+ "deskrinch-test-client",
  "deskrinch-test-dbus",
  "deskrinch-theme",
  "deskrinch-xdg",
@@ -979,7 +980,7 @@ dependencies = [
  "rustix",
  "thiserror 2.0.21",
  "tracing",
- "zbus",
+ "zbus 6.2.1",
 ]
 
 [[package]]
