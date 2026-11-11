@@ -32,6 +32,16 @@ pub(crate) enum Ended {
     CutOff(Duration),
 }
 
+impl fmt::Display for Ended {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Exited(status) => write!(f, "exited with status {status}"),
+            Self::Signalled(signal) => write!(f, "was ended by signal {signal}"),
+            Self::CutOff(limit) => write!(f, "was stopped after {}s", limit.as_secs()),
+        }
+    }
+}
+
 /// What the run means for the job.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum Verdict {
@@ -207,6 +217,16 @@ E: Unable to fetch some archives, maybe run apt update or try with --fix-missing
                 Some("Could not resolve 'archive.ubuntu.com'")
             ),
             Verdict::Unreachable("Could not resolve 'archive.ubuntu.com'".into())
+        );
+    }
+
+    #[test]
+    fn how_a_run_ended_reads() {
+        assert_eq!(Ended::Exited(100).to_string(), "exited with status 100");
+        assert_eq!(Ended::Signalled(9).to_string(), "was ended by signal 9");
+        assert_eq!(
+            Ended::CutOff(Duration::from_secs(300)).to_string(),
+            "was stopped after 300s"
         );
     }
 
