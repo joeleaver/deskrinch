@@ -41,11 +41,16 @@ tracing.workspace = true
 zbus = { workspace = true, features = ["default-rt", "service"] }
 
 [dev-dependencies]
-# The process tests refuse to run outside a nested session.
+# The compositor tests refuse to run outside a nested session.
 deskrinch-test-client.workspace = true
 deskrinch-test-dbus.workspace = true
+# The compositor tests type into the launcher, and look at what it draws.
+deskrinch-test-input.workspace = true
+deskrinch-test-screen.workspace = true
 # The process tests end the launcher a client started, by its pid.
 rustix = { workspace = true, features = ["process"] }
+# The screen tests' applications and configuration.
+tempfile.workspace = true
 
 [lints]
 workspace = true

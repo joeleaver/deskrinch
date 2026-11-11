@@ -119,13 +119,19 @@ pub(super) const SUITES: [Suite; 8] = [
         scaled: false,
         filter: &[],
     },
-    // The launcher's process, its real binary: no restricted interface.
+    // The launcher, its real binary: its process, and keys typed into it
+    // with what it draws.
     Suite {
         target: Target {
             package: LAUNCHER,
-            test: "process",
+            test: "compositor",
         },
-        grant: None,
+        grant: Some(Grant {
+            id: "org.deskrinch.LauncherTests",
+            name: "deskrinch launcher tests",
+            wayland: &[deskrinch_test_input::KWIN_FAKE_INPUT_INTERFACE],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
         compositors: ALL,
         scaled: false,
         filter: &[],
