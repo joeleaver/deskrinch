@@ -1,0 +1,31 @@
+[package]
+name = "deskrinch-test-input"
+description = "Input for deskrinch's compositor tests: keys pressed into a nested session as a keyboard would, through wlroots' virtual keyboard or KWin's fake input."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# `Compositor::current`, which refuses a session that is not a nested one.
+deskrinch-test-client.workspace = true
+# The connection's waits, with deadlines, and the globals.
+deskrinch-test-wayland.workspace = true
+thiserror.workspace = true
+wayland-client.workspace = true
+# wlroots' `zwp_virtual_keyboard_v1`.
+wayland-protocols-misc = { workspace = true, features = ["client"] }
+# KWin's `org_kde_kwin_fake_input`, a restricted interface.
+wayland-protocols-plasma = { workspace = true, features = ["client"] }
+
+# The compositor test runs inside nested compositors that
+# `cargo xtask compositor-tests` starts; it is ignored by a plain
+# `cargo test`.
+[[test]]
+name = "compositor"
+path = "tests/compositor/main.rs"
+
+[lints]
+workspace = true
