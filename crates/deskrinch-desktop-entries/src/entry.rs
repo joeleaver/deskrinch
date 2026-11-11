@@ -3,10 +3,12 @@
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
-use crate::deviation::Deviation;
-use crate::error::ParseError;
 use deskrinch_keyfile::{Group, KeyFile};
 use deskrinch_keyfile::{Localized, LocalizedList, LocalizedString};
+
+use crate::deviation::Deviation;
+use crate::error::ParseError;
+use crate::icon::{self, Icon};
 
 /// The group every desktop entry file starts with.
 const MAIN_GROUP: &str = "Desktop Entry";
@@ -69,8 +71,8 @@ impl fmt::Display for DesktopId {
 
 /// A parsed desktop entry.
 ///
-/// `Icon` is kept as the string it is (a name or an absolute path); looking
-/// it up in an icon theme is not this crate's job.
+/// `Icon` is read as an [`Icon`]: a name or an absolute path. Looking it up
+/// in an icon theme is not this crate's job.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct DesktopEntry {
@@ -86,8 +88,9 @@ pub struct DesktopEntry {
     pub generic_name: Option<LocalizedString>,
     /// `Comment`, a tooltip.
     pub comment: Option<LocalizedString>,
-    /// `Icon`, unresolved.
-    pub icon: Option<LocalizedString>,
+    /// `Icon`: a name or an absolute path, as GLib reads it (see
+    /// [`Icon`]); unresolved.
+    pub icon: Option<Localized<Icon>>,
     /// `Hidden`: the entry is deleted, and hides entries of the same ID
     /// further down the search path.
     pub hidden: bool,
@@ -158,8 +161,9 @@ pub struct Action {
     pub id: String,
     /// `Name`; `Unnamed` when the group has none.
     pub name: LocalizedString,
-    /// `Icon`, unresolved.
-    pub icon: Option<LocalizedString>,
+    /// `Icon`, read as the entry's is. GLib does not read actions' icons;
+    /// the same rules apply here.
+    pub icon: Option<Localized<Icon>>,
     /// `Exec`. Absent when the application is `DBusActivatable`, or when
     /// the group leaves it out.
     pub exec: Option<String>,
@@ -216,7 +220,7 @@ impl DesktopEntry {
             name: name(main, d),
             generic_name: main.localized("GenericName", d),
             comment: main.localized("Comment", d),
-            icon: main.localized("Icon", d),
+            icon: icon::read(main, d),
             hidden: main.boolean("Hidden", d),
             no_display: main.boolean("NoDisplay", d),
             only_show_in: main.list("OnlyShowIn", d),
@@ -285,7 +289,7 @@ fn parse_application(file: &KeyFile, main: &Group, d: &mut Vec<Deviation>) -> Ap
         };
         actions.push(Action {
             name: name(group, d),
-            icon: group.localized("Icon", d),
+            icon: icon::read(group, d),
             exec: read_exec(group, dbus_activatable, d),
             id,
         });

@@ -4,7 +4,7 @@ use deskrinch_keyfile::unescape;
 fn run(exec: &str, targets: &[Target]) -> Result<Vec<Vec<String>>, ExecError> {
     let fields = Fields {
         name: "My App",
-        icon: Some("my-icon"),
+        icon: Some(OsStr::new("my-icon")),
         desktop_file: Some(Path::new("/usr/share/applications/my.desktop")),
     };
     let lines = expand(exec, &fields, targets)?;
