@@ -14,6 +14,8 @@ use deskrinch_test_screen::{Image, Screen};
 /// How long something that should happen gets: generous, since a loaded
 /// machine runs nested compositors slowly.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(60);
+/// How long the screen must not change to count as still.
+const STILL: Duration = Duration::from_millis(500);
 
 /// The panel binary Cargo built.
 const PANEL: &str = env!("CARGO_BIN_EXE_deskrinch-panel");
@@ -126,7 +128,7 @@ impl Band {
 }
 
 /// Every output's picture, by name.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub(crate) struct Pictures(pub(crate) Vec<(String, Image)>);
 
 impl Pictures {
@@ -142,6 +144,25 @@ impl Pictures {
                 })
                 .collect(),
         )
+    }
+
+    /// Each output of `screen` once it is still: the same in two captures
+    /// [`STILL`] apart. What the last test showed may still be going: KWin
+    /// fades a closed window or panel out, the more slowly the busier the
+    /// machine is, and a picture taken during the fade would count the
+    /// whole fade as the panel's.
+    pub(crate) fn still(screen: &mut Screen) -> Self {
+        let deadline = Instant::now() + PATIENCE;
+        let mut last = Self::take(screen);
+        loop {
+            std::thread::sleep(STILL);
+            let now = Self::take(screen);
+            if now == last {
+                return now;
+            }
+            assert!(Instant::now() < deadline, "the screen did not keep still");
+            last = now;
+        }
     }
 }
 

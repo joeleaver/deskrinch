@@ -123,7 +123,7 @@ fn a_maximised_window_stops_at_the_panel() {
     in_nested_session();
     write_settings(&panel_table(Edge::Bottom, 40));
     let mut screen = Screen::connect().unwrap();
-    let before = Pictures::take(&mut screen);
+    let before = Pictures::still(&mut screen);
     let _panel = Panel::start();
     let scale = scale_of(&screen.outputs()[0]);
     let band = Band::of(Edge::Bottom, 40, scale);

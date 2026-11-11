@@ -17,7 +17,7 @@ fn an_edit_moves_and_resizes_the_running_panel() {
     write_settings(&panel_table(Edge::Bottom, 40));
     let mut screen = Screen::connect().unwrap();
     let scale = scale_of(&screen.outputs()[0]);
-    let before = Pictures::take(&mut screen);
+    let before = Pictures::still(&mut screen);
     let _panel = Panel::start();
     wait_band(&mut screen, &before, Band::of(Edge::Bottom, 40, scale));
     write_settings(&panel_table(Edge::Top, 56));
@@ -33,7 +33,7 @@ fn a_maximised_window_follows_the_zone_as_it_changes() {
     write_settings(&panel_table(Edge::Bottom, 40));
     let mut screen = Screen::connect().unwrap();
     let scale = scale_of(&screen.outputs()[0]);
-    let before = Pictures::take(&mut screen);
+    let before = Pictures::still(&mut screen);
     let _panel = Panel::start();
     let (output, _) = wait_band(&mut screen, &before, Band::of(Edge::Bottom, 40, scale));
     let client = TestClient::connect().unwrap();
@@ -58,7 +58,7 @@ fn a_rejected_value_leaves_it_where_it_was() {
     write_settings(&at);
     let mut screen = Screen::connect().unwrap();
     let scale = scale_of(&screen.outputs()[0]);
-    let before = Pictures::take(&mut screen);
+    let before = Pictures::still(&mut screen);
     let panel = Panel::start();
     let band = Band::of(Edge::Top, 48, scale);
     wait_band(&mut screen, &before, band);

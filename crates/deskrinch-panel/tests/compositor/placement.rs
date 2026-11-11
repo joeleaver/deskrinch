@@ -15,7 +15,7 @@ fn by_default_it_runs_along_the_bottom_40_high() {
     no_settings();
     let mut screen = Screen::connect().unwrap();
     let scale = session_scale(&screen);
-    let before = Pictures::take(&mut screen);
+    let before = Pictures::still(&mut screen);
     let _panel = Panel::start();
     wait_band(&mut screen, &before, Band::of(Edge::Bottom, 40, scale));
 }
@@ -27,7 +27,7 @@ fn it_starts_at_its_configured_edge_and_height() {
     write_settings(&panel_table(Edge::Top, 56));
     let mut screen = Screen::connect().unwrap();
     let scale = session_scale(&screen);
-    let before = Pictures::take(&mut screen);
+    let before = Pictures::still(&mut screen);
     let _panel = Panel::start();
     wait_band(&mut screen, &before, Band::of(Edge::Top, 56, scale));
     no_settings();
