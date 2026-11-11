@@ -51,6 +51,8 @@ The environment the command and everything it starts see:
     the real home), so cargo and rustup work with HOME moved.
   - WAYLAND_DISPLAY naming the nested compositor, and SWAYSOCK its IPC under
     sway. No X server: KWin runs without Xwayland, so no kcminit either.
+  - DESKRINCH_TEST_COMPOSITOR naming the compositor (kwin, sway or labwc), as
+    the compositor tests' guard against the real session expects.
   - DBUS_SESSION_BUS_ADDRESS naming a private dbus-daemon with service
     activation off: nothing (portals, secret service, notification daemons)
     is started on demand. The compositor uses the same bus.

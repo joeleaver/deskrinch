@@ -84,9 +84,9 @@ top. A capture the compositor does not finish within a minute fails with
 compositor offers. Under KWin the test binary must be granted the screenshot
 interface: `cargo xtask compositor-tests` installs a desktop file for each test
 binary, built with `deskrinch-kwin-access` from the interface constants of the
-crates it uses (`deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE`, ...). A
-rotated output is tested under sway and labwc only: KWin has no start-up
-transform, and its output protocol cannot be driven from Rust here.
+crates it uses (`deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE`, ...). The
+screen tests run each compositor's outputs at scale 1, at scale 2, and turned a
+quarter.
 
 One desktop-entries test launches into a real transient scope of your
 systemd user instance, and is ignored by `cargo test`. It starts only its
@@ -118,6 +118,8 @@ What the command, and everything it starts, sees:
 - `CARGO_HOME` and `RUSTUP_HOME` at your real ones, so cargo and rustup work.
 - `WAYLAND_DISPLAY` naming the nested compositor (and `SWAYSOCK` its IPC
   under sway). There is no X server: KWin runs without Xwayland.
+- `DESKRINCH_TEST_COMPOSITOR` naming the compositor (`kwin`, `sway` or
+  `labwc`), which the compositor tests' guard against the real session reads.
 - `DBUS_SESSION_BUS_ADDRESS` naming a private `dbus-daemon` with service
   activation off, which the compositor uses too: no portal, secret service
   or notification daemon is ever started on demand.
@@ -158,6 +160,12 @@ its configuration, labwc through `wlr-output-management`, and KWin with KDE's
 `libkscreen-bin`, or `libkf5screen-bin` for Plasma 5). The session fails (70)
 if an output then reports another scale: its whole scale on `wl_output`, and
 its logical size on `xdg-output` against its mode (853x480 at 1.5).
+
+`--transform T` turns every output the same way (`normal`, `90`, `180`, `270`,
+`flipped`, `flipped-90`, `flipped-180`, `flipped-270`, as `wl_output` names
+them, counter-clockwise): sway through its configuration, labwc through
+`wlr-output-management`, KWin through `kscreen-doctor`. The session fails (70)
+if an output reports another transform, or a logical size not turned with it.
 
 From outside this repository, for example in a rinch clone under `.work/`,
 name xtask's manifest; the command still runs in your directory:

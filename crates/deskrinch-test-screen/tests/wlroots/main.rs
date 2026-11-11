@@ -4,9 +4,10 @@
 //! `wlr-output-management`.
 //!
 //! KWin offers neither, and its own output protocol cannot be used from
-//! Rust here (see `deskrinch_test_client::configure_output`), so a rotated
-//! output is not tested under KWin. `cargo xtask compositor-tests` runs this
-//! binary under sway and labwc only, at scale 1 and at scale 2.
+//! Rust here (see `deskrinch_test_client::configure_output`); its outputs
+//! are turned from the start instead, in the `compositor` binary's rotated
+//! pass. `cargo xtask compositor-tests` runs this binary under sway and
+//! labwc only, at scale 1 and at scale 2.
 
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
 #[cfg(test)]
