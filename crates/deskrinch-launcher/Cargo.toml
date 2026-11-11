@@ -1,0 +1,16 @@
+[package]
+name = "deskrinch-launcher"
+description = "The application launcher: summoned over the session bus, it finds installed applications as the user types and starts the chosen one."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The installed applications, their search ranking and their launch.
+deskrinch-desktop-entries.workspace = true
+
+[lints]
+workspace = true

@@ -947,6 +947,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-launcher"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-desktop-entries",
+]
+
+[[package]]
 name = "deskrinch-notification-service"
 version = "0.1.0"
 dependencies = [
