@@ -6,7 +6,9 @@
 //! - `zwlr_foreign_toplevel_management_v1`, offered by wlroots compositors
 //!   (sway and others) and by deskrinch's own compositor;
 //! - `org_kde_plasma_window_management`, offered by KWin, and only to
-//!   clients KWin has granted it to (see [`kwin_access`]).
+//!   clients KWin has granted it to, by an installed desktop file that lists
+//!   [`KWIN_INTERFACE`] (the `deskrinch-kwin-access` crate says how KWin
+//!   decides, and writes the file).
 //!
 //! [`connect`] picks whichever the compositor offers (the wlroots protocol
 //! when both are), and the caller sees only the [`WindowManagement`] trait.
@@ -81,7 +83,6 @@
 mod backend;
 mod capabilities;
 mod error;
-pub mod kwin_access;
 mod layout;
 mod manager;
 mod model;
@@ -91,3 +92,8 @@ pub use capabilities::{Action, Actions, Capabilities, Protocol};
 pub use error::{ActionError, ConnectError, EndReason};
 pub use manager::{WindowManagement, WindowManager, connect};
 pub use window::{Event, Window, WindowId, WindowState};
+
+/// The restricted global this crate needs from KWin: the name a KWin grant
+/// for an executable that uses this crate lists among its Wayland
+/// interfaces (`deskrinch_kwin_access::DesktopEntry`).
+pub const KWIN_INTERFACE: &str = "org_kde_plasma_window_management";

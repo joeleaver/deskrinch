@@ -2,8 +2,8 @@
 
 use deskrinch_window_management::{Action, WindowManagement, WindowState};
 
-use crate::support::test_window::TestClient;
-use crate::support::{Compositor, Watcher, find, unique_app_id};
+use crate::support::{Behaviour, Compositor, Watcher, find, unique_app_id};
+use deskrinch_test_client::TestClient;
 
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
@@ -41,8 +41,8 @@ fn lists_open_and_new_windows_with_title_and_app_id() {
     Compositor::current();
     let before_id = unique_app_id("before");
     let after_id = unique_app_id("after");
-    let client = TestClient::connect();
-    let _before = client.open("Opened before", &before_id);
+    let client = TestClient::connect().unwrap();
+    let _before = client.open("Opened before", &before_id).unwrap();
 
     let watcher = Watcher::connect();
     // A window open before connecting is in the list, and was announced,
@@ -54,7 +54,7 @@ fn lists_open_and_new_windows_with_title_and_app_id() {
     watcher.drain();
     assert_eq!(watcher.seen(), listed, "the events describe the same list");
 
-    let _after = client.open("Opened after", &after_id);
+    let _after = client.open("Opened after", &after_id).unwrap();
     let window = watcher.wait_window("the new window", &after_id, |_| true);
     assert_eq!(window.title, "Opened after");
 }
@@ -65,13 +65,13 @@ fn reports_title_changes() {
     Compositor::current();
     let app_id = unique_app_id("retitled");
     let watcher = Watcher::connect();
-    let client = TestClient::connect();
-    let window = client.open("First title", &app_id);
+    let client = TestClient::connect().unwrap();
+    let window = client.open("First title", &app_id).unwrap();
     watcher.wait_window("the window", &app_id, |window| {
         window.title == "First title"
     });
 
-    window.set_title("Second title");
+    window.set_title("Second title").unwrap();
     watcher.wait_window("the new title", &app_id, |window| {
         window.title == "Second title"
     });
@@ -83,8 +83,8 @@ fn a_window_its_client_destroys_is_removed() {
     Compositor::current();
     let app_id = unique_app_id("unmapped");
     let watcher = Watcher::connect();
-    let client = TestClient::connect();
-    let window = client.open("Brief", &app_id);
+    let client = TestClient::connect().unwrap();
+    let window = client.open("Brief", &app_id).unwrap();
     watcher.wait_window("the window", &app_id, |_| true);
     drop(window);
     watcher.wait_gone("the destroyed window", &app_id);
@@ -96,9 +96,9 @@ fn reports_a_child_windows_parent() {
     let compositor = Compositor::current();
     let [main_id, dialog_id] = [unique_app_id("parent"), unique_app_id("child")];
     let watcher = Watcher::connect();
-    let client = TestClient::connect();
-    let main = client.open("Main", &main_id);
-    let dialog = client.open_child(&main, "Dialog", &dialog_id);
+    let client = TestClient::connect().unwrap();
+    let main = client.open("Main", &main_id).unwrap();
+    let dialog = client.open_child(&main, "Dialog", &dialog_id).unwrap();
 
     let main_window = watcher.wait_window("the main window", &main_id, |_| true);
     assert_eq!(main_window.parent, None);

@@ -18,7 +18,8 @@ env:
   CARGO_TERM_COLOR: always
   # What building rinch needs beyond the runner image: GTK for its native
   # menus (muda) and libxdo for their accelerators. Every job that builds the
-  # whole workspace installs these.
+  # whole workspace, or a rinch program, installs these: the compositor tests
+  # build the launcher's binary for its process tests.
   RINCH_BUILD_PACKAGES: libgtk-3-dev libxdo-dev
 
 # Every job has a time limit, so a hang ends it instead of holding a runner
@@ -110,9 +111,9 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo xtask file-length
 
-  # The window-management crate against real compositors, nested and
-  # headless: the versions deskrinch targets, as Ubuntu 26.04 packages them.
-  # Each job prints the version it tested.
+  # The window-management and screen-capture crates against real
+  # compositors, nested and headless: the versions deskrinch targets, as
+  # Ubuntu 26.04 packages them. Each job prints the versions it tested.
   compositor-tests:
     name: Compositor tests (${{ matrix.compositor }})
     runs-on: ubuntu-26.04
@@ -121,9 +122,19 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # kwin-common carries KWin's plugins, its screenshot interface
+          # among them (kwin-wayland only recommends it); libgl1-mesa-dri
+          # is Mesa's software driver, which KWin renders with on vgem's
+          # device; kscreen-doctor (libkscreen-bin) sets the outputs' scale,
+          # through Qt's Wayland platform, whose xdg-shell integration is
+          # libqt6wlshellintegration6.
           - compositor: kwin
-            packages: kwin-wayland dbus-daemon
-            version: kwin_wayland --version
+            packages: >-
+              kwin-wayland kwin-common libgl1-mesa-dri dbus-daemon
+              libkscreen-bin libqt6wlshellintegration6
+            # kscreen-doctor has no --version, and starts Qt even to fail:
+            # its package's version says what was installed.
+            version: kwin_wayland --version && dpkg-query -W -f='${Package} ${Version}\n' libkscreen-bin
           - compositor: sway
             packages: sway dbus-daemon
             version: sway --version
@@ -140,9 +151,23 @@ jobs:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - uses: ./.github/actions/apt-packages
         with:
-          packages: ${{ matrix.packages }}
+          packages: ${{ matrix.packages }} ${{ env.RINCH_BUILD_PACKAGES }}
       - name: Show the ${{ matrix.compositor }} version tested
         run: ${{ matrix.version }}
+      # The runner has no GPU, and KWin's virtual backend composites with
+      # OpenGL only on a DRM device; without OpenGL, ScreenShot2 captures
+      # nothing. vgem is a kernel-side virtual device for exactly this (KWin's
+      # own CI uses it), rendered to with Mesa's software driver.
+      - name: Give KWin a DRM device to render on
+        if: matrix.compositor == 'kwin'
+        # KWin's virtual backend opens vgem's primary node (card*), which
+        # udev makes root:video once it has seen the device: let it finish
+        # first, then open the nodes to the runner's user.
+        run: |
+          sudo modprobe vgem
+          sudo udevadm settle
+          sudo chmod a+rw /dev/dri/card* /dev/dri/renderD*
+          ls -l /dev/dri
       - run: cargo xtask compositor-tests ${{ matrix.compositor }}
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
         run: cargo test -p xtask --test session --test measure --locked -- --ignored

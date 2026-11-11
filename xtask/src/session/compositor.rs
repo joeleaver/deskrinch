@@ -7,6 +7,7 @@ use std::process::Command;
 
 use deskrinch_test_dbus::session;
 
+use super::{Scale, Scaling};
 use crate::error::Error;
 
 /// The KWin socket's name; the wlroots compositors pick their own.
@@ -58,8 +59,9 @@ impl Compositor {
     }
 
     /// The command that starts it with `outputs` outputs side by side, in
-    /// the session whose root is `root` (the caller isolates it).
-    pub(super) fn command(self, root: &Path, outputs: u32) -> Result<Command, Error> {
+    /// the session whose root is `root` (the caller isolates it), at `scale`
+    /// where it takes a scale at start-up ([`Scaling::StartUp`]).
+    pub(super) fn command(self, root: &Path, outputs: u32, scale: Scale) -> Result<Command, Error> {
         match self {
             Self::Kwin => {
                 // No `--xwayland`: KWin then starts neither Xwayland nor the
@@ -76,14 +78,26 @@ impl Compositor {
                     .arg(format!("--output-count={outputs}"))
                     .arg(format!("--width={}", OUTPUT_SIZE.0))
                     .arg(format!("--height={}", OUTPUT_SIZE.1));
+                // Not `--scale`, which enlarges the mode instead; the session
+                // scales KWin's outputs once it runs.
                 write_applications_menu(root)?;
+                // KWin's virtual backend takes `CI` to mean KWin's own CI and
+                // then opens only `/dev/dri/card1`; on any other machine
+                // (GitHub's runners set `CI` too) it must look for a DRM
+                // device itself.
+                command.env_remove("CI");
                 Ok(command)
             }
             Self::Sway => {
-                // An empty configuration: no bar, background, key bindings or
-                // `exec` lines.
+                // No bar, background, key bindings or `exec` lines: only the
+                // outputs' scale.
                 let config = root.join("sway.conf");
-                fs::write(&config, "").map_err(|source| Error::Io {
+                let contents = if scale.is_one() {
+                    String::new()
+                } else {
+                    format!("output * scale {scale}\n")
+                };
+                fs::write(&config, contents).map_err(|source| Error::Io {
                     what: format!("write {}", config.display()),
                     source,
                 })?;
@@ -110,6 +124,45 @@ impl Compositor {
                 wlroots_headless(&mut command, outputs);
                 Ok(command)
             }
+        }
+    }
+
+    /// Whether the session must check that it composites with OpenGL:
+    /// KWin falls back to `QPainter` without a DRM device, and then takes no
+    /// screenshots (see [`super::compositing`]).
+    pub(super) fn checks_opengl(self) -> bool {
+        self == Self::Kwin
+    }
+
+    /// Why the compositor may not have taken bus name `name`.
+    pub(super) fn missing_name_hint(self, name: &str) -> &'static str {
+        match (self, name) {
+            (Self::Kwin, "org.kde.KWin.ScreenShot2") => {
+                "KWin registers it from its screenshot plugin, which Debian and Ubuntu ship in \
+                 kwin-common (only recommended by kwin-wayland)"
+            }
+            _ => "the compositor registers it while it starts",
+        }
+    }
+
+    /// How its outputs get the session's scale.
+    pub(super) fn scaling(self) -> Scaling {
+        match self {
+            Self::Kwin => Scaling::KscreenDoctor,
+            Self::Sway => Scaling::StartUp,
+            Self::Labwc => Scaling::OutputManagement,
+        }
+    }
+
+    /// The D-Bus names it owns on the session's bus once it has started,
+    /// in the order it takes them: a session is ready for its clients only
+    /// when it owns them all. KWin registers its services on the bus after
+    /// it opens its Wayland socket, the screenshot interface last among
+    /// those clients use; the wlroots compositors own none.
+    pub(super) fn bus_names(self) -> &'static [&'static str] {
+        match self {
+            Self::Kwin => &["org.kde.KWin", "org.kde.KWin.ScreenShot2"],
+            Self::Sway | Self::Labwc => &[],
         }
     }
 
@@ -190,6 +243,12 @@ mod tests {
     use std::os::unix::net::UnixListener;
 
     use super::*;
+
+    #[test]
+    fn a_missing_screenshot_name_points_at_the_plugin() {
+        let hint = Compositor::Kwin.missing_name_hint("org.kde.KWin.ScreenShot2");
+        assert!(hint.contains("kwin-common"), "{hint}");
+    }
 
     #[test]
     fn the_menu_goes_only_into_the_sessions_own_configuration() {

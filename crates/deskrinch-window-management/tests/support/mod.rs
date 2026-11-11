@@ -1,10 +1,7 @@
 //! What the compositor tests share: which nested compositor they run in,
 //! what it does, and waiting for events.
 
-pub(crate) mod compositor;
-pub(crate) mod test_window;
-
-pub(crate) use compositor::Compositor;
+pub(crate) use deskrinch_test_client::Compositor;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
@@ -19,9 +16,23 @@ use deskrinch_window_management::{
 const PATIENCE: Duration = Duration::from_secs(10);
 
 /// What each compositor does, where they differ.
-impl Compositor {
+pub(crate) trait Behaviour {
     /// The protocol the crate speaks to it.
-    pub(crate) fn protocol(self) -> Protocol {
+    fn protocol(self) -> Protocol;
+    /// Whether it has a minimized state.
+    fn minimizes(self) -> bool;
+    /// Whether it maximizes a window that asks.
+    fn maximizes(self) -> bool;
+    /// Whether it reports a window's parent.
+    fn reports_parents(self) -> bool;
+    /// Whether a window's reported outputs follow it while it is
+    /// fullscreen.
+    fn tracks_fullscreen_outputs(self) -> bool;
+}
+
+impl Behaviour for Compositor {
+    /// The protocol the crate speaks to it.
+    fn protocol(self) -> Protocol {
         match self {
             Self::Kwin => Protocol::PlasmaWindowManagement,
             Self::Sway | Self::Labwc => Protocol::WlrForeignToplevel,
@@ -30,26 +41,26 @@ impl Compositor {
 
     /// Whether it has a minimized state. sway does not: it ignores the
     /// protocol's minimize requests.
-    pub(crate) fn minimizes(self) -> bool {
+    fn minimizes(self) -> bool {
         self != Self::Sway
     }
 
     /// Whether it maximizes a window that asks. sway tiles every window
     /// and never maximizes one.
-    pub(crate) fn maximizes(self) -> bool {
+    fn maximizes(self) -> bool {
         self != Self::Sway
     }
 
     /// Whether it reports a window's parent. sway offers the protocol
     /// version that can, but never sets one.
-    pub(crate) fn reports_parents(self) -> bool {
+    fn reports_parents(self) -> bool {
         self != Self::Sway
     }
 
     /// Whether a window's reported outputs follow it while it is
     /// fullscreen. sway reports them from the window's tiled place, which
     /// fullscreen hides, so they catch up only once it is windowed again.
-    pub(crate) fn tracks_fullscreen_outputs(self) -> bool {
+    fn tracks_fullscreen_outputs(self) -> bool {
         self != Self::Sway
     }
 }

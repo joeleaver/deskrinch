@@ -10,6 +10,22 @@
 //!   `XDG_CURRENT_DESKTOP` only when the caller asks for one.
 //! - A private D-Bus session bus ([`PrivateBus`]) with no service activation,
 //!   named in `DBUS_SESSION_BUS_ADDRESS` for the compositor and every client.
+//! - Ready when the compositor's Wayland socket is open and it owns the
+//!   D-Bus names it registers at startup ([`Compositor::bus_names`]: KWin's
+//!   services; none for sway and labwc), each waited for within
+//!   [`STARTUP`].
+//! - For KWin, also: `CI` removed from KWin's environment (KWin's virtual
+//!   backend takes it to mean KWin's own CI and then looks only at
+//!   `/dev/dri/card1`; GitHub's runners set it), and KWin's own statement of
+//!   its compositing type checked, failing the session unless it is OpenGL:
+//!   with `QPainter` KWin starts, but its `ScreenShot2` captures nothing
+//!   ([`compositing`]).
+//! - Its outputs at the scale asked for before the first client connects
+//!   ([`Scaling`]): sway through its configuration, labwc set through
+//!   `wlr-output-management`, KWin set with `kscreen-doctor` (which runs on
+//!   Qt's Wayland platform and needs its xdg-shell integration,
+//!   `libqt6wlshellintegration6` on Debian and Ubuntu); then checked against
+//!   the scale and logical size each output reports.
 //! - The compositor, headless, and every client in one process group of
 //!   their own, which is ended as a whole (`SIGTERM`, then `SIGKILL` after
 //!   [`SHUTDOWN`]) when the session ends, and also when xtask gets `SIGINT`,
@@ -21,9 +37,12 @@
 //! The isolation itself (directories, variables, the bus) is
 //! `deskrinch-test-dbus`'s, which the D-Bus tests use too.
 
+mod compositing;
 mod compositor;
 pub(crate) mod interrupt;
 mod leftovers;
+mod scale;
+mod scaling;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
@@ -42,6 +61,8 @@ use tempfile::TempDir;
 
 pub(crate) use self::compositor::Compositor;
 pub(crate) use self::leftovers::Leftover;
+pub(crate) use self::scale::Scale;
+pub(crate) use self::scaling::Scaling;
 use crate::error::Error;
 
 /// The variable naming the desktop that runs, which the session leaves
@@ -72,12 +93,13 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Starts `compositor` with `outputs` outputs in a new isolated session,
-    /// after `prepare` has set up the session's data directory
-    /// (`XDG_DATA_HOME`).
+    /// Starts `compositor` with `outputs` outputs at `scale` in a new
+    /// isolated session, after `prepare` has set up the session's data
+    /// directory (`XDG_DATA_HOME`).
     pub(crate) fn start(
         compositor: Compositor,
         outputs: u32,
+        scale: Scale,
         current_desktop: Option<&OsStr>,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<Self, Error> {
@@ -110,7 +132,7 @@ impl Session {
             source,
         })?;
 
-        let mut command = compositor.command(&root, outputs)?;
+        let mut command = compositor.command(&root, outputs, scale)?;
         isolate(&mut command, &root);
         if let Some(desktop) = current_desktop {
             command.env(CURRENT_DESKTOP, desktop);
@@ -142,6 +164,8 @@ impl Session {
             ended: false,
         };
         session.socket = session.wait_for_socket()?;
+        session.wait_for_bus_names()?;
+        session.scale_outputs(scale)?;
         Ok(session)
     }
 
@@ -310,6 +334,26 @@ impl Session {
             }
             thread::sleep(POLL);
         }
+    }
+
+    /// Waits until the compositor owns each of its [`Compositor::bus_names`].
+    fn wait_for_bus_names(&self) -> Result<(), Error> {
+        for &name in self.compositor.bus_names() {
+            self.bus
+                .wait_for_name(name, STARTUP)
+                .map_err(|source| Error::CompositorNotReady {
+                    compositor: self.compositor.name(),
+                    name,
+                    hint: self.compositor.missing_name_hint(name),
+                    source: Box::new(source),
+                    log: self.log(),
+                })?;
+            interrupt::check()?;
+        }
+        if self.compositor.checks_opengl() {
+            self.check_kwin_compositing(STARTUP)?;
+        }
+        Ok(())
     }
 
     /// Ends every process of the session's group: `SIGTERM`, then `SIGKILL`

@@ -21,7 +21,8 @@
 //! - [`launch`] runs an entry: `Exec` expanded by [`exec::expand`], in a
 //!   terminal when `Terminal=true`, or by D-Bus activation when
 //!   `DBusActivatable=true`. Policy such as the terminal emulator comes in a
-//!   [`LaunchContext`].
+//!   [`LaunchContext`]; [`default_terminal`] is `xdg-terminal-exec` when it
+//!   is installed, for a caller whose user named none.
 //! - A [`Watcher`] reports entries added, changed and removed as the data
 //!   directories change.
 //!
@@ -74,6 +75,8 @@ pub use env::Environment;
 pub use error::{BoxedError, ExecError, LaunchError, ParseError, Problem, ProblemKind, ScanError};
 pub use exec::Target;
 pub use icon::Icon;
-pub use launch::{DirectReason, LaunchContext, Launched, Placement, launch};
+pub use launch::{
+    DirectReason, LaunchContext, Launched, Placement, XDG_TERMINAL_EXEC, default_terminal, launch,
+};
 pub use search::{Coverage, Match, MatchField, MatchKind, search};
 pub use watch::{Event, Watcher};
