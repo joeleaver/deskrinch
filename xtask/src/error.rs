@@ -111,14 +111,28 @@ pub(crate) enum Error {
     },
     /// The nested compositor opened its socket, but did not take one of the
     /// D-Bus names it registers at startup.
-    #[error("{compositor} did not take {name} on the session's bus; its log:\n{log}")]
+    #[error("{compositor} did not take {name} on the session's bus ({hint}); its log:\n{log}")]
     CompositorNotReady {
         /// The compositor.
         compositor: &'static str,
         /// The name that did not appear.
         name: &'static str,
+        /// What registers it.
+        hint: &'static str,
         /// Why waiting for it ended.
         source: Box<deskrinch_test_dbus::NameError>,
+        /// What it printed.
+        log: String,
+    },
+    /// The nested compositor started in a state the session cannot use.
+    #[error("{why} (its log: \"{line}\"); the whole log:\n{log}")]
+    CompositorUnfit {
+        /// The compositor.
+        compositor: &'static str,
+        /// What is wrong, and why it matters.
+        why: &'static str,
+        /// The compositor's own line that says so.
+        line: String,
         /// What it printed.
         log: String,
     },

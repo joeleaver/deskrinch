@@ -121,9 +121,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # kscreen-doctor sets the outputs' scale of a KWin session.
+          # kwin-common carries KWin's plugins, its screenshot interface
+          # among them (kwin-wayland only recommends it); libgl1-mesa-dri
+          # is Mesa's software driver, which KWin renders with on vgem's
+          # device; kscreen-doctor (libkscreen-bin) sets the outputs' scale.
           - compositor: kwin
-            packages: kwin-wayland dbus-daemon libkscreen-bin
+            packages: kwin-wayland kwin-common libgl1-mesa-dri dbus-daemon libkscreen-bin
             # kscreen-doctor has no --version, and starts Qt even to fail:
             # its package's version says what was installed.
             version: kwin_wayland --version && dpkg-query -W -f='${Package} ${Version}\n' libkscreen-bin
@@ -146,6 +149,16 @@ jobs:
           packages: ${{ matrix.packages }}
       - name: Show the ${{ matrix.compositor }} version tested
         run: ${{ matrix.version }}
+      # The runner has no GPU, and KWin's virtual backend composites with
+      # OpenGL only on a DRM device; without OpenGL, ScreenShot2 captures
+      # nothing. vgem is a kernel-side virtual device for exactly this (KWin's
+      # own CI uses it), rendered to with Mesa's software driver.
+      - name: Give KWin a DRM device to render on
+        if: matrix.compositor == 'kwin'
+        run: |
+          sudo modprobe vgem
+          sudo chmod a+rw /dev/dri/card*
+          ls -l /dev/dri
       - run: cargo xtask compositor-tests ${{ matrix.compositor }}
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
         run: cargo test -p xtask --test session --test measure --locked -- --ignored

@@ -12,6 +12,14 @@ use crate::error::Error;
 
 /// The KWin socket's name; the wlroots compositors pick their own.
 const KWIN_SOCKET: &str = "wayland-0";
+/// What KWin logs when it composites with `QPainter`.
+const KWIN_QPAINTER: &str = "QPainter compositing has been successfully initialized";
+
+/// Why a KWin compositing with `QPainter` is no use to a session.
+const KWIN_WITHOUT_OPENGL: &str = "KWin is compositing with QPainter, not OpenGL, so it cannot take \
+     screenshots: its virtual backend found no DRM device to render on (a GPU's, or vgem's \
+     with Mesa's software driver)";
+
 /// Each output's size, where the compositor takes one.
 const OUTPUT_SIZE: (u32, u32) = (1280, 720);
 
@@ -81,6 +89,11 @@ impl Compositor {
                 // Not `--scale`, which enlarges the mode instead; the session
                 // scales KWin's outputs once it runs.
                 write_applications_menu(root)?;
+                // KWin's virtual backend takes `CI` to mean KWin's own CI and
+                // then opens only `/dev/dri/card1`; on any other machine
+                // (GitHub's runners set `CI` too) it must look for a DRM
+                // device itself.
+                command.env_remove("CI");
                 Ok(command)
             }
             Self::Sway => {
@@ -119,6 +132,31 @@ impl Compositor {
                 wlroots_headless(&mut command, outputs);
                 Ok(command)
             }
+        }
+    }
+
+    /// What the compositor's `log` says makes it unfit for a session, if
+    /// anything, with the line that says so. KWin compositing with `QPainter`
+    /// starts, but `org.kde.KWin.ScreenShot2` then captures nothing: its
+    /// screenshots are rendered with OpenGL (`EglBackend`).
+    pub(super) fn unfit(self, log: &str) -> Option<(&'static str, String)> {
+        match self {
+            Self::Kwin => log
+                .lines()
+                .find(|line| line.contains(KWIN_QPAINTER))
+                .map(|line| (KWIN_WITHOUT_OPENGL, line.trim().to_owned())),
+            Self::Sway | Self::Labwc => None,
+        }
+    }
+
+    /// Why the compositor may not have taken bus name `name`.
+    pub(super) fn missing_name_hint(self, name: &str) -> &'static str {
+        match (self, name) {
+            (Self::Kwin, "org.kde.KWin.ScreenShot2") => {
+                "KWin registers it from its screenshot plugin, which Debian and Ubuntu ship in \
+                 kwin-common (only recommended by kwin-wayland)"
+            }
+            _ => "the compositor registers it while it starts",
         }
     }
 
@@ -220,6 +258,28 @@ mod tests {
     use std::os::unix::net::UnixListener;
 
     use super::*;
+
+    #[test]
+    fn a_kwin_without_opengl_is_unfit() {
+        let log = "kwin_core: Configured compositor not supported by Platform. Falling back to defaults\n\
+                   kwin_core: Attempting to load the QPainter scene\n\
+                   kwin_core: QPainter compositing has been successfully initialized\n";
+        let (why, line) = Compositor::Kwin.unfit(log).unwrap();
+        assert!(why.contains("not OpenGL"), "{why}");
+        assert_eq!(
+            line,
+            "kwin_core: QPainter compositing has been successfully initialized"
+        );
+        let opengl = "kwin_core: OpenGL compositing has been successfully initialized\n";
+        assert_eq!(Compositor::Kwin.unfit(opengl), None);
+        assert_eq!(Compositor::Sway.unfit(log), None);
+    }
+
+    #[test]
+    fn a_missing_screenshot_name_points_at_the_plugin() {
+        let hint = Compositor::Kwin.missing_name_hint("org.kde.KWin.ScreenShot2");
+        assert!(hint.contains("kwin-common"), "{hint}");
+    }
 
     #[test]
     fn the_menu_goes_only_into_the_sessions_own_configuration() {
