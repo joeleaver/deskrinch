@@ -4,6 +4,7 @@
 use std::ops::Range;
 
 use deskrinch_desktop_entries::{DesktopEntry, DesktopId, Icon, Locale, search};
+use deskrinch_gestures::Click;
 
 /// One result: an application to show and start.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,8 +61,8 @@ pub struct Model {
     /// An index into `rows`; `None` exactly when there are no rows.
     selected: Option<usize>,
     /// The result the primary pointer button went down on, while it is
-    /// down.
-    pressed: Option<DesktopId>,
+    /// down: a release on the same result is a click.
+    pressed: Click<DesktopId>,
     /// The first of the [`ROWS`] rows drawn: it moves only when the
     /// selection would leave them.
     first: usize,
@@ -158,14 +159,12 @@ impl Model {
             },
             Input::Escape | Input::KeyboardLost => Action::Hide,
             Input::Press(on) => {
-                self.pressed = on;
+                self.pressed.press(on, ());
                 Action::Stay
             }
-            Input::Release(on) => match (self.pressed.take(), on) {
-                (Some(pressed), Some(released))
-                    if pressed == released && self.rows.iter().any(|row| row.id == released) =>
-                {
-                    self.launch(released)
+            Input::Release(on) => match self.pressed.release(on, ()) {
+                Some(clicked) if self.rows.iter().any(|row| row.id == clicked) => {
+                    self.launch(clicked)
                 }
                 _ => Action::Stay,
             },
