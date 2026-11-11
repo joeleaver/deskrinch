@@ -1,0 +1,12 @@
+[package]
+name = "deskrinch-test-component"
+description = "A shell component's binary under test in a nested session: started with the run's renderer, its rinch output watched, ended with the test."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

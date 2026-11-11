@@ -1,5 +1,7 @@
-//! What the measured program's own output says: its frames, and the GPU
-//! adapter wgpu chose.
+//! What a rinch program's own output says: its frames, the GPU adapter wgpu
+//! chose, and whether rinch presents with its software renderer. One home
+//! for rinch's and wgpu's wording, which `cargo xtask measure` and the
+//! compositor tests both read.
 //!
 //! - rinch with `RINCH_PERF` set writes `[PERF] frame N: ...` to standard
 //!   error after each presented frame, so the first such line is the first
@@ -10,11 +12,12 @@
 //!   subscriber prints to standard output when `RUST_LOG` lets it through.
 
 /// The `RUST_LOG` directive that makes wgpu name the adapter it chose.
-pub(crate) const ADAPTER_DIRECTIVE: &str = "wgpu_core::instance=debug";
+pub const ADAPTER_DIRECTIVE: &str = "wgpu_core::instance=debug";
 
-/// The `RUST_LOG` for the measured program: the caller's, if any, with the
+/// The `RUST_LOG` for a watched program: the caller's, if any, with the
 /// adapter directive added; otherwise warnings and the directive.
-pub(crate) fn rust_log(callers: Option<&str>) -> String {
+#[must_use]
+pub fn rust_log(callers: Option<&str>) -> String {
     match callers {
         Some(filter) if !filter.trim().is_empty() => format!("{filter},{ADAPTER_DIRECTIVE}"),
         _ => format!("warn,{ADAPTER_DIRECTIVE}"),
@@ -22,37 +25,40 @@ pub(crate) fn rust_log(callers: Option<&str>) -> String {
 }
 
 /// The frame number of a `RINCH_PERF` line.
-pub(crate) fn frame_number(line: &str) -> Option<u64> {
+#[must_use]
+pub fn frame_number(line: &str) -> Option<u64> {
     let rest = line.strip_prefix("[PERF] frame ")?;
     rest.split(':').next()?.trim().parse().ok()
 }
 
 /// The adapter wgpu chose, as it logged it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Adapter {
+pub struct Adapter {
     /// `name`: the device (`AMD Radeon 890M Graphics (RADV STRIX1)`).
-    pub(crate) name: String,
+    pub name: String,
     /// `driver`: `radv`, `llvmpipe`, ...
-    pub(crate) driver: String,
+    pub driver: String,
     /// `driver_info`: the driver's version (`Mesa 26.0.8-1ubuntu0.3`).
-    pub(crate) driver_info: String,
+    pub driver_info: String,
     /// `device_type`: `IntegratedGpu`, `DiscreteGpu`, `Cpu`, ...
-    pub(crate) device_type: String,
+    pub device_type: String,
     /// `backend`: `Vulkan`, ...
-    pub(crate) backend: String,
+    pub backend: String,
 }
 
 impl Adapter {
     /// Whether this is a software rasteriser (lavapipe, SwiftShader): wgpu's
     /// `DeviceType::Cpu`.
-    pub(crate) fn is_software(&self) -> bool {
+    #[must_use]
+    pub fn is_software(&self) -> bool {
         self.device_type == "Cpu"
     }
 }
 
 /// The adapter in a log line, if the line is wgpu's "Request adapter
 /// result". ANSI colour codes in the line are ignored.
-pub(crate) fn adapter(line: &str) -> Option<Adapter> {
+#[must_use]
+pub fn adapter(line: &str) -> Option<Adapter> {
     let line = strip_ansi(line);
     let info = &line[line.find("Request adapter result AdapterInfo {")?..];
     Some(Adapter {
@@ -70,7 +76,8 @@ pub(crate) fn adapter(line: &str) -> Option<Adapter> {
 /// as lavapipe, all a compositor rendering with pixman leaves it). wgpu
 /// still names the adapter it offered in those last two cases, which then
 /// draws nothing.
-pub(crate) fn presents_with_software(line: &str) -> bool {
+#[must_use]
+pub fn presents_with_software(line: &str) -> bool {
     let line = strip_ansi(line);
     line.contains("rinch: ")
         && (line.contains("presenting with the software renderer")
@@ -95,7 +102,8 @@ fn bare_field(info: &str, field: &str) -> Option<String> {
 }
 
 /// `line` without ANSI escape sequences (`ESC [ ... letter`).
-pub(crate) fn strip_ansi(line: &str) -> String {
+#[must_use]
+pub fn strip_ansi(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
     while let Some(c) = chars.next() {

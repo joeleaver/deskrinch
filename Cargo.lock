@@ -1049,6 +1049,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-component"
+version = "0.1.0"
+
+[[package]]
 name = "deskrinch-test-dbus"
 version = "0.1.0"
 dependencies = [
@@ -6346,6 +6350,7 @@ dependencies = [
  "deskrinch-bus",
  "deskrinch-kwin-access",
  "deskrinch-test-client",
+ "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-screen",

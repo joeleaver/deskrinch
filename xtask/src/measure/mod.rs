@@ -31,9 +31,7 @@
 //! which makes rinch write a line after every presented frame.
 
 mod callgrind;
-mod client_log;
 mod gpu;
-mod output;
 mod probe;
 mod procfs;
 mod report;
@@ -274,7 +272,10 @@ fn environment(command: &mut Command, request: &Request, cache: Option<&Path>) {
     let callers_log = std::env::var("RUST_LOG").ok();
     command
         .env("RINCH_PERF", "1")
-        .env("RUST_LOG", client_log::rust_log(callers_log.as_deref()))
+        .env(
+            "RUST_LOG",
+            deskrinch_test_component::log::rust_log(callers_log.as_deref()),
+        )
         .env("NO_COLOR", "1");
     if let Some(renderer) = request.renderer {
         command.env("RINCH_RENDERER", renderer.env());

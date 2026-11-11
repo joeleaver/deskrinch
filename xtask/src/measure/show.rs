@@ -20,12 +20,12 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::callgrind;
-use super::output::Watch;
 use super::probe::{self, Timing};
 use super::procfs::{self, ThreadSample};
 use super::report::{Run, Unit};
 use crate::error::Error;
 use crate::session::interrupt;
+use deskrinch_test_component::Watch;
 
 /// How often threads are sampled during a show.
 const SAMPLE: Duration = Duration::from_millis(2);

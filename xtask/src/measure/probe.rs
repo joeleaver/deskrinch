@@ -10,12 +10,12 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process};
 
-use super::output::Watch;
 use super::procfs::{self, ProcessSample, ThreadSample};
 use super::report::{Run, Unit, per_minute, per_second_milli};
 use super::{gpu, smaps};
 use crate::error::Error;
 use crate::session::interrupt;
+use deskrinch_test_component::Watch;
 
 /// How often the threads are sampled before the first frame, so that a
 /// thread which ends before it (a shader-compiling worker) is still seen.
