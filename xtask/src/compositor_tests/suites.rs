@@ -150,8 +150,9 @@ pub(super) const SUITES: [Suite; 8] = [
         passes: PLAIN,
         filter: &[],
     },
-    // The input device, typing into test windows: under KWin through its
-    // restricted fake input.
+    // The input devices, typing into test windows and pointing at them:
+    // under KWin through its restricted fake input. Every pass, since where
+    // the pointer lands depends on the outputs' scale and transform.
     Suite {
         target: Target {
             package: INPUT,
@@ -164,7 +165,7 @@ pub(super) const SUITES: [Suite; 8] = [
             dbus: &[],
         }),
         compositors: ALL,
-        passes: PLAIN,
+        passes: &Pass::ALL,
         filter: &[],
     },
     // The launcher, its real binary: its process, and keys typed into it
