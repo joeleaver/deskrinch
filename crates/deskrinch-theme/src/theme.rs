@@ -137,6 +137,7 @@ impl fmt::Debug for Theme {
 mod tests {
     use super::*;
     use deskrinch_test_dbus::PrivateBus;
+    use deskrinch_test_portal::{Methods, StandIn, number};
     use deskrinch_xdg::BaseDirs;
     use std::ffi::OsString;
 
@@ -171,31 +172,9 @@ mod tests {
         assert!(!light.initial().dark_mode);
     }
 
-    /// A settings portal that answers `color-scheme` with `value` at once.
-    struct StandIn {
-        value: u32,
-    }
-
-    #[zbus::interface(name = "org.freedesktop.portal.Settings")]
-    impl StandIn {
-        fn read_one(&self, namespace: &str, key: &str) -> zbus::fdo::Result<zbus::OwnedVariant> {
-            if (namespace, key) == ("org.freedesktop.appearance", "color-scheme") {
-                Ok(zbus::OwnedVariant::from(self.value))
-            } else {
-                Err(zbus::fdo::Error::InvalidArgs(format!("{namespace} {key}")))
-            }
-        }
-    }
-
-    /// Serves a portal answering `value` on `bus`, until dropped.
-    fn portal(bus: &PrivateBus, value: u32) -> zbus::Connection {
-        zbus::block_on(
-            zbus::connection::Builder::address(bus.address())
-                .name("org.freedesktop.portal.Desktop")
-                .serve_at("/org/freedesktop/portal/desktop", StandIn { value })
-                .build(),
-        )
-        .unwrap()
+    /// The stand-in portal on `bus`, answering `value` at once.
+    fn portal(bus: &PrivateBus, value: u32) -> StandIn {
+        StandIn::start(bus.address(), Some(number(value)), Methods::Current).unwrap()
     }
 
     #[test]

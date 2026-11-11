@@ -701,8 +701,8 @@ name = "deskrinch-appearance"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-dbus",
+ "deskrinch-test-portal",
  "futures-core",
- "tempfile",
  "thiserror 2.0.21",
  "zbus",
 ]
@@ -831,6 +831,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-portal"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-dbus",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zbus",
+]
+
+[[package]]
 name = "deskrinch-theme"
 version = "0.1.0"
 dependencies = [
@@ -838,10 +848,10 @@ dependencies = [
  "deskrinch-component",
  "deskrinch-settings",
  "deskrinch-test-dbus",
+ "deskrinch-test-portal",
  "deskrinch-xdg",
  "rinch",
  "tempfile",
- "zbus",
 ]
 
 [[package]]

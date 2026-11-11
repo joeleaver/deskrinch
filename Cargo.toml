@@ -31,6 +31,7 @@ deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
+deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-theme = { path = "crates/deskrinch-theme" }
 deskrinch-watch = { path = "crates/deskrinch-watch" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }

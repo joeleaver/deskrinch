@@ -18,9 +18,9 @@ zbus = { workspace = true, features = ["default-rt"] }
 
 [dev-dependencies]
 deskrinch-test-dbus.workspace = true
-tempfile.workspace = true
-# The tests stand in for the portal.
-zbus = { workspace = true, features = ["default-rt", "service"] }
+deskrinch-test-portal.workspace = true
+# The tests send a signal from an impostor connection.
+zbus = { workspace = true, features = ["default-rt"] }
 
 [lints]
 workspace = true

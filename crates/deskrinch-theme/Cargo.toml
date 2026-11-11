@@ -17,10 +17,9 @@ rinch = { workspace = true, features = ["desktop", "theme"] }
 
 [dev-dependencies]
 deskrinch-test-dbus.workspace = true
+deskrinch-test-portal.workspace = true
 deskrinch-xdg.workspace = true
 tempfile.workspace = true
-# A stand-in settings portal.
-zbus = { workspace = true, features = ["default-rt", "service"] }
 
 [lints]
 workspace = true
