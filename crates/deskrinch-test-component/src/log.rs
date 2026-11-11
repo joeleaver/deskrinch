@@ -1,5 +1,7 @@
-//! What the measured program's own output says: its frames, and the GPU
-//! adapter wgpu chose.
+//! What a rinch program's own output says: its frames, the GPU adapter wgpu
+//! chose, and whether rinch presents with its software renderer. One home
+//! for rinch's and wgpu's wording, which `cargo xtask measure` and the
+//! compositor tests both read.
 //!
 //! - rinch with `RINCH_PERF` set writes `[PERF] frame N: ...` to standard
 //!   error after each presented frame, so the first such line is the first
@@ -10,49 +12,84 @@
 //!   subscriber prints to standard output when `RUST_LOG` lets it through.
 
 /// The `RUST_LOG` directive that makes wgpu name the adapter it chose.
-pub(crate) const ADAPTER_DIRECTIVE: &str = "wgpu_core::instance=debug";
+pub const ADAPTER_DIRECTIVE: &str = "wgpu_core::instance=debug";
 
-/// The `RUST_LOG` for the measured program: the caller's, if any, with the
-/// adapter directive added; otherwise warnings and the directive.
-pub(crate) fn rust_log(callers: Option<&str>) -> String {
-    match callers {
-        Some(filter) if !filter.trim().is_empty() => format!("{filter},{ADAPTER_DIRECTIVE}"),
-        _ => format!("warn,{ADAPTER_DIRECTIVE}"),
+/// The `RUST_LOG` directive that lets rinch say it presents with its
+/// software renderer (an `info` line).
+pub const RENDERER_DIRECTIVE: &str = "rinch=info";
+
+/// The `RUST_LOG` for a watched program, so that what presented is said:
+/// the caller's filter, if any, otherwise warnings, with the renderer and
+/// adapter directives added.
+///
+/// A directive is added only where the caller's filter has none for its
+/// target (`rinch`, `wgpu_core::instance`): the caller's stands, and
+/// there is never a second one for the same target. A caller's directive
+/// that hides the line needed (`rinch=warn`) is the caller's choice: the
+/// renderer is then not said, and `measure --expect-renderer` fails,
+/// saying so.
+#[must_use]
+pub fn rust_log(callers: Option<&str>) -> String {
+    let filter = callers
+        .map(str::trim)
+        .filter(|filter| !filter.is_empty())
+        .unwrap_or("warn");
+    let targets: Vec<&str> = filter.split(',').map(target).collect();
+    let mut directives = vec![filter.to_owned()];
+    for added in [RENDERER_DIRECTIVE, ADAPTER_DIRECTIVE] {
+        if !targets.contains(&target(added)) {
+            directives.push(added.to_owned());
+        }
     }
+    directives.join(",")
+}
+
+/// The target a `RUST_LOG` directive is for: what comes before its level
+/// (`rinch` in `rinch=debug`) or its span filter; a bare level (`info`)
+/// is for no target, and matches none of the added directives'.
+fn target(directive: &str) -> &str {
+    directive
+        .split(['=', '['])
+        .next()
+        .unwrap_or_default()
+        .trim()
 }
 
 /// The frame number of a `RINCH_PERF` line.
-pub(crate) fn frame_number(line: &str) -> Option<u64> {
+#[must_use]
+pub fn frame_number(line: &str) -> Option<u64> {
     let rest = line.strip_prefix("[PERF] frame ")?;
     rest.split(':').next()?.trim().parse().ok()
 }
 
 /// The adapter wgpu chose, as it logged it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) struct Adapter {
+pub struct Adapter {
     /// `name`: the device (`AMD Radeon 890M Graphics (RADV STRIX1)`).
-    pub(crate) name: String,
+    pub name: String,
     /// `driver`: `radv`, `llvmpipe`, ...
-    pub(crate) driver: String,
+    pub driver: String,
     /// `driver_info`: the driver's version (`Mesa 26.0.8-1ubuntu0.3`).
-    pub(crate) driver_info: String,
+    pub driver_info: String,
     /// `device_type`: `IntegratedGpu`, `DiscreteGpu`, `Cpu`, ...
-    pub(crate) device_type: String,
+    pub device_type: String,
     /// `backend`: `Vulkan`, ...
-    pub(crate) backend: String,
+    pub backend: String,
 }
 
 impl Adapter {
     /// Whether this is a software rasteriser (lavapipe, SwiftShader): wgpu's
     /// `DeviceType::Cpu`.
-    pub(crate) fn is_software(&self) -> bool {
+    #[must_use]
+    pub fn is_software(&self) -> bool {
         self.device_type == "Cpu"
     }
 }
 
 /// The adapter in a log line, if the line is wgpu's "Request adapter
 /// result". ANSI colour codes in the line are ignored.
-pub(crate) fn adapter(line: &str) -> Option<Adapter> {
+#[must_use]
+pub fn adapter(line: &str) -> Option<Adapter> {
     let line = strip_ansi(line);
     let info = &line[line.find("Request adapter result AdapterInfo {")?..];
     Some(Adapter {
@@ -70,7 +107,8 @@ pub(crate) fn adapter(line: &str) -> Option<Adapter> {
 /// as lavapipe, all a compositor rendering with pixman leaves it). wgpu
 /// still names the adapter it offered in those last two cases, which then
 /// draws nothing.
-pub(crate) fn presents_with_software(line: &str) -> bool {
+#[must_use]
+pub fn presents_with_software(line: &str) -> bool {
     let line = strip_ansi(line);
     line.contains("rinch: ")
         && (line.contains("presenting with the software renderer")
@@ -95,7 +133,8 @@ fn bare_field(info: &str, field: &str) -> Option<String> {
 }
 
 /// `line` without ANSI escape sequences (`ESC [ ... letter`).
-pub(crate) fn strip_ansi(line: &str) -> String {
+#[must_use]
+pub fn strip_ansi(line: &str) -> String {
     let mut out = String::with_capacity(line.len());
     let mut chars = line.chars();
     while let Some(c) = chars.next() {
@@ -183,11 +222,26 @@ mod tests {
 
     #[test]
     fn rust_log_keeps_the_callers_filter() {
-        assert_eq!(rust_log(None), "warn,wgpu_core::instance=debug");
-        assert_eq!(rust_log(Some(" ")), "warn,wgpu_core::instance=debug");
+        let said = "rinch=info,wgpu_core::instance=debug";
+        assert_eq!(rust_log(None), format!("warn,{said}"));
+        assert_eq!(rust_log(Some(" ")), format!("warn,{said}"));
+        assert_eq!(
+            rust_log(Some("info,naga=debug")),
+            format!("info,naga=debug,{said}")
+        );
+        // The caller's directive for a target stands, alone.
         assert_eq!(
             rust_log(Some("info,rinch=debug")),
             "info,rinch=debug,wgpu_core::instance=debug"
+        );
+        assert_eq!(
+            rust_log(Some("wgpu_core::instance=trace")),
+            "wgpu_core::instance=trace,rinch=info"
+        );
+        // Even when it hides the renderer's line: then it is not said.
+        assert_eq!(
+            rust_log(Some("rinch=warn")),
+            "rinch=warn,wgpu_core::instance=debug"
         );
     }
 

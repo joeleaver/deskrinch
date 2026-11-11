@@ -5,14 +5,13 @@
 //! a hidden launcher presents none, a shown one does).
 
 use std::process::ExitStatus;
-use std::time::{Duration, Instant};
 
 use deskrinch_bus::Bus;
 use deskrinch_launcher::{Answer, Request, send};
 use rustix::process::{Pid, Signal, kill_process};
 
 use crate::support::{
-    Launcher, PATIENCE, Stderr, client, eventually, in_nested_session, launcher, owner_pid, stays,
+    Launcher, PATIENCE, client, eventually, in_nested_session, launcher, owner_pid, run, stays,
 };
 
 #[test]
@@ -67,7 +66,7 @@ fn show_and_hide_set_it() {
 fn a_second_launcher_leaves_the_first_running() {
     in_nested_session();
     let launcher = Launcher::start(&[]);
-    let first = launcher.child.id();
+    let first = launcher.id();
     let second = launcher_exit(&[]);
     assert!(second.success(), "{second:?}");
     assert_eq!(owner_pid(), Some(first));
@@ -79,7 +78,7 @@ fn a_second_launcher_leaves_the_first_running() {
 fn a_second_launcher_asked_to_show_shows_the_first() {
     in_nested_session();
     let launcher = Launcher::start(&[]);
-    let first = launcher.child.id();
+    let first = launcher.id();
     let second = launcher_exit(&["--show"]);
     assert!(second.success(), "{second:?}");
     assert_eq!(owner_pid(), Some(first));
@@ -103,13 +102,13 @@ fn with_none_running_hide_does_nothing() {
 fn with_none_running_toggle_starts_one_shown() {
     in_nested_session();
     assert_eq!(owner_pid(), None);
-    // The launcher the client starts inherits its standard error.
-    let mut toggle = launcher(&["toggle"]).spawn().unwrap();
-    let stderr = Stderr::watch(toggle.stderr.take().unwrap());
-    assert!(toggle.wait().unwrap().success());
+    // The launcher the client starts inherits its output.
+    let mut toggle = run(launcher(&["toggle"]));
+    let status = toggle.wait_exit(PATIENCE).unwrap();
+    assert!(status.is_some_and(|status| status.success()));
     assert!(eventually(|| owner_pid().is_some()), "no launcher started");
     let started = owner_pid().unwrap();
-    let shown = eventually(|| stderr.frames() > 0);
+    let shown = eventually(|| toggle.watch().frames() > 0);
     // It runs in a process group of its own, so the session would not
     // end it: this test does, before it asserts anything more.
     let pid = Pid::from_raw(i32::try_from(started).unwrap()).unwrap();
@@ -121,17 +120,10 @@ fn with_none_running_toggle_starts_one_shown() {
 /// Runs a second `deskrinch-launcher` with `args`, which must leave
 /// within [`PATIENCE`].
 fn launcher_exit(args: &[&str]) -> ExitStatus {
-    let mut second = launcher(args).spawn().unwrap();
-    let deadline = Instant::now() + PATIENCE;
-    loop {
-        if let Some(status) = second.try_wait().unwrap() {
-            return status;
-        }
-        if Instant::now() >= deadline {
-            second.kill().ok();
-            second.wait().ok();
-            panic!("a second launcher did not leave");
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    let mut second = run(launcher(args));
+    // Dropped, it is killed: whether it left or not.
+    second
+        .wait_exit(PATIENCE)
+        .unwrap()
+        .expect("a second launcher did not leave")
 }

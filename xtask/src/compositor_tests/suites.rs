@@ -9,6 +9,7 @@ const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
+const PANEL: &str = "deskrinch-panel";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
@@ -79,6 +80,10 @@ pub(super) struct Suite {
     pub(super) compositors: &'static [Compositor],
     /// The sessions it runs in, by how their outputs are.
     pub(super) passes: &'static [Pass],
+    /// Whether it draws with rinch, and so runs once per renderer the run
+    /// tests ([`super::renderers`]), told which in
+    /// `DESKRINCH_TEST_RENDERER`.
+    pub(super) renders: bool,
     /// The libtest arguments it runs with.
     pub(super) filter: &'static [&'static str],
 }
@@ -88,7 +93,7 @@ pub(super) struct Suite {
 pub(super) const SESSION_END: &str = "session_end::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 8] = [
+pub(super) const SUITES: [Suite; 9] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -102,6 +107,7 @@ pub(super) const SUITES: [Suite; 8] = [
         }),
         compositors: ALL,
         passes: PLAIN,
+        renders: false,
         filter: &["--skip", SESSION_END],
     },
     Suite {
@@ -112,6 +118,7 @@ pub(super) const SUITES: [Suite; 8] = [
         grant: None,
         compositors: KWIN,
         passes: PLAIN,
+        renders: false,
         filter: &[],
     },
     Suite {
@@ -127,6 +134,7 @@ pub(super) const SUITES: [Suite; 8] = [
         }),
         compositors: ALL,
         passes: &Pass::ALL,
+        renders: false,
         filter: &[],
     },
     Suite {
@@ -138,6 +146,7 @@ pub(super) const SUITES: [Suite; 8] = [
         compositors: WLROOTS,
         // It rotates an output itself.
         passes: &[Pass::Plain, Pass::Scaled],
+        renders: false,
         filter: &[],
     },
     Suite {
@@ -148,10 +157,12 @@ pub(super) const SUITES: [Suite; 8] = [
         grant: None,
         compositors: KWIN,
         passes: PLAIN,
+        renders: false,
         filter: &[],
     },
-    // The input device, typing into test windows: under KWin through its
-    // restricted fake input.
+    // The input devices, typing into test windows and pointing at them:
+    // under KWin through its restricted fake input. Every pass, since where
+    // the pointer lands depends on the outputs' scale and transform.
     Suite {
         target: Target {
             package: INPUT,
@@ -164,7 +175,8 @@ pub(super) const SUITES: [Suite; 8] = [
             dbus: &[],
         }),
         compositors: ALL,
-        passes: PLAIN,
+        passes: &Pass::ALL,
+        renders: false,
         filter: &[],
     },
     // The launcher, its real binary: its process, and keys typed into it
@@ -182,6 +194,26 @@ pub(super) const SUITES: [Suite; 8] = [
         }),
         compositors: ALL,
         passes: PLAIN,
+        renders: false,
+        filter: &[],
+    },
+    // The panel's real binary, checked by the screen: it captures under
+    // KWin. Not in the flipped pass: a full-width band along an edge is the
+    // same mirrored, so that pass adds nothing a turned output does not.
+    Suite {
+        target: Target {
+            package: PANEL,
+            test: "compositor",
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.PanelTests",
+            name: "deskrinch panel tests",
+            wayland: &[],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
+        compositors: ALL,
+        passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
+        renders: true,
         filter: &[],
     },
     // Last: it ends the session.
@@ -193,6 +225,7 @@ pub(super) const SUITES: [Suite; 8] = [
         grant: None,
         compositors: ALL,
         passes: PLAIN,
+        renders: false,
         filter: &[SESSION_END],
     },
 ];

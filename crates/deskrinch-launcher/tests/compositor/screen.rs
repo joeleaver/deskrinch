@@ -6,10 +6,9 @@
 //! only applications it finds are the test's, recorders (`/bin/sh` on a
 //! script) that write what they were started with, and its configuration
 //! is the test's. The keyboard is made before the launcher, since on a
-//! headless wlroots seat it is the seat's only one.
-//!
-//! The pointer is not here: `deskrinch-test-input` has no pointer yet, so a
-//! click is covered by the model's tests only.
+//! headless wlroots seat it is the seat's only one, and a launcher that maps
+//! without one gets no keyboard focus. Clicks are [`crate::click`]'s, on this
+//! fixture.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -23,27 +22,28 @@ use tempfile::TempDir;
 use crate::support::{Launcher, PATIENCE, client, eventually, in_nested_session, launcher, stays};
 
 /// The launcher's size on the screen (scale 1): its layer surface's.
-const WIDTH: u32 = 640;
-const HEIGHT: u32 = 420;
+pub(crate) const WIDTH: u32 = 640;
+pub(crate) const HEIGHT: u32 = 420;
 /// The column the bands are read along: inside the launcher's padding, and
 /// left of a result's icon and name.
-const COLUMN: u32 = 22;
+pub(crate) const COLUMN: u32 = 22;
 
 /// A launcher shown, with the keyboard to type into it and the screen to
 /// look at it.
-struct Shown {
+pub(crate) struct Shown {
     dirs: TempDir,
-    input: Input,
+    pub(crate) input: Input,
     screen: Screen,
-    output: String,
-    launcher: Launcher,
+    /// The output the launcher is drawn on.
+    pub(crate) output: String,
+    pub(crate) launcher: Launcher,
 }
 
 impl Shown {
     /// The keyboard, then a launcher run with `--show` on the test's
     /// applications and configuration (`config`, as `config.toml`), once it
     /// is on the screen.
-    fn start(config: &str) -> Self {
+    pub(crate) fn start(config: &str) -> Self {
         in_nested_session();
         let input = Input::connect().unwrap();
         let screen = Screen::connect().unwrap();
@@ -56,6 +56,9 @@ impl Shown {
         for (id, name, terminal) in [
             ("Plain", "Plain Recorder", false),
             ("Term", "Terminal Recorder", true),
+            // A second result for "plain", below the first: a word of its
+            // name starts with it, where the first's name does.
+            ("Other", "Recorder Plain", false),
         ] {
             let entry = format!(
                 "[Desktop Entry]\nType=Application\nName={name}\nExec=/bin/sh {} {id}\nTerminal={terminal}\n",
@@ -70,7 +73,7 @@ impl Shown {
         let config = config.replace("{recorder}", &recorder.display().to_string());
         fs::create_dir_all(dirs.path().join("config/deskrinch")).unwrap();
         fs::write(dirs.path().join("config/deskrinch/config.toml"), config).unwrap();
-        let launcher = Launcher::spawn(&mut in_dirs(launcher(&["--show"]), dirs.path()));
+        let launcher = Launcher::spawn(in_dirs(launcher(&["--show"]), dirs.path()));
         let mut shown = Self {
             dirs,
             input,
@@ -78,6 +81,7 @@ impl Shown {
             output: String::new(),
             launcher,
         };
+        shown.launcher.wait_presented();
         shown.output = shown.find_output();
         shown
     }
@@ -97,7 +101,7 @@ impl Shown {
             assert!(
                 Instant::now() < deadline,
                 "the launcher was not drawn on any of {outputs:?}\nthe launcher logged:\n{}",
-                self.launcher.stderr.log()
+                self.launcher.log()
             );
             std::thread::sleep(Duration::from_millis(100));
         }
@@ -105,20 +109,20 @@ impl Shown {
 
     /// Captures until `accept` takes an image; panics, with what the
     /// launcher logged, when none comes.
-    fn see(&mut self, what: &str, accept: impl Fn(&Image) -> bool) -> Image {
+    pub(crate) fn see(&mut self, what: &str, accept: impl Fn(&Image) -> bool) -> Image {
         self.screen
             .capture_until(&self.output, PATIENCE, accept)
             .unwrap_or_else(|error| {
                 panic!(
                     "{what}: {error}\nthe launcher logged:\n{}",
-                    self.launcher.stderr.log()
+                    self.launcher.log()
                 )
             })
     }
 
     /// What the applications started so far were run with, one list of
     /// lines each (`token=…`, then `arg=…` per argument).
-    fn started(&self) -> Vec<Vec<String>> {
+    pub(crate) fn started(&self) -> Vec<Vec<String>> {
         let dir = self.dirs.path().join("started");
         fs::read_dir(dir)
             .unwrap()
@@ -160,7 +164,7 @@ fn in_dirs(mut command: Command, dirs: &Path) -> Command {
 
 /// The launcher's top-left corner when it is drawn, centred: where its
 /// background differs from the screen's beyond it.
-fn at_centre(image: &Image) -> Option<(u32, u32)> {
+pub(crate) fn at_centre(image: &Image) -> Option<(u32, u32)> {
     let x = image.width().checked_sub(WIDTH)? / 2;
     let y = image.height().checked_sub(HEIGHT)? / 2;
     let inside = image.pixel(x + 2, y + 2)?;
@@ -190,12 +194,12 @@ fn bands(image: &Image) -> usize {
 }
 
 /// Whether the results are drawn: a band below the query field's.
-fn results_drawn(image: &Image) -> bool {
+pub(crate) fn results_drawn(image: &Image) -> bool {
     bands(image) > 1
 }
 
 /// The one application started, once it has been.
-fn the_one_started(shown: &Shown) -> Vec<String> {
+pub(crate) fn the_one_started(shown: &Shown) -> Vec<String> {
     assert!(
         eventually(|| !shown.started().is_empty()),
         "nothing was started"
@@ -205,11 +209,11 @@ fn the_one_started(shown: &Shown) -> Vec<String> {
     started.remove(0)
 }
 
-fn token(record: &[String]) -> &str {
+pub(crate) fn token(record: &[String]) -> &str {
     record[0].strip_prefix("token=").unwrap()
 }
 
-fn args(record: &[String]) -> Vec<&str> {
+pub(crate) fn args(record: &[String]) -> Vec<&str> {
     record[1..]
         .iter()
         .map(|line| line.strip_prefix("arg=").unwrap())
@@ -298,10 +302,7 @@ fn a_terminal_application_without_a_terminal_is_reported_and_not_started() {
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     assert!(
-        eventually(|| shown
-            .launcher
-            .stderr
-            .said("runs in a terminal, and there is none")),
+        eventually(|| shown.launcher.said("runs in a terminal, and there is none")),
         "the missing terminal was not reported"
     );
     assert!(

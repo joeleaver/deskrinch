@@ -45,7 +45,7 @@ The appearance crate's tests run a stand-in settings portal on a private
 D-Bus daemon too, never the session's.
 
 The compositor tests (the window-management crate's, `deskrinch-test-screen`'s,
-`deskrinch-test-input`'s and the launcher's) drive a real
+`deskrinch-test-input`'s, the launcher's and the panel's) drive a real
 compositor and are ignored by `cargo test`. This runs them in nested,
 headless KWin, sway and labwc sessions that touch nothing in your own (the
 isolated sessions `cargo xtask session` gives; it needs `dbus-daemon`,
@@ -55,7 +55,28 @@ compositor, at scale 1 and at scale 2:
 
 ```sh
 cargo xtask compositor-tests [kwin] [sway] [labwc]
+cargo xtask compositor-tests --renderer software sway
 ```
+
+The suites that start a real component (the panel's) run once per renderer,
+and each of their tests checks which one presented. `--renderer software`
+runs rinch's software renderer only, as CI does; `--renderer gpu` the GPU
+renderer only, under KWin, and fails on a machine without a GPU; `all` (the
+default) both, the GPU under KWin only and only where the machine has one.
+Headless sway and labwc composite with pixman and offer no dmabuf, so the
+GPU renderer has nothing to present on there. Whether the machine has a GPU
+is a guess from `/sys/class/drm/renderD*`, a render node with a driver other
+than vgem; the run prints which renderers it chose and why. A test binary
+reads the run's renderer from `DESKRINCH_TEST_RENDERER`
+(`deskrinch_test_component::RENDERER_VARIABLE`).
+
+The panel's tests start the real `deskrinch-panel` in the session and check
+by screen pixels that it sits at its configured edge and height on exactly
+one output, that a maximised test window stops at the zone it reserves, and
+that an edit of its settings file moves and resizes it (a rejected value
+leaving it where it was). `deskrinch-test-component` starts a component for
+such a test, with the run's renderer, and follows its log: its frames, the
+renderer that presented, and lines it waits for.
 
 Under KWin, on Debian and Ubuntu, that means `kwin-wayland` and `kwin-common`
 (KWin's plugins, its screenshot interface among them, which `kwin-wayland`
@@ -114,6 +135,27 @@ grants the test binary like the screenshot interface
 (`deskrinch-test-client`) records the keys pressed while it has the focus, by
 evdev code.
 
+### Pointing and clicking
+
+The same `Input` moves a pointer and presses its buttons. A point is named on
+an output, in that output's logical pixels from its top-left corner (the
+coordinates a fullscreen window on it has, at any scale or transform), with
+the output names `deskrinch-test-client` and `deskrinch-test-screen` use:
+
+```rust
+input.move_pointer("HEADLESS-2", 120.0, 80.0)?;
+window.wait_pointer_at(120.0, 80.0)?;
+input.click(Button::PRIMARY)?;
+```
+
+`press_button` and `release_button` hold and let go of a button apart, for a
+press on one thing and a release on another. Under sway and labwc it goes
+through wlroots' `zwlr_virtual_pointer_v1`, under KWin through the same fake
+input as the keys. A test window records what it hears of the pointer
+(entering, moving, buttons, leaving) in its own surface coordinates. The
+pointer jumps straight to each point; it cannot scroll, touch or move
+relatively.
+
 One desktop-entries test launches into a real transient scope of your
 systemd user instance, and is ignored by `cargo test`. It starts only its
 own recorder script, and stops the scope again:
@@ -150,6 +192,8 @@ What the command, and everything it starts, sees:
   activation off, which the compositor uses too: no portal, secret service
   or notification daemon is ever started on demand.
 - `XDG_CURRENT_DESKTOP` only when `--current-desktop NAME` sets it.
+- Under sway, no borders or title bars on any window, so that a tiled or
+  maximised window fills the area it is given.
 - None of your `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `WAYLAND_SOCKET`,
   `SWAYSOCK`, `I3SOCK`, `DBUS_SESSION_BUS_ADDRESS`, `XDG_CURRENT_DESKTOP`, or
   the login session's `XDG_SESSION_ID`, `XDG_SESSION_CLASS`,
@@ -244,8 +288,10 @@ every later start in a real session finds it. Measure GPU costs under KWin
 (`--compositor kwin`, the default), which composites with the GPU: headless
 sway and labwc render with pixman and offer no dmabuf, so wgpu offers only a
 software Vulkan driver there, which rinch's default renderer declines for its
-software renderer (`--renderer gpu` uses it anyway). `cargo xtask measure
---help` has the details.
+software renderer (`--renderer gpu` uses it anyway). `--expect-renderer
+software|gpu` fails (exit 1), naming what presented, unless every run
+presented with that renderer; CI measures the panel once under sway with
+`--expect-renderer software`. `cargo xtask measure --help` has the details.
 
 A component that starts hidden and is summoned, such as the launcher, is
 measured by its shows instead: `--summon` and `--dismiss` give the program's
