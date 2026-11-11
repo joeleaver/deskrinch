@@ -957,6 +957,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-kwin-access"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "thiserror 2.0.21",
+]
+
+[[package]]
 name = "deskrinch-launcher"
 version = "0.1.0"
 dependencies = [
@@ -1018,12 +1026,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-client"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-wayland",
+ "thiserror 2.0.21",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
+]
+
+[[package]]
 name = "deskrinch-test-dbus"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-bus",
+ "futures-core",
  "rustix",
  "tempfile",
  "thiserror 2.0.21",
+ "zbus 6.2.1",
 ]
 
 [[package]]
@@ -1034,6 +1056,31 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-test-screen"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-bus",
+ "deskrinch-test-client",
+ "deskrinch-test-wayland",
+ "rustix",
+ "thiserror 2.0.21",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-wlr",
+ "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-test-wayland"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
+ "wayland-client",
 ]
 
 [[package]]
@@ -1077,8 +1124,8 @@ name = "deskrinch-window-management"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
+ "deskrinch-test-client",
  "rustix",
- "tempfile",
  "thiserror 2.0.21",
  "wayland-client",
  "wayland-protocols",
@@ -6270,12 +6317,17 @@ version = "0.1.0"
 dependencies = [
  "clap",
  "ctrlc",
+ "deskrinch-bus",
+ "deskrinch-kwin-access",
+ "deskrinch-test-client",
  "deskrinch-test-dbus",
+ "deskrinch-test-screen",
  "deskrinch-window-management",
  "rustix",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "zbus 6.2.1",
 ]
 
 [[package]]

@@ -14,8 +14,8 @@ use rustix::net::sockopt::socket_peercred;
 use rustix::process::{Pid, RawPid, Signal, getpgid, getpgrp, kill_process_group};
 use wayland_client::Connection;
 
-use crate::support::test_window::TestClient;
 use crate::support::{Compositor, Watcher, unique_app_id};
+use deskrinch_test_client::TestClient;
 
 /// The variable `cargo xtask compositor-tests` names the session's group in.
 const GROUP_VARIABLE: &str = "DESKRINCH_TEST_SESSION_GROUP";
@@ -71,8 +71,8 @@ fn a_lost_connection_ends_the_stream_and_empties_the_list() {
     let group = session_group();
     let app_id = unique_app_id("doomed-session");
     let watcher = Watcher::connect();
-    let client = TestClient::connect();
-    let _window = client.open("Doomed", &app_id);
+    let client = TestClient::connect().unwrap();
+    let _window = client.open("Doomed", &app_id).unwrap();
     let id = watcher.wait_window("the window", &app_id, |_| true).id;
 
     // As if the compositor crashed: no goodbye, the socket just closes.

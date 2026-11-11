@@ -10,13 +10,20 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+deskrinch-bus.workspace = true
 ctrlc.workspace = true
+deskrinch-kwin-access.workspace = true
+deskrinch-test-client.workspace = true
 deskrinch-test-dbus.workspace = true
+deskrinch-test-screen.workspace = true
 deskrinch-window-management.workspace = true
 rustix = { workspace = true, features = ["param", "process"] }
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+# Asking KWin how it composites, on the session's bus, driven by
+# `zbus::block_on`.
+zbus = { workspace = true, features = ["default-rt"] }
 
 [lints]
 workspace = true

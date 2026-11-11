@@ -1,34 +1,40 @@
-//! `cargo xtask compositor-tests`: runs the window-management crate's
-//! compositor tests inside nested, headless compositors.
+//! `cargo xtask compositor-tests`: runs the crates' compositor tests inside
+//! nested, headless compositors.
 //!
-//! For each compositor it builds the crate's test binaries, starts an
-//! isolated [`Session`], and runs the ignored tests there. Under KWin the
-//! `compositor` binary is granted the window-management protocol the way an
-//! installed deskrinch is, by a desktop file in the session's data directory
-//! (KWin's check stays on), and `kwin_not_granted` checks that a binary
-//! without one is refused. The `session_end` tests end the session under a
-//! connected manager, so they run last.
+//! The suites ([`suites::SUITES`]) are the window-management crate's
+//! (windows listed and acted on) and `deskrinch-test-screen`'s (outputs
+//! captured). For each compositor it builds the test binaries, starts an
+//! isolated [`Session`] at scale 1 and runs every suite meant for that
+//! compositor, one binary after another; then a second session at scale 2
+//! for the suites that check scaling.
+//!
+//! Under KWin each binary that needs a restricted interface is granted it
+//! the way an installed deskrinch is: one desktop file per binary, in the
+//! session's data directory, built from the interface constants of the
+//! crates that binary uses (KWin's checks stay on). Each `kwin_not_granted`
+//! binary checks that a binary without one is refused. The window-management
+//! `session_end` tests end the session under a connected manager, so they
+//! run last.
 
 mod build;
+mod suites;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
-use deskrinch_window_management::kwin_access::DesktopEntry;
+use deskrinch_kwin_access::DesktopEntry;
 
-use self::build::TestBinaries;
+use self::build::Target;
+use self::suites::{SUITES, Suite};
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Session};
+use crate::session::{Compositor, Scale, Session};
 
-/// How many outputs the sessions have, side by side: the tests move windows
-/// between two.
+/// How many outputs the sessions have, side by side: the window-management
+/// tests move windows between two, and the screen tests tell them apart.
 const OUTPUTS: u32 = 2;
 
-/// The module of the `compositor` tests that ends the session, so runs last.
-const SESSION_END: &str = "session_end::";
-
-/// The desktop file id the `compositor` test binary is granted under.
-const DESKTOP_ID: &str = "org.deskrinch.WindowManagementTests";
+/// The scale of the second session, for the suites that check scaling.
+const SCALED: Scale = Scale::TWO;
 
 /// Runs the tests in each of `compositors` (all of them when empty).
 pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Error> {
@@ -37,12 +43,28 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
     } else {
         compositors
     };
-    let binaries = build::test_binaries(root)?;
+    let mut targets: Vec<Target> = Vec::new();
+    for suite in &SUITES {
+        if !targets.contains(&suite.target) {
+            targets.push(suite.target);
+        }
+    }
+    let built = build::test_binaries(root, &targets)?;
+    let binary = |suite: &Suite| -> PathBuf {
+        let index = targets
+            .iter()
+            .position(|target| *target == suite.target)
+            .unwrap_or_default();
+        built[index].clone()
+    };
+    let binaries: Vec<PathBuf> = SUITES.iter().map(binary).collect();
     let mut failed = Vec::new();
     for &compositor in compositors {
-        println!("compositor-tests: {}", compositor.name());
-        if !run_in(compositor, &binaries)? {
-            failed.push(compositor.name());
+        for scale in [Scale::ONE, SCALED] {
+            println!("compositor-tests: {} at scale {scale}", compositor.name());
+            if !run_in(compositor, scale, &binaries)? {
+                failed.push(format!("{} at scale {scale}", compositor.name()));
+            }
         }
     }
     if failed.is_empty() {
@@ -54,19 +76,31 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
     }
 }
 
-/// Runs the tests in one fresh session of `compositor`. Returns whether they
-/// passed; on failure, prints the compositor's log.
-fn run_in(compositor: Compositor, binaries: &TestBinaries) -> Result<bool, Error> {
-    let session = Session::start(compositor, OUTPUTS, None, |data_home| match compositor {
-        Compositor::Kwin => grant(&binaries.compositor, data_home),
-        Compositor::Sway | Compositor::Labwc => Ok(()),
-    })?;
-    let mut passed = session.run_tests(&binaries.compositor, &["--skip", SESSION_END])?;
-    if compositor == Compositor::Kwin {
-        passed &= session.run_tests(&binaries.kwin_not_granted, &[])?;
+/// Runs the suites meant for `compositor` at `scale` in one fresh session;
+/// `binaries` are [`SUITES`]' binaries. Returns whether they passed; on
+/// failure, prints the compositor's log.
+fn run_in(compositor: Compositor, scale: Scale, binaries: &[PathBuf]) -> Result<bool, Error> {
+    let session = Session::start(
+        compositor,
+        OUTPUTS,
+        scale,
+        None,
+        |data_home| match compositor {
+            Compositor::Kwin => grant_all(binaries, data_home),
+            Compositor::Sway | Compositor::Labwc => Ok(()),
+        },
+    )?;
+    let mut passed = true;
+    for (suite, binary) in SUITES.iter().zip(binaries) {
+        if !suite.compositors.contains(&compositor) || (!scale.is_one() && !suite.scaled) {
+            continue;
+        }
+        println!(
+            "compositor-tests: {} {}",
+            suite.target.package, suite.target.test
+        );
+        passed &= session.run_tests(binary, suite.filter)?;
     }
-    // Last: it ends the session.
-    passed &= session.run_tests(&binaries.compositor, &[SESSION_END])?;
     if !passed {
         eprintln!(
             "compositor-tests: {} log:\n{}",
@@ -78,12 +112,18 @@ fn run_in(compositor: Compositor, binaries: &TestBinaries) -> Result<bool, Error
     Ok(passed)
 }
 
-/// Installs the desktop file that grants `binary` KWin's window management.
-fn grant(binary: &Path, data_home: &Path) -> Result<(), Error> {
-    let entry = DesktopEntry::new(DESKTOP_ID, "deskrinch window-management tests", binary)?;
-    entry.install(data_home).map_err(|source| Error::Io {
-        what: format!("install {}", entry.file_name()),
-        source,
-    })?;
+/// Installs, for each suite KWin grants something, the one desktop file
+/// that grants its binary all of it.
+fn grant_all(binaries: &[PathBuf], data_home: &Path) -> Result<(), Error> {
+    for (suite, binary) in SUITES.iter().zip(binaries) {
+        let Some(grant) = &suite.grant else {
+            continue;
+        };
+        let entry = DesktopEntry::new(grant.id, grant.name, binary, grant.wayland, grant.dbus)?;
+        entry.install(data_home).map_err(|source| Error::Io {
+            what: format!("install {}", entry.file_name()),
+            source,
+        })?;
+    }
     Ok(())
 }
