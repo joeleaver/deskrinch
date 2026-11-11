@@ -1,16 +1,19 @@
-//! [`Input`]: the connection, and the mechanism the compositor offers.
+//! [`Input`]: the connection, the mechanism the compositor offers, and the
+//! keyboard ([`crate::pointer`] has the pointer).
 
 use std::io::{Seek, Write};
 use std::os::fd::AsFd;
 use std::time::Instant;
 
-use deskrinch_test_client::Compositor;
+use deskrinch_test_client::{Compositor, TestClient};
 use deskrinch_test_wayland::{Deadline, Globals, roundtrip};
 use wayland_client::protocol::wl_seat::WlSeat;
 use wayland_client::{Connection, EventQueue, Proxy, delegate_noop};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1;
 use wayland_protocols_plasma::fake_input::client::org_kde_kwin_fake_input::OrgKdeKwinFakeInput;
+use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1;
+use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1;
 
 use crate::{Error, Key, PATIENCE};
 
@@ -27,42 +30,52 @@ const KEYMAP: &str = "xkb_keymap {
 
 /// `wl_keyboard.keymap`'s format for an xkb keymap.
 const XKB_V1: u32 = 1;
-/// A key's state as both mechanisms send it.
-const RELEASED: u32 = 0;
-const PRESSED: u32 = 1;
+/// A key's or a button's state as both mechanisms send it.
+pub(crate) const RELEASED: u32 = 0;
+pub(crate) const PRESSED: u32 = 1;
 
-/// The device keys go through.
+/// The devices input goes through.
 #[derive(Debug)]
-enum Backend {
-    /// wlroots' virtual keyboard: a keyboard of the seat's.
-    Wlroots(ZwpVirtualKeyboardV1),
-    /// KWin's fake input, authenticated.
+pub(crate) enum Backend {
+    /// wlroots' virtual keyboard and virtual pointer: devices of the
+    /// seat's. The pointer is `None` when the compositor has no virtual
+    /// pointer manager.
+    Wlroots {
+        keyboard: ZwpVirtualKeyboardV1,
+        pointer: Option<ZwlrVirtualPointerV1>,
+    },
+    /// KWin's fake input, authenticated: one device for keys and pointer.
     Kwin(OrgKdeKwinFakeInput),
 }
 
 /// The queue's state: nothing is dispatched to it.
 #[derive(Debug)]
-struct State;
+pub(crate) struct State;
 
 delegate_noop!(State: ignore WlSeat);
 delegate_noop!(State: ZwpVirtualKeyboardManagerV1);
 delegate_noop!(State: ZwpVirtualKeyboardV1);
+delegate_noop!(State: ZwlrVirtualPointerManagerV1);
+delegate_noop!(State: ZwlrVirtualPointerV1);
 delegate_noop!(State: OrgKdeKwinFakeInput);
 
-/// Keys into the nested session's compositor.
+/// Keys and pointer input into the nested session's compositor.
 #[derive(Debug)]
 pub struct Input {
     connection: Connection,
     queue: EventQueue<State>,
-    backend: Backend,
-    /// The origin of the virtual keyboard's timestamps.
+    pub(crate) backend: Backend,
+    /// The origin of the virtual devices' timestamps.
     start: Instant,
+    /// A client of its own, for where the outputs are in the layout
+    /// ([`crate::layout`]).
+    pub(crate) outputs: TestClient,
 }
 
 impl Input {
     /// Connects to the compositor `WAYLAND_DISPLAY` names and makes the
-    /// device. Panics outside a nested session
-    /// ([`Compositor::current`]).
+    /// devices: a keyboard, and a pointer where the compositor can make one.
+    /// Panics outside a nested session ([`Compositor::current`]).
     ///
     /// # Errors
     ///
@@ -85,7 +98,10 @@ impl Input {
             let keymap = keymap().map_err(Error::Keymap)?;
             let size = u32::try_from(KEYMAP.len() + 1).unwrap_or(u32::MAX);
             keyboard.keymap(XKB_V1, keymap.as_fd(), size);
-            Backend::Wlroots(keyboard)
+            let pointers: Option<ZwlrVirtualPointerManagerV1> = globals.bind(&qh, 1..=2, ()).ok();
+            let pointer =
+                pointers.map(|pointers| pointers.create_virtual_pointer(Some(&seat), &qh, ()));
+            Backend::Wlroots { keyboard, pointer }
         } else if globals.offers(OrgKdeKwinFakeInput::interface().name) {
             // `keyboard_key` came with version 4.
             let fake: OrgKdeKwinFakeInput = globals.bind(&qh, 4..=5, ()).map_err(Error::Bind)?;
@@ -94,11 +110,13 @@ impl Input {
         } else {
             return Err(Error::NoMechanism);
         };
+        let outputs = TestClient::connect().map_err(Error::Outputs)?;
         let mut input = Self {
             connection,
             queue,
             backend,
             start: Instant::now(),
+            outputs,
         };
         input.settle()?;
         Ok(input)
@@ -135,16 +153,18 @@ impl Input {
 
     fn send(&self, key: Key, state: u32) {
         match &self.backend {
-            Backend::Wlroots(keyboard) => {
-                let time = u32::try_from(self.start.elapsed().as_millis()).unwrap_or(u32::MAX);
-                keyboard.key(time, key.code(), state);
-            }
+            Backend::Wlroots { keyboard, .. } => keyboard.key(self.time(), key.code(), state),
             Backend::Kwin(fake) => fake.keyboard_key(key.code(), state),
         }
     }
 
+    /// A timestamp for the virtual devices: milliseconds since connecting.
+    pub(crate) fn time(&self) -> u32 {
+        u32::try_from(self.start.elapsed().as_millis()).unwrap_or(u32::MAX)
+    }
+
     /// Waits until the compositor has handled everything sent.
-    fn settle(&mut self) -> Result<(), Error> {
+    pub(crate) fn settle(&mut self) -> Result<(), Error> {
         roundtrip(
             &self.connection,
             &mut self.queue,

@@ -15,6 +15,12 @@
 //!   [`TestWindow::wait_key`]). That is all it does with the keyboard: a
 //!   release, a repeat, the keymap and the modifiers are not kept, and keys
 //!   pressed while another window has the focus are not its own.
+//! - The pointer: the client takes the seat's pointer whenever the seat has
+//!   one. A window records what it hears of it while the pointer is over
+//!   it, in its surface coordinates and in order: entering, moving, buttons
+//!   pressed and released, leaving ([`PointerEvent`],
+//!   [`TestWindow::pointer_events`], [`TestWindow::wait_pointer_at`]). Wheel
+//!   events, frames and the cursor are not kept.
 //! - [`Compositor::current`] says which nested compositor the tests run
 //!   in, and refuses to go on outside one.
 //! - [`configure_output`] changes an output's scale or transform, under a
@@ -32,6 +38,8 @@ mod keyboard;
 mod output_info;
 mod outputs;
 mod paint;
+mod pointer;
+mod seat;
 mod window;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -42,6 +50,7 @@ pub use compositor::Compositor;
 pub use output_info::OutputInfo;
 pub use outputs::{OutputChange, OutputSettings, configure_every_output, configure_output};
 pub use paint::Paint;
+pub use pointer::PointerEvent;
 pub use window::TestWindow;
 
 /// How long anything here waits for the compositor (a window to be drawn
