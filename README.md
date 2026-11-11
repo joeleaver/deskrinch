@@ -48,9 +48,9 @@ The compositor tests (the window-management crate's, `deskrinch-test-screen`'s,
 `deskrinch-test-input`'s and the launcher's process tests) drive a real
 compositor and are ignored by `cargo test`. This runs them in nested,
 headless KWin, sway and labwc sessions that touch nothing in your own (the
-isolated sessions `cargo xtask session` gives; it needs `dbus-daemon`, `kwin_wayland`, `sway`, `labwc`, and KDE's
-`kscreen-doctor` for KWin at a scale; name compositors to run only those). The
-screen tests run twice per compositor, at scale 1 and at scale 2:
+isolated sessions `cargo xtask session` gives; it needs `dbus-daemon`,
+`kwin_wayland`, `sway`, `labwc`, and KDE's `kscreen-doctor` for KWin at a
+scale; name compositors to run only those). The screen tests run twice per compositor, at scale 1 and at scale 2:
 
 ```sh
 cargo xtask compositor-tests [kwin] [sway] [labwc]
