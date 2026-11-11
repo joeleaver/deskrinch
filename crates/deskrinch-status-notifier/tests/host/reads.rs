@@ -64,6 +64,38 @@ fn a_well_known_name_moving_to_another_connection_is_read_from_it() {
 }
 
 #[test]
+fn a_read_waiting_out_its_interval_goes_to_whoever_owns_the_item_when_it_starts() {
+    let bus = PrivateBus::start();
+    let reads = ReadDestinations::on(&bus);
+    // Long enough that the move below happens while the read waits, even
+    // on a loaded machine.
+    let (host, events) = start_with(bus.config(Limits {
+        min_read_interval: Duration::from_secs(3),
+        ..Limits::default()
+    }));
+    let first = StandIn::start(&bus, PATH, Reply::Properties(properties("A")));
+    first.own_replaceably(NAME);
+    first.register(NAME).unwrap();
+    let id = events.added().id.clone();
+
+    // A signal asks for a read, which must wait out the interval...
+    first.set(Reply::Properties(properties("still A")));
+    first.signal("NewTitle");
+    // ...during which the name moves to another connection.
+    let second = StandIn::start(&bus, PATH, Reply::Properties(properties("B")));
+    second.take_over(NAME);
+
+    // The waiting read goes to the new owner, and the caller is told what
+    // it holds; the old owner, still connected, is not read again.
+    let changed = events.changed();
+    assert_eq!((changed.id.clone(), changed.title.as_str()), (id, "B"));
+    assert_eq!(reads.seen(), [first.unique_name(), second.unique_name()]);
+    assert_eq!((first.reads(), second.reads()), (1, 1));
+    events.quiet();
+    assert_eq!(host.handle().items()[0].title, "B");
+}
+
+#[test]
 fn an_item_that_leaves_while_it_is_read_is_removed() {
     let bus = PrivateBus::start();
     let (host, events) = start(&bus);

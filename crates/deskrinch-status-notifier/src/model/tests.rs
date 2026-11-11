@@ -70,10 +70,16 @@ fn a_registered_item_is_listed_but_pending_until_it_is_read() {
         due,
         Due {
             id: id.clone(),
-            owner: ":1.5".into(),
-            path: PATH.into(),
             at: t(0)
         }
+    );
+    assert_eq!(
+        model.source(&id),
+        Some(Source {
+            id: id.clone(),
+            owner: ":1.5".into(),
+            path: PATH.into()
+        })
     );
     assert_eq!(model.registered(), [":1.5/StatusNotifierItem"]);
     assert_eq!(model.items(), Vec::<Arc<Item>>::new());
@@ -93,7 +99,7 @@ fn an_item_registered_by_a_well_known_name_is_read_from_its_owner() {
         .register(target(service), ":1.5", t(0))
         .unwrap()
         .unwrap();
-    assert_eq!(due.owner, ":1.5");
+    assert_eq!(model.source(&due.id).unwrap().owner, ":1.5");
     // Its calls without a reply still go to the name it registered.
     model.read_done(&due.id, ":1.5", read_of(&due.id, "A"), t(0));
     assert_eq!(model.target(&due.id), Some(target(service)));
@@ -285,8 +291,39 @@ fn a_read_from_an_owner_that_was_replaced_is_stale_not_gone() {
     assert!(!done.unregistered);
     // The read the move asked for follows, from the new owner.
     let next = done.next.unwrap();
-    assert_eq!((next.owner.as_str(), next.id), (":1.9", first.id.clone()));
+    assert_eq!(next.id, first.id);
+    assert_eq!(model.source(&next.id).unwrap().owner, ":1.9");
     assert_eq!(model.registered(), [first.id.to_string()]);
+}
+
+#[test]
+fn a_read_waiting_for_its_start_goes_to_the_owner_at_the_start() {
+    let mut model = model();
+    let interval = Limits::default().min_read_interval;
+    let service = "org.kde.StatusNotifierItem-1-1";
+    let id = model
+        .register(target(service), ":1.5", t(0))
+        .unwrap()
+        .unwrap()
+        .id;
+    // A read from :1.5 starts at 0; a signal during it asks for one more.
+    model.signalled(":1.5", PATH, t(10));
+    let next = model
+        .read_done(&id, ":1.5", read_of(&id, "A"), t(20))
+        .next
+        .unwrap();
+    assert_eq!(next.at, t(0) + interval);
+    // The name moves while that read waits; the move asks for nothing more.
+    let moved = model.owner_changed(service, Some(":1.9"), t(50));
+    assert_eq!(moved.reads, Vec::<Due>::new());
+    // When it starts, it goes to the new owner, and its result is kept.
+    let source = model.source(&next.id).unwrap();
+    assert_eq!(source.owner, ":1.9");
+    let done = model.read_done(&id, &source.owner, read_of(&id, "B"), next.at);
+    assert_eq!(done.change, Some(Change::Changed(model.item(&id).unwrap())));
+    // Once the item has left, a waiting read has nobody to go to.
+    model.owner_changed(service, None, next.at);
+    assert_eq!(model.source(&id), None);
 }
 
 #[test]
@@ -319,8 +356,9 @@ fn a_well_known_name_moving_to_another_owner_is_read_again_from_it() {
         .id;
     model.read_done(&id, ":1.5", read_of(&id, "A"), t(0));
     let change = model.owner_changed(service, Some(":1.9"), t(500));
-    let owners: Vec<&str> = change.reads.iter().map(|d| d.owner.as_str()).collect();
-    assert_eq!(owners, [":1.9"]);
+    let reads: Vec<ItemId> = change.reads.into_iter().map(|d| d.id).collect();
+    assert_eq!(reads, std::slice::from_ref(&id));
+    assert_eq!(model.source(&id).unwrap().owner, ":1.9");
     assert_eq!(change.unregistered, Vec::<ItemId>::new());
     // Its signals now come from the new owner.
     model.read_done(&id, ":1.9", Outcome::Failed, t(500));

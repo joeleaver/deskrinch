@@ -22,7 +22,7 @@ use crate::dbus::{WATCHER_PATH, item, streams};
 use crate::host::shared::{Shared, Work};
 use crate::item::ItemId;
 use crate::limits::Limits;
-use crate::model::{Due, Outcome};
+use crate::model::{Due, Outcome, Source};
 
 /// The tracker's thread, stopped and joined when dropped.
 pub(super) struct Tracker {
@@ -66,14 +66,14 @@ impl Drop for Tracker {
     }
 }
 
-type Read = Pin<Box<dyn Future<Output = (Due, Outcome)> + Send>>;
+type Read = Pin<Box<dyn Future<Output = Option<(Source, Outcome)>> + Send>>;
 
 /// What woke the tracker.
 enum Step {
     Stop,
     Disconnected,
     Work(Work),
-    Done(Due, Outcome),
+    Done(Source, Outcome),
     Owner(Message),
     Signal(Message),
     Nothing,
@@ -112,7 +112,7 @@ impl State {
                     return;
                 }
                 Step::Work(work) => self.work(work).await,
-                Step::Done(due, outcome) => self.read_done(&due, outcome).await,
+                Step::Done(source, outcome) => self.read_done(&source, outcome).await,
                 Step::Owner(message) => self.owner_changed(&message).await,
                 Step::Signal(message) => match streams::item_signal(&message) {
                     Some((sender, path)) => self
@@ -128,16 +128,20 @@ impl State {
         }
     }
 
-    /// The read `due`, once its time has come.
+    /// The read `due`, once its time has come, from whoever owns the item
+    /// then (its owner may change while it waits); `None` when the item is
+    /// no longer registered by then.
     fn read(&self, due: Due) -> Read {
         let wait = (due.at > Instant::now()).then(|| self.timer.sleep_until(due.at));
         let connection = self.connection.clone();
+        let shared = Arc::clone(&self.shared);
         let limits = self.limits.clone();
         Box::pin(async move {
             if let Some(wait) = wait {
                 wait.await;
             }
-            item::read(connection, due, limits).await
+            let source = shared.with_model(|m| m.source(&due.id))?;
+            Some(item::read(connection, source, limits).await)
         })
     }
 
@@ -158,12 +162,12 @@ impl State {
     }
 
     /// Applies a finished read; the next read of the item, if one is due.
-    async fn read_done(&self, due: &Due, outcome: Outcome) -> Vec<Due> {
+    async fn read_done(&self, source: &Source, outcome: Outcome) -> Vec<Due> {
         let done = self
             .shared
-            .with_model(|m| m.read_done(&due.id, &due.owner, outcome, Instant::now()));
+            .with_model(|m| m.read_done(&source.id, &source.owner, outcome, Instant::now()));
         if done.unregistered {
-            self.unregistered(std::slice::from_ref(&due.id), 0).await;
+            self.unregistered(std::slice::from_ref(&source.id), 0).await;
         }
         self.shared.report(done.change, None);
         done.next.into_iter().collect()
@@ -215,10 +219,12 @@ fn poll_sources(
     if let Poll::Ready(asked) = shared.poll_inbox(cx) {
         return Poll::Ready(asked.map_or(Step::Stop, Step::Work));
     }
-    for source in 0..3 {
-        let step = match (turn + source) % 3 {
+    for index in 0..3 {
+        let step = match (turn + index) % 3 {
             0 => match Pin::new(&mut *reads).poll_next(cx) {
-                Poll::Ready(Some((due, outcome))) => Some(Step::Done(due, outcome)),
+                Poll::Ready(Some(Some((source, outcome)))) => Some(Step::Done(source, outcome)),
+                // Dropped: the item left while its read waited.
+                Poll::Ready(Some(None)) => Some(Step::Nothing),
                 // No read in flight; the inbox wakes the tracker for more.
                 Poll::Ready(None) | Poll::Pending => None,
             },

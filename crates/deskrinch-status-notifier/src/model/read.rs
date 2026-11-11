@@ -5,14 +5,23 @@ use std::time::{Duration, Instant};
 
 use crate::item::ItemId;
 
-/// A read to start: of item `id`, at object `path` of connection `owner`
-/// (a unique name, which the bus never activates), no earlier than `at`.
+/// A read to start: of item `id`, no earlier than `at`. Whom it goes to is
+/// decided when it starts ([`Model::source`](super::Model::source)), since
+/// the item's owner may change while it waits.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Due {
     pub(crate) id: ItemId,
+    pub(crate) at: Instant,
+}
+
+/// Whom a read of item `id` goes to, decided as it starts: object `path` of
+/// connection `owner`, the item's owner at that moment, by its unique name
+/// (which the bus never activates).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Source {
+    pub(crate) id: ItemId,
     pub(crate) owner: String,
     pub(crate) path: String,
-    pub(crate) at: Instant,
 }
 
 /// One item's reads.
@@ -44,7 +53,8 @@ impl Reads {
 
     /// Something changed at `now`: when to start a read, unless one is due
     /// or in flight already. A read still waiting for its start will see
-    /// the change; after one in flight, one more is asked for.
+    /// the change, its owner included (it is addressed when it starts);
+    /// after one in flight, one more is asked for.
     pub(super) fn ask(&mut self, now: Instant, interval: Duration) -> Option<Instant> {
         match self.state {
             State::Idle => {

@@ -6,18 +6,22 @@ use zbus::{Connection, DBusError as _};
 use crate::dbus::ITEM_INTERFACE;
 use crate::host::Activation;
 use crate::limits::Limits;
-use crate::model::{Due, Outcome, Target};
+use crate::model::{Outcome, Source, Target};
 use crate::parse;
 use crate::wire::Properties;
 
-/// Reads the properties of the item `due` names, within `limits`, from its
+/// Reads the properties of the item at `source`, within `limits`, from its
 /// owner's unique name: a unique name is never activated, so a read never
 /// starts a service. The connection's method timeout is the read's.
-pub(crate) async fn read(connection: Connection, due: Due, limits: Limits) -> (Due, Outcome) {
+pub(crate) async fn read(
+    connection: Connection,
+    source: Source,
+    limits: Limits,
+) -> (Source, Outcome) {
     let reply = connection
         .call_method(
-            Some(due.owner.as_str()),
-            due.path.as_str(),
+            Some(source.owner.as_str()),
+            source.path.as_str(),
             Some("org.freedesktop.DBus.Properties"),
             "GetAll",
             &(ITEM_INTERFACE,),
@@ -27,14 +31,18 @@ pub(crate) async fn read(connection: Connection, due: Due, limits: Limits) -> (D
         Ok(reply) if reply.data().len() <= limits.max_reply_bytes => {
             reply.body().deserialize::<Properties>().ok()
         }
-        Err(error) if gone(&error) => return (due, Outcome::Gone),
+        Err(error) if gone(&error) => return (source, Outcome::Gone),
         // Too large, timed out, or refused by the item.
         Ok(_) | Err(_) => None,
     };
     let outcome = properties.map_or(Outcome::Failed, |properties| {
-        Outcome::Read(Box::new(parse::item(due.id.clone(), properties, &limits)))
+        Outcome::Read(Box::new(parse::item(
+            source.id.clone(),
+            properties,
+            &limits,
+        )))
     });
-    (due, outcome)
+    (source, outcome)
 }
 
 /// Whether the bus's error for a call says its destination does not exist.

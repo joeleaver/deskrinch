@@ -17,8 +17,8 @@ use std::time::Instant;
 
 use crate::item::{Item, ItemId};
 use crate::limits::Limits;
-pub(crate) use read::Due;
 use read::Reads;
+pub(crate) use read::{Due, Source};
 
 /// Where an item's properties are read, and its methods called.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -26,7 +26,7 @@ pub(crate) struct Target {
     /// The name it registered under: a unique name, or a well-known name
     /// that the bus routes to its current owner. Only calls that expect no
     /// reply (and start no service) go here; reads go to the owner's
-    /// unique name ([`Due`]).
+    /// unique name ([`Source`]).
     pub(crate) service: String,
     pub(crate) path: String,
 }
@@ -100,12 +100,10 @@ struct Entry {
 }
 
 impl Entry {
-    /// A read of this item, from its owner, no earlier than `at`.
+    /// A read of this item, no earlier than `at`.
     fn due(&self, at: Instant) -> Due {
         Due {
             id: self.id.clone(),
-            owner: self.owner.clone(),
-            path: self.target.path.clone(),
             at,
         }
     }
@@ -189,6 +187,17 @@ impl Model {
     /// The item `id`, once read.
     pub(crate) fn item(&self, id: &ItemId) -> Option<Arc<Item>> {
         self.entry(id).and_then(|e| e.item.clone())
+    }
+
+    /// Whom a read of `id` starting now goes to: the unique name of the
+    /// connection that owns the item now, and its object path. `None` when
+    /// the item is no longer registered, and the read is dropped.
+    pub(crate) fn source(&self, id: &ItemId) -> Option<Source> {
+        self.entry(id).map(|e| Source {
+            id: e.id.clone(),
+            owner: e.owner.clone(),
+            path: e.target.path.clone(),
+        })
     }
 
     /// Where to call the item `id`'s methods; `None` unless it has been
