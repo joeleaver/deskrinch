@@ -11,8 +11,8 @@
 //!
 //! The colours, spacing and type are rinch's theme variables
 //! (`--rinch-color-body`, `--rinch-color-text`, `--rinch-spacing-*`,
-//! `--rinch-font-size-*`), with the theme the panel starts with
-//! (`main.rs`); none is written here.
+//! `--rinch-font-size-*`) of the shell's look (`deskrinch-theme`), dark or
+//! light; none is written here.
 
 use rinch::prelude::*;
 

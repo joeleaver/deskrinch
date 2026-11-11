@@ -15,6 +15,10 @@
 //!   [`into_signal`](LiveSettings::into_signal) hands it to the UI as a
 //!   [`rinch` signal](rinch::prelude::Signal) that every change reaches.
 //!
+//! - [`Handover`]: values from another thread of the component to the UI,
+//!   held until the UI's signal exists; what [`LiveSettings`] hands a table
+//!   over with, and any other source (a D-Bus client) can use.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -36,8 +40,10 @@
 mod configuration;
 #[cfg(test)]
 mod configuration_tests;
+mod handover;
 mod live;
 pub mod report;
 
 pub use configuration::Configuration;
+pub use handover::Handover;
 pub use live::LiveSettings;

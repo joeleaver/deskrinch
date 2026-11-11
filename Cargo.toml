@@ -23,6 +23,7 @@ publish = false
 bitflags = "2.13.2"
 clap = { version = "4.6.7", features = ["derive"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }
+deskrinch-appearance = { path = "crates/deskrinch-appearance" }
 deskrinch-clock = { path = "crates/deskrinch-clock" }
 deskrinch-component = { path = "crates/deskrinch-component" }
 deskrinch-config = { path = "crates/deskrinch-config" }
@@ -30,6 +31,8 @@ deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
+deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
+deskrinch-theme = { path = "crates/deskrinch-theme" }
 deskrinch-watch = { path = "crates/deskrinch-watch" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
