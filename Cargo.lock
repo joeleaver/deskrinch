@@ -846,6 +846,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-appearance",
  "deskrinch-component",
+ "deskrinch-icons",
  "deskrinch-settings",
  "deskrinch-test-dbus",
  "deskrinch-test-portal",

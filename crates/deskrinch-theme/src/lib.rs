@@ -1,5 +1,5 @@
 //! The shell's one look, on rinch, dark or light as the configuration and
-//! the desktop say.
+//! the desktop say, and its icon theme.
 //!
 //! - [`look::props`]: the look itself, the one set of rinch theme
 //!   properties every component uses. Components style themselves with the
@@ -7,9 +7,12 @@
 //! - [`resolve`]: dark or light from the `[general]` `color-scheme` setting
 //!   (`deskrinch_settings::general`) and the desktop's preference from the
 //!   settings portal (`deskrinch_appearance`). Pure.
-//! - [`Theme`]: both followed for one component. A component gets its theme
-//!   in one call in its root component, [`Theme::apply`], after making its
-//!   window with [`Theme::initial`].
+//! - [`resolve_icon_theme`]: the icon theme from the `[general]`
+//!   `icon-theme` setting, the desktop's icon theme from the settings
+//!   portal, and which themes are installed. Pure.
+//! - [`Theme`]: the colour scheme followed for one component. A component
+//!   gets its theme in one call in its root component, [`Theme::apply`],
+//!   after making its window with [`Theme::initial`].
 //!
 //! # Example
 //!
@@ -29,9 +32,11 @@
 //! # };
 //! ```
 
+mod icon_theme;
 pub mod look;
 mod scheme;
 mod theme;
 
+pub use icon_theme::{DEFAULT_ICON_THEMES, ResolvedIconTheme, resolve_icon_theme};
 pub use scheme::{Scheme, resolve};
 pub use theme::Theme;

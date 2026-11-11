@@ -1,10 +1,11 @@
 //! The stand-in portal on a bus.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use zbus::{Connection, OwnedVariant, Variant};
 
-use crate::{Error, INTERFACE, KEY, NAME, NAMESPACE, PATH};
+use crate::{Error, INTERFACE, NAME, PATH, Setting, Value};
 
 /// Which methods the stand-in's settings interface offers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,8 +17,9 @@ pub enum Methods {
     ReadOnly,
 }
 
-/// What the stand-in answers for `color-scheme`: a value, or `NotFound`.
-type Answer = Arc<Mutex<Option<OwnedVariant>>>;
+/// What the stand-in answers, by namespace and key; anything else is
+/// `NotFound`.
+type Answers = Arc<Mutex<HashMap<(String, String), Value>>>;
 
 /// The portal's errors.
 #[derive(Debug, zbus::DBusError)]
@@ -31,37 +33,37 @@ enum PortalError {
 
 /// A current portal's settings interface.
 struct Current {
-    answer: Answer,
+    answers: Answers,
 }
 
 #[zbus::interface(name = "org.freedesktop.portal.Settings")]
 impl Current {
     fn read_one(&self, namespace: &str, key: &str) -> Result<OwnedVariant, PortalError> {
-        answer(&self.answer, namespace, key)
+        answer(&self.answers, namespace, key)
     }
 
     fn read(&self, namespace: &str, key: &str) -> Result<OwnedVariant, PortalError> {
-        wrapped(answer(&self.answer, namespace, key)?)
+        wrapped(answer(&self.answers, namespace, key)?)
     }
 }
 
 /// An older portal's settings interface.
 struct ReadOnly {
-    answer: Answer,
+    answers: Answers,
 }
 
 #[zbus::interface(name = "org.freedesktop.portal.Settings")]
 impl ReadOnly {
     fn read(&self, namespace: &str, key: &str) -> Result<OwnedVariant, PortalError> {
-        wrapped(answer(&self.answer, namespace, key)?)
+        wrapped(answer(&self.answers, namespace, key)?)
     }
 }
 
-fn answer(answer: &Answer, namespace: &str, key: &str) -> Result<OwnedVariant, PortalError> {
-    let answer = answer.lock().unwrap_or_else(PoisonError::into_inner);
-    match answer.as_ref() {
-        Some(value) if namespace == NAMESPACE && key == KEY => Ok(value.try_clone()?),
-        _ => Err(PortalError::NotFound(format!("{namespace} {key}"))),
+fn answer(answers: &Answers, namespace: &str, key: &str) -> Result<OwnedVariant, PortalError> {
+    let answers = answers.lock().unwrap_or_else(PoisonError::into_inner);
+    match answers.get(&(namespace.to_owned(), key.to_owned())) {
+        Some(value) => Ok(value.clone().into()),
+        None => Err(PortalError::NotFound(format!("{namespace} {key}"))),
     }
 }
 
@@ -75,50 +77,64 @@ fn wrapped(value: OwnedVariant) -> Result<OwnedVariant, PortalError> {
 #[derive(Debug)]
 pub struct StandIn {
     connection: Connection,
-    answer: Answer,
+    answers: Answers,
 }
 
 impl StandIn {
-    /// Serves a portal on the bus at `address` that answers `color-scheme`
-    /// with `value` (`None`: `NotFound`), offering `methods`.
+    /// Serves a portal on the bus at `address` that answers `settings`, and
+    /// `NotFound` for any other, offering `methods`.
     ///
     /// # Errors
     ///
     /// When the bus cannot be connected to or the name cannot be owned.
-    pub fn start(
+    pub fn start<'a>(
         address: &str,
-        value: Option<OwnedVariant>,
+        settings: impl IntoIterator<Item = (Setting<'a>, Value)>,
         methods: Methods,
     ) -> Result<Self, Error> {
-        let answer: Answer = Arc::new(Mutex::new(value));
+        let answers: HashMap<_, _> = settings
+            .into_iter()
+            .map(|(setting, value)| (owned(setting), value))
+            .collect();
+        let answers: Answers = Arc::new(Mutex::new(answers));
         let builder = zbus::connection::Builder::address(address).name(NAME);
         let builder = match methods {
             Methods::Current => builder.serve_at(
                 PATH,
                 Current {
-                    answer: Arc::clone(&answer),
+                    answers: Arc::clone(&answers),
                 },
             ),
             Methods::ReadOnly => builder.serve_at(
                 PATH,
                 ReadOnly {
-                    answer: Arc::clone(&answer),
+                    answers: Arc::clone(&answers),
                 },
             ),
         };
         let connection = zbus::block_on(builder.build())?;
-        Ok(Self { connection, answer })
+        Ok(Self {
+            connection,
+            answers,
+        })
     }
 
-    /// Changes the answer to `value`, and signals `SettingChanged` as the
-    /// portal does.
+    /// Changes `setting` to `value` (adding it if it was not there), and
+    /// signals `SettingChanged` as the portal does.
     ///
     /// # Errors
     ///
-    /// When the value cannot be copied or the signal sent.
-    pub fn set(&self, value: OwnedVariant) -> Result<(), Error> {
-        let signal = (NAMESPACE, KEY, Variant::from(value.try_clone()?));
-        *self.answer.lock().unwrap_or_else(PoisonError::into_inner) = Some(value);
+    /// When the signal cannot be sent.
+    pub fn set(&self, setting: Setting<'_>, value: Value) -> Result<(), Error> {
+        let signal = (
+            setting.namespace,
+            setting.key,
+            Variant::from(OwnedVariant::from(value.clone())),
+        );
+        self.answers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .insert(owned(setting), value);
         zbus::block_on(self.connection.emit_signal(
             None::<&str>,
             PATH,
@@ -127,6 +143,16 @@ impl StandIn {
             &signal,
         ))?;
         Ok(())
+    }
+
+    /// Stops answering `setting`: it is `NotFound` from now on. The portal
+    /// specification has no signal for a setting that goes away, so none
+    /// is sent.
+    pub(crate) fn remove(&self, setting: Setting<'_>) {
+        self.answers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .remove(&owned(setting));
     }
 
     /// Leaves the bus, as a portal that exits does.
@@ -140,9 +166,6 @@ impl StandIn {
     }
 }
 
-/// A colour scheme as the portal sends it: `0` no preference, `1` dark,
-/// `2` light.
-#[must_use]
-pub fn number(value: u32) -> OwnedVariant {
-    OwnedVariant::from(value)
+fn owned(setting: Setting<'_>) -> (String, String) {
+    (setting.namespace.to_owned(), setting.key.to_owned())
 }

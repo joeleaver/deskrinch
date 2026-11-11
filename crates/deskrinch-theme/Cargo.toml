@@ -1,6 +1,6 @@
 [package]
 name = "deskrinch-theme"
-description = "The shell's one look, dark or light as the configuration and the desktop's colour scheme say, for every component on rinch."
+description = "The shell's one look, dark or light as the configuration and the desktop's colour scheme say, and its icon theme, for every component on rinch."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 deskrinch-appearance.workspace = true
 deskrinch-component.workspace = true
+# `HICOLOR`, the theme every icon lookup ends in.
+deskrinch-icons.workspace = true
 deskrinch-settings.workspace = true
 # `theme`: rinch's theme properties, and changing them while the app runs.
 rinch = { workspace = true, features = ["desktop", "theme"] }

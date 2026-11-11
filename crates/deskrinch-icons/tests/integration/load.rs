@@ -245,6 +245,19 @@ fn reports_an_invalid_theme_name_from_inherits() {
 }
 
 #[test]
+fn knows_which_themes_are_installed() {
+    let f = Fixture::new();
+    f.theme("b1", "deep", &theme_text("", &["48:48:Fixed"]));
+    // A directory of icons without an `index.theme` is not a theme.
+    f.icon("b0", "bare", "48", "app.png");
+    let search_path = f.search_path();
+    assert!(search_path.has_theme("deep"));
+    for name in ["bare", "absent", "", ".", "..", "b1/deep"] {
+        assert!(!search_path.has_theme(name), "{name:?}");
+    }
+}
+
+#[test]
 fn builds_the_search_path_from_the_base_directories() {
     let dirs = BaseDirs::from_vars(|name| match name {
         "HOME" => Some("/home/u".into()),

@@ -12,7 +12,7 @@ use zbus::message::Type;
 use zbus::{Connection, MatchRule, MessageStream};
 
 use crate::error::AppearanceError;
-use crate::scheme::ColorScheme;
+use crate::preferences::{Key, Preferences};
 
 /// The portal's well-known name.
 pub(crate) const PORTAL: &str = "org.freedesktop.portal.Desktop";
@@ -20,10 +20,6 @@ pub(crate) const PORTAL: &str = "org.freedesktop.portal.Desktop";
 pub(crate) const PATH: &str = "/org/freedesktop/portal/desktop";
 /// The settings interface.
 pub(crate) const SETTINGS: &str = "org.freedesktop.portal.Settings";
-/// The appearance settings' namespace.
-pub(crate) const NAMESPACE: &str = "org.freedesktop.appearance";
-/// The colour scheme's key.
-pub(crate) const COLOR_SCHEME: &str = "color-scheme";
 
 const BUS: &str = "org.freedesktop.DBus";
 const BUS_PATH: &str = "/org/freedesktop/DBus";
@@ -41,15 +37,20 @@ pub(crate) async fn owner_changes(connection: &Connection) -> zbus::Result<Messa
     MessageStream::for_match_rule(rule, connection, None).await
 }
 
-/// `SettingChanged` signals in the appearance namespace, from whoever sends
-/// them; the following thread keeps only the portal owner's.
-pub(crate) async fn setting_changes(connection: &Connection) -> zbus::Result<MessageStream> {
+/// `SettingChanged` signals in `namespace`, from whoever sends them; the
+/// following thread keeps only the portal owner's, for the keys it reads.
+/// One rule a namespace, so that the desktop's other settings (KDE's portal
+/// signals every `kdeglobals` change) never wake the thread.
+pub(crate) async fn setting_changes(
+    connection: &Connection,
+    namespace: &str,
+) -> zbus::Result<MessageStream> {
     let rule = MatchRule::builder()
         .msg_type(Type::Signal)
         .interface(SETTINGS)
         .path(PATH)
         .member("SettingChanged")
-        .arg(0, NAMESPACE)
+        .arg(0, namespace)
         .build()?;
     MessageStream::for_match_rule(rule, connection, None).await
 }
@@ -86,38 +87,58 @@ pub(crate) async fn start(connection: &Connection) -> Result<(), zbus::Error> {
         .map(drop)
 }
 
-/// The colour scheme the portal owned by `owner` says. A portal that does
-/// not provide the key (`NotFound`) has no preference.
-pub(crate) async fn color_scheme(
+/// What the portal owned by `owner` says, setting by setting, and what
+/// went wrong reading it: a setting that could not be read has its
+/// default.
+pub(crate) async fn preferences(
     connection: &Connection,
     owner: &str,
-) -> Result<ColorScheme, AppearanceError> {
-    match read(connection, owner, "ReadOne").await {
-        Err(error) if is_error(&error, "org.freedesktop.DBus.Error.UnknownMethod") => {
-            read(connection, owner, "Read").await
+) -> (Preferences, Vec<AppearanceError>) {
+    let mut preferences = Preferences::default();
+    let mut errors = Vec::new();
+    for key in Key::ALL {
+        let value = read(connection, owner, key).await;
+        if let Err(error) = value.and_then(|value| preferences.set(key, value.as_deref())) {
+            errors.push(error);
         }
-        result => result,
     }
-    .map_or_else(
-        |error| {
-            if is_error(&error, "org.freedesktop.portal.Error.NotFound") {
-                Ok(ColorScheme::NoPreference)
-            } else {
-                Err(AppearanceError::Call(error))
-            }
-        },
-        |value| ColorScheme::from_owned(&value),
-    )
+    (preferences, errors)
 }
 
-async fn read(connection: &Connection, owner: &str, method: &str) -> zbus::Result<OwnedVariant> {
+/// The value of `key` the portal owned by `owner` states, or `None` when it
+/// does not provide it (`NotFound`). `Read` is used when `ReadOne` is
+/// unknown.
+async fn read(
+    connection: &Connection,
+    owner: &str,
+    key: Key,
+) -> Result<Option<OwnedVariant>, AppearanceError> {
+    let value = match call(connection, owner, "ReadOne", key).await {
+        Err(error) if is_error(&error, "org.freedesktop.DBus.Error.UnknownMethod") => {
+            call(connection, owner, "Read", key).await
+        }
+        result => result,
+    };
+    match value {
+        Ok(value) => Ok(Some(value)),
+        Err(error) if is_error(&error, "org.freedesktop.portal.Error.NotFound") => Ok(None),
+        Err(error) => Err(AppearanceError::Call(error)),
+    }
+}
+
+async fn call(
+    connection: &Connection,
+    owner: &str,
+    method: &str,
+    key: Key,
+) -> zbus::Result<OwnedVariant> {
     let reply = connection
         .call_method(
             Some(owner),
             PATH,
             Some(SETTINGS),
             method,
-            &(NAMESPACE, COLOR_SCHEME),
+            &(key.namespace(), key.name()),
         )
         .await?;
     reply.body().deserialize::<OwnedVariant>()
