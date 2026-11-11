@@ -1049,6 +1049,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-input"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-client",
+ "deskrinch-test-wayland",
+ "tempfile",
+ "thiserror 2.0.21",
+ "wayland-client",
+ "wayland-protocols-misc",
+ "wayland-protocols-plasma",
+]
+
+[[package]]
 name = "deskrinch-test-portal"
 version = "0.1.0"
 dependencies = [
@@ -6321,6 +6334,7 @@ dependencies = [
  "deskrinch-kwin-access",
  "deskrinch-test-client",
  "deskrinch-test-dbus",
+ "deskrinch-test-input",
  "deskrinch-test-screen",
  "deskrinch-window-management",
  "rustix",

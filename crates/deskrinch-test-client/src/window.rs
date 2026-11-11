@@ -37,6 +37,13 @@ pub(crate) struct Status {
     close_requested: bool,
     /// Why a buffer could not be made, if one could not.
     failure: Option<ShmError>,
+    /// What it heard of the keyboard.
+    pub(crate) input: Heard,
+}
+
+/// What a window heard of the keyboard.
+#[derive(Debug, Default)]
+pub(crate) struct Heard {
     /// Whether it has the keyboard focus.
     pub(crate) keyboard: bool,
     /// The keys pressed while it had the focus, by evdev code, in order.
@@ -179,7 +186,7 @@ impl TestWindow {
     /// Whether it has the keyboard focus.
     #[must_use]
     pub fn has_keyboard(&self) -> bool {
-        lock(&self.shared.status).keyboard
+        lock(&self.shared.status).input.keyboard
     }
 
     /// Waits until it has the keyboard focus.
@@ -188,7 +195,7 @@ impl TestWindow {
     ///
     /// When it does not get it within [`PATIENCE`].
     pub fn wait_keyboard(&self) -> Result<(), Error> {
-        self.wait_input("the keyboard focus", |status| status.keyboard)
+        self.wait_input("the keyboard focus", |status| status.input.keyboard)
     }
 
     /// Waits until the key with evdev code `key` has been pressed while it
@@ -198,14 +205,14 @@ impl TestWindow {
     ///
     /// When it is not pressed within [`PATIENCE`].
     pub fn wait_key(&self, key: u32) -> Result<(), Error> {
-        self.wait_input("a key press", |status| status.keys.contains(&key))
+        self.wait_input("a key press", |status| status.input.keys.contains(&key))
     }
 
     /// The keys pressed while it had the keyboard focus, by evdev code, in
     /// order.
     #[must_use]
     pub fn keys(&self) -> Vec<u32> {
-        lock(&self.shared.status).keys.clone()
+        lock(&self.shared.status).input.keys.clone()
     }
 
     fn wait_input(&self, what: &str, done: impl Fn(&Status) -> bool) -> Result<(), Error> {

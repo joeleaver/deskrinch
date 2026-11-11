@@ -13,12 +13,18 @@ publish.workspace = true
 deskrinch-test-client.workspace = true
 # The connection's waits, with deadlines, and the globals.
 deskrinch-test-wayland.workspace = true
+# The virtual keyboard's keymap, in a file of its own.
+tempfile.workspace = true
 thiserror.workspace = true
 wayland-client.workspace = true
 # wlroots' `zwp_virtual_keyboard_v1`.
 wayland-protocols-misc = { workspace = true, features = ["client"] }
 # KWin's `org_kde_kwin_fake_input`, a restricted interface.
 wayland-protocols-plasma = { workspace = true, features = ["client"] }
+
+[dev-dependencies]
+# The windows the tests type into.
+deskrinch-test-client.workspace = true
 
 # The compositor test runs inside nested compositors that
 # `cargo xtask compositor-tests` starts; it is ignored by a plain

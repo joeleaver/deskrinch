@@ -77,7 +77,7 @@ impl Dispatch<WlKeyboard, ()> for Client {
                 ..
             } => {
                 if let Some(window) = &client.keyboard.focus {
-                    lock(&window.status).keys.push(key);
+                    lock(&window.status).input.keys.push(key);
                     window.changed.notify_all();
                 }
             }
@@ -89,11 +89,11 @@ impl Dispatch<WlKeyboard, ()> for Client {
 /// Moves the keyboard focus to `window`.
 fn focus(keyboard: &mut Keyboard, window: Option<Arc<Shared>>) {
     if let Some(old) = keyboard.focus.take() {
-        lock(&old.status).keyboard = false;
+        lock(&old.status).input.keyboard = false;
         old.changed.notify_all();
     }
     if let Some(new) = &window {
-        lock(&new.status).keyboard = true;
+        lock(&new.status).input.keyboard = true;
         new.changed.notify_all();
     }
     keyboard.focus = window;
