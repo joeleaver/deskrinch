@@ -106,7 +106,7 @@ mod measure {
             "Wall-clock time: NOT comparable",
             "wall time to first frame",
             "load average at the first frame",
-            "GPU adapter: none logged",
+            "renderer: software (no GPU adapter logged)",
         ] {
             assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
         }

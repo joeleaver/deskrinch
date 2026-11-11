@@ -141,8 +141,9 @@ settled, with the resident set grouped by what is mapped (the Vulkan driver,
 LLVM, fonts, GTK, the binary, the heap) and the GPU memory the DRM driver
 reports, which is not in the resident set; over an idle window (125 s, two
 ticks of a minute clock), CPU time, wake-ups and preemptions per second,
-frames and CPU per frame; and the GPU adapter wgpu chose, marked when it is a
-software Vulkan driver. Across runs it prints each number's median and range.
+frames and CPU per frame; and the renderer that presented, rinch's software
+one or the GPU one on the adapter wgpu chose, marked when that is a software
+Vulkan driver. Across runs it prints each number's median and range.
 
 The figures to compare are CPU time and, with `--instructions` (the program
 under Valgrind's Callgrind; needs `valgrind`), instruction counts, which do
@@ -153,8 +154,10 @@ Each session's shader cache starts empty (`--shader-cache cold`, a first
 start); `--shader-cache warm` fills one with an unmeasured start first, as
 every later start in a real session finds it. Measure GPU costs under KWin
 (`--compositor kwin`, the default), which composites with the GPU: headless
-sway and labwc render with pixman and offer no dmabuf, so wgpu falls back to a
-software Vulkan driver there. `cargo xtask measure --help` has the details.
+sway and labwc render with pixman and offer no dmabuf, so wgpu offers only a
+software Vulkan driver there, which rinch's default renderer declines for its
+software renderer (`--renderer gpu` uses it anyway). `cargo xtask measure
+--help` has the details.
 
 Its end-to-end tests measure stand-in scripts in isolated sessions, and are
 ignored by `cargo test` like the session's (they do not cover

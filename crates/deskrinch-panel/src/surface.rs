@@ -14,12 +14,14 @@
 //!
 //! The output is the compositor's choice.
 //!
-//! [`place`] moves a running panel: the window's new height, then the new
-//! anchors and zone. Both are requests queued to rinch's event loop from
-//! the main thread in one go, so rinch applies them in the same turn and
-//! the compositor sees them in one commit: rinch's `set_current_window_size`
-//! only stages a layer surface's size, and `set_current_window_layer`
-//! sends every changed field with it and commits once.
+//! [`place`] moves a running panel: the window's new height and its new
+//! anchors and zone, asked for together from one effect on the main thread.
+//! rinch guarantees that on a layer surface what one turn of its event loop
+//! asks through `set_current_window_size`, `set_current_window_layer` and
+//! `set_current_window_position` reaches the compositor in one commit,
+//! whatever the order of the calls (joeleaver/rinch#2464, documented on
+//! those functions). So the compositor arranges the moved panel once, never
+//! at its new height with its old zone.
 
 use rinch::windows::{current_window_size, set_current_window_layer, set_current_window_size};
 use rinch::{
@@ -85,7 +87,8 @@ pub(crate) fn window_props(placement: Placement) -> WindowProps {
     }
 }
 
-/// Moves the running panel to `placement`. Called on the main thread.
+/// Moves the running panel to `placement`. Called on the main thread, from
+/// one effect, so that both requests fall in one turn and one commit.
 pub(crate) fn place(placement: Placement) {
     // The width is the compositor's on a layer surface whatever is asked;
     // the current one is asked so that a compositor without the layer
