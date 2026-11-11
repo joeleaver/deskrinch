@@ -107,6 +107,13 @@ pub(crate) enum Error {
         /// The session's directory.
         root: PathBuf,
     },
+    /// `ci-packages` was run outside a CI job: it installs packages with
+    /// `sudo`, which nothing may do on a developer's machine.
+    #[error(
+        "ci-packages installs system packages and runs only in CI \
+         (GITHUB_ACTIONS=true); install what you need yourself"
+    )]
+    NotInCi,
     /// The nested compositor did not open its socket in time.
     #[error("{compositor} did not open its socket in time; its log:\n{log}")]
     CompositorTimedOut {
