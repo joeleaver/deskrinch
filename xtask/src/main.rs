@@ -4,6 +4,7 @@
 //! returning [`Outcome`]. Adding a task is a new module, one [`Task`] variant
 //! and one match arm in [`Task::run`]; existing tasks are not touched.
 
+mod ci_packages;
 mod compositor_tests;
 mod error;
 mod file_length;
@@ -131,6 +132,20 @@ enum Task {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Install Ubuntu packages a CI job needs, failing fast when the package
+    /// servers cannot be reached.
+    ///
+    /// Runs `sudo apt-get update` and `sudo apt-get install --yes
+    /// --no-install-recommends`, each with apt's retry and request timeouts
+    /// and cut off after five minutes, and reports a server that could not
+    /// be reached as a GitHub annotation that says to re-run the job. It
+    /// refuses to run anywhere but in GitHub Actions (`GITHUB_ACTIONS=true`):
+    /// it never installs packages on a developer's machine.
+    CiPackages {
+        /// The packages.
+        #[arg(required = true)]
+        packages: Vec<String>,
+    },
     /// Run the desktop-entries test that launches into a real transient
     /// systemd scope.
     ///
@@ -143,6 +158,7 @@ impl Task {
     fn run(self, root: &Path) -> Result<Outcome, Error> {
         match self {
             Self::FileLength => file_length::run(root),
+            Self::CiPackages { packages } => ci_packages::run(&packages),
             Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Measure {

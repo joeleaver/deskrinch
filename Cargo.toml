@@ -39,6 +39,7 @@ deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
 deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }
 deskrinch-theme = { path = "crates/deskrinch-theme" }
+deskrinch-timer = { path = "crates/deskrinch-timer" }
 deskrinch-untrusted = { path = "crates/deskrinch-untrusted" }
 deskrinch-watch = { path = "crates/deskrinch-watch" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
