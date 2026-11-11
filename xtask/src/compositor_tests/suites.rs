@@ -26,11 +26,14 @@ pub(super) enum Pass {
     Scaled,
     /// Turned a quarter, for the suites that check transforms.
     Rotated,
+    /// Mirrored and turned a quarter (`flipped-90`): a flip as well as a
+    /// swap of the axes, for the suites that check transforms.
+    Flipped,
 }
 
 impl Pass {
     /// Every pass, in the order they run.
-    pub(super) const ALL: [Self; 3] = [Self::Plain, Self::Scaled, Self::Rotated];
+    pub(super) const ALL: [Self; 4] = [Self::Plain, Self::Scaled, Self::Rotated, Self::Flipped];
 
     /// The session's outputs in this pass.
     pub(super) fn outputs(self) -> Outputs {
@@ -43,6 +46,10 @@ impl Pass {
             },
             Self::Rotated => Outputs {
                 transform: Transform::Rotated90.into(),
+                ..plain
+            },
+            Self::Flipped => Outputs {
+                transform: Transform::Flipped90.into(),
                 ..plain
             },
         }
