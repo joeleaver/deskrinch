@@ -48,7 +48,7 @@ pub(crate) async fn read(
 /// Whether the bus's error for a call says its destination does not exist.
 /// zbus hands the bus's standard errors back as `fdo::Error`s, others as
 /// method errors; either way the name decides.
-fn gone(error: &zbus::Error) -> bool {
+pub(crate) fn gone(error: &zbus::Error) -> bool {
     let name = match error {
         zbus::Error::FDO(error) => error.name().to_string(),
         zbus::Error::MethodError(name, _, _) => name.to_string(),

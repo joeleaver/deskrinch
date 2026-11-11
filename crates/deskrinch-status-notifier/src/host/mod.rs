@@ -19,6 +19,7 @@ use crate::dbus::watcher::Watcher;
 use crate::dbus::{HOST_NAME_PREFIX, WATCHER_NAME, WATCHER_PATH, streams};
 use crate::item::{Item, ItemId};
 use crate::limits::Limits;
+use crate::menu::{EntryId, Menu, MenuFailure};
 use crate::model::{Change, Model};
 use shared::Shared;
 use tracker::Tracker;
@@ -50,8 +51,21 @@ pub enum Event {
     Added(Arc<Item>),
     /// A reported item's properties changed.
     Changed(Arc<Item>),
-    /// A reported item left: its service has no owner any more.
+    /// A reported item left: its service has no owner any more. Its menu,
+    /// if it was open, is closed with it.
     Removed(ItemId),
+    /// An open menu was read for the first time, or read again and found
+    /// different ([`Handle::open_menu`]).
+    Menu(Arc<Menu>),
+    /// An open menu could not be read the first time, or the item no longer
+    /// has one: the menu is closed, and the UI closes it too. A later read
+    /// that fails keeps what was last read, and says nothing.
+    MenuFailed {
+        /// The item whose menu it was.
+        item: ItemId,
+        /// Why.
+        reason: MenuFailure,
+    },
     /// The bus connection ended. The host receives nothing more, and the
     /// items it reported are no longer followed; the daemon decides whether
     /// to start another.
@@ -64,6 +78,8 @@ impl From<Change> for Event {
             Change::Added(item) => Self::Added(item),
             Change::Changed(item) => Self::Changed(item),
             Change::Removed(id) => Self::Removed(id),
+            Change::Menu(menu) => Self::Menu(menu),
+            Change::MenuFailed(item, reason) => Self::MenuFailed { item, reason },
         }
     }
 }
@@ -99,6 +115,15 @@ pub enum OperationError {
     /// No reported item has this id (it may just have left).
     #[error("no item {0}")]
     NotFound(ItemId),
+    /// The item exports no menu, or its menu is not open.
+    #[error("item {0} has no open menu")]
+    NoMenu(ItemId),
+    /// The open menu has no entry that is still the one this id names (the
+    /// menu changed since), or the entry cannot do this: a separator or a
+    /// disabled entry cannot be activated, and only an entry with a submenu
+    /// opens one.
+    #[error("menu entry {0} is not there, or cannot do this")]
+    EntryUnavailable(EntryId),
     /// The host has stopped, or its connection has ended.
     #[error("the status notifier host has stopped")]
     Stopped,
@@ -213,6 +238,9 @@ impl Host {
             let signals = streams::item_signals(&connection)
                 .await
                 .map_err(StartError::Connect)?;
+            let menu_signals = streams::menu_signals(&connection)
+                .await
+                .map_err(StartError::Connect)?;
             if !own(&connection, WATCHER_NAME).await? {
                 return Err(StartError::NameTaken);
             }
@@ -225,7 +253,7 @@ impl Host {
             // Items already waiting for a host learn of this one; it fails
             // only when the connection is gone, which the tracker reports.
             let _sent = Watcher::status_notifier_host_registered(&emitter).await;
-            Ok((connection, owners, signals))
+            Ok((connection, owners, [signals, menu_signals]))
         })?;
         let mut host = Self {
             shared: Arc::clone(&shared),
@@ -348,5 +376,88 @@ impl Handle {
         activation_token: Option<&str>,
     ) -> Result<(), OperationError> {
         self.shared.activate(id, activation, activation_token)
+    }
+
+    /// Opens the item `id`'s menu: the application hears that it opened
+    /// (`Event` `opened`) and is asked to get it ready (`AboutToShow`),
+    /// then the menu is read, and the subscriber hears of it as
+    /// [`Event::Menu`], or [`Event::MenuFailed`]. Until it is closed, the
+    /// menu is read again whenever the application says it changed, and
+    /// each change is another [`Event::Menu`]. Nothing when it is open
+    /// already. It never waits on the bus.
+    ///
+    /// # Errors
+    ///
+    /// [`OperationError::NotFound`] when no reported item has this id,
+    /// [`OperationError::NoMenu`] when the item exports no menu,
+    /// [`OperationError::Stopped`] after the host stopped.
+    pub fn open_menu(&self, id: &ItemId) -> Result<(), OperationError> {
+        self.shared.open_menu(id)
+    }
+
+    /// Closes the item `id`'s menu: the application hears that it closed,
+    /// the menu is no longer followed, and what was read of it is
+    /// released. Nothing when it is not open. It never waits on the bus.
+    ///
+    /// # Errors
+    ///
+    /// [`OperationError::NotFound`] when no reported item has this id,
+    /// [`OperationError::Stopped`] after the host stopped.
+    pub fn close_menu(&self, id: &ItemId) -> Result<(), OperationError> {
+        self.shared.close_menu(id)
+    }
+
+    /// The item `id`'s open menu, as last read; `None` when it is not open
+    /// or has not been read yet.
+    #[must_use]
+    pub fn menu(&self, id: &ItemId) -> Option<Arc<Menu>> {
+        self.shared.menu(id)
+    }
+
+    /// The submenu of `entry`, in the item `id`'s open menu, opened: the
+    /// application hears so and is asked to get it ready (`AboutToShow`).
+    /// Applications that fill a submenu only then say that the menu
+    /// changed, and it is read again ([`Event::Menu`]). It never waits on
+    /// the bus.
+    ///
+    /// # Errors
+    ///
+    /// [`OperationError::EntryUnavailable`] when the menu has no entry that
+    /// is still `entry`, or it has no submenu; the others as for
+    /// [`Handle::open_menu`].
+    pub fn open_submenu(&self, id: &ItemId, entry: EntryId) -> Result<(), OperationError> {
+        self.shared.open_submenu(id, entry)
+    }
+
+    /// The submenu of `entry`, in the item `id`'s open menu, closed: the
+    /// application hears so. It never waits on the bus.
+    ///
+    /// # Errors
+    ///
+    /// As for [`Handle::open_submenu`].
+    pub fn close_submenu(&self, id: &ItemId, entry: EntryId) -> Result<(), OperationError> {
+        self.shared.close_submenu(id, entry)
+    }
+
+    /// Activates `entry` of the item `id`'s open menu (`Event` `clicked`),
+    /// only if the menu still has that entry as the caller was given it:
+    /// an entry that changed since, or another one now at its number, is
+    /// refused rather than activated. With `activation_token`, the item
+    /// gets `ProvideXdgActivationToken` first, as for
+    /// [`Handle::activate`]. It never waits on the bus.
+    ///
+    /// # Errors
+    ///
+    /// [`OperationError::EntryUnavailable`] when the menu has no entry that
+    /// is still `entry`, or it is a separator or disabled;
+    /// [`OperationError::NoMenu`] when the menu is not open; the others as
+    /// for [`Handle::open_menu`].
+    pub fn activate_entry(
+        &self,
+        id: &ItemId,
+        entry: EntryId,
+        activation_token: Option<&str>,
+    ) -> Result<(), OperationError> {
+        self.shared.activate_entry(id, entry, activation_token)
     }
 }

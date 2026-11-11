@@ -94,7 +94,7 @@ impl<'de> Visitor<'de> for PropertiesVisitor {
 
 /// A variant's value when its signature is `T`'s; `None`, skipped without
 /// decoding, when it is anything else.
-struct Lenient<T>(Option<T>);
+pub(crate) struct Lenient<T>(pub(crate) Option<T>);
 
 impl<'de, T: Type + de::Deserialize<'de>> de::Deserialize<'de> for Lenient<T> {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -133,6 +133,9 @@ impl<'de, T: Type + de::Deserialize<'de>> Visitor<'de> for LenientVisitor<T> {
     }
 }
 
+pub(crate) mod layout;
+#[cfg(test)]
+mod layout_props;
 #[cfg(test)]
 mod props;
 #[cfg(test)]

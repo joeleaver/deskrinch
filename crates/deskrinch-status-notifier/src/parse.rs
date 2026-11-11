@@ -1,5 +1,6 @@
 //! From the properties as sent to an [`Item`]: strings cleaned and bounded,
-//! names checked, pixmaps validated and decoded.
+//! names checked, pixmaps validated and decoded; and from a layout as sent
+//! to a menu ([`menu`]).
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -97,7 +98,7 @@ fn tooltip(raw: RawToolTip, limits: &Limits) -> Option<ToolTip> {
 }
 
 /// An absolute directory path, with no NUL or other control characters.
-fn theme_path(path: &str, limits: &Limits) -> Option<PathBuf> {
+pub(crate) fn theme_path(path: &str, limits: &Limits) -> Option<PathBuf> {
     let valid = path.starts_with('/')
         && path.len() <= limits.max_reference_bytes
         && text::clean(path, path.len(), Lines::Join) == path;
@@ -123,6 +124,9 @@ pub(crate) fn decode(width: i32, height: i32, argb: &[u8], max_side: u32) -> Opt
     Image::new(width, height, rgba)
 }
 
+pub(crate) mod menu;
+#[cfg(test)]
+mod menu_tests;
 #[cfg(test)]
 mod props;
 #[cfg(test)]

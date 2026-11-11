@@ -30,6 +30,8 @@ deskrinch-untrusted = { workspace = true, features = ["proptest"] }
 # The interoperability test's item: a real implementation, run in a child
 # process on the test's private bus. It brings zbus 5 into the dev graph only.
 ksni.workspace = true
+# Menu entries' icons for the tests, encoded as applications send them.
+png.workspace = true
 proptest.workspace = true
 
 [lints]

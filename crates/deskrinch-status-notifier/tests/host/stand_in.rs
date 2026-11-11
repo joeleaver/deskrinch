@@ -22,6 +22,7 @@ use zbus::wire::{OwnedVariant, Variant};
 use zbus::{Connection, Message, MessageStream};
 
 use crate::common::{PATIENCE, PrivateBus, call_watcher};
+use crate::stand_in_menu::{self, Layout, MenuCall, Menus};
 
 /// A property value, from anything zbus can make a variant of.
 pub(crate) fn v<'a>(value: impl Into<Variant<'a>>) -> OwnedVariant {
@@ -75,6 +76,8 @@ pub(crate) struct StandIn {
     reply: Arc<Mutex<Reply>>,
     reads: Arc<Mutex<Vec<Instant>>>,
     calls: Receiver<Call>,
+    menus: Arc<Mutex<Menus>>,
+    menu_calls: Receiver<MenuCall>,
     stop: Arc<Stop>,
     thread: Option<JoinHandle<()>>,
 }
@@ -85,14 +88,18 @@ impl StandIn {
         let connection = bus.client();
         let reply = Arc::new(Mutex::new(reply));
         let reads = Arc::new(Mutex::new(Vec::new()));
+        let menus = Arc::new(Mutex::new(Menus::default()));
         let stop = Arc::new(Stop::default());
         let (tx, calls) = mpsc::channel();
+        let (menu_tx, menu_calls) = mpsc::channel();
         let serve = Serve {
             connection: connection.clone(),
             path: path.to_owned(),
             reply: Arc::clone(&reply),
             reads: Arc::clone(&reads),
             calls: tx,
+            menus: Arc::clone(&menus),
+            menu_calls: menu_tx,
             stop: Arc::clone(&stop),
         };
         let stream = MessageStream::from(&connection);
@@ -103,9 +110,47 @@ impl StandIn {
             reply,
             reads,
             calls,
+            menus,
+            menu_calls,
             stop,
             thread: Some(thread),
         }
+    }
+
+    /// Changes how its menus answer.
+    pub(crate) fn menus(&self, change: impl FnOnce(&mut Menus)) {
+        change(&mut self.menus.lock().unwrap());
+    }
+
+    /// Serves a menu at `path` with `layout` from now on.
+    pub(crate) fn set_layout(&self, path: &str, layout: Layout) {
+        self.menus(|m| {
+            m.layouts.insert(path.to_owned(), layout);
+        });
+    }
+
+    /// Says that the menu at `path` changed (`LayoutUpdated`).
+    pub(crate) fn layout_updated(&self, path: &str) {
+        zbus::block_on(self.connection.emit_signal(
+            None::<&str>,
+            path,
+            "com.canonical.dbusmenu",
+            "LayoutUpdated",
+            &(2_u32, 0_i32),
+        ))
+        .unwrap();
+    }
+
+    /// The next menu call it received.
+    pub(crate) fn next_menu_call(&self) -> MenuCall {
+        self.menu_calls
+            .recv_timeout(PATIENCE)
+            .expect("the menu received no call in time")
+    }
+
+    /// The menu calls received so far.
+    pub(crate) fn menu_calls(&self) -> Vec<MenuCall> {
+        self.menu_calls.try_iter().collect()
     }
 
     /// Its connection's unique name.
@@ -203,10 +248,40 @@ struct Serve {
     reply: Arc<Mutex<Reply>>,
     reads: Arc<Mutex<Vec<Instant>>>,
     calls: Sender<Call>,
+    menus: Arc<Mutex<Menus>>,
+    menu_calls: Sender<MenuCall>,
     stop: Arc<Stop>,
 }
 
 impl Serve {
+    /// Answers a call of a menu's: its interface's methods, and `GetAll` of
+    /// its properties (none). Whether it was one.
+    async fn menu(&self, message: &Message) -> bool {
+        let header = message.header();
+        let Some(path) = header.path().map(|p| p.as_str().to_owned()) else {
+            return false;
+        };
+        let interface = header.interface().map(ToString::to_string);
+        match interface.as_deref() {
+            Some("com.canonical.dbusmenu") => {
+                let call =
+                    stand_in_menu::handle(&self.connection, &header, message, &path, &self.menus)
+                        .await;
+                if let Some(call) = call {
+                    let _sent = self.menu_calls.send(call);
+                }
+                true
+            }
+            Some("org.freedesktop.DBus.Properties") if path != self.path => {
+                let none: HashMap<String, OwnedVariant> = HashMap::new();
+                let reply = Message::method_return(&header).build(&none).unwrap();
+                self.connection.send(&reply).await.unwrap();
+                true
+            }
+            _ => false,
+        }
+    }
+
     async fn run(self, mut stream: MessageStream) {
         loop {
             let next = poll_fn(|cx| {
@@ -231,9 +306,10 @@ impl Serve {
 
     async fn handle(&self, message: &Message) {
         let header = message.header();
-        if header.message_type() != Type::MethodCall
-            || header.path().map(zbus::ObjectPath::as_str) != Some(self.path.as_str())
-        {
+        if header.message_type() != Type::MethodCall || self.menu(message).await {
+            return;
+        }
+        if header.path().map(zbus::ObjectPath::as_str) != Some(self.path.as_str()) {
             return;
         }
         let interface = header.interface().map(ToString::to_string);

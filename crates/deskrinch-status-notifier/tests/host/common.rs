@@ -7,7 +7,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Duration;
 
-use deskrinch_status_notifier::{Bus, Config, Event, Host, Item, ItemId, Limits};
+use deskrinch_status_notifier::{
+    Bus, Config, Event, Host, Item, ItemId, Limits, Menu, MenuFailure,
+};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::wire::OwnedVariant;
@@ -84,6 +86,20 @@ impl Events {
         match self.next() {
             Event::Removed(id) => id,
             other => panic!("expected Removed, got {other:?}"),
+        }
+    }
+
+    pub(crate) fn menu(&self) -> Arc<Menu> {
+        match self.next() {
+            Event::Menu(menu) => menu,
+            other => panic!("expected Menu, got {other:?}"),
+        }
+    }
+
+    pub(crate) fn menu_failed(&self) -> (ItemId, MenuFailure) {
+        match self.next() {
+            Event::MenuFailed { item, reason } => (item, reason),
+            other => panic!("expected MenuFailed, got {other:?}"),
         }
     }
 

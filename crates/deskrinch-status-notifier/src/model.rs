@@ -1,5 +1,6 @@
 //! The registered items and hosts, apart from the bus: what is registered,
-//! which items have been read, and which reads are due.
+//! which items have been read, which reads are due, and the open menus
+//! ([`menus`]).
 //!
 //! Every registration is accepted (within the count bounds) and listed. An
 //! item is *pending* until a read of its properties succeeds; only then does
@@ -10,6 +11,7 @@
 //! start closer together than [`Limits::min_read_interval`]. Time is given
 //! to the model, which never reads a clock.
 
+mod menus;
 mod read;
 
 use std::sync::Arc;
@@ -17,6 +19,9 @@ use std::time::Instant;
 
 use crate::item::{Item, ItemId};
 use crate::limits::Limits;
+use crate::menu::{Menu, MenuFailure};
+use menus::OpenMenu;
+pub(crate) use menus::{MenuDue, MenuOutcome, MenuRefusal, MenuSource, MenuTarget};
 use read::Reads;
 pub(crate) use read::{Due, Source};
 
@@ -37,6 +42,8 @@ pub(crate) enum Change {
     Added(Arc<Item>),
     Changed(Arc<Item>),
     Removed(ItemId),
+    Menu(Arc<Menu>),
+    MenuFailed(ItemId, MenuFailure),
 }
 
 /// What a read of an item's properties came to.
@@ -73,6 +80,8 @@ pub(crate) struct OwnerChange {
     pub(crate) changes: Vec<Change>,
     /// Items now owned by another connection, to read again.
     pub(crate) reads: Vec<Due>,
+    /// Their open menus, to read again.
+    pub(crate) menu_reads: Vec<MenuDue>,
     /// Hosts that left.
     pub(crate) hosts_left: usize,
 }
@@ -86,6 +95,10 @@ pub(crate) struct ReadDone {
     pub(crate) unregistered: bool,
     /// The next read of the item, asked for while this one was in flight.
     pub(crate) next: Option<Due>,
+    /// The item's open menu closed, as it has none any more.
+    pub(crate) menu_change: Option<Change>,
+    /// The item's open menu moved, and is read from where it is now.
+    pub(crate) menu_next: Option<MenuDue>,
 }
 
 #[derive(Debug)]
@@ -97,6 +110,8 @@ struct Entry {
     owner: String,
     item: Option<Arc<Item>>,
     reads: Reads,
+    /// The item's menu, while the caller has it open.
+    menu: Option<OpenMenu>,
 }
 
 impl Entry {
@@ -116,7 +131,11 @@ pub(crate) struct Model {
     limits: Limits,
     entries: Vec<Entry>,
     hosts: Vec<String>,
+    /// Decoded pixels of the read items and the open menus.
     image_bytes: usize,
+    /// Menu layouts stored so far, which number the readings that menu
+    /// entries are the same since.
+    readings: u64,
 }
 
 impl Model {
@@ -127,6 +146,7 @@ impl Model {
             entries: Vec::new(),
             hosts: Vec::new(),
             image_bytes: 0,
+            readings: 0,
         }
     }
 
@@ -156,6 +176,7 @@ impl Model {
             owner: owner.to_owned(),
             item: None,
             reads: Reads::first(now),
+            menu: None,
         };
         let due = entry.due(now);
         self.entries.push(entry);
@@ -243,20 +264,29 @@ impl Model {
         } else {
             Outcome::Failed
         };
+        let interval = self.limits.min_read_interval;
         match outcome {
             Outcome::Gone => {
                 let entry = self.entries.remove(index);
                 done.unregistered = true;
+                self.image_bytes -= entry.menu_image_bytes();
                 if let Some(item) = entry.item {
                     self.image_bytes -= item.image_bytes();
                     done.change = Some(Change::Removed(entry.id));
                 }
                 return done;
             }
-            Outcome::Read(item) => done.change = self.store(index, *item),
+            Outcome::Read(item) => {
+                done.change = self.store(index, *item);
+                if done.change.is_some() {
+                    let (freed, change, next) = self.entries[index].menu_moved(now, interval);
+                    self.image_bytes -= freed;
+                    done.menu_change = change;
+                    done.menu_next = next;
+                }
+            }
             Outcome::Failed => {}
         }
-        let interval = self.limits.min_read_interval;
         let entry = &mut self.entries[index];
         done.next = entry.reads.done(now, interval).map(|at| entry.due(at));
         done
@@ -305,6 +335,7 @@ impl Model {
                 change
                     .reads
                     .extend(entry.reads.ask(now, interval).map(|at| entry.due(at)));
+                change.menu_reads.extend(entry.ask_menu(now, interval));
             }
             return change;
         }
@@ -314,6 +345,7 @@ impl Model {
                 return true;
             }
             change.unregistered.push(entry.id.clone());
+            freed += entry.menu_image_bytes();
             if let Some(item) = &entry.item {
                 freed += item.image_bytes();
                 change.changes.push(Change::Removed(entry.id.clone()));
@@ -332,5 +364,7 @@ impl Model {
     }
 }
 
+#[cfg(test)]
+mod menu_tests;
 #[cfg(test)]
 mod tests;
