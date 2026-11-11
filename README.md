@@ -88,8 +88,8 @@ compositor offers. Under KWin the test binary must be granted the screenshot
 interface: `cargo xtask compositor-tests` installs a desktop file for each test
 binary, built with `deskrinch-kwin-access` from the interface constants of the
 crates it uses (`deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE`, ...). The
-screen tests run each compositor's outputs at scale 1, at scale 2, and turned a
-quarter.
+screen tests run each compositor's outputs at scale 1, at scale 2, turned a
+quarter, and mirrored and turned.
 
 ### Typing into a window
 

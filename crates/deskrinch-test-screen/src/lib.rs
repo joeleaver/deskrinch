@@ -30,9 +30,10 @@
 //! reaches the screen a frame or more later.
 //!
 //! The crate's compositor tests check, under all three compositors, outputs
-//! at scale 1, at scale 2, and turned a quarter from the start
-//! (`cargo xtask session --transform 90`): each image upright, at the turned
-//! size, pixel for pixel. Under KWin, whose `ScreenShot2` renders the
+//! at scale 1, at scale 2, turned a quarter from the start
+//! (`cargo xtask session --transform 90`), and mirrored and turned
+//! (`--transform flipped-90`): each image upright and unmirrored, at the
+//! turned size, pixel for pixel. Under KWin, whose `ScreenShot2` renders the
 //! output's area of its scene, that image comes upright from KWin itself;
 //! under sway and labwc the crate undoes the transform the protocol reports.
 //! An output turned under a running client is checked under sway and labwc,

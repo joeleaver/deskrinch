@@ -3,7 +3,7 @@
 //!
 //! Ignored by `cargo test`; `cargo xtask compositor-tests` runs them inside
 //! nested, headless KWin, sway and labwc sessions with two outputs, at scale
-//! 1, at scale 2, and at scale 1 turned a quarter, granting this binary
+//! 1, at scale 2, turned a quarter, and mirrored and turned, granting this binary
 //! KWin's screenshot interface the way an installed deskrinch is granted it.
 //! Each test reads the scale and the transform from the output it captures. What only the wlroots compositors
 //! offer is tested by the `wlroots` binary.

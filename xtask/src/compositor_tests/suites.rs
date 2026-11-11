@@ -164,7 +164,7 @@ pub(super) const SUITES: [Suite; 8] = [
             dbus: &[],
         }),
         compositors: ALL,
-        scaled: false,
+        passes: PLAIN,
         filter: &[],
     },
     // The launcher's process, its real binary: no restricted interface.

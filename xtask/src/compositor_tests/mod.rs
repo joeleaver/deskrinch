@@ -1,13 +1,11 @@
 //! `cargo xtask compositor-tests`: runs the crates' compositor tests inside
 //! nested, headless compositors.
 //!
-//! The suites ([`suites::SUITES`]) are the window-management crate's
-//! (windows listed and acted on), `deskrinch-test-screen`'s (outputs
-//! captured), `deskrinch-test-input`'s (keys typed into a window) and the
-//! launcher's (its process, the real binary). For each compositor it builds
-//! the test binaries, starts an isolated [`Session`] at scale 1 and runs
-//! every suite meant for that compositor, one binary after another; then a
-//! second session at scale 2 for the suites that check scaling.
+//! The suites are [`suites::SUITES`]: each test binary, the compositors it
+//! runs under and the passes it runs in. It builds the binaries, then for
+//! each compositor and each [`suites::Pass`] (outputs at scale 1, at scale
+//! 2, turned a quarter, flipped and turned) starts an isolated [`Session`]
+//! and runs the suites meant for both, one binary after another.
 //!
 //! Under KWin each binary that needs a restricted interface is granted it
 //! the way an installed deskrinch is: one desktop file per binary, in the

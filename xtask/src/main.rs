@@ -44,13 +44,18 @@ enum Task {
         file_length::MAX_LINES,
     ))]
     FileLength,
-    /// Run the window-management compositor tests in nested, headless
+    /// Run the workspace's compositor tests in nested, headless
     /// compositors.
     ///
-    /// Each compositor runs in an isolated session of its own, the one
-    /// `cargo xtask session` describes, so nothing reaches the real desktop
-    /// session. Needs `dbus-daemon`, and `kwin_wayland`, `sway` and `labwc`
-    /// for those compositors.
+    /// The test binaries are those of the suites table
+    /// (`xtask/src/compositor_tests/suites.rs`), each with the compositors
+    /// and the passes it runs in: a pass is one isolated session per
+    /// compositor (the one `cargo xtask session` describes) with its outputs
+    /// set up a given way, at scale 1, at scale 2, turned or flipped. Under
+    /// KWin each binary is granted what it uses by a desktop file. Nothing
+    /// reaches the real desktop session. Needs `dbus-daemon`, and
+    /// `kwin_wayland` (with `kscreen-doctor`), `sway` and `labwc` for those
+    /// compositors.
     CompositorTests {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
