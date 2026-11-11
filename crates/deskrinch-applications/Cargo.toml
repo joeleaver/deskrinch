@@ -1,0 +1,29 @@
+[package]
+name = "deskrinch-applications"
+description = "The installed applications and their icons, followed for a shell component on rinch: the catalog kept up to date, the icon theme's index, and the file each application is drawn with."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Reporting what goes wrong, and handing values to the UI thread.
+deskrinch-component.workspace = true
+# The installed entries, watched.
+deskrinch-desktop-entries.workspace = true
+# The icon theme's files, indexed and watched.
+deskrinch-icons.workspace = true
+# Which icon theme the shell uses.
+deskrinch-theme.workspace = true
+# Signals and effects, on the UI thread.
+rinch = { workspace = true, features = ["desktop"] }
+tracing.workspace = true
+
+[dev-dependencies]
+# Fixture themes in a temporary directory.
+tempfile.workspace = true
+
+[lints]
+workspace = true
