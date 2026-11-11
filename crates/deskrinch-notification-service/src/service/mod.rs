@@ -10,6 +10,7 @@ use std::sync::atomic::Ordering;
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use deskrinch_bus::Bus;
 use zbus::Connection;
 use zbus::fdo::RequestNameReply;
 
@@ -22,15 +23,6 @@ use crate::notification::{CloseReason, Notification, NotificationId};
 use crate::policy::{Ownership, SignalDelivery};
 use crate::request::Policy;
 use shared::Shared;
-
-/// Which bus the service connects to.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Bus {
-    /// The session bus, from `DBUS_SESSION_BUS_ADDRESS`.
-    Session,
-    /// The bus at this D-Bus address, such as `unix:path=/run/…/bus`.
-    Address(String),
-}
 
 /// What `GetServerInformation` reports, besides the specification version.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,11 +202,9 @@ impl Service {
         };
         let flags = config.name.flags();
         let (connection, signals, status) = zbus::block_on(async {
-            let builder = match &config.bus {
-                Bus::Session => zbus::connection::Builder::session(),
-                Bus::Address(address) => zbus::connection::Builder::address(address.as_str()),
-            };
-            let connection = builder
+            let connection = config
+                .bus
+                .builder()
                 .serve_at(PATH, object)
                 .build()
                 .await

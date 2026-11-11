@@ -9,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-bus.workspace = true
+deskrinch-untrusted.workspace = true
 futures-core.workspace = true
 percent-encoding.workspace = true
 serde.workspace = true
@@ -19,8 +21,10 @@ thiserror.workspace = true
 zbus = { workspace = true, features = ["default-rt", "service", "proxy"] }
 
 [dev-dependencies]
-proptest.workspace = true
 deskrinch-test-dbus.workspace = true
+# The property tests' shared configuration.
+deskrinch-untrusted = { workspace = true, features = ["proptest"] }
+proptest.workspace = true
 
 [lints]
 workspace = true
