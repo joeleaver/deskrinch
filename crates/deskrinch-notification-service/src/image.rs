@@ -6,114 +6,73 @@ use std::os::unix::ffi::OsStringExt as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::text;
+pub use deskrinch_untrusted::{IconName, Image};
 
-/// Decoded pixels: `width` × `height`, tightly packed, 8-bit RGBA, not
-/// premultiplied, rows top to bottom.
-#[derive(Clone, PartialEq, Eq)]
-pub struct Image {
-    width: u32,
-    height: u32,
-    rgba: Vec<u8>,
-}
-
-impl Image {
-    /// Width in pixels; at least 1.
-    #[must_use]
-    pub fn width(&self) -> u32 {
-        self.width
+/// Validates a sender's `(iiibiiay)` image and decodes it, refusing one
+/// wider or taller than `max_side` pixels or with more than `max_bytes`
+/// of decoded RGBA. The size is checked before anything is allocated.
+pub(crate) fn decode_image(
+    raw: &RawImage<'_>,
+    max_side: u32,
+    max_bytes: usize,
+) -> Result<Image, ImageError> {
+    let side = |v: i32| u32::try_from(v).ok().filter(|v| (1..=max_side).contains(v));
+    let (Some(width), Some(height)) = (side(raw.width), side(raw.height)) else {
+        return Err(ImageError::Dimensions {
+            width: raw.width,
+            height: raw.height,
+        });
+    };
+    if raw.bits_per_sample != 8 {
+        return Err(ImageError::BitsPerSample(raw.bits_per_sample));
     }
-
-    /// Height in pixels; at least 1.
-    #[must_use]
-    pub fn height(&self) -> u32 {
-        self.height
+    let channels: usize = if raw.has_alpha { 4 } else { 3 };
+    if usize::try_from(raw.channels).ok() != Some(channels) {
+        return Err(ImageError::Channels {
+            channels: raw.channels,
+            has_alpha: raw.has_alpha,
+        });
     }
-
-    /// The pixels, `width * height * 4` bytes.
-    #[must_use]
-    pub fn rgba(&self) -> &[u8] {
-        &self.rgba
+    let (width_px, height_px) = (width as usize, height as usize);
+    let decoded = width_px
+        .checked_mul(height_px)
+        .and_then(|n| n.checked_mul(4))
+        .filter(|n| *n <= max_bytes)
+        .ok_or(ImageError::TooLarge { width, height })?;
+    let row_bytes = width_px * channels;
+    let stride = usize::try_from(raw.rowstride)
+        .ok()
+        .filter(|s| *s >= row_bytes)
+        .ok_or(ImageError::Rowstride(raw.rowstride))?;
+    // The last row need not be padded to the stride (gdk-pixbuf's rule).
+    let shortest = stride
+        .checked_mul(height_px - 1)
+        .and_then(|n| n.checked_add(row_bytes))
+        .ok_or(ImageError::Rowstride(raw.rowstride))?;
+    let longest = stride
+        .checked_mul(height_px)
+        .ok_or(ImageError::Rowstride(raw.rowstride))?;
+    if !(shortest..=longest).contains(&raw.data.len()) {
+        return Err(ImageError::Length {
+            expected: shortest,
+            actual: raw.data.len(),
+        });
     }
-
-    /// Validates a sender's `(iiibiiay)` image and decodes it, refusing one
-    /// wider or taller than `max_side` pixels or with more than `max_bytes`
-    /// of decoded RGBA. The size is checked before anything is allocated.
-    pub(crate) fn decode(
-        raw: &RawImage<'_>,
-        max_side: u32,
-        max_bytes: usize,
-    ) -> Result<Self, ImageError> {
-        let side = |v: i32| u32::try_from(v).ok().filter(|v| (1..=max_side).contains(v));
-        let (Some(width), Some(height)) = (side(raw.width), side(raw.height)) else {
-            return Err(ImageError::Dimensions {
-                width: raw.width,
-                height: raw.height,
-            });
-        };
-        if raw.bits_per_sample != 8 {
-            return Err(ImageError::BitsPerSample(raw.bits_per_sample));
-        }
-        let channels: usize = if raw.has_alpha { 4 } else { 3 };
-        if usize::try_from(raw.channels).ok() != Some(channels) {
-            return Err(ImageError::Channels {
-                channels: raw.channels,
-                has_alpha: raw.has_alpha,
-            });
-        }
-        let (width_px, height_px) = (width as usize, height as usize);
-        let decoded = width_px
-            .checked_mul(height_px)
-            .and_then(|n| n.checked_mul(4))
-            .filter(|n| *n <= max_bytes)
-            .ok_or(ImageError::TooLarge { width, height })?;
-        let row_bytes = width_px * channels;
-        let stride = usize::try_from(raw.rowstride)
-            .ok()
-            .filter(|s| *s >= row_bytes)
-            .ok_or(ImageError::Rowstride(raw.rowstride))?;
-        // The last row need not be padded to the stride (gdk-pixbuf's rule).
-        let shortest = stride
-            .checked_mul(height_px - 1)
-            .and_then(|n| n.checked_add(row_bytes))
-            .ok_or(ImageError::Rowstride(raw.rowstride))?;
-        let longest = stride
-            .checked_mul(height_px)
-            .ok_or(ImageError::Rowstride(raw.rowstride))?;
-        if !(shortest..=longest).contains(&raw.data.len()) {
-            return Err(ImageError::Length {
-                expected: shortest,
-                actual: raw.data.len(),
-            });
-        }
-        let mut rgba = Vec::with_capacity(decoded);
-        for row in 0..height_px {
-            let start = row * stride;
-            let pixels = &raw.data[start..start + row_bytes];
-            if raw.has_alpha {
-                rgba.extend_from_slice(pixels);
-            } else {
-                for px in pixels.as_chunks::<3>().0 {
-                    rgba.extend_from_slice(px);
-                    rgba.push(u8::MAX);
-                }
+    let mut rgba = Vec::with_capacity(decoded);
+    for row in 0..height_px {
+        let start = row * stride;
+        let pixels = &raw.data[start..start + row_bytes];
+        if raw.has_alpha {
+            rgba.extend_from_slice(pixels);
+        } else {
+            for px in pixels.as_chunks::<3>().0 {
+                rgba.extend_from_slice(px);
+                rgba.push(u8::MAX);
             }
         }
-        Ok(Self {
-            width,
-            height,
-            rgba,
-        })
     }
-}
-
-impl std::fmt::Debug for Image {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Image")
-            .field("width", &self.width)
-            .field("height", &self.height)
-            .finish_non_exhaustive()
-    }
+    // Exactly `decoded` bytes were written above, so this always holds.
+    Image::new(width, height, rgba).ok_or(ImageError::TooLarge { width, height })
 }
 
 /// An image as the sender sent it, in the `(iiibiiay)` layout
@@ -181,29 +140,6 @@ pub(crate) fn file_reference(reference: &str) -> Option<PathBuf> {
         return file_uri_path(path);
     }
     local_path(reference.as_bytes().to_vec())
-}
-
-/// A freedesktop.org icon theme name: non-empty, with no `/` or control
-/// characters.
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct IconName(String);
-
-impl IconName {
-    pub(crate) fn parse(name: &str) -> Option<Self> {
-        let valid = !name.is_empty()
-            && name != "."
-            && name != ".."
-            && !name.contains('/')
-            && text::clean(name, name.len(), text::Lines::Join) == name
-            && !name.chars().any(char::is_whitespace);
-        valid.then(|| Self(name.to_owned()))
-    }
-
-    /// The name.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
 }
 
 /// The path of a `file://` URI after its authority: absolute, with

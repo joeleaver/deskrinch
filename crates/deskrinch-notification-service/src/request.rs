@@ -7,10 +7,10 @@ use std::time::{Duration, Instant};
 use crate::capabilities::Capabilities;
 use crate::image::{self, Image, ImageSource, RawImage};
 use crate::limits::Limits;
-use crate::markup;
 use crate::notification::{Action, Expiry, Notification, NotificationId, Sound, Urgency};
 use crate::policy::Ownership;
-use crate::text::{self, Lines};
+use deskrinch_untrusted::markup;
+use deskrinch_untrusted::text::{self, Lines};
 
 /// The arguments of a `Notify` call, unvalidated, borrowed from the message.
 #[derive(Debug, Clone, Default, PartialEq)]
@@ -182,7 +182,7 @@ impl Request<'_> {
 /// Decodes `raw` if it is valid and fits `budget`, taking its size from the
 /// budget.
 fn decode(raw: &RawImage<'_>, limits: &Limits, budget: &mut usize) -> Option<Image> {
-    let image = Image::decode(raw, limits.max_image_side, limits.max_image_bytes).ok()?;
+    let image = image::decode_image(raw, limits.max_image_side, limits.max_image_bytes).ok()?;
     *budget = budget.checked_sub(image.rgba().len())?;
     Some(image)
 }
