@@ -38,6 +38,8 @@ zbus = { workspace = true, features = ["default-rt", "service"] }
 
 [dev-dependencies]
 deskrinch-test-dbus.workspace = true
+# The process tests end the launcher a client started, by its pid.
+rustix = { workspace = true, features = ["process"] }
 
 [lints]
 workspace = true
