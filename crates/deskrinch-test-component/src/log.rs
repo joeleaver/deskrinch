@@ -18,16 +18,41 @@ pub const ADAPTER_DIRECTIVE: &str = "wgpu_core::instance=debug";
 /// software renderer (an `info` line).
 pub const RENDERER_DIRECTIVE: &str = "rinch=info";
 
-/// The `RUST_LOG` for a watched program: the caller's, if any, with the
-/// renderer and adapter directives added, so that what presented is always
-/// said; otherwise warnings and the two directives.
+/// The `RUST_LOG` for a watched program, so that what presented is said:
+/// the caller's filter, if any, otherwise warnings, with the renderer and
+/// adapter directives added.
+///
+/// A directive is added only where the caller's filter has none for its
+/// target (`rinch`, `wgpu_core::instance`): the caller's stands, and
+/// there is never a second one for the same target. A caller's directive
+/// that hides the line needed (`rinch=warn`) is the caller's choice: the
+/// renderer is then not said, and `measure --expect-renderer` fails,
+/// saying so.
 #[must_use]
 pub fn rust_log(callers: Option<&str>) -> String {
-    let said = format!("{RENDERER_DIRECTIVE},{ADAPTER_DIRECTIVE}");
-    match callers {
-        Some(filter) if !filter.trim().is_empty() => format!("{filter},{said}"),
-        _ => format!("warn,{said}"),
+    let filter = callers
+        .map(str::trim)
+        .filter(|filter| !filter.is_empty())
+        .unwrap_or("warn");
+    let targets: Vec<&str> = filter.split(',').map(target).collect();
+    let mut directives = vec![filter.to_owned()];
+    for added in [RENDERER_DIRECTIVE, ADAPTER_DIRECTIVE] {
+        if !targets.contains(&target(added)) {
+            directives.push(added.to_owned());
+        }
     }
+    directives.join(",")
+}
+
+/// The target a `RUST_LOG` directive is for: what comes before its level
+/// (`rinch` in `rinch=debug`) or its span filter; a bare level (`info`)
+/// is for no target, and matches none of the added directives'.
+fn target(directive: &str) -> &str {
+    directive
+        .split(['=', '['])
+        .next()
+        .unwrap_or_default()
+        .trim()
 }
 
 /// The frame number of a `RINCH_PERF` line.
@@ -203,6 +228,20 @@ mod tests {
         assert_eq!(
             rust_log(Some("info,naga=debug")),
             format!("info,naga=debug,{said}")
+        );
+        // The caller's directive for a target stands, alone.
+        assert_eq!(
+            rust_log(Some("info,rinch=debug")),
+            "info,rinch=debug,wgpu_core::instance=debug"
+        );
+        assert_eq!(
+            rust_log(Some("wgpu_core::instance=trace")),
+            "wgpu_core::instance=trace,rinch=info"
+        );
+        // Even when it hides the renderer's line: then it is not said.
+        assert_eq!(
+            rust_log(Some("rinch=warn")),
+            "rinch=warn,wgpu_core::instance=debug"
         );
     }
 
