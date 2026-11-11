@@ -46,10 +46,9 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-#[path = "general_terminal.rs"]
-mod general_terminal;
+mod terminal;
 
-pub use general_terminal::{EmptyTerminal, NoTerminal, TerminalCommand, terminal};
+pub use terminal::{EmptyTerminal, NoTerminal, TerminalCommand, terminal};
 
 /// The `[general]` table.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
