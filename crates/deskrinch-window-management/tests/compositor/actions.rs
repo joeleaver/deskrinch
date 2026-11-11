@@ -2,8 +2,8 @@
 
 use deskrinch_window_management::{Action, ActionError, Window, WindowManagement, WindowState};
 
-use crate::support::test_window::TestClient;
-use crate::support::{Compositor, Watcher, find, unique_app_id};
+use crate::support::{Behaviour, Compositor, Watcher, find, unique_app_id};
+use deskrinch_test_client::TestClient;
 
 fn has(state: WindowState) -> impl Fn(&Window) -> bool {
     move |window| window.state.contains(state)
@@ -15,9 +15,9 @@ fn activates_the_window_asked_for() {
     Compositor::current();
     let [one_id, two_id] = [unique_app_id("activate-one"), unique_app_id("activate-two")];
     let watcher = Watcher::connect();
-    let client = TestClient::connect();
-    let _one = client.open("One", &one_id);
-    let _two = client.open("Two", &two_id);
+    let client = TestClient::connect().unwrap();
+    let _one = client.open("One", &one_id).unwrap();
+    let _two = client.open("Two", &two_id).unwrap();
     let one = watcher.wait_window("window one", &one_id, |_| true).id;
     let two = watcher.wait_window("window two", &two_id, |_| true).id;
 
@@ -41,9 +41,9 @@ fn minimizes_and_restores_the_window_asked_for() {
     let compositor = Compositor::current();
     let [one_id, two_id] = [unique_app_id("minimize-one"), unique_app_id("minimize-two")];
     let watcher = Watcher::connect();
-    let client = TestClient::connect();
-    let _one = client.open("One", &one_id);
-    let _two = client.open("Two", &two_id);
+    let client = TestClient::connect().unwrap();
+    let _one = client.open("One", &one_id).unwrap();
+    let _two = client.open("Two", &two_id).unwrap();
     let one = watcher.wait_window("window one", &one_id, |_| true).id;
     watcher.wait_window("window two", &two_id, |_| true);
 
@@ -72,9 +72,9 @@ fn closes_the_window_asked_for() {
     Compositor::current();
     let [keep_id, close_id] = [unique_app_id("close-keep"), unique_app_id("close-close")];
     let watcher = Watcher::connect();
-    let client = TestClient::connect();
-    let keep = client.open("Keep", &keep_id);
-    let close = client.open("Close", &close_id);
+    let client = TestClient::connect().unwrap();
+    let keep = client.open("Keep", &keep_id).unwrap();
+    let close = client.open("Close", &close_id).unwrap();
     watcher.wait_window("the window to keep", &keep_id, |_| true);
     let doomed = watcher
         .wait_window("the window to close", &close_id, |_| true)

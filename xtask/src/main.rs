@@ -62,6 +62,16 @@ enum Task {
         /// How many outputs the compositor has, side by side, 1280x720 each.
         #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=8))]
         outputs: u32,
+        /// The outputs' scale from the start, a positive decimal such as 2 or
+        /// 1.5: physical pixels per logical one, each output's mode still
+        /// 1280x720. sway gets it in its configuration (`output * scale`);
+        /// labwc, which has no such setting, through wlr-output-management,
+        /// and KWin through `kscreen-doctor` (needed then), both before the
+        /// command starts. The session fails (70) if an output then reports
+        /// another scale (its whole scale, or a logical size that is not its
+        /// mode over the scale).
+        #[arg(long, default_value = "1", value_name = "SCALE")]
+        scale: session::Scale,
         /// Keep the session's directory afterwards (its compositor log, and
         /// whatever the command wrote to `$DESKRINCH_SESSION_DIR`).
         #[arg(long)]
@@ -180,6 +190,7 @@ impl Task {
             }),
             Self::Session {
                 outputs,
+                scale,
                 keep,
                 current_desktop,
                 compositor,
@@ -188,6 +199,7 @@ impl Task {
             } => run_in_session::run(&run_in_session::Request {
                 compositor,
                 outputs,
+                scale,
                 keep,
                 current_desktop,
                 program,

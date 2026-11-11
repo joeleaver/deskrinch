@@ -9,9 +9,14 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-bus.workspace = true
+futures-core.workspace = true
 rustix = { workspace = true, features = ["process"] }
 tempfile.workspace = true
 thiserror.workspace = true
+# Waiting for a name: the client side of D-Bus on zbus's own runtime, driven
+# by `zbus::block_on`, so this crate's API needs no async runtime.
+zbus = { workspace = true, features = ["default-rt"] }
 
 [lints]
 workspace = true

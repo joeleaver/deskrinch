@@ -31,10 +31,14 @@ deskrinch-config = { path = "crates/deskrinch-config" }
 deskrinch-desktop-entries = { path = "crates/deskrinch-desktop-entries" }
 deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
+deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-status-notifier = { path = "crates/deskrinch-status-notifier" }
+deskrinch-test-client = { path = "crates/deskrinch-test-client" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
+deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
+deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }
 deskrinch-theme = { path = "crates/deskrinch-theme" }
 deskrinch-timer = { path = "crates/deskrinch-timer" }
 deskrinch-untrusted = { path = "crates/deskrinch-untrusted" }

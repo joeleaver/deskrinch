@@ -31,11 +31,11 @@ pub enum ConnectError {
     /// The compositor offers none of the protocols, and looks like KWin,
     /// which offers its window-management protocol only to clients it has
     /// granted it to. "Looks like KWin" is inferred: the compositor offers
-    /// other `org_kde_kwin_*` globals. See [`kwin_access`](crate::kwin_access)
-    /// for how a client is granted the protocol.
+    /// other `org_kde_kwin_*` globals. The `deskrinch-kwin-access` crate says
+    /// how a client is granted [`KWIN_INTERFACE`](crate::KWIN_INTERFACE).
     #[error(
         "the compositor looks like KWin and has not granted this client \
-         org_kde_plasma_window_management; see the crate's kwin_access docs"
+         org_kde_plasma_window_management; see the deskrinch-kwin-access crate"
     )]
     NotGranted,
     /// The compositor offers the protocol at a version older than this crate
