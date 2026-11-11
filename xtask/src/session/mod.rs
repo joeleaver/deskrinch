@@ -18,7 +18,7 @@
 //!   backend takes it to mean KWin's own CI and then looks only at
 //!   `/dev/dri/card1`; GitHub's runners set it), and KWin's own statement of
 //!   its compositing type checked, failing the session unless it is OpenGL:
-//!   with QPainter KWin starts, but its `ScreenShot2` captures nothing
+//!   with `QPainter` KWin starts, but its `ScreenShot2` captures nothing
 //!   ([`compositing`]).
 //! - Its outputs at the scale asked for before the first client connects
 //!   ([`Scaling`]): sway through its configuration, labwc set through
