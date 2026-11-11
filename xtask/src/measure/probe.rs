@@ -123,25 +123,7 @@ fn startup(
     );
     run.push("wall time to first frame", Unit::WallNs, nanos(wall));
     run.note("load average at the first frame", load_average());
-    let adapter = watch.adapter().map_or_else(
-        || "none logged (the software renderer, or no wgpu)".to_owned(),
-        |adapter| {
-            format!(
-                "{} (driver {} {}, {}, {}){}",
-                adapter.name,
-                adapter.driver,
-                adapter.driver_info,
-                adapter.device_type,
-                adapter.backend,
-                if adapter.is_software() {
-                    " -- a SOFTWARE Vulkan driver, not the GPU"
-                } else {
-                    ""
-                }
-            )
-        },
-    );
-    run.note("GPU adapter", adapter);
+    run.note("renderer", watch.renderer());
     Ok(())
 }
 
