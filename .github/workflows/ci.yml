@@ -111,7 +111,9 @@ jobs:
           # kscreen-doctor sets the outputs' scale of a KWin session.
           - compositor: kwin
             packages: kwin-wayland dbus-daemon libkscreen-bin
-            version: kwin_wayland --version && kscreen-doctor --version
+            # kscreen-doctor has no --version, and starts Qt even to fail:
+            # its package's version says what was installed.
+            version: kwin_wayland --version && dpkg-query -W -f='${Package} ${Version}\n' libkscreen-bin
           - compositor: sway
             packages: sway dbus-daemon
             version: sway --version
