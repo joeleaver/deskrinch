@@ -21,12 +21,21 @@ env:
   # whole workspace installs these.
   RINCH_BUILD_PACKAGES: libgtk-3-dev libxdo-dev
 
+# Every job has a time limit, so a hang ends it instead of holding a runner
+# for GitHub's six hours: each is many times the job's usual time with a
+# warm cache, leaving room for a cold build of the whole workspace and for
+# the package install, which bounds itself at ten minutes.
+#
+# Packages are installed after the toolchain and the cache, by
+# `cargo xtask ci-packages`, which needs none of them to build.
+#
 # Third-party actions are pinned to a full commit SHA, with the release it is
 # in the comment beside it. The commands are the ones README.md lists.
 jobs:
   fmt:
     name: Formatting
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -37,17 +46,18 @@ jobs:
   clippy:
     name: Clippy
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
-      - uses: ./.github/actions/apt-packages
-        with:
-          packages: ${{ env.RINCH_BUILD_PACKAGES }}
       - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: ${{ env.RINCH_BUILD_PACKAGES }}
       - run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
   test:
@@ -61,19 +71,20 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
+      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+        with:
+          save-if: ${{ github.ref == 'refs/heads/main' }}
       # The notification service's tests run on private D-Bus daemons and
       # check interoperability with libnotify's notify-send.
       - uses: ./.github/actions/apt-packages
         with:
           packages: dbus-daemon libnotify-bin ${{ env.RINCH_BUILD_PACKAGES }}
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
       - run: cargo test --workspace --locked
 
   deny:
     name: Licences and advisories
     runs-on: ubuntu-26.04
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,6 +99,7 @@ jobs:
   file-length:
     name: Source file length
     runs-on: ubuntu-26.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -104,6 +116,7 @@ jobs:
   compositor-tests:
     name: Compositor tests (${{ matrix.compositor }})
     runs-on: ubuntu-26.04
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -142,6 +155,7 @@ jobs:
   systemd-scope-tests:
     name: Systemd scope test
     runs-on: ubuntu-26.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

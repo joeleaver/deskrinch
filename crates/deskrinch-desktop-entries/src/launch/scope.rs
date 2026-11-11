@@ -18,11 +18,11 @@ use std::hash::{BuildHasher, Hasher};
 use std::pin::Pin;
 use std::time::Duration;
 
+use deskrinch_timer::{Elapsed, Timer};
 use futures_core::Stream;
 use zbus::message::Type as MessageType;
 use zbus::{Connection, MatchRule, MessageStream, OwnedObjectPath, Variant};
 
-use super::bus::with_timeout;
 use crate::error::BoxedError;
 
 /// systemd's bus name, object and manager interface.
@@ -121,9 +121,10 @@ pub(super) async fn start_scope(
             }
         }
     };
-    with_timeout(wait, JOB_TIMEOUT)
+    Timer::start()?
+        .timeout(JOB_TIMEOUT, wait)
         .await
-        .unwrap_or_else(|| Err(format!("systemd did not start {unit} in time").into()))
+        .unwrap_or_else(|Elapsed| Err(format!("systemd did not start {unit} in time").into()))
 }
 
 #[cfg(test)]

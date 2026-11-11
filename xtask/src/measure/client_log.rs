@@ -64,6 +64,19 @@ pub(crate) fn adapter(line: &str) -> Option<Adapter> {
     })
 }
 
+/// Whether `line` is rinch saying that it presents with its software
+/// renderer: chosen, after the GPU renderer failed to start, or because
+/// `Renderer::Auto` declined a CPU adapter (a software Vulkan driver such
+/// as lavapipe, all a compositor rendering with pixman leaves it). wgpu
+/// still names the adapter it offered in those last two cases, which then
+/// draws nothing.
+pub(crate) fn presents_with_software(line: &str) -> bool {
+    let line = strip_ansi(line);
+    line.contains("rinch: ")
+        && (line.contains("presenting with the software renderer")
+            || line.contains("presents with rinch's software renderer"))
+}
+
 /// `field: "value"` in a `Debug` struct.
 fn quoted_field(info: &str, field: &str) -> Option<String> {
     let start = info.find(&format!(" {field}: \""))? + field.len() + 4;
@@ -131,6 +144,30 @@ mod tests {
             adapter("INFO rinch: presenting with the software renderer"),
             None
         );
+    }
+
+    #[test]
+    fn rinch_presenting_with_software_is_seen_however_it_came_to() {
+        // `Renderer::Auto` declining lavapipe, as under headless sway.
+        assert!(presents_with_software(
+            "\u{1b}[33m WARN\u{1b}[0m rinch::shell: rinch: the only GPU adapter that can \
+             present here, \"llvmpipe (LLVM 21.1.8, 256 bits)\" (driver \"llvmpipe\"), is a \
+             software driver that renders on the CPU, so Renderer::Auto presents with \
+             rinch's software renderer instead."
+        ));
+        assert!(presents_with_software(
+            "WARN rinch: the GPU renderer could not start (no adapter); presenting with \
+             the software renderer"
+        ));
+        assert!(presents_with_software(
+            "INFO rinch: presenting with the software renderer (chosen)"
+        ));
+        assert!(!presents_with_software(
+            "WARN rinch: the software renderer was requested, but this app configured the \
+             GPU device itself (gpu_config / external_gpu); presenting on the GPU"
+        ));
+        assert!(!presents_with_software(CHOSEN));
+        assert!(!presents_with_software("[PERF] frame 1: style 0.29ms"));
     }
 
     #[test]
