@@ -4,11 +4,12 @@
 //! [general]
 //! color-scheme = "system"   # "system", "dark" or "light"
 //! icon-theme = "system"     # "system", or an icon theme's name
+//! # terminal = ["foot", "--"]  # unset: xdg-terminal-exec
 //! ```
 //!
 //! Every key is optional; the values above are the defaults. A value of the
-//! wrong type, a colour scheme that is none of the three, or an empty icon
-//! theme name is a diagnostic with its file, line and column, and that
+//! wrong type, a colour scheme that is none of the three, an empty icon
+//! theme name, or a `terminal` with no program is a diagnostic with its file, line and column, and that
 //! file's `[general]` is not used.
 //!
 //! - `color-scheme`: whether the shell is dark or light. `"system"` follows
@@ -30,10 +31,25 @@
 //!   theme named here that is not installed is reported, and the shell goes
 //!   on as with `"system"`. (A theme whose directory is called `system`
 //!   cannot be named.) The resolution is `deskrinch_theme`'s.
+//! - `terminal`: the terminal emulator that applications which run in a
+//!   terminal (`Terminal=true` in their desktop entry) are started in, by
+//!   the launcher and anything else of the shell's that starts
+//!   applications: its program and arguments, as a list, to which the
+//!   application's command line is appended (`["foot", "--"]`,
+//!   `["konsole", "-e"]`, `["kitty"]`). Unset, it is `xdg-terminal-exec`,
+//!   the freedesktop way to run a command in the user's preferred terminal,
+//!   when that is installed. With neither, such an application does not
+//!   start, and the error says to set this ([`terminal`], [`NoTerminal`]).
+//!   There is no list of known terminals to guess from.
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+
+#[path = "general_terminal.rs"]
+mod general_terminal;
+
+pub use general_terminal::{EmptyTerminal, NoTerminal, TerminalCommand, terminal};
 
 /// The `[general]` table.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -43,6 +59,9 @@ pub struct GeneralSettings {
     pub color_scheme: ColorSchemeSetting,
     /// `icon-theme`: the icon theme the shell's icons come from.
     pub icon_theme: IconThemeSetting,
+    /// `terminal`: the command line terminal applications run in; `None`:
+    /// `xdg-terminal-exec`, when installed.
+    pub terminal: Option<TerminalCommand>,
 }
 
 /// `icon-theme`: the icon theme the shell's icons come from.
@@ -205,5 +224,38 @@ mod tests {
             IconThemeSetting::try_from(String::new()),
             Err(EmptyIconTheme)
         );
+    }
+
+    #[test]
+    fn reads_the_terminal() {
+        assert_eq!(resolve("").settings.terminal, None);
+        let resolved = resolve("[general]\nterminal = [\"foot\", \"--\"]\n");
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        let terminal = resolved.settings.terminal.unwrap();
+        assert_eq!(terminal.words(), ["foot", "--"]);
+    }
+
+    #[test]
+    fn rejects_a_terminal_with_no_program_with_its_location() {
+        for text in [
+            "terminal = []",
+            "terminal = [\"\", \"-e\"]",
+            "terminal = \"foot\"",
+        ] {
+            let resolved = resolve(&format!("[general]\ncolor-scheme = \"light\"\n{text}\n"));
+            assert_eq!(resolved.settings, GeneralSettings::default(), "{text}");
+            let [diagnostic] = resolved.diagnostics.as_slice() else {
+                panic!("{text}: {:?}", resolved.diagnostics);
+            };
+            assert!(
+                matches!(diagnostic.problem, Problem::Invalid { .. }),
+                "{text}"
+            );
+            assert_eq!(diagnostic.location.map(|l| l.line), Some(3), "{text}");
+        }
     }
 }
