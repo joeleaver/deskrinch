@@ -135,6 +135,27 @@ grants the test binary like the screenshot interface
 (`deskrinch-test-client`) records the keys pressed while it has the focus, by
 evdev code.
 
+### Pointing and clicking
+
+The same `Input` moves a pointer and presses its buttons. A point is named on
+an output, in that output's logical pixels from its top-left corner (the
+coordinates a fullscreen window on it has, at any scale or transform), with
+the output names `deskrinch-test-client` and `deskrinch-test-screen` use:
+
+```rust
+input.move_pointer("HEADLESS-2", 120.0, 80.0)?;
+window.wait_pointer_at(120.0, 80.0)?;
+input.click(Button::PRIMARY)?;
+```
+
+`press_button` and `release_button` hold and let go of a button apart, for a
+press on one thing and a release on another. Under sway and labwc it goes
+through wlroots' `zwlr_virtual_pointer_v1`, under KWin through the same fake
+input as the keys. A test window records what it hears of the pointer
+(entering, moving, buttons, leaving) in its own surface coordinates. The
+pointer jumps straight to each point; it cannot scroll, touch or move
+relatively.
+
 One desktop-entries test launches into a real transient scope of your
 systemd user instance, and is ignored by `cargo test`. It starts only its
 own recorder script, and stops the scope again:

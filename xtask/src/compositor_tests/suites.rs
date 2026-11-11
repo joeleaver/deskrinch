@@ -160,8 +160,9 @@ pub(super) const SUITES: [Suite; 9] = [
         renders: false,
         filter: &[],
     },
-    // The input device, typing into test windows: under KWin through its
-    // restricted fake input.
+    // The input devices, typing into test windows and pointing at them:
+    // under KWin through its restricted fake input. Every pass, since where
+    // the pointer lands depends on the outputs' scale and transform.
     Suite {
         target: Target {
             package: INPUT,
@@ -174,7 +175,7 @@ pub(super) const SUITES: [Suite; 9] = [
             dbus: &[],
         }),
         compositors: ALL,
-        passes: PLAIN,
+        passes: &Pass::ALL,
         renders: false,
         filter: &[],
     },

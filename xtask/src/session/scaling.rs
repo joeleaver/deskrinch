@@ -185,6 +185,7 @@ mod tests {
             scale,
             mode: Some((1280, 720)),
             logical_size: Some(logical),
+            logical_position: Some((0, 0)),
             transform: Transform::Normal,
         }
     }

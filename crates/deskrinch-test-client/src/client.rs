@@ -29,8 +29,10 @@ use wayland_protocols::xdg::shell::client::xdg_toplevel::XdgToplevel;
 use wayland_protocols::xdg::shell::client::xdg_wm_base::{self, XdgWmBase};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 
-use crate::keyboard::{Keyboard, Windows};
+use crate::keyboard::Keyboard;
 use crate::output_info::OutputInfo;
+use crate::pointer::Pointer;
+use crate::seat::Windows;
 use crate::window::{Shared, Status, TestWindow};
 use crate::{Error, PATIENCE, Paint, lock, waited};
 
@@ -46,6 +48,8 @@ pub(crate) struct Client {
     pub(crate) windows: Windows,
     /// The seat's keyboard, and which window has its focus.
     pub(crate) keyboard: Keyboard,
+    /// The seat's pointer, and which window it is over.
+    pub(crate) pointer: Pointer,
 }
 
 /// One Wayland client, which may have several windows.
@@ -115,7 +119,7 @@ impl TestClient {
         // Logical sizes, where the compositor offers them (all three do).
         let xdg_outputs: Option<ZxdgOutputManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
         let decorations: Option<ZxdgDecorationManagerV1> = globals.bind(&qh, 1..=1, ()).ok();
-        // The keyboard, where there is a seat: windows hear their keys.
+        // The seat, where there is one: windows hear its keyboard and pointer.
         let _seat: Option<WlSeat> = globals.bind(&qh, 1..=7, ()).ok();
         let announced = globals.all();
         for global in &announced {
@@ -135,6 +139,7 @@ impl TestClient {
             infos: Arc::clone(&infos),
             windows: Arc::clone(&windows),
             keyboard: Keyboard::default(),
+            pointer: Pointer::default(),
         };
         roundtrip(&connection, &mut queue, &mut client, deadline)
             .map_err(|error| waited(error, "learning the outputs"))?;

@@ -18,7 +18,7 @@ use wayland_protocols::xdg::shell::client::xdg_surface::{self, XdgSurface};
 use wayland_protocols::xdg::shell::client::xdg_toplevel::{self, XdgToplevel};
 
 use crate::client::Client;
-use crate::keyboard::Windows;
+use crate::seat::Windows;
 use crate::{Error, PATIENCE, Paint, lock};
 
 /// The size a window draws when the compositor leaves it the choice.
@@ -38,17 +38,19 @@ pub(crate) struct Status {
     close_requested: bool,
     /// Why a buffer could not be made, if one could not.
     failure: Option<ShmError>,
-    /// What it heard of the keyboard.
+    /// What it heard of the keyboard and the pointer.
     pub(crate) input: Heard,
 }
 
-/// What a window heard of the keyboard.
+/// What a window heard of the seat.
 #[derive(Debug, Default)]
 pub(crate) struct Heard {
     /// Whether it has the keyboard focus.
     pub(crate) keyboard: bool,
     /// The keys pressed while it had the focus, by evdev code, in order.
     pub(crate) keys: Vec<u32>,
+    /// The pointer's events while it was over the window, in order.
+    pub(crate) pointer: Vec<crate::PointerEvent>,
 }
 
 /// One window, shared by the test and the client's thread.
@@ -72,7 +74,7 @@ pub struct TestWindow {
     /// Its `xdg-decoration` object, where the compositor offers one.
     decoration: Option<ZxdgToplevelDecorationV1>,
     xdg_surface: XdgSurface,
-    shared: Arc<Shared>,
+    pub(crate) shared: Arc<Shared>,
 }
 
 impl TestWindow {
@@ -220,7 +222,11 @@ impl TestWindow {
         lock(&self.shared.status).input.keys.clone()
     }
 
-    fn wait_input(&self, what: &str, done: impl Fn(&Status) -> bool) -> Result<(), Error> {
+    pub(crate) fn wait_input(
+        &self,
+        what: &str,
+        done: impl Fn(&Status) -> bool,
+    ) -> Result<(), Error> {
         let deadline = Instant::now() + PATIENCE;
         let mut status = lock(&self.shared.status);
         loop {

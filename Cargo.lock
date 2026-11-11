@@ -1087,6 +1087,7 @@ dependencies = [
  "wayland-client",
  "wayland-protocols-misc",
  "wayland-protocols-plasma",
+ "wayland-protocols-wlr",
 ]
 
 [[package]]
