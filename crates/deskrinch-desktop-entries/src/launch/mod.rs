@@ -246,7 +246,7 @@ pub fn launch(
         icon: entry
             .icon
             .as_ref()
-            .map(|icon| icon.get(&context.locales).as_str()),
+            .map(|icon| icon.get(&context.locales).as_os_str()),
         desktop_file: Some(&entry.path),
     };
     let lines = exec::expand(command, &fields, targets)?;

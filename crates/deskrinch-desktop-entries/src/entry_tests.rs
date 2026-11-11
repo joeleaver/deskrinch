@@ -43,7 +43,10 @@ fn parses_an_application() {
         "Bearbeiter"
     );
     assert_eq!(entry.generic_name.unwrap().default, "Text Editor");
-    assert_eq!(entry.icon.unwrap().default, "accessories-text-editor");
+    assert_eq!(
+        entry.icon.unwrap().default,
+        Icon::Name("accessories-text-editor".into())
+    );
     assert!(entry.no_display && !entry.hidden);
     assert_eq!(entry.only_show_in, ["KDE", "GNOME"]);
     assert_eq!(entry.categories, ["Utility", "TextEditor"]);

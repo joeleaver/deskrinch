@@ -29,6 +29,24 @@ pub enum Deviation {
         /// The key.
         key: &'static str,
     },
+    /// `Icon` is a name with a `.png`, `.xpm` or `.svg` extension, which a
+    /// name should not have. It is read without it, as GLib reads it.
+    #[error("Icon {value:?} in [{group}] has an image extension; read without it")]
+    IconExtension {
+        /// The group.
+        group: String,
+        /// The value as written.
+        value: String,
+    },
+    /// `Icon` is a relative path. As in GLib, it is read as a name (without
+    /// an image extension), which no icon theme has.
+    #[error("Icon {value:?} in [{group}] is a relative path, read as a name")]
+    RelativeIconPath {
+        /// The group.
+        group: String,
+        /// The value as written.
+        value: String,
+    },
     /// `Actions` lists an action that has no `[Desktop Action …]` group. The
     /// action is ignored, as the specification says. (GLib lists it as
     /// `Unnamed`, an action with nothing to run; that is not copied.)
