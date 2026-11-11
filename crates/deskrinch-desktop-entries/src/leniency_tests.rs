@@ -7,7 +7,7 @@
 //! here too; a case GLib reads is read, with a `Deviation` recorded.
 
 use super::*;
-use crate::locale::Locale;
+use deskrinch_keyfile::{Deviation as KeyFileDeviation, Locale, SyntaxError};
 
 fn parse(text: impl AsRef<[u8]>) -> Result<DesktopEntry, ParseError> {
     let id = DesktopId::new("a.desktop").unwrap();
@@ -40,13 +40,13 @@ fn a_repeated_group_is_merged_with_later_values_winning() {
     assert_eq!(
         entry.deviations,
         [
-            Deviation::DuplicateGroup {
+            Deviation::KeyFile(KeyFileDeviation::DuplicateGroup {
                 group: MAIN_GROUP.into()
-            },
-            Deviation::DuplicateKey {
+            }),
+            Deviation::KeyFile(KeyFileDeviation::DuplicateKey {
                 group: MAIN_GROUP.into(),
                 key: "Name".into()
-            },
+            }),
         ]
     );
 }
@@ -81,12 +81,12 @@ fn booleans_read_as_glib_reads_them() {
         let expected = if standard {
             vec![]
         } else {
-            vec![Deviation::InvalidBoolean {
+            vec![Deviation::KeyFile(KeyFileDeviation::InvalidBoolean {
                 group: MAIN_GROUP.into(),
                 key: "NoDisplay".into(),
                 value: value.trim_start().into(),
                 read_as,
-            }]
+            })]
         };
         assert_eq!(entry.deviations, expected, "{value:?}");
     }
@@ -101,10 +101,10 @@ fn nonstandard_key_names_are_kept() {
         let entry = app(&format!("{key}=1\n"));
         assert_eq!(
             entry.deviations,
-            [Deviation::NonstandardKey {
+            [Deviation::KeyFile(KeyFileDeviation::NonstandardKey {
                 group: MAIN_GROUP.into(),
                 key: key.into()
-            }]
+            })]
         );
     }
 }
@@ -130,10 +130,12 @@ fn a_missing_name_reads_as_unnamed_keeping_translations() {
     assert_eq!(entry.name.get(&[Locale::parse("de").unwrap()]), "D");
     assert_eq!(
         entry.deviations,
-        [Deviation::TranslationWithoutDefault {
-            group: MAIN_GROUP.into(),
-            key: "Name".into()
-        }]
+        [Deviation::KeyFile(
+            KeyFileDeviation::TranslationWithoutDefault {
+                group: MAIN_GROUP.into(),
+                key: "Name".into()
+            }
+        )]
     );
 }
 
@@ -192,7 +194,10 @@ fn values_that_are_not_utf8_are_dropped() {
     assert_eq!(entry.name.default, "Unnamed");
     assert_eq!(
         entry.deviations,
-        [Deviation::NotUtf8 { line: 3 }, main("Name")]
+        [
+            Deviation::KeyFile(KeyFileDeviation::NotUtf8 { line: 3 }),
+            main("Name")
+        ]
     );
     let entry = parse(b"[Desktop Entry]\nType=Application\nName=A\nComment=\xff\nExec=true\n");
     assert_eq!(entry.unwrap().comment, None);
@@ -202,15 +207,15 @@ fn values_that_are_not_utf8_are_dropped() {
 fn undefined_escapes_are_kept_literally() {
     // GLib refuses to read `Name=A\$x` (and a value ending in `\`) and
     // drops an entry whose `Exec` it cannot read. Here the backslash is kept
-    // (see `keyfile::unescape`), so `Exec=sh -c "echo \$HOME"` still runs.
+    // (see `deskrinch_keyfile::unescape`), so `Exec=sh -c "echo \$HOME"` still runs.
     let entry = app("Comment=A\\$x\n");
     assert_eq!(entry.comment.unwrap().default, "A\\$x");
     assert_eq!(
         entry.deviations,
-        [Deviation::InvalidEscape {
+        [Deviation::KeyFile(KeyFileDeviation::InvalidEscape {
             group: MAIN_GROUP.into(),
             key: "Comment".into()
-        }]
+        })]
     );
 }
 
@@ -231,7 +236,7 @@ fn what_glib_refuses_is_refused() {
         // "Key file does not start with a group".
         (
             "Foo=bar\n[Desktop Entry]\nType=Application\nName=A\nExec=true\n",
-            ParseError::KeyOutsideGroup { line: 1 },
+            ParseError::Syntax(SyntaxError::KeyOutsideGroup { line: 1 }),
         ),
         // `GDesktopAppInfo` requires `Desktop Entry` as the start group.
         (
@@ -241,12 +246,12 @@ fn what_glib_refuses_is_refused() {
         // "…which is not a key-value pair, group, or comment".
         (
             "[Desktop Entry]\nType=Application\nName=A\nExec=true\njunk line\n",
-            ParseError::InvalidLine { line: 5 },
+            ParseError::Syntax(SyntaxError::InvalidLine { line: 5 }),
         ),
         // "Invalid key name: Name[d e]".
         (
             "[Desktop Entry]\nType=Application\nName[d e]=A\nExec=true\n",
-            ParseError::InvalidLine { line: 3 },
+            ParseError::Syntax(SyntaxError::InvalidLine { line: 3 }),
         ),
         // No `Type`, or an unknown one, and `GDesktopAppInfo` returns NULL.
         (

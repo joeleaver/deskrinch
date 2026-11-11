@@ -1,15 +1,16 @@
 //! Debounced watching of files and directory trees, which may not exist
 //! yet, on a thread of its own.
 //!
-//! A caller names its [`Target`]s: files (a configuration file) and
-//! directory trees (an `applications` directory). The crate decides what
-//! to watch so that every way such a path changes is seen:
+//! A caller names its [`Target`]s: files (a configuration file), directory
+//! trees (an `applications` directory) and directories whose own entries
+//! matter (the icons directly in `/usr/share/pixmaps`). The crate decides
+//! what to watch so that every way such a path changes is seen:
 //!
 //! - A file is watched through the directory holding it, not the file
 //!   itself, so an editor that saves by writing a new file and renaming it
 //!   over the old one is seen, as are creation and removal.
 //! - A tree is watched recursively once it exists, and through the
-//!   directory holding it.
+//!   directory holding it; a directory the same way, but not recursively.
 //! - A path whose directory does not exist yet is watched through its
 //!   nearest existing ancestor, so the directories' creation is seen.
 //! - A path that is a symbolic link is watched both where it is written
@@ -57,7 +58,7 @@ mod plan;
 mod worker;
 
 pub use error::{BoxedError, WatchError};
-pub use worker::{Armed, Watcher};
+pub use worker::{Armed, Handle, Watcher};
 
 /// A path to watch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,6 +67,8 @@ pub enum Target {
     File(PathBuf),
     /// A directory and everything under it.
     Tree(PathBuf),
+    /// A directory's own entries, not what is in its subdirectories.
+    Directory(PathBuf),
 }
 
 impl Target {
@@ -73,7 +76,7 @@ impl Target {
     #[must_use]
     pub fn path(&self) -> &Path {
         match self {
-            Self::File(path) | Self::Tree(path) => path,
+            Self::File(path) | Self::Tree(path) | Self::Directory(path) => path,
         }
     }
 }
