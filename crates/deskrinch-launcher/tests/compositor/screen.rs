@@ -14,6 +14,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::{Duration, Instant};
 
 use deskrinch_test_input::{Input, Key};
 use deskrinch_test_screen::{Image, Rgba, Screen};
@@ -46,7 +47,6 @@ impl Shown {
         in_nested_session();
         let input = Input::connect().unwrap();
         let screen = Screen::connect().unwrap();
-        let output = screen.outputs()[0].clone();
         let dirs = tempfile::tempdir().unwrap();
         let recorder = dirs.path().join("record.sh");
         fs::write(&recorder, RECORDER).unwrap();
@@ -75,11 +75,32 @@ impl Shown {
             dirs,
             input,
             screen,
-            output,
+            output: String::new(),
             launcher,
         };
-        shown.see("the launcher drawn", |image| at_centre(image).is_some());
+        shown.output = shown.find_output();
         shown
+    }
+
+    /// The output the launcher is drawn on, once it is: the compositor
+    /// chooses, and the session has more than one.
+    fn find_output(&mut self) -> String {
+        let outputs = self.screen.outputs();
+        let deadline = Instant::now() + PATIENCE;
+        loop {
+            for output in &outputs {
+                let image = self.screen.capture(output).unwrap();
+                if at_centre(&image).is_some() {
+                    return output.clone();
+                }
+            }
+            assert!(
+                Instant::now() < deadline,
+                "the launcher was not drawn on any of {outputs:?}\nthe launcher logged:\n{}",
+                self.launcher.stderr.log()
+            );
+            std::thread::sleep(Duration::from_millis(100));
+        }
     }
 
     /// Captures until `accept` takes an image; panics, with what the
@@ -245,6 +266,8 @@ fn shown_again_it_starts_empty_with_the_keyboard_in_the_field() {
     shown.input.press(Key::ESCAPE).unwrap();
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
     assert!(client(&["show"]).success());
+    // The compositor places it anew.
+    shown.output = shown.find_output();
     let empty = shown.see("the launcher shown again", |image| bands(image) > 0);
     assert_eq!(bands(&empty), 1, "the last query's results are gone");
     shown.input.type_text("plain").unwrap();
