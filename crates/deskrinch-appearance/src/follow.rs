@@ -13,8 +13,8 @@ use zbus::message::Message;
 use zbus::{Connection, MessageStream};
 
 use crate::error::AppearanceError;
-use crate::portal::{self, COLOR_SCHEME, NAMESPACE};
-use crate::scheme::ColorScheme;
+use crate::portal;
+use crate::preferences::{Key, Preferences};
 
 /// Which bus the portal is looked for on.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -28,9 +28,10 @@ pub enum Bus {
 /// What [`Appearance`] tells its subscriber.
 #[derive(Debug)]
 pub enum Event {
-    /// What the portal says the colour scheme is: when following starts,
-    /// when the user changes it, and when a portal appears on the bus.
-    ColorScheme(ColorScheme),
+    /// What the portal says, all of it: when following starts, when a
+    /// portal appears on the bus, and when the user changes one of the
+    /// settings (a signal that changes nothing is not passed on).
+    Preferences(Preferences),
     /// There is no settings portal on the bus: when following starts, or
     /// when the portal went away.
     NoPortal,
@@ -51,7 +52,7 @@ pub struct Appearance {
 impl Appearance {
     /// Connects to `bus` and starts following the portal on a thread of its
     /// own. `subscriber` is called on that thread, one event at a time:
-    /// first with the colour scheme (or [`Event::NoPortal`]), then at every
+    /// first with the preferences (or [`Event::NoPortal`]), then at every
     /// change.
     ///
     /// # Errors
@@ -79,9 +80,12 @@ impl Appearance {
             let owners = portal::owner_changes(&connection)
                 .await
                 .map_err(AppearanceError::Call)?;
-            let settings = portal::setting_changes(&connection)
-                .await
-                .map_err(AppearanceError::Call)?;
+            let mut settings = Vec::new();
+            for key in Key::ALL {
+                // The keys read are in namespaces of their own.
+                let changes = portal::setting_changes(&connection, key.namespace());
+                settings.push(changes.await.map_err(AppearanceError::Call)?);
+            }
             Ok::<_, AppearanceError>((connection, owners, settings))
         })?;
         let stop = Arc::new(Stop::default());
@@ -129,7 +133,8 @@ struct Stop {
 
 struct Streams {
     owners: MessageStream,
-    settings: MessageStream,
+    /// One for each namespace read.
+    settings: Vec<MessageStream>,
 }
 
 /// What woke the thread.
@@ -155,7 +160,7 @@ async fn follow(
             None
         }
     };
-    tell(connection, owner.as_deref(), subscriber).await;
+    let mut said = tell(connection, owner.as_deref(), subscriber).await;
     loop {
         match next(&mut streams, stop).await {
             Wake::Stop => return,
@@ -172,32 +177,44 @@ async fn follow(
                 // The portal this thread started is already told.
                 if new != owner {
                     owner = new;
-                    tell(connection, owner.as_deref(), subscriber).await;
+                    said = tell(connection, owner.as_deref(), subscriber).await;
                 }
             }
             Wake::Setting(message) => {
-                let header = message.header();
-                let from_owner = header
-                    .sender()
-                    .is_some_and(|sender| Some(sender.as_str()) == owner.as_deref());
-                if !from_owner {
-                    continue;
-                }
-                let Ok((namespace, key, value)) = message
-                    .body()
-                    .deserialize::<(String, String, OwnedVariant)>()
-                else {
-                    continue;
-                };
-                if namespace != NAMESPACE || key != COLOR_SCHEME {
-                    continue;
-                }
-                subscriber(match ColorScheme::from_owned(&value) {
-                    Ok(scheme) => Event::ColorScheme(scheme),
-                    Err(error) => Event::Error(error),
-                });
+                changed(&message, owner.as_deref(), &mut said, subscriber);
             }
         }
+    }
+}
+
+/// Passes on a `SettingChanged` `message` from the portal owned by `owner`
+/// when it changes one of the settings read, keeping `said` up to date.
+fn changed(
+    message: &Message,
+    owner: Option<&str>,
+    said: &mut Preferences,
+    subscriber: &Subscriber,
+) {
+    let header = message.header();
+    let from_owner = header
+        .sender()
+        .is_some_and(|sender| Some(sender.as_str()) == owner);
+    if !from_owner {
+        return;
+    }
+    let Ok((namespace, key, value)) = message
+        .body()
+        .deserialize::<(String, String, OwnedVariant)>()
+    else {
+        return;
+    };
+    let Some(key) = Key::find(&namespace, &key) else {
+        return;
+    };
+    match said.set(key, Some(&value)) {
+        Ok(true) => subscriber(Event::Preferences(said.clone())),
+        Ok(false) => {}
+        Err(error) => subscriber(Event::Error(error)),
     }
 }
 
@@ -209,17 +226,24 @@ async fn started(connection: &Connection) -> Option<String> {
     portal::owner(connection).await.ok().flatten()
 }
 
-/// Tells the subscriber what the portal owned by `owner` says, or that
-/// there is none.
-async fn tell(connection: &Connection, owner: Option<&str>, subscriber: &Subscriber) {
+/// Tells the subscriber what the portal owned by `owner` says (after what
+/// could not be read of it), or that there is none; returns what it said,
+/// the defaults for no portal.
+async fn tell(
+    connection: &Connection,
+    owner: Option<&str>,
+    subscriber: &Subscriber,
+) -> Preferences {
     let Some(owner) = owner else {
         subscriber(Event::NoPortal);
-        return;
+        return Preferences::default();
     };
-    subscriber(match portal::color_scheme(connection, owner).await {
-        Ok(scheme) => Event::ColorScheme(scheme),
-        Err(error) => Event::Error(error),
-    });
+    let (preferences, errors) = portal::preferences(connection, owner).await;
+    for error in errors {
+        subscriber(Event::Error(error));
+    }
+    subscriber(Event::Preferences(preferences.clone()));
+    preferences
 }
 
 async fn next(streams: &mut Streams, stop: &Stop) -> Wake {
@@ -231,8 +255,12 @@ async fn next(streams: &mut Streams, stop: &Stop) -> Wake {
         if let Poll::Ready(message) = poll_message(&mut streams.owners, cx) {
             return Poll::Ready(message.map_or(Wake::Closed, Wake::Owner));
         }
-        poll_message(&mut streams.settings, cx)
-            .map(|message| message.map_or(Wake::Closed, Wake::Setting))
+        for settings in &mut streams.settings {
+            if let Poll::Ready(message) = poll_message(settings, cx) {
+                return Poll::Ready(message.map_or(Wake::Closed, Wake::Setting));
+            }
+        }
+        Poll::Pending
     })
     .await
 }

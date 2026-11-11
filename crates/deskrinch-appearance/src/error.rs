@@ -15,10 +15,14 @@ pub enum AppearanceError {
     /// A call to the bus or the portal failed.
     #[error("the settings portal could not be asked")]
     Call(#[source] zbus::Error),
-    /// The portal's colour scheme is not a number.
-    #[error("the settings portal's color-scheme is a {found}, not a u32")]
+    /// A setting's value is of a type the setting cannot have.
+    #[error("the settings portal's {setting} is a {found}, not a {expected}")]
     UnexpectedValue {
-        /// The D-Bus signature of what it sent.
+        /// The setting: its namespace and key.
+        setting: &'static str,
+        /// The type it should have.
+        expected: &'static str,
+        /// The D-Bus signature of what the portal sent.
         found: String,
     },
 }

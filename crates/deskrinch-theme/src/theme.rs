@@ -57,7 +57,7 @@ impl Theme {
         let deliver = Arc::clone(&portal);
         let appearance = Appearance::start(bus, move |event| {
             let answer = match event {
-                Event::ColorScheme(scheme) => Some(scheme),
+                Event::Preferences(preferences) => Some(preferences.color_scheme),
                 Event::NoPortal => None,
                 Event::Error(error) => {
                     report::error("following the desktop's colour scheme", &error);
@@ -137,7 +137,7 @@ impl fmt::Debug for Theme {
 mod tests {
     use super::*;
     use deskrinch_test_dbus::PrivateBus;
-    use deskrinch_test_portal::{Methods, StandIn, number};
+    use deskrinch_test_portal::{COLOR_SCHEME, Methods, StandIn, Value};
     use deskrinch_xdg::BaseDirs;
     use std::ffi::OsString;
 
@@ -174,7 +174,8 @@ mod tests {
 
     /// The stand-in portal on `bus`, answering `value` at once.
     fn portal(bus: &PrivateBus, value: u32) -> StandIn {
-        StandIn::start(bus.address(), Some(number(value)), Methods::Current).unwrap()
+        let settings = [(COLOR_SCHEME, Value::Number(value))];
+        StandIn::start(bus.address(), settings, Methods::Current).unwrap()
     }
 
     #[test]

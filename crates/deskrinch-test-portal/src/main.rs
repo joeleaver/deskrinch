@@ -1,11 +1,13 @@
 //! `deskrinch-test-portal`: the stand-in settings portal as a program, for
 //! checking a component by hand in an isolated session
 //! (`cargo xtask session`), never the real one. See
-//! [`deskrinch_test_portal::serve_from_env`] for the variables it reads:
+//! [`deskrinch_test_portal::serve_from_env`] for the variables it reads and
+//! [`deskrinch_test_portal::parse`] for the settings file:
 //!
 //! ```sh
-//! echo 2 > scheme; STAND_IN_FILE=scheme deskrinch-test-portal &
-//! echo 1 > scheme   # the portal now says dark
+//! echo 'org.freedesktop.appearance color-scheme 2' > settings
+//! STAND_IN_FILE=settings deskrinch-test-portal &
+//! echo 'org.freedesktop.appearance color-scheme 1' > settings   # now dark
 //! ```
 
 use std::process::ExitCode;

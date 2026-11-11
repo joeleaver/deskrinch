@@ -4,29 +4,31 @@
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
-use deskrinch_appearance::{Appearance, Bus, Event};
+use deskrinch_appearance::{Appearance, Bus, Event, Preferences};
 use deskrinch_test_dbus::PrivateBus;
-use deskrinch_test_portal::{ActivatingBus, Methods, StandIn};
-use zbus::OwnedVariant;
-
-pub(crate) use deskrinch_test_portal::{INTERFACE, KEY, NAMESPACE, PATH, number};
+use deskrinch_test_portal::{ActivatingBus, Methods, Setting, StandIn, Value};
 
 /// A private bus for one test.
 pub(crate) fn bus() -> PrivateBus {
     PrivateBus::start().expect("the appearance tests need dbus-daemon")
 }
 
-/// A stand-in portal on `bus` answering `value` (`None`: no key).
-pub(crate) fn portal(bus: &PrivateBus, value: Option<OwnedVariant>, methods: Methods) -> StandIn {
-    StandIn::start(bus.address(), value, methods).unwrap()
+/// A stand-in portal on `bus` answering `settings`, and `NotFound` for the
+/// rest.
+pub(crate) fn portal(
+    bus: &PrivateBus,
+    settings: &[(Setting<'static>, Value)],
+    methods: Methods,
+) -> StandIn {
+    StandIn::start(bus.address(), settings.iter().cloned(), methods).unwrap()
 }
 
-/// A bus that starts the stand-in when asked, answering `scheme`: it runs
+/// A bus that starts the stand-in when asked, answering `settings`: it runs
 /// this test binary's ignored `activation::stand_in`.
-pub(crate) fn activating_bus(scheme: u32) -> ActivatingBus {
+pub(crate) fn activating_bus(settings: &[(Setting<'static>, Value)]) -> ActivatingBus {
     let exe = std::env::current_exe().unwrap();
     ActivatingBus::start(
-        scheme,
+        settings,
         &exe,
         &["--exact", "activation::stand_in", "--ignored", "--quiet"],
     )
@@ -48,6 +50,14 @@ pub(crate) fn next(events: &Receiver<Event>) -> Event {
     events
         .recv_timeout(Duration::from_secs(5))
         .expect("an event within 5 s")
+}
+
+/// The next event, which must be the preferences.
+pub(crate) fn preferences(events: &Receiver<Event>) -> Preferences {
+    match next(events) {
+        Event::Preferences(preferences) => preferences,
+        other => panic!("expected the preferences, got {other:?}"),
+    }
 }
 
 /// That nothing more arrives for a moment.
