@@ -1060,6 +1060,9 @@ dependencies = [
 [[package]]
 name = "deskrinch-test-component"
 version = "0.1.0"
+dependencies = [
+ "deskrinch-test-client",
+]
 
 [[package]]
 name = "deskrinch-test-dbus"

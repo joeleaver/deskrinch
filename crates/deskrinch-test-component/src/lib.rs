@@ -14,10 +14,13 @@
 //!   them through it too, so a change of wording in rinch is caught in one
 //!   place.
 //!
-//! Like the other test-support crates, it is for nested sessions only
-//! (`cargo xtask compositor-tests`, `cargo xtask session`): the component
-//! it starts connects to whatever `WAYLAND_DISPLAY` and the session bus
-//! name.
+//! Like the other test-support crates, it is for nested sessions only: the
+//! component it starts connects to whatever `WAYLAND_DISPLAY` and the
+//! session bus name. Its entry point, [`Component::start`], refuses (it
+//! panics, before it spawns anything) unless it runs in a nested session
+//! that `cargo xtask compositor-tests` started, as
+//! `deskrinch_test_client::Compositor::current` tells; so a test that
+//! forgets its own guard still puts nothing on the real desktop.
 
 mod component;
 pub mod log;

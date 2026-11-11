@@ -5,6 +5,8 @@ use std::io;
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
+use deskrinch_test_client::Compositor;
+
 use crate::log;
 use crate::watch::{Presented, Watch};
 
@@ -86,7 +88,21 @@ impl Component {
     /// # Errors
     ///
     /// When the program cannot be started.
-    pub fn start(mut command: Command, renderer: Renderer) -> io::Result<Self> {
+    ///
+    /// # Panics
+    ///
+    /// Before it starts anything, unless it runs in a nested session that
+    /// `cargo xtask compositor-tests` started (`Compositor::current`): run
+    /// anywhere else, the component would appear on the real desktop and
+    /// take its names on the real session bus.
+    pub fn start(command: Command, renderer: Renderer) -> io::Result<Self> {
+        let _nested = Compositor::current();
+        Self::start_unguarded(command, renderer)
+    }
+
+    /// [`start`](Self::start) without the nested-session guard, for this
+    /// crate's own tests, which start `sh` and `sleep`.
+    fn start_unguarded(mut command: Command, renderer: Renderer) -> io::Result<Self> {
         let filter = format!("warn,rinch=info,{}", log::ADAPTER_DIRECTIVE);
         let mut child = command
             .env("RINCH_PERF", "1")
@@ -233,7 +249,7 @@ mod tests {
              echo \"INFO rinch: presenting with the software renderer (chosen)\"; \
              exec sleep 600",
         ]);
-        let component = Component::start(command, Renderer::Software).unwrap();
+        let component = Component::start_unguarded(command, Renderer::Software).unwrap();
         let presented = component.wait_presented(Duration::from_secs(600)).unwrap();
         assert_eq!(presented, Presented::Software);
         let patience = Duration::from_secs(600);
@@ -255,7 +271,7 @@ mod tests {
             // The frame comes from what it left behind, after it exits.
             "(sleep 0.2; echo \"[PERF] frame 1: x\" >&2) & exit 3",
         ]);
-        let mut client = Component::start(command, Renderer::Software).unwrap();
+        let mut client = Component::start_unguarded(command, Renderer::Software).unwrap();
         let status = client.wait_exit(Duration::from_secs(600)).unwrap().unwrap();
         assert_eq!(status.code(), Some(3));
         assert!(
@@ -267,10 +283,21 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "nested compositor")]
+    fn refuses_to_start_anything_outside_a_nested_session() {
+        // `cargo test` runs outside one: the guard must stop it before
+        // anything is spawned (a program that would leave a mark).
+        assert!(std::env::var_os("DESKRINCH_TEST_COMPOSITOR").is_none());
+        let mut command = Command::new("sh");
+        command.args(["-c", "exit 0"]);
+        drop(Component::start(command, Renderer::Software));
+    }
+
+    #[test]
     fn a_running_program_has_not_exited() {
         let mut command = Command::new("sleep");
         command.arg("600");
-        let mut component = Component::start(command, Renderer::Software).unwrap();
+        let mut component = Component::start_unguarded(command, Renderer::Software).unwrap();
         assert!(
             component
                 .wait_exit(Duration::from_millis(100))
