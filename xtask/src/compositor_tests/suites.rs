@@ -180,7 +180,7 @@ pub(super) const SUITES: [Suite; 9] = [
         filter: &[],
     },
     // The launcher, its real binary: its process, and keys typed into it
-    // with what it draws.
+    // with what it draws; once per renderer of the run.
     Suite {
         target: Target {
             package: LAUNCHER,
@@ -194,7 +194,7 @@ pub(super) const SUITES: [Suite; 9] = [
         }),
         compositors: ALL,
         passes: PLAIN,
-        renders: false,
+        renders: true,
         filter: &[],
     },
     // The panel's real binary, checked by the screen: it captures under
