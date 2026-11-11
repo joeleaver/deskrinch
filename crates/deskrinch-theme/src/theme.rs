@@ -8,17 +8,19 @@ use std::time::Duration;
 
 use deskrinch_appearance::{Appearance, Bus, ColorScheme, Event};
 use deskrinch_component::{Configuration, Handover, LiveSettings, report};
-use deskrinch_settings::general::GeneralSettings;
+use deskrinch_settings::general::{ColorSchemeSetting, GeneralSettings};
 use rinch::prelude::{Memo, ThemeProviderProps};
 use rinch::reactive::Effect;
 
 use crate::look;
 use crate::scheme::{Scheme, resolve};
 
-/// How long [`Theme::start`] waits for the portal's first answer, so that
-/// the window is made in the right scheme rather than switched a moment
-/// later. A portal that takes longer (one the bus is still starting) is
-/// applied when it answers.
+/// How long [`Theme::start`] waits for the portal's first answer when the
+/// setting is `"system"`, so that the window is made in the right scheme
+/// rather than opened dark and switched a moment later. A portal that takes
+/// longer (one the bus is still starting) is applied when it answers. With
+/// `"dark"` or `"light"` the answer cannot change the first frame, so
+/// there is no wait.
 const FIRST_ANSWER: Duration = Duration::from_secs(1);
 
 /// The shell's theme for one component: the `[general]` `color-scheme`
@@ -42,8 +44,10 @@ pub struct Theme {
 
 impl Theme {
     /// Follows `[general]` from the component's `configuration`, and the
-    /// settings portal on `bus` (usually [`Bus::Session`]); waits a moment
-    /// (at most a second) for the portal's first answer. When the bus cannot
+    /// settings portal on `bus` (usually [`Bus::Session`]). When the setting
+    /// is `"system"` it waits a moment (at most a second) for the portal's
+    /// first answer; with `"dark"` or `"light"` it does not wait, and still
+    /// follows the portal for when the setting changes. When the bus cannot
     /// be reached (which is reported), the theme follows the setting alone.
     #[must_use]
     pub fn start(configuration: &Configuration, bus: Bus) -> Self {
@@ -71,9 +75,10 @@ impl Theme {
                 None
             }
         };
+        let decided = general.initial.color_scheme != ColorSchemeSetting::System;
         let first_portal = match appearance {
-            Some(_) => first_answer.recv_timeout(FIRST_ANSWER).ok().flatten(),
-            None => None,
+            Some(_) if !decided => first_answer.recv_timeout(FIRST_ANSWER).ok().flatten(),
+            _ => None,
         };
         Self {
             general,
@@ -164,6 +169,64 @@ mod tests {
         );
         assert_eq!(light.initial_scheme(), Scheme::Light);
         assert!(!light.initial().dark_mode);
+    }
+
+    /// A settings portal that answers `color-scheme` with `value` at once.
+    struct StandIn {
+        value: u32,
+    }
+
+    #[zbus::interface(name = "org.freedesktop.portal.Settings")]
+    impl StandIn {
+        fn read_one(&self, namespace: &str, key: &str) -> zbus::fdo::Result<zbus::OwnedVariant> {
+            if (namespace, key) == ("org.freedesktop.appearance", "color-scheme") {
+                Ok(zbus::OwnedVariant::from(self.value))
+            } else {
+                Err(zbus::fdo::Error::InvalidArgs(format!("{namespace} {key}")))
+            }
+        }
+    }
+
+    /// Serves a portal answering `value` on `bus`, until dropped.
+    fn portal(bus: &PrivateBus, value: u32) -> zbus::Connection {
+        zbus::block_on(
+            zbus::connection::Builder::address(bus.address())
+                .name("org.freedesktop.portal.Desktop")
+                .serve_at("/org/freedesktop/portal/desktop", StandIn { value })
+                .build(),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn with_system_it_waits_for_the_portals_first_answer() {
+        let bus = PrivateBus::start().expect("the theme tests need dbus-daemon");
+        let _portal = portal(&bus, 2);
+        let root = tempfile::tempdir().unwrap();
+        let theme = Theme::start(
+            &configuration(root.path(), ""),
+            Bus::Address(bus.address().to_owned()),
+        );
+        assert_eq!(theme.first_portal, Some(ColorScheme::PreferLight));
+        assert_eq!(theme.initial_scheme(), Scheme::Light);
+    }
+
+    #[test]
+    fn with_an_explicit_setting_it_does_not_wait_but_still_follows() {
+        let bus = PrivateBus::start().expect("the theme tests need dbus-daemon");
+        // Answers at once: had `start` waited, it would have its answer.
+        let _portal = portal(&bus, 1);
+        let root = tempfile::tempdir().unwrap();
+        let theme = Theme::start(
+            &configuration(root.path(), "[general]\ncolor-scheme = \"light\"\n"),
+            Bus::Address(bus.address().to_owned()),
+        );
+        assert_eq!(
+            theme.first_portal, None,
+            "start did not wait for the portal"
+        );
+        assert_eq!(theme.initial_scheme(), Scheme::Light);
+        assert!(theme.appearance.is_some(), "the portal is still followed");
     }
 
     #[test]
