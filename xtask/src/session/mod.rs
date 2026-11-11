@@ -14,10 +14,18 @@
 //!   D-Bus names it registers at startup ([`Compositor::bus_names`]: KWin's
 //!   services; none for sway and labwc), each waited for within
 //!   [`STARTUP`].
+//! - For KWin, also: `CI` removed from KWin's environment (KWin's virtual
+//!   backend takes it to mean KWin's own CI and then looks only at
+//!   `/dev/dri/card1`; GitHub's runners set it), and KWin's own statement of
+//!   its compositing type checked, failing the session unless it is OpenGL:
+//!   with QPainter KWin starts, but its `ScreenShot2` captures nothing
+//!   ([`compositing`]).
 //! - Its outputs at the scale asked for before the first client connects
 //!   ([`Scaling`]): sway through its configuration, labwc set through
-//!   `wlr-output-management`, KWin set with `kscreen-doctor`; then checked
-//!   against the scale each output reports.
+//!   `wlr-output-management`, KWin set with `kscreen-doctor` (which runs on
+//!   Qt's Wayland platform and needs its xdg-shell integration,
+//!   `libqt6wlshellintegration6` on Debian and Ubuntu); then checked against
+//!   the scale and logical size each output reports.
 //! - The compositor, headless, and every client in one process group of
 //!   their own, which is ended as a whole (`SIGTERM`, then `SIGKILL` after
 //!   [`SHUTDOWN`]) when the session ends, and also when xtask gets `SIGINT`,

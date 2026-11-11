@@ -55,12 +55,20 @@ The environment the command and everything it starts see:
     activation off: nothing (portals, secret service, notification daemons)
     is started on demand. The compositor uses the same bus.
   - XDG_CURRENT_DESKTOP only when --current-desktop sets it.
+  - Under KWin, not CI, for KWin itself: its virtual backend takes CI to
+    mean KWin's own CI and then looks only at /dev/dri/card1.
 {removed}
   - Everything else as the caller has it (PATH, the locale, TERM, CARGO_* and
     RUST* settings, ...).
 Caches follow XDG_CACHE_HOME and HOME, so a GPU client's shader cache (Mesa's
 mesa_shader_cache, for one) is inside the session and starts empty; set
 MESA_SHADER_CACHE_DIR in the command to keep one across sessions.
+
+Under KWin the session also checks that KWin composites with OpenGL (its
+own support information says so), and fails if not: with QPainter its
+ScreenShot2 captures nothing. Without a GPU that needs a DRM device such as
+vgem's and Mesa's software driver. --scale under KWin runs kscreen-doctor,
+which needs Qt's Wayland xdg-shell integration (libqt6wlshellintegration6).
 
 How it runs and ends:
   - Standard input is closed: the session's process group is not the

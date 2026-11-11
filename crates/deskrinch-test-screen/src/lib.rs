@@ -14,6 +14,14 @@
 //!    whose installed desktop file grants it [`KWIN_SCREENSHOT_INTERFACE`]
 //!    (the `deskrinch-kwin-access` crate writes one).
 //!
+//!    KWin offers `ScreenShot2` only with its plugins installed: Debian and
+//!    Ubuntu ship them in `kwin-common`, which `kwin-wayland` only
+//!    recommends. And it captures only while it composites with OpenGL; with
+//!    QPainter it answers, but with nothing. A nested KWin's virtual backend
+//!    composites with OpenGL only on a DRM device, so on a machine without a
+//!    GPU it needs one such as vgem's (`modprobe vgem`, its nodes open to the
+//!    user), and Mesa's software driver (`libgl1-mesa-dri`) to render with.
+//!
 //! [`Screen::capture`] returns an output's [`Image`]: upright, in the
 //! output's physical pixels, as [`Rgba`] rows from the top. Outputs are
 //! named as `wl_output` names them (`HEADLESS-1`, `Virtual-0`, ...);

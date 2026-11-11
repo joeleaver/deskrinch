@@ -54,6 +54,15 @@ screen tests run twice per compositor, at scale 1 and at scale 2:
 cargo xtask compositor-tests [kwin] [sway] [labwc]
 ```
 
+Under KWin, on Debian and Ubuntu, that means `kwin-wayland` and `kwin-common`
+(KWin's plugins, its screenshot interface among them, which `kwin-wayland`
+only recommends), `libkscreen-bin` and `libqt6wlshellintegration6` (for
+`kscreen-doctor`), and a KWin that composites with OpenGL, which the session
+checks. On a machine without a GPU that takes vgem's DRM device, open to your
+user, and Mesa's software driver (`libgl1-mesa-dri`); the workflow's KWin job
+(`.github/workflows/ci.yml`, "Give KWin a DRM device to render on") has the
+exact step.
+
 ### Checking what is on screen
 
 A compositor test that checks what a component draws captures an output with
