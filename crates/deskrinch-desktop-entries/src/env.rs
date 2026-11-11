@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use deskrinch_xdg::{BaseDirs, absolute_paths};
 use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, percent_encode};
 
-use crate::locale::Locale;
+use deskrinch_keyfile::Locale;
 
 /// The bytes a D-Bus address value may hold unescaped
 /// (`[-0-9A-Za-z_/.\*]`); every other byte is written `%XX`.

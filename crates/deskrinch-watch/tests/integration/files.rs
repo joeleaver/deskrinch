@@ -74,6 +74,23 @@ fn reports_a_change_when_asked_to_refresh() {
 }
 
 #[test]
+fn watches_the_targets_it_is_given_next() {
+    let root = Root::new();
+    let (first, second) = (root.join("a/first.toml"), root.join("b/second.toml"));
+    write(&first, "a");
+    write(&second, "b");
+    let (watcher, events) = watch(vec![Target::File(first.clone())]);
+    let handle = watcher.handle();
+    handle.set_targets(vec![Target::File(second.clone())]);
+    // Re-read under the new targets.
+    changed(&events);
+    write(&second, "b2");
+    changed(&events);
+    write(&first, "a2");
+    quiet(&events);
+}
+
+#[test]
 fn may_be_dropped_by_its_own_subscriber() {
     let root = Root::new();
     let file = root.join("config.toml");

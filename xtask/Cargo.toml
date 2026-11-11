@@ -16,7 +16,7 @@ deskrinch-test-client.workspace = true
 deskrinch-test-dbus.workspace = true
 deskrinch-test-screen.workspace = true
 deskrinch-window-management.workspace = true
-rustix = { workspace = true, features = ["process"] }
+rustix = { workspace = true, features = ["param", "process"] }
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true

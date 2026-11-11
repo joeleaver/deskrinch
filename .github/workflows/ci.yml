@@ -128,8 +128,8 @@ jobs:
         with:
           packages: ${{ matrix.packages }}
       - run: cargo xtask compositor-tests ${{ matrix.compositor }}
-      - name: Test cargo xtask session under ${{ matrix.compositor }}
-        run: cargo test -p xtask --test session --locked -- --ignored
+      - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
+        run: cargo test -p xtask --test session --test measure --locked -- --ignored
         env:
           DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
 

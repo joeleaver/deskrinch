@@ -39,7 +39,37 @@ impl Backend for notify::RecommendedWatcher {
 pub(crate) enum Message {
     Changed(notify::Result<notify::Event>),
     Refresh,
+    Targets(Vec<Target>),
     Stop,
+}
+
+/// Asks a watcher, from any thread, to report a change now or to watch
+/// other targets. Cloning it is cheap. A handle keeps no watcher alive:
+/// once the [`Watcher`] is dropped, what a handle asks is ignored.
+#[derive(Debug, Clone)]
+pub struct Handle {
+    messages: Sender<Message>,
+}
+
+impl Handle {
+    /// Reports [`Event::Changed`] now, as if a target had changed, without
+    /// waiting for a pause: for what a caller depends on that no file it
+    /// watches shows (a program installed on `PATH`). Returns at once; the
+    /// event follows on the watcher's thread. During a burst of changes it
+    /// joins the burst's one report.
+    pub fn refresh(&self) {
+        // Fails only once the worker has stopped.
+        self.messages.send(Message::Refresh).ok();
+    }
+
+    /// Watches `targets` instead of the targets so far, then reports
+    /// [`Event::Changed`] as [`refresh`](Self::refresh) does, so the
+    /// subscriber reads again what the new targets hold. For a caller
+    /// whose targets depend on what it read (an icon theme's parents).
+    pub fn set_targets(&self, targets: Vec<Target>) {
+        // Fails only once the worker has stopped.
+        self.messages.send(Message::Targets(targets)).ok();
+    }
 }
 
 /// Targets being watched, with no thread reporting yet: changes queue
@@ -113,6 +143,15 @@ impl Armed {
         })
     }
 
+    /// A handle to the watcher this becomes, for a subscriber that needs
+    /// one before [`start`](Self::start) returns.
+    #[must_use]
+    pub fn handle(&self) -> Handle {
+        Handle {
+            messages: self.messages.clone(),
+        }
+    }
+
     /// Starts the thread, named `name`, that calls `subscriber` with the
     /// [`Event`]s, one at a time, until the returned [`Watcher`] is
     /// dropped.
@@ -165,14 +204,17 @@ impl Watcher {
         Armed::new(targets, timing)?.start(name, subscriber)
     }
 
-    /// Reports [`Event::Changed`] now, as if a target had changed, without
-    /// waiting for a pause: for what a caller depends on that no file it
-    /// watches shows (a program installed on `PATH`). Returns at once; the
-    /// event follows on the watcher's thread. During a burst of changes it
-    /// joins the burst's one report.
+    /// A handle to this watcher; see [`Handle::refresh`].
+    #[must_use]
+    pub fn handle(&self) -> Handle {
+        Handle {
+            messages: self.messages.clone(),
+        }
+    }
+
+    /// [`Handle::refresh`], on this watcher.
     pub fn refresh(&self) {
-        // Fails only once the worker has stopped.
-        self.messages.send(Message::Refresh).ok();
+        self.handle().refresh();
     }
 }
 
@@ -197,6 +239,10 @@ impl Core {
             let relevant = match inbox.recv() {
                 // Asked for now: no waiting for a pause.
                 Ok(Message::Refresh) => true,
+                Ok(Message::Targets(targets)) => {
+                    self.targets = targets;
+                    true
+                }
                 Ok(Message::Changed(change)) => {
                     let mut relevant = self.consider(change, &mut subscriber);
                     let deadline = Instant::now() + self.timing.max_delay;
@@ -210,6 +256,10 @@ impl Core {
                                 relevant |= self.consider(change, &mut subscriber);
                             }
                             Ok(Message::Refresh) => relevant = true,
+                            Ok(Message::Targets(targets)) => {
+                                self.targets = targets;
+                                relevant = true;
+                            }
                             Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
                             Err(RecvTimeoutError::Timeout) => break,
                         }
