@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-bus.workspace = true
 # `Stream`, to poll the bus's message streams by hand.
 futures-core.workspace = true
 thiserror.workspace = true
