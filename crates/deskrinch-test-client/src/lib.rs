@@ -5,7 +5,9 @@
 //!   thread so that it answers pings and configures like a live
 //!   application. Its [`TestWindow`]s are mapped `xdg_toplevel`s that draw
 //!   a [`Paint`] (nothing, one colour, or four quarters) at whatever size
-//!   the compositor asks for, with a buffer scale of 1.
+//!   the compositor asks for, with a buffer scale of 1, and note whether
+//!   they have the keyboard focus and the keys pressed while they do
+//!   ([`TestWindow::wait_key`]).
 //! - [`Compositor::current`] says which nested compositor the tests run
 //!   in, and refuses to go on outside one.
 //! - [`configure_output`] changes an output's scale or transform, under a
@@ -19,6 +21,7 @@
 
 mod client;
 mod compositor;
+mod keyboard;
 mod output_info;
 mod outputs;
 mod paint;
@@ -84,6 +87,14 @@ pub enum Error {
         what: String,
         /// The size it last drew, if any.
         drawn: Option<(i32, i32)>,
+    },
+    /// A window did not receive the input waited for within [`PATIENCE`].
+    #[error("the window {title:?} did not receive {what}")]
+    NotReceived {
+        /// The window's title.
+        title: String,
+        /// What was waited for.
+        what: String,
     },
     /// A window's buffer could not be made.
     #[error("could not make a window's buffer")]
