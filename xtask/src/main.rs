@@ -115,6 +115,19 @@ enum Task {
         /// `DIR/run-N/`, for `callgrind_annotate`.
         #[arg(long, value_name = "DIR", requires = "instructions")]
         profiles: Option<PathBuf>,
+        /// Measure showing instead of starting: the program starts hidden, and
+        /// each show is run as the program with these arguments (`show`), from
+        /// the command to the first frame after it.
+        #[arg(long, value_name = "ARGS", requires = "dismiss")]
+        summon: Option<String>,
+        /// With `--summon`: the program's arguments that hide it again
+        /// (`hide`), after each show.
+        #[arg(long, value_name = "ARGS", requires = "summon")]
+        dismiss: Option<String>,
+        /// With `--summon`: how many shows each run measures; the first is
+        /// the cold one.
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=20))]
+        shows: u32,
         /// The program to measure.
         program: OsString,
         /// Its arguments.
@@ -145,6 +158,9 @@ impl Task {
                 first_frame_timeout,
                 instructions,
                 profiles,
+                summon,
+                dismiss,
+                shows,
                 program,
                 args,
             } => measure::run(&measure::Request {
@@ -161,6 +177,9 @@ impl Task {
                 profiles,
                 program,
                 args,
+                summons: summon
+                    .zip(dismiss)
+                    .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
             }),
             Self::Session {
                 outputs,

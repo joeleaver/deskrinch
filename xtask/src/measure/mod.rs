@@ -20,6 +20,11 @@
 //! Wall time is reported only beside the load average, apart from the rest,
 //! as not comparable.
 //!
+//! With `--summon` the program starts hidden and the shows are measured
+//! instead ([`show`]): from the command that asks it to show (the program
+//! run again with the summon arguments) to the first frame after it, the
+//! first show cold and each later one after a hide.
+//!
 //! The first frame is rinch's: the program is run with `RINCH_PERF=1`,
 //! which makes rinch write a line after every presented frame.
 
@@ -30,8 +35,11 @@ mod output;
 mod probe;
 mod procfs;
 mod report;
+mod show;
 mod smaps;
 mod system;
+
+pub(crate) use show::Summons;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -71,6 +79,14 @@ outside the sessions, for every run.
 Under sway and labwc the compositor renders with pixman and offers no dmabuf,
 so the GPU cannot present there: wgpu falls back to a software Vulkan driver
 (lavapipe). Measure GPU costs under kwin, which composites with the GPU.
+
+--summon ARGS --dismiss ARGS measures showing instead of starting: the
+program starts hidden, settles, and is shown --shows times by running it
+again with the summon arguments, hidden again with the dismiss arguments
+after each show. Each show reports CPU time (or with --instructions the
+instructions) from the summon command to the first frame after it, the
+first show cold, each later one after a hide. The summon command's own
+process is not counted. Memory and the idle window are not measured.
 
 Needs valgrind and callgrind_control for --instructions.";
 
@@ -122,6 +138,9 @@ pub(crate) struct Request {
     pub(crate) profiles: Option<PathBuf>,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
+    /// With `--summon`: the program starts hidden, and each show is measured
+    /// instead of the start.
+    pub(crate) summons: Option<show::Summons>,
 }
 
 /// Runs the measurement and prints its report.
@@ -148,7 +167,14 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
             idle: Duration::ZERO,
         };
         in_session(request, |session| {
-            probe::measure(client(session, request, Some(dir)), &program, timing)
+            let command = client(session, request, Some(dir));
+            match &request.summons {
+                Some(summons) => {
+                    let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
+                    show::measure(command, &ask, &program, timing, summons).map(drop)
+                }
+                None => probe::measure(command, &program, timing).map(drop),
+            }
         })?;
     }
     let timing = probe::Timing {
@@ -177,9 +203,24 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                 environment(&mut command, request, cache);
                 command.args(&request.args);
                 let control = || session.client("callgrind_control".as_ref());
-                callgrind::measure(command, control, &program, &out, timing)
+                match &request.summons {
+                    Some(summons) => {
+                        let ask = |args: &[OsString]| asked(session, request, cache, args);
+                        show::measure_instructions(
+                            command, &control, &ask, &program, &out, timing, summons,
+                        )
+                    }
+                    None => callgrind::measure(command, control, &program, &out, timing),
+                }
             } else {
-                probe::measure(client(session, request, cache), &program, timing)
+                let command = client(session, request, cache);
+                match &request.summons {
+                    Some(summons) => {
+                        let ask = |args: &[OsString]| asked(session, request, cache, args);
+                        show::measure(command, &ask, &program, timing, summons)
+                    }
+                    None => probe::measure(command, &program, timing),
+                }
             }
         })?;
         runs.push(run);
@@ -208,6 +249,16 @@ fn client(session: &Session, request: &Request, cache: Option<&Path>) -> Command
     let mut command = session.client(&request.program);
     environment(&mut command, request, cache);
     command.args(&request.args);
+    command
+}
+
+/// The program run again with `args` (`--summon`'s or `--dismiss`'s) as a
+/// client of `session`, in the measured program's environment, not under
+/// Valgrind: it asks the measured process, and is not measured itself.
+fn asked(session: &Session, request: &Request, cache: Option<&Path>, args: &[OsString]) -> Command {
+    let mut command = session.client(&request.program);
+    environment(&mut command, request, cache);
+    command.args(args);
     command
 }
 
@@ -257,10 +308,11 @@ fn header(request: &Request) -> String {
             ShaderCache::Cold => "cold (empty)",
             ShaderCache::Warm => "warm (filled by an unmeasured start)",
         },
-        if request.instructions {
-            "under Callgrind: instruction counts only"
-        } else {
-            "settle and idle windows as asked"
+        match (&request.summons, request.instructions) {
+            (Some(_), true) => "shows, under Callgrind: instruction counts only",
+            (Some(_), false) => "shows: CPU from each summon to its first frame",
+            (None, true) => "under Callgrind: instruction counts only",
+            (None, false) => "settle and idle windows as asked",
         },
         system::describe(),
     )

@@ -151,4 +151,34 @@ pub(crate) enum Error {
         /// How it exited.
         status: ExitStatus,
     },
+    /// With `--summon`, the program drew a frame before it was summoned.
+    #[error(
+        "{program} presented a frame before it was summoned: with --summon it must start \
+         hidden; its last output:\n{output}"
+    )]
+    ShownBeforeSummon {
+        /// The program.
+        program: String,
+        /// Its last lines of output.
+        output: String,
+    },
+    /// With `--summon`, the program did not settle after starting or after
+    /// a show or hide.
+    #[error("{program} did not settle within {} s; its last output:\n{output}", waited.as_secs())]
+    NeverSettled {
+        /// The program.
+        program: String,
+        /// How long it was given.
+        waited: std::time::Duration,
+        /// Its last lines of output.
+        output: String,
+    },
+    /// The command that summons or dismisses the program failed.
+    #[error("`{command}` failed ({status})")]
+    SummonFailed {
+        /// The command, as run.
+        command: String,
+        /// How it exited.
+        status: ExitStatus,
+    },
 }

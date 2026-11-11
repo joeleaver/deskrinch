@@ -799,7 +799,16 @@ dependencies = [
 name = "deskrinch-launcher"
 version = "0.1.0"
 dependencies = [
+ "clap",
+ "deskrinch-bus",
+ "deskrinch-component",
  "deskrinch-desktop-entries",
+ "deskrinch-test-dbus",
+ "deskrinch-theme",
+ "deskrinch-xdg",
+ "rinch",
+ "thiserror 2.0.21",
+ "zbus",
 ]
 
 [[package]]

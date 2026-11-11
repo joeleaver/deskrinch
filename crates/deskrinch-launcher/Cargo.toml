@@ -8,9 +8,34 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "deskrinch-launcher"
+path = "src/main.rs"
+
+[features]
+# rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input):
+# `cargo run -p deskrinch-launcher --features debug`. Off in a normal build.
+debug = ["rinch/debug"]
+
 [dependencies]
+clap.workspace = true
+deskrinch-bus.workspace = true
+deskrinch-component.workspace = true
 # The installed applications, their search ranking and their launch.
 deskrinch-desktop-entries.workspace = true
+deskrinch-theme.workspace = true
+deskrinch-xdg.workspace = true
+# `gpu` adds the GPU renderer beside the software one rinch always has on
+# the desktop; which one draws is chosen at run time. `theme`: the theme
+# variables the launcher is styled with (the look is `deskrinch-theme`'s).
+rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
+thiserror.workspace = true
+# zbus's own runtime (`default-rt`) drives the connection on a helper thread,
+# so nothing here needs an async runtime; `service` serves the interface.
+zbus = { workspace = true, features = ["default-rt", "service"] }
+
+[dev-dependencies]
+deskrinch-test-dbus.workspace = true
 
 [lints]
 workspace = true
