@@ -139,3 +139,66 @@ fn a_window_opened_before_the_pointer_hears_it_too() {
         .wait_pointer_at(x, y)
         .unwrap_or_else(|error| panic!("{error}: {:?}", window.pointer_events()));
 }
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn an_input_dropped_with_a_button_down_releases_it() {
+    Compositor::current();
+    let client = TestClient::connect().unwrap();
+    let windows = fullscreen_on_each(&client);
+    let (name, window, size) = &windows[0];
+    let (x, y) = points(*size)[0];
+    {
+        let mut held = Input::connect().unwrap();
+        held.move_pointer(name, x, y).unwrap();
+        window.wait_pointer_at(x, y).unwrap();
+        held.press_button(Button::PRIMARY).unwrap();
+        window
+            .wait_pointer("the button down", |events| {
+                events.last() == Some(&PointerEvent::Pressed { button: PRIMARY })
+            })
+            .unwrap();
+        // Dropped here, with the button still down.
+    }
+    window
+        .wait_pointer("the release the drop sent", |events| {
+            events.contains(&PointerEvent::Released { button: PRIMARY })
+        })
+        .unwrap_or_else(|error| panic!("{error}: {:?}", window.pointer_events()));
+    let before = window.pointer_events().len();
+    let mut input = Input::connect().unwrap();
+    input.move_pointer(name, x, y).unwrap();
+    window.wait_pointer_at(x, y).unwrap();
+    input.click(Button::PRIMARY).unwrap();
+    let click = [
+        PointerEvent::Pressed { button: PRIMARY },
+        PointerEvent::Released { button: PRIMARY },
+    ];
+    window
+        .wait_pointer("the second input's click", |events| {
+            buttons(&events[before..]) == click
+        })
+        .unwrap_or_else(|error| panic!("{error}: {:?}", window.pointer_events()));
+    // Nothing more arrives late: exactly one press and one release.
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    assert_eq!(
+        buttons(&window.pointer_events()[before..]),
+        click,
+        "{:?}",
+        window.pointer_events()
+    );
+}
+
+/// The presses and releases among `events`.
+fn buttons(events: &[PointerEvent]) -> Vec<PointerEvent> {
+    events
+        .iter()
+        .copied()
+        .filter(|event| {
+            matches!(
+                event,
+                PointerEvent::Pressed { .. } | PointerEvent::Released { .. }
+            )
+        })
+        .collect()
+}

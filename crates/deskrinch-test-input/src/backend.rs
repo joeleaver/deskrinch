@@ -70,6 +70,8 @@ pub struct Input {
     /// A client of its own, for where the outputs are in the layout
     /// ([`crate::layout`]).
     pub(crate) outputs: TestClient,
+    /// The buttons pressed and not yet released, which a drop releases.
+    pub(crate) held: Vec<crate::Button>,
 }
 
 impl Input {
@@ -117,6 +119,7 @@ impl Input {
             backend,
             start: Instant::now(),
             outputs,
+            held: Vec::new(),
         };
         input.settle()?;
         Ok(input)

@@ -46,6 +46,12 @@
 //! [`OutputInfo`](deskrinch_test_client::OutputInfo)), read each time the
 //! pointer moves, so a reconfigured output is placed where it now is.
 //!
+//! An `Input` leaves nothing held behind it: a button pressed with
+//! [`Input::press_button`] and not released is released when the `Input` is
+//! dropped (a test that fails mid-drag included), and the keys have no way to
+//! be left down, since [`Input::press`] and [`Input::type_text`] release
+//! every key they press.
+//!
 //! What the pointer cannot do: scroll (no wheel or axis events), touch, or
 //! move relatively; it moves straight to the point, so nothing between the
 //! last point and the next sees it pass.

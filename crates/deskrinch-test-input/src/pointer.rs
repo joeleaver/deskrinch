@@ -37,7 +37,9 @@ impl Input {
         self.settle()
     }
 
-    /// Presses `button` where the pointer is, and holds it.
+    /// Presses `button` where the pointer is, and holds it until
+    /// [`release_button`](Self::release_button), or until this `Input` is
+    /// dropped, which releases it.
     ///
     /// # Errors
     ///
@@ -45,6 +47,9 @@ impl Input {
     /// as [`press`](Self::press).
     pub fn press_button(&mut self, button: Button) -> Result<(), Error> {
         self.button(button, true)?;
+        if !self.held.contains(&button) {
+            self.held.push(button);
+        }
         self.settle()
     }
 
@@ -55,6 +60,7 @@ impl Input {
     /// As [`press_button`](Self::press_button).
     pub fn release_button(&mut self, button: Button) -> Result<(), Error> {
         self.button(button, false)?;
+        self.held.retain(|held| *held != button);
         self.settle()
     }
 
@@ -67,6 +73,7 @@ impl Input {
     pub fn click(&mut self, button: Button) -> Result<(), Error> {
         self.button(button, true)?;
         self.button(button, false)?;
+        self.held.retain(|held| *held != button);
         self.settle()
     }
 
@@ -87,5 +94,24 @@ impl Input {
             }
         }
         Ok(())
+    }
+}
+
+/// An `Input` leaves nothing held behind it: a test that fails between
+/// [`press_button`](Input::press_button) and
+/// [`release_button`](Input::release_button) would otherwise leave the
+/// button down for every later test in the session (KWin's fake input
+/// destroys nothing with the client). Best effort: the connection may be
+/// what failed, so errors are ignored.
+impl Drop for Input {
+    fn drop(&mut self) {
+        let held = std::mem::take(&mut self.held);
+        if held.is_empty() {
+            return;
+        }
+        for button in held {
+            let _unreleased = self.button(button, false);
+        }
+        let _unsettled = self.settle();
     }
 }
