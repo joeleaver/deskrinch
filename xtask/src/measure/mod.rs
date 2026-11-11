@@ -1,0 +1,267 @@
+//! `cargo xtask measure`: what a shell component costs, measured in
+//! isolated sessions.
+//!
+//! Each run starts the program, a rinch binary, as the only client of a
+//! fresh [`Session`] and reports:
+//!
+//! - **Start-up**: the CPU time the process used up to its first presented
+//!   frame, in all and per thread (threads that ended before it, such as
+//!   shader-compiling workers, included).
+//! - **Memory** once settled: resident and proportional sizes, the resident
+//!   set by what is mapped ([`smaps`]), and GPU memory, which is not in the
+//!   resident set ([`gpu`]).
+//! - **Idle**: over a window, CPU time, wake-ups and preemptions per second,
+//!   frames, and CPU per frame.
+//! - The GPU adapter wgpu chose, flagged when it is a software driver.
+//!
+//! With `--instructions` the program runs under Callgrind instead and the
+//! report is instruction counts ([`callgrind`]): deterministic, and so the
+//! figure to compare on a loaded machine. CPU time is the next best thing.
+//! Wall time is reported only beside the load average, apart from the rest,
+//! as not comparable.
+//!
+//! The first frame is rinch's: the program is run with `RINCH_PERF=1`,
+//! which makes rinch write a line after every presented frame.
+
+mod callgrind;
+mod client_log;
+mod gpu;
+mod output;
+mod probe;
+mod procfs;
+mod report;
+mod smaps;
+mod system;
+
+use std::ffi::OsString;
+use std::path::{Path, PathBuf};
+use std::process::Command;
+use std::time::Duration;
+
+use crate::Outcome;
+use crate::error::Error;
+use crate::session::{Compositor, Session};
+
+/// `cargo xtask measure --help`: what is measured, and how.
+pub(crate) const LONG_ABOUT: &str = "\
+Measure what a rinch program (a shell component) costs, in isolated sessions.
+
+Each run starts the program as the only client of a fresh nested compositor
+(the session `cargo xtask session` describes) with RINCH_PERF=1, and reports:
+  - CPU time (user+system) up to its first presented frame, in all and per
+    thread, threads that ended before it included;
+  - memory once settled: Rss, Pss, anonymous, file, shmem and swap; the
+    resident set by what is mapped (the Vulkan driver, LLVM, fonts, GTK, the
+    program's binary, the heap); and GPU memory from the DRM fdinfo, which is
+    not in Rss;
+  - over an idle window: CPU time per minute, wake-ups and preemptions per
+    second, frames, and CPU per frame;
+  - the GPU adapter wgpu chose, marked when it is a software Vulkan driver.
+
+--instructions runs the program under Valgrind's Callgrind and reports
+instructions to the first frame, in the idle window, and per frame: the
+deterministic figure, for a loaded machine. Without it, CPU time is the
+figure to compare; wall time is printed apart, beside the load average, and
+is not comparable.
+
+Each session starts with an empty shader cache (--shader-cache cold);
+--shader-cache warm fills one with an unmeasured start first and keeps it,
+outside the sessions, for every run.
+
+Under sway and labwc the compositor renders with pixman and offers no dmabuf,
+so the GPU cannot present there: wgpu falls back to a software Vulkan driver
+(lavapipe). Measure GPU costs under kwin, which composites with the GPU.
+
+Needs valgrind and callgrind_control for --instructions.";
+
+/// Which renderer the program is told to use, through rinch's
+/// `RINCH_RENDERER`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum Renderer {
+    /// rinch's choice (the GPU, falling back to software).
+    Auto,
+    /// The GPU renderer (Vello on wgpu).
+    Gpu,
+    /// The software renderer (tiny-skia).
+    Software,
+}
+
+impl Renderer {
+    fn env(self) -> &'static str {
+        match self {
+            Self::Auto => "auto",
+            Self::Gpu => "gpu",
+            Self::Software => "software",
+        }
+    }
+}
+
+/// The state of the GPU driver's shader cache at each start.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub(crate) enum ShaderCache {
+    /// Empty: each session's cache is private and new, as on a first start.
+    Cold,
+    /// Filled by one unmeasured start beforehand, as on every later start
+    /// in a real session (`MESA_SHADER_CACHE_DIR`, kept across the runs).
+    Warm,
+}
+
+/// What `cargo xtask measure` was asked to do.
+#[derive(Debug)]
+pub(crate) struct Request {
+    pub(crate) compositor: Compositor,
+    pub(crate) runs: u32,
+    pub(crate) renderer: Option<Renderer>,
+    pub(crate) shader_cache: ShaderCache,
+    pub(crate) settle: Duration,
+    pub(crate) idle: Duration,
+    pub(crate) first_frame_timeout: Duration,
+    pub(crate) instructions: bool,
+    /// Where to keep each run's Callgrind profile (`run-N/`), for
+    /// `callgrind_annotate`; inside the session, and gone with it, if unset.
+    pub(crate) profiles: Option<PathBuf>,
+    pub(crate) program: OsString,
+    pub(crate) args: Vec<OsString>,
+}
+
+/// Runs the measurement and prints its report.
+pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
+    let program = request.program.to_string_lossy().into_owned();
+    // A warm cache lives outside the sessions, for as long as this task.
+    let cache_dir = (request.shader_cache == ShaderCache::Warm)
+        .then(|| {
+            tempfile::Builder::new()
+                .prefix("deskrinch-measure-cache-")
+                .tempdir()
+                .map_err(|source| Error::Io {
+                    what: "create the shader cache directory".into(),
+                    source,
+                })
+        })
+        .transpose()?;
+    let cache = cache_dir.as_ref().map(tempfile::TempDir::path);
+    if let Some(dir) = cache {
+        eprintln!("measure: filling the shader cache with one unmeasured start");
+        let timing = probe::Timing {
+            first_frame: request.first_frame_timeout,
+            settle: Duration::ZERO,
+            idle: Duration::ZERO,
+        };
+        in_session(request, |session| {
+            probe::measure(client(session, request, Some(dir)), &program, timing)
+        })?;
+    }
+    let timing = probe::Timing {
+        first_frame: request.first_frame_timeout,
+        settle: request.settle,
+        idle: request.idle,
+    };
+    let mut runs = Vec::new();
+    for index in 1..=request.runs {
+        eprintln!("measure: run {index} of {}", request.runs);
+        let run = in_session(request, |session| {
+            if request.instructions {
+                let dir = request.profiles.as_ref().map_or_else(
+                    || session.root().join("callgrind"),
+                    |dir| dir.join(format!("run-{index}")),
+                );
+                std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
+                    what: format!("create {}", dir.display()),
+                    source,
+                })?;
+                let out = dir.join("callgrind.out");
+                let mut command = session.client("valgrind".as_ref());
+                command
+                    .args(callgrind::valgrind_args(&out))
+                    .arg(&request.program);
+                environment(&mut command, request, cache);
+                command.args(&request.args);
+                let control = || session.client("callgrind_control".as_ref());
+                callgrind::measure(command, control, &program, &out, timing)
+            } else {
+                probe::measure(client(session, request, cache), &program, timing)
+            }
+        })?;
+        runs.push(run);
+    }
+    println!("{}", header(request));
+    println!("{}", report::render(&program, &runs));
+    Ok(Outcome::Passed)
+}
+
+/// Runs `measure` in a fresh session, which is ended afterwards whatever
+/// the outcome.
+fn in_session<T>(
+    request: &Request,
+    measure: impl FnOnce(&Session) -> Result<T, Error>,
+) -> Result<T, Error> {
+    let session = Session::start(request.compositor, 1, None, |_| Ok(()))?;
+    let result = measure(&session);
+    let ended = session.end();
+    let value = result?;
+    ended?;
+    Ok(value)
+}
+
+/// The measured program as a client of `session`.
+fn client(session: &Session, request: &Request, cache: Option<&Path>) -> Command {
+    let mut command = session.client(&request.program);
+    environment(&mut command, request, cache);
+    command.args(&request.args);
+    command
+}
+
+/// The measured program's environment: rinch's frame lines, wgpu's
+/// adapter line, the renderer and the shader cache asked for.
+fn environment(command: &mut Command, request: &Request, cache: Option<&Path>) {
+    let callers_log = std::env::var("RUST_LOG").ok();
+    command
+        .env("RINCH_PERF", "1")
+        .env("RUST_LOG", client_log::rust_log(callers_log.as_deref()))
+        .env("NO_COLOR", "1");
+    if let Some(renderer) = request.renderer {
+        command.env("RINCH_RENDERER", renderer.env());
+    }
+    match cache {
+        Some(dir) => command.env("MESA_SHADER_CACHE_DIR", dir),
+        // The session's own cache, empty: never one the caller set.
+        None => command.env_remove("MESA_SHADER_CACHE_DIR"),
+    };
+}
+
+/// What was measured, where and how.
+fn header(request: &Request) -> String {
+    let args: Vec<String> = request
+        .args
+        .iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    format!(
+        "Measured: {} {}\n\
+         Compositor: {} (nested, headless; {})\n\
+         Renderer: {}; shader cache: {}; {}\n\
+         Machine: {}",
+        request.program.to_string_lossy(),
+        args.join(" "),
+        request.compositor.name(),
+        match request.compositor {
+            Compositor::Kwin => "it composites with the GPU through EGL",
+            Compositor::Sway | Compositor::Labwc =>
+                "wlroots with the pixman renderer offers no dmabuf, so a Vulkan client \
+                 presents through a software driver",
+        },
+        request
+            .renderer
+            .map_or("as the caller's environment says", Renderer::env),
+        match request.shader_cache {
+            ShaderCache::Cold => "cold (empty)",
+            ShaderCache::Warm => "warm (filled by an unmeasured start)",
+        },
+        if request.instructions {
+            "under Callgrind: instruction counts only"
+        } else {
+            "settle and idle windows as asked"
+        },
+        system::describe(),
+    )
+}

@@ -8,14 +8,16 @@ mod compositor_tests;
 mod error;
 mod file_length;
 mod git;
+mod measure;
 mod run_in_session;
 mod session;
 mod systemd_scope_tests;
 
 use std::error::Error as _;
 use std::ffi::OsString;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
@@ -76,6 +78,49 @@ enum Task {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Measure what a rinch program (a shell component) costs, in isolated
+    /// sessions: CPU time to its first frame, memory, idle wake-ups and CPU
+    /// per frame, or with `--instructions` instruction counts.
+    #[command(long_about = measure::LONG_ABOUT)]
+    Measure {
+        /// The compositor each run's session has.
+        #[arg(long, value_enum, default_value = "kwin")]
+        compositor: session::Compositor,
+        /// How many runs, each in a fresh session.
+        #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=50))]
+        runs: u32,
+        /// The renderer, through `RINCH_RENDERER` (unset: the caller's
+        /// environment decides).
+        #[arg(long, value_enum)]
+        renderer: Option<measure::Renderer>,
+        /// The GPU driver's shader cache at each start.
+        #[arg(long, value_enum, default_value = "cold")]
+        shader_cache: measure::ShaderCache,
+        /// Seconds after the first frame before memory is read.
+        #[arg(long, default_value_t = 5)]
+        settle: u64,
+        /// Seconds of the idle window. Two minutes catch two ticks of a
+        /// clock that shows minutes.
+        #[arg(long, default_value_t = 125)]
+        idle: u64,
+        /// Seconds to wait for the first frame (default 120, or 1200 with
+        /// `--instructions`).
+        #[arg(long)]
+        first_frame_timeout: Option<u64>,
+        /// Count instructions under Callgrind instead of measuring CPU time
+        /// and memory.
+        #[arg(long)]
+        instructions: bool,
+        /// With `--instructions`: keep each run's Callgrind profile in
+        /// `DIR/run-N/`, for `callgrind_annotate`.
+        #[arg(long, value_name = "DIR", requires = "instructions")]
+        profiles: Option<PathBuf>,
+        /// The program to measure.
+        program: OsString,
+        /// Its arguments.
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<OsString>,
+    },
     /// Run the desktop-entries test that launches into a real transient
     /// systemd scope.
     ///
@@ -90,6 +135,33 @@ impl Task {
             Self::FileLength => file_length::run(root),
             Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
+            Self::Measure {
+                compositor,
+                runs,
+                renderer,
+                shader_cache,
+                settle,
+                idle,
+                first_frame_timeout,
+                instructions,
+                profiles,
+                program,
+                args,
+            } => measure::run(&measure::Request {
+                compositor,
+                runs,
+                renderer,
+                shader_cache,
+                settle: Duration::from_secs(settle),
+                idle: Duration::from_secs(idle),
+                first_frame_timeout: Duration::from_secs(
+                    first_frame_timeout.unwrap_or(if instructions { 1200 } else { 120 }),
+                ),
+                instructions,
+                profiles,
+                program,
+                args,
+            }),
             Self::Session {
                 outputs,
                 keep,
