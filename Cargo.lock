@@ -700,10 +700,19 @@ dependencies = [
 name = "deskrinch-appearance"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-bus",
  "deskrinch-test-dbus",
  "deskrinch-test-portal",
  "futures-core",
  "thiserror 2.0.21",
+ "zbus",
+]
+
+[[package]]
+name = "deskrinch-bus"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-dbus",
  "zbus",
 ]
 
@@ -790,6 +799,7 @@ dependencies = [
 name = "deskrinch-notification-service"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-bus",
  "deskrinch-test-dbus",
  "deskrinch-untrusted",
  "futures-core",
@@ -859,6 +869,9 @@ dependencies = [
 [[package]]
 name = "deskrinch-untrusted"
 version = "0.1.0"
+dependencies = [
+ "proptest",
+]
 
 [[package]]
 name = "deskrinch-watch"

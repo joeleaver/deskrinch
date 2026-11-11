@@ -7,6 +7,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll, Waker};
 use std::thread::{self, JoinHandle};
 
+use deskrinch_bus::Bus;
 use futures_core::Stream;
 use zbus::OwnedVariant;
 use zbus::message::Message;
@@ -15,15 +16,6 @@ use zbus::{Connection, MessageStream};
 use crate::error::AppearanceError;
 use crate::portal;
 use crate::preferences::{Key, Preferences};
-
-/// Which bus the portal is looked for on.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Bus {
-    /// The session bus, from `DBUS_SESSION_BUS_ADDRESS`.
-    Session,
-    /// The bus at this D-Bus address, such as `unix:path=/run/…/bus`.
-    Address(String),
-}
 
 /// What [`Appearance`] tells its subscriber.
 #[derive(Debug)]
@@ -65,16 +57,8 @@ impl Appearance {
         bus: Bus,
         subscriber: impl Fn(Event) + Send + 'static,
     ) -> Result<Self, AppearanceError> {
-        let (connection, owners, settings) = zbus::block_on(async {
-            let connection = match bus {
-                Bus::Session => Connection::session().await,
-                Bus::Address(address) => {
-                    zbus::connection::Builder::address(address.as_str())
-                        .build()
-                        .await
-                }
-            }
-            .map_err(AppearanceError::Connect)?;
+        let (connection, owners, settings) = zbus::block_on(async move {
+            let connection = bus.connect().await.map_err(AppearanceError::Connect)?;
             // The streams first, then the questions: a change in between is
             // seen rather than lost.
             let owners = portal::owner_changes(&connection)

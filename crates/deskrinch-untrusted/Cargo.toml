@@ -1,12 +1,23 @@
 [package]
 name = "deskrinch-untrusted"
-description = "The shared rules for an untrusted peer's strings, pixel data and icon names."
+description = "The shared rules for an untrusted peer's strings, markup, pixel data and icon names."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish.workspace = true
+
+[features]
+# `fuzz::config`, the property tests' shared configuration, for the
+# dev-dependencies of the crates whose parsers are fuzzed.
+proptest = ["dep:proptest"]
+
+[dependencies]
+proptest = { workspace = true, optional = true }
+
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

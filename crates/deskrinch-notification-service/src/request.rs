@@ -7,9 +7,9 @@ use std::time::{Duration, Instant};
 use crate::capabilities::Capabilities;
 use crate::image::{self, Image, ImageSource, RawImage};
 use crate::limits::Limits;
-use crate::markup;
 use crate::notification::{Action, Expiry, Notification, NotificationId, Sound, Urgency};
 use crate::policy::Ownership;
+use deskrinch_untrusted::markup;
 use deskrinch_untrusted::text::{self, Lines};
 
 /// The arguments of a `Notify` call, unvalidated, borrowed from the message.

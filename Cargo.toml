@@ -24,6 +24,7 @@ bitflags = "2.13.2"
 clap = { version = "4.6.7", features = ["derive"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }
 deskrinch-appearance = { path = "crates/deskrinch-appearance" }
+deskrinch-bus = { path = "crates/deskrinch-bus" }
 deskrinch-clock = { path = "crates/deskrinch-clock" }
 deskrinch-component = { path = "crates/deskrinch-component" }
 deskrinch-config = { path = "crates/deskrinch-config" }

@@ -3,7 +3,7 @@
 use proptest::prelude::*;
 
 use super::*;
-use crate::props::config;
+use deskrinch_untrusted::fuzz::config;
 
 const MAX_SIDE: u32 = 64;
 const MAX_BYTES: usize = 8 * 1024;

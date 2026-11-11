@@ -298,3 +298,24 @@ fn the_expiry_starts_when_shown_and_pauses_keeping_the_rest() {
         }
     );
 }
+
+#[test]
+fn the_worst_case_body_at_the_markup_bound_is_parsed_quickly() {
+    use deskrinch_untrusted::markup::{self, MAX_TAG_BYTES};
+    // Each `<` starts a tag scan of MAX_TAG_BYTES that fails at its end, and
+    // what follows is control characters, which produce no text: as much
+    // scanning per byte of output, and per byte of input, as there can be.
+    // The work is at most the markup bound times MAX_TAG_BYTES.
+    let limits = Limits::default();
+    let unit = format!("<a href=\"{}", "\u{1}".repeat(MAX_TAG_BYTES));
+    let body = unit.repeat(limits.max_body_markup_bytes / unit.len() + 1);
+    let options = markup::Options {
+        hyperlinks: true,
+        max_markup_bytes: limits.max_body_markup_bytes,
+        max_text_bytes: limits.max_body_text_bytes,
+    };
+    let started = Instant::now();
+    let parsed = markup::parse(&body, options);
+    assert!(parsed.plain_text().len() <= options.max_text_bytes);
+    assert!(started.elapsed() < Duration::from_secs(5));
+}

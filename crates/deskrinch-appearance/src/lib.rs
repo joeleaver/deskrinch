@@ -70,7 +70,8 @@ mod portal;
 mod preferences;
 mod scheme;
 
+pub use deskrinch_bus::Bus;
 pub use error::AppearanceError;
-pub use follow::{Appearance, Bus, Event};
+pub use follow::{Appearance, Event};
 pub use preferences::{IconThemes, Preferences};
 pub use scheme::ColorScheme;

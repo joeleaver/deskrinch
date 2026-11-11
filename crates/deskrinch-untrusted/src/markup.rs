@@ -1,6 +1,8 @@
-//! The body's markup, parsed into styled text the UI draws as it is.
+//! Markup an untrusted peer sends (a notification's body, a tray item's
+//! tooltip), parsed into styled text the UI draws as it is.
 //!
-//! The specification's subset is `<b>`, `<i>`, `<u>`, `<a href>` and
+//! The subset the Desktop Notifications Specification defines, which tray
+//! items' tooltips use too, is `<b>`, `<i>`, `<u>`, `<a href>` and
 //! `<img src alt>`, with XML's character references. The parser is lenient,
 //! because real senders are: what is not a well-formed tag or reference is
 //! text. What it does with each construct, deliberately:
@@ -18,11 +20,11 @@
 //!   decoded; any other `&` is text.
 //! - Control characters other than line breaks and tabs are dropped.
 
-use deskrinch_untrusted::text::{self, Lines};
+use crate::text::{self, Lines};
 
 /// A tag is looked for within this many bytes of its `<`, so a stray `<`
 /// costs bounded work.
-const MAX_TAG_BYTES: usize = 1024;
+pub const MAX_TAG_BYTES: usize = 1024;
 
 /// A parsed body: styled runs of text, in order.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -103,19 +105,21 @@ impl Link {
     }
 }
 
-/// What the parser may produce, from the advertised capabilities and limits.
+/// What the parser may produce: the caller's capabilities and bounds.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct Options {
+pub struct Options {
     /// Whether `<a>` makes links.
-    pub(crate) hyperlinks: bool,
+    pub hyperlinks: bool,
     /// Bytes of markup read.
-    pub(crate) max_markup_bytes: usize,
+    pub max_markup_bytes: usize,
     /// Bytes of text produced.
-    pub(crate) max_text_bytes: usize,
+    pub max_text_bytes: usize,
 }
 
-/// Parses a notification body.
-pub(crate) fn parse(markup: &str, options: Options) -> Body {
+/// Parses `markup` within `options`. Never fails: what is not markup is
+/// text.
+#[must_use]
+pub fn parse(markup: &str, options: Options) -> Body {
     let mut rest = &markup[..floor_boundary(markup, options.max_markup_bytes)];
     let mut out = Builder::new(options);
     while !rest.is_empty() && !out.full {
