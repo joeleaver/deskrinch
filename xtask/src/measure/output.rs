@@ -105,6 +105,27 @@ impl Watch {
         }
     }
 
+    /// Waits up to `timeout` for a frame after the first `frames`; answers
+    /// whether one came (not on timeout, or when both streams have closed).
+    pub(crate) fn wait_frame_after(&self, frames: u64, timeout: Duration) -> bool {
+        let (seen, changed) = &*self.seen;
+        let deadline = Instant::now() + timeout;
+        let mut guard = seen.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if guard.frames > frames {
+                return true;
+            }
+            let now = Instant::now();
+            if guard.closed >= 2 || now >= deadline {
+                return false;
+            }
+            guard = changed
+                .wait_timeout(guard, deadline - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
     /// Whether the first frame has come.
     pub(crate) fn has_first_frame(&self) -> bool {
         self.lock().first_frame.is_some()

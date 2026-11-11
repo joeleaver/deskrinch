@@ -117,8 +117,14 @@ fn run_child(
 
 /// Asks Callgrind in process `pid` to write a dump named `label`.
 fn dump(control: &dyn Fn() -> Command, pid: &str, label: &str) -> Result<(), Error> {
+    self::control(control, &["--dump", label, pid])
+}
+
+/// Runs `callgrind_control` (a session client) with `args`: `--dump LABEL
+/// PID` writes a dump, `--zero PID` zeroes the counts.
+pub(crate) fn control(control: &dyn Fn() -> Command, args: &[&str]) -> Result<(), Error> {
     let status = control()
-        .args(["--dump", label, pid])
+        .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -135,7 +141,7 @@ fn dump(control: &dyn Fn() -> Command, pid: &str, label: &str) -> Result<(), Err
 
 /// The instruction total of dump `n` of the profile at `out`. Callgrind
 /// writes a dump's file when it is asked for it, so the file is waited for.
-fn totals(out: &Path, n: u32) -> Result<u64, Error> {
+pub(crate) fn totals(out: &Path, n: u32) -> Result<u64, Error> {
     let path = dump_path(out, n);
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
