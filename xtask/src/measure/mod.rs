@@ -12,7 +12,9 @@
 //!   resident set ([`gpu`]).
 //! - **Idle**: over a window, CPU time, wake-ups and preemptions per second,
 //!   frames, and CPU per frame.
-//! - The GPU adapter wgpu chose, flagged when it is a software driver.
+//! - The renderer that presented: rinch's software renderer, or the GPU
+//!   renderer on the adapter wgpu chose, flagged when that is a software
+//!   driver.
 //!
 //! With `--instructions` the program runs under Callgrind instead and the
 //! report is instruction counts ([`callgrind`]): deterministic, and so the
@@ -64,7 +66,9 @@ Each run starts the program as the only client of a fresh nested compositor
     not in Rss;
   - over an idle window: CPU time per minute, wake-ups and preemptions per
     second, frames, and CPU per frame;
-  - the GPU adapter wgpu chose, marked when it is a software Vulkan driver.
+  - the renderer that presented: rinch's software renderer, or the GPU
+    renderer on the adapter wgpu chose, marked when that is a software
+    Vulkan driver.
 
 --instructions runs the program under Valgrind's Callgrind and reports
 instructions to the first frame, in the idle window, and per frame: the
@@ -77,8 +81,10 @@ Each session starts with an empty shader cache (--shader-cache cold);
 outside the sessions, for every run.
 
 Under sway and labwc the compositor renders with pixman and offers no dmabuf,
-so the GPU cannot present there: wgpu falls back to a software Vulkan driver
-(lavapipe). Measure GPU costs under kwin, which composites with the GPU.
+so the GPU cannot present there and wgpu offers only a software Vulkan driver
+(lavapipe). rinch's default renderer declines it and presents with its
+software renderer; --renderer gpu makes it use lavapipe. Measure GPU costs
+under kwin, which composites with the GPU.
 
 --summon ARGS --dismiss ARGS measures showing instead of starting: the
 program starts hidden, settles, and is shown --shows times by running it
@@ -297,9 +303,15 @@ fn header(request: &Request) -> String {
         request.compositor.name(),
         match request.compositor {
             Compositor::Kwin => "it composites with the GPU through EGL",
-            Compositor::Sway | Compositor::Labwc =>
-                "wlroots with the pixman renderer offers no dmabuf, so a Vulkan client \
-                 presents through a software driver",
+            Compositor::Sway | Compositor::Labwc => match request.renderer {
+                Some(Renderer::Gpu) =>
+                    "wlroots with the pixman renderer offers no dmabuf, so the GPU renderer \
+                     presents through a software Vulkan driver",
+                Some(Renderer::Software) => "wlroots with the pixman renderer",
+                Some(Renderer::Auto) | None =>
+                    "wlroots with the pixman renderer offers no dmabuf; rinch's GPU renderer \
+                     would have only a software Vulkan driver, which its default declines",
+            },
         },
         request
             .renderer

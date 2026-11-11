@@ -36,16 +36,21 @@
 //!
 //! The build has both of rinch's renderers: the GPU one (Vello on wgpu)
 //! and the software one (tiny-skia). rinch chooses at run time: the GPU,
-//! falling back to software with a warning when the GPU will not start.
-//! The user overrides that with rinch's `RINCH_RENDERER` environment
-//! variable (`gpu`, `software` or `cpu`, `auto`); the panel adds no choice
-//! of its own.
+//! falling back to software with a warning when the GPU will not start,
+//! and software where the only adapter is a CPU one (a software Vulkan
+//! driver such as lavapipe, as under a compositor that renders with
+//! pixman), which would draw more slowly than tiny-skia. The user overrides
+//! that with rinch's `RINCH_RENDERER` environment variable (`gpu`,
+//! `software` or `cpu`, `auto`): `gpu` insists on the GPU renderer, a CPU
+//! adapter included. The panel adds no choice of its own.
 //!
 //! # Debugging
 //!
-//! Built with the `debug` feature, the panel runs rinch's debug server, for
-//! the rinch MCP tools (screenshots, the DOM, injected input); a normal
-//! build has none.
+//! Built with the `debug` feature, the panel can run rinch's debug server,
+//! for the rinch MCP tools (screenshots, the DOM, injected input). It is
+//! off unless `RINCH_DEBUG=1` is set when the panel starts, and answers
+//! only a client holding the token rinch writes, readable by the same user
+//! alone. A normal build has none.
 
 mod bar;
 mod panel;

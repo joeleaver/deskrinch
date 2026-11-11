@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 deskrinch-keyfile.workspace = true
+deskrinch-timer.workspace = true
 deskrinch-watch.workspace = true
 deskrinch-xdg.workspace = true
 futures-core.workspace = true

@@ -111,12 +111,7 @@ fn run_child(
         );
     }
     run.note("load average at the first frame", load);
-    run.note(
-        "GPU adapter",
-        watch.adapter().map_or("none logged".to_owned(), |a| {
-            format!("{} (driver {}, {})", a.name, a.driver, a.device_type)
-        }),
-    );
+    run.note("renderer", watch.renderer());
     Ok(run)
 }
 
