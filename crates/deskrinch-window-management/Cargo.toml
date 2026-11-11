@@ -17,8 +17,8 @@ wayland-protocols-plasma = { workspace = true, features = ["client"] }
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 
 [dev-dependencies]
+deskrinch-test-client.workspace = true
 rustix = { workspace = true, features = ["net", "process"] }
-tempfile.workspace = true
 
 # The compositor tests run inside a nested compositor that
 # `cargo xtask compositor-tests` starts; they are ignored by a plain

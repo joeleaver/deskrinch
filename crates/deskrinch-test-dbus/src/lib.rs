@@ -7,12 +7,19 @@
 //! compositor-tests` hands the same configuration and isolation to the
 //! sessions it starts.
 //!
+//! [`PrivateBus::wait_for_name`] (and [`wait_for`], for a bus known by its
+//! address) waits for a client of the bus to own a name, woken by the bus's
+//! signal rather than by polling.
+//!
 //! A test of D-Bus activation itself opts in to service directories of its
 //! own with [`config_with_services`] or [`PrivateBus::start_with_services`].
 //! The services the bus starts are the daemon's children: they run in its
 //! isolated session and its process group, and end with it.
 
+mod name;
 pub mod session;
+
+pub use name::NameError;
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead as _, BufReader};
@@ -20,6 +27,7 @@ use std::os::unix::process::CommandExt as _;
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::time::Duration;
 
 use rustix::process::{Pid, Signal, kill_process_group};
 
@@ -208,6 +216,21 @@ impl PrivateBus {
             .collect()
     }
 
+    /// Waits until a client of the bus owns `name`, for at most `patience`.
+    ///
+    /// It subscribes to the bus's `NameOwnerChanged` signals for `name`
+    /// before asking whether the name has an owner, so a name taken between
+    /// the two is not missed; the wait is woken by the signal, not by
+    /// polling.
+    ///
+    /// # Errors
+    ///
+    /// When the bus cannot be asked, goes away, or no one owns `name` within
+    /// `patience`.
+    pub fn wait_for_name(&self, name: &str, patience: Duration) -> Result<(), NameError> {
+        wait_for(&self.address, name, patience)
+    }
+
     /// Stops the daemon's process group (the daemon and the services it
     /// activated) now, dropping every connection to the bus.
     pub fn stop(&mut self) {
@@ -221,6 +244,16 @@ impl Drop for PrivateBus {
     fn drop(&mut self) {
         self.stop();
     }
+}
+
+/// [`PrivateBus::wait_for_name`] for a bus given by its address, such as
+/// the bus of a session that a [`PrivateBus`] of another process runs.
+///
+/// # Errors
+///
+/// As [`PrivateBus::wait_for_name`].
+pub fn wait_for(address: &str, name: &str, patience: Duration) -> Result<(), NameError> {
+    name::wait_for_name(address, name, patience)
 }
 
 #[cfg(test)]
@@ -265,5 +298,52 @@ mod tests {
             Some(OsStr::new(bus.address()))
         )));
         assert!(envs.contains(&("WAYLAND_DISPLAY".as_ref(), None)));
+    }
+
+    /// A connection that owns `name` on `bus`, until dropped.
+    fn own(bus: &PrivateBus, name: &str) -> zbus::Connection {
+        zbus::block_on(async {
+            zbus::connection::Builder::address(bus.address())
+                .name(name.to_owned())
+                .build()
+                .await
+                .unwrap()
+        })
+    }
+
+    #[test]
+    fn a_name_owned_already_is_found_at_once() {
+        let bus = PrivateBus::start().unwrap();
+        let _owner = own(&bus, "org.deskrinch.Test.Early");
+        bus.wait_for_name("org.deskrinch.Test.Early", Duration::from_secs(600))
+            .unwrap();
+    }
+
+    #[test]
+    fn a_name_taken_later_ends_the_wait() {
+        let bus = PrivateBus::start().unwrap();
+        let address = bus.address().to_owned();
+        let waiter = std::thread::spawn(move || {
+            wait_for(
+                &address,
+                "org.deskrinch.Test.Late",
+                Duration::from_secs(600),
+            )
+        });
+        let _owner = own(&bus, "org.deskrinch.Test.Late");
+        waiter.join().unwrap().unwrap();
+    }
+
+    #[test]
+    fn a_name_no_one_takes_is_reported() {
+        let bus = PrivateBus::start().unwrap();
+        let _other = own(&bus, "org.deskrinch.Test.Other");
+        let error = bus
+            .wait_for_name("org.deskrinch.Test.Never", Duration::from_millis(200))
+            .unwrap_err();
+        assert!(
+            matches!(&error, NameError::NotOwned { name, .. } if name == "org.deskrinch.Test.Never"),
+            "{error:?}"
+        );
     }
 }

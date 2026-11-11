@@ -63,14 +63,16 @@ pub(crate) enum Error {
         status: ExitStatus,
     },
     /// `cargo` built the tests but did not report a test binary.
-    #[error("cargo reported no executable for the `{name}` test")]
+    #[error("cargo reported no executable for {package}'s `{name}` test")]
     MissingTestBinary {
+        /// The package.
+        package: &'static str,
         /// The test target.
         name: &'static str,
     },
-    /// The test binary cannot be granted KWin's protocol.
-    #[error("could not write the tests' desktop file")]
-    DesktopEntry(#[from] deskrinch_window_management::kwin_access::DesktopEntryError),
+    /// A test binary cannot be granted what KWin restricts.
+    #[error("could not write a test binary's desktop file")]
+    DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),
     /// The nested compositor exited before opening its socket.
     #[error("{compositor} exited ({status}) before opening its socket; its log:\n{log}")]
     CompositorExited {
@@ -106,6 +108,83 @@ pub(crate) enum Error {
         leftovers: Vec<crate::session::Leftover>,
         /// The session's directory.
         root: PathBuf,
+    },
+    /// The nested compositor opened its socket, but did not take one of the
+    /// D-Bus names it registers at startup.
+    #[error("{compositor} did not take {name} on the session's bus ({hint}); its log:\n{log}")]
+    CompositorNotReady {
+        /// The compositor.
+        compositor: &'static str,
+        /// The name that did not appear.
+        name: &'static str,
+        /// What registers it.
+        hint: &'static str,
+        /// Why waiting for it ended.
+        source: Box<deskrinch_test_dbus::NameError>,
+        /// What it printed.
+        log: String,
+    },
+    /// The nested compositor could not be asked how it runs.
+    #[error("could not read {what} from {compositor}; its log:\n{log}")]
+    CompositorQuery {
+        /// The compositor.
+        compositor: &'static str,
+        /// What was asked for.
+        what: &'static str,
+        /// Why asking failed.
+        source: Box<zbus::Error>,
+        /// What it printed.
+        log: String,
+    },
+    /// The nested compositor started in a state the session cannot use.
+    #[error("{why} ({compositor} says \"{line}\"); its log:\n{log}")]
+    CompositorUnfit {
+        /// The compositor.
+        compositor: &'static str,
+        /// What is wrong, and why it matters.
+        why: &'static str,
+        /// The compositor's own line that says so.
+        line: String,
+        /// What it printed.
+        log: String,
+    },
+    /// The nested compositor's outputs could not be set up.
+    #[error("could not {what} under {compositor}; its log:\n{log}")]
+    OutputSetup {
+        /// The compositor.
+        compositor: &'static str,
+        /// What was being set up.
+        what: String,
+        /// Why it failed.
+        source: Box<deskrinch_test_client::Error>,
+        /// What it printed.
+        log: String,
+    },
+    /// The nested compositor's outputs do not have the scale asked for.
+    #[error("{compositor} did not take scale {asked}: {outputs}; its log:\n{log}")]
+    WrongScale {
+        /// The compositor.
+        compositor: &'static str,
+        /// The scale asked for.
+        asked: String,
+        /// The outputs at another scale, and theirs.
+        outputs: String,
+        /// What it printed.
+        log: String,
+    },
+    /// The program that sets the outputs' scale failed.
+    #[error(
+        "`{program}` could not set the outputs' scale ({status}): {output}; the compositor's log:\n{log}"
+    )]
+    ScaleToolFailed {
+        /// The program.
+        program: &'static str,
+        /// How it exited.
+        status: ExitStatus,
+        /// What it printed.
+        output: String,
+        /// What the compositor printed.
+        log: String,
     },
     /// `ci-packages` was run outside a CI job: it installs packages with
     /// `sudo`, which nothing may do on a developer's machine.

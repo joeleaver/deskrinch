@@ -194,6 +194,39 @@ mod session {
         assert_eq!(env["XDG_CURRENT_DESKTOP"], "deskrinch");
     }
 
+    /// The session checks every output before the command starts: the
+    /// whole scale `wl_output` reports, and the logical size `xdg-output`
+    /// reports against the mode (853x480 for 1280x720 at 1.5, which a
+    /// compositor that rounded up to 2 would report as 640x360), and fails
+    /// (70) if either is off; so a command that runs at all runs at the scale
+    /// asked for.
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn starts_the_command_at_the_scale_asked_for() {
+        for scale in ["2", "1.5"] {
+            let output = session_with(&["--outputs", "2", "--scale", scale], &["true"])
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "scale {scale}: {output:?}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains(&format!("at scale {scale}")), "{stderr}");
+        }
+    }
+
+    #[test]
+    fn refuses_a_scale_that_is_not_positive() {
+        for scale in ["0", "-1", "inf", "two"] {
+            let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+                .args(["session", &format!("--scale={scale}"), "sway", "true"])
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            assert!(!output.status.success(), "scale {scale}: {output:?}");
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(stderr.contains("--scale"), "{stderr}");
+        }
+    }
+
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn ends_what_the_command_left_running() {
