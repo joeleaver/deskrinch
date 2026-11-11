@@ -19,7 +19,7 @@ use crate::surface::{self, Placement};
 #[component]
 pub(crate) fn panel(live: LiveSettings<PanelSettings>, theme: Theme) -> NodeHandle {
     // The panel needs only the look applied, not the scheme itself.
-    let _scheme = theme.apply();
+    let _applied = theme.apply();
     // Where the window was made.
     let mut placed = Placement::of(&live.initial);
     let settings = live.into_signal();

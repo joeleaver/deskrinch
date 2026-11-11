@@ -6,9 +6,9 @@ use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
-use deskrinch_appearance::{Appearance, Bus, ColorScheme, Event};
+use deskrinch_appearance::{Appearance, Bus, Event, IconThemes, Preferences};
 use deskrinch_component::{Configuration, Handover, LiveSettings, report};
-use deskrinch_settings::general::{ColorSchemeSetting, GeneralSettings};
+use deskrinch_settings::general::{ColorSchemeSetting, GeneralSettings, IconThemeSetting};
 use rinch::prelude::{Memo, ThemeProviderProps};
 use rinch::reactive::Effect;
 
@@ -34,9 +34,9 @@ const FIRST_ANSWER: Duration = Duration::from_secs(1);
 pub struct Theme {
     general: LiveSettings<GeneralSettings>,
     /// The portal's answers (`None`: no portal), for the UI.
-    portal: Arc<Handover<Option<ColorScheme>>>,
+    portal: Arc<Handover<Option<Preferences>>>,
     /// The portal's answer when the component started.
-    first_portal: Option<ColorScheme>,
+    first_portal: Option<Preferences>,
     /// Kept while the component runs; `None` when the bus could not be
     /// reached.
     appearance: Option<Appearance>,
@@ -57,14 +57,14 @@ impl Theme {
         let deliver = Arc::clone(&portal);
         let appearance = Appearance::start(bus, move |event| {
             let answer = match event {
-                Event::Preferences(preferences) => Some(preferences.color_scheme),
+                Event::Preferences(preferences) => Some(preferences),
                 Event::NoPortal => None,
                 Event::Error(error) => {
                     report::error("following the desktop's colour scheme", &error);
                     return;
                 }
             };
-            deliver.deliver(answer);
+            deliver.deliver(answer.clone());
             // Heard only until `start` returns; later answers need no one.
             first.send(answer).ok();
         });
@@ -91,7 +91,10 @@ impl Theme {
     /// The scheme when the component started.
     #[must_use]
     pub fn initial_scheme(&self) -> Scheme {
-        resolve(self.general.initial.color_scheme, self.first_portal)
+        resolve(
+            self.general.initial.color_scheme,
+            self.first_portal.as_ref().map(|p| p.color_scheme),
+        )
     }
 
     /// The theme properties to make the window with (`App::theme`).
@@ -101,15 +104,19 @@ impl Theme {
     }
 
     /// Keeps the window's theme following the setting and the portal, in
-    /// the root component, on the UI thread: the resolved scheme, as a
-    /// memo, and the window restyled (`rinch::update_theme`) whenever it
-    /// changes. Both are followed until the component is disposed.
-    #[must_use = "the scheme, for a widget that shows it; the theme is applied either way"]
-    pub fn apply(self) -> Memo<Scheme> {
+    /// the root component, on the UI thread: the window restyled
+    /// (`rinch::update_theme`) whenever the resolved scheme changes, and
+    /// what was applied, as memos ([`Applied`]). Both are followed until the
+    /// component is disposed.
+    #[must_use = "the scheme and the icon theme's inputs, for widgets that use them; the theme is applied either way"]
+    pub fn apply(self) -> Applied {
         let mut applied = self.initial_scheme();
         let general = self.general.into_signal();
         let portal = self.portal.signal(self.first_portal);
-        let scheme = Memo::new(move || resolve(general.get().color_scheme, portal.get()));
+        let scheme = Memo::new(move || {
+            let preferred = portal.with(|p| p.as_ref().map(|p| p.color_scheme));
+            resolve(general.with(|g| g.color_scheme), preferred)
+        });
         Effect::new(move || {
             let wanted = scheme.get();
             if wanted != applied {
@@ -117,10 +124,38 @@ impl Theme {
                 applied = wanted;
             }
         });
+        let icon_theme = Memo::new(move || IconThemeChoice {
+            setting: general.with(|g| g.icon_theme.clone()),
+            portal: portal.with(|p| {
+                p.as_ref()
+                    .map(|p| p.icon_themes.clone())
+                    .unwrap_or_default()
+            }),
+        });
         let appearance = self.appearance;
         rinch::reactive::on_cleanup(move || drop(appearance));
-        scheme
+        Applied { scheme, icon_theme }
     }
+}
+
+/// What [`Theme::apply`] follows, for the component's own widgets.
+#[derive(Debug, Clone, Copy)]
+pub struct Applied {
+    /// Dark or light, as applied to the window.
+    pub scheme: Memo<Scheme>,
+    /// What decides the icon theme: the `[general]` `icon-theme` setting
+    /// and the portal's icon themes. A component that shows icons resolves
+    /// it against what is installed ([`resolve_icon_theme`](crate::resolve_icon_theme)).
+    pub icon_theme: Memo<IconThemeChoice>,
+}
+
+/// The inputs of the icon theme's resolution, as followed.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct IconThemeChoice {
+    /// `[general]` `icon-theme`.
+    pub setting: IconThemeSetting,
+    /// The icon themes the settings portal states (none: no portal).
+    pub portal: IconThemes,
 }
 
 impl fmt::Debug for Theme {
@@ -136,6 +171,7 @@ impl fmt::Debug for Theme {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use deskrinch_appearance::ColorScheme;
     use deskrinch_test_dbus::PrivateBus;
     use deskrinch_test_portal::{COLOR_SCHEME, Methods, StandIn, Value};
     use deskrinch_xdg::BaseDirs;
@@ -187,7 +223,10 @@ mod tests {
             &configuration(root.path(), ""),
             Bus::Address(bus.address().to_owned()),
         );
-        assert_eq!(theme.first_portal, Some(ColorScheme::PreferLight));
+        assert_eq!(
+            theme.first_portal.as_ref().map(|p| p.color_scheme),
+            Some(ColorScheme::PreferLight)
+        );
         assert_eq!(theme.initial_scheme(), Scheme::Light);
     }
 

@@ -28,7 +28,7 @@
 //! let first = theme.initial();
 //! // App::new(..).theme(first), and in the root component:
 //! # let _ = |_scope: &mut RenderScope| {
-//! let scheme = theme.apply();
+//! let applied = theme.apply();
 //! # };
 //! ```
 
@@ -39,4 +39,4 @@ mod theme;
 
 pub use icon_theme::{DEFAULT_ICON_THEMES, ResolvedIconTheme, resolve_icon_theme};
 pub use scheme::{Scheme, resolve};
-pub use theme::Theme;
+pub use theme::{Applied, IconThemeChoice, Theme};

@@ -19,7 +19,7 @@ env:
   # What building rinch needs beyond the runner image: GTK for its native
   # menus (muda) and libxdo for their accelerators. Every job that builds the
   # whole workspace, or a rinch program, installs these: the compositor tests
-  # build the launcher's binary for its process tests.
+  # build the launcher's binary for its own.
   RINCH_BUILD_PACKAGES: libgtk-3-dev libxdo-dev
 
 # Every job has a time limit, so a hang ends it instead of holding a runner

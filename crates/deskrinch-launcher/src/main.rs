@@ -18,8 +18,12 @@
 //! (`RINCH_RENDERER` overrides). Built with the `debug` feature it runs
 //! rinch's debug server, for the rinch MCP tools.
 
+mod apps;
+mod icons;
 mod root;
+mod start;
 mod surface;
+mod view;
 
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
@@ -27,7 +31,10 @@ use std::sync::Arc;
 use clap::{Parser, Subcommand};
 use deskrinch_bus::Bus;
 use deskrinch_component::{Configuration, report};
+use deskrinch_desktop_entries::Environment;
+use deskrinch_icons::SearchPath;
 use deskrinch_launcher::{Answer, Request, ServeError, Service, Visibility, send};
+use deskrinch_settings::general::GeneralSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 use rinch::prelude::*;
@@ -127,10 +134,28 @@ fn run(show: bool) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    let configuration = Configuration::start(&BaseDirs::from_process());
+    let base_dirs = BaseDirs::from_process();
+    let configuration = Configuration::start(&base_dirs);
     let theme = Theme::start(&configuration, Bus::Session);
+    // For the terminal applications run in; the look follows `[general]`
+    // through the theme.
+    let general = configuration.follow::<GeneralSettings>();
     let first_theme = theme.initial();
-    App::new(move |scope| root::launcher(scope, theme, &visibility, show))
+    let env = Environment::from_process();
+    let apps = apps::Apps::start(&env);
+    let search_path = SearchPath::new(&base_dirs);
+    let icons = icons::Icons::start(search_path.clone());
+    let parts = root::Parts {
+        theme,
+        general,
+        visibility,
+        made_shown: show,
+        apps,
+        icons,
+        search_path,
+        env,
+    };
+    App::new(move |scope| root::launcher(scope, parts))
         .window_props(surface::window_props(show))
         .theme(first_theme)
         .run();

@@ -45,7 +45,7 @@ The appearance crate's tests run a stand-in settings portal on a private
 D-Bus daemon too, never the session's.
 
 The compositor tests (the window-management crate's, `deskrinch-test-screen`'s,
-`deskrinch-test-input`'s and the launcher's process tests) drive a real
+`deskrinch-test-input`'s and the launcher's) drive a real
 compositor and are ignored by `cargo test`. This runs them in nested,
 headless KWin, sway and labwc sessions that touch nothing in your own (the
 isolated sessions `cargo xtask session` gives; it needs `dbus-daemon`,
