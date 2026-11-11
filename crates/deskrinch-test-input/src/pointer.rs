@@ -97,21 +97,27 @@ impl Input {
     }
 }
 
-/// An `Input` leaves nothing held behind it: a test that fails between
-/// [`press_button`](Input::press_button) and
-/// [`release_button`](Input::release_button) would otherwise leave the
-/// button down for every later test in the session (KWin's fake input
-/// destroys nothing with the client). Best effort: the connection may be
-/// what failed, so errors are ignored.
+/// An `Input` leaves nothing behind it.
+///
+/// - A button held is released: a test that fails between
+///   [`press_button`](Input::press_button) and
+///   [`release_button`](Input::release_button) would otherwise leave the
+///   button down for every later test in the session (KWin's fake input
+///   destroys nothing with the client).
+/// - Its devices are destroyed, and the compositor has removed them when
+///   the drop returns. Left to the connection's close, a compositor removes
+///   them when it notices it, which can be after the next `Input`, of this
+///   process or the next, has made its own; the seat then takes its pointer
+///   away from every client and gives it back, and what is pressed in
+///   between reaches no window.
+///
+/// Best effort: the connection may be what failed, so errors are ignored.
 impl Drop for Input {
     fn drop(&mut self) {
-        let held = std::mem::take(&mut self.held);
-        if held.is_empty() {
-            return;
-        }
-        for button in held {
+        for button in std::mem::take(&mut self.held) {
             let _unreleased = self.button(button, false);
         }
+        self.backend.destroy();
         let _unsettled = self.settle();
     }
 }

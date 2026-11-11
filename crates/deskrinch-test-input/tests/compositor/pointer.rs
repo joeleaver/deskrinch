@@ -147,44 +147,47 @@ fn an_input_dropped_with_a_button_down_releases_it() {
     let client = TestClient::connect().unwrap();
     let windows = fullscreen_on_each(&client);
     let (name, window, size) = &windows[0];
-    let (x, y) = points(*size)[0];
+    let [first, second] = points(*size);
+    let third = (first.0 + 20.0, first.1 + 20.0);
+    let pressed = PointerEvent::Pressed { button: PRIMARY };
+    let released = PointerEvent::Released { button: PRIMARY };
+    let fail = |error| panic!("{error}: {:?}", window.pointer_events());
     {
         let mut held = Input::connect().unwrap();
-        held.move_pointer(name, x, y).unwrap();
-        window.wait_pointer_at(x, y).unwrap();
+        held.move_pointer(name, first.0, first.1).unwrap();
+        window
+            .wait_pointer_at(first.0, first.1)
+            .unwrap_or_else(fail);
         held.press_button(Button::PRIMARY).unwrap();
         window
-            .wait_pointer("the button down", |events| {
-                events.last() == Some(&PointerEvent::Pressed { button: PRIMARY })
-            })
-            .unwrap();
+            .wait_pointer("the button down", |events| events.contains(&pressed))
+            .unwrap_or_else(fail);
         // Dropped here, with the button still down.
     }
     window
         .wait_pointer("the release the drop sent", |events| {
-            events.contains(&PointerEvent::Released { button: PRIMARY })
+            events.contains(&released)
         })
-        .unwrap_or_else(|error| panic!("{error}: {:?}", window.pointer_events()));
+        .unwrap_or_else(fail);
     let before = window.pointer_events().len();
     let mut input = Input::connect().unwrap();
-    input.move_pointer(name, x, y).unwrap();
-    window.wait_pointer_at(x, y).unwrap();
-    input.click(Button::PRIMARY).unwrap();
-    let click = [
-        PointerEvent::Pressed { button: PRIMARY },
-        PointerEvent::Released { button: PRIMARY },
-    ];
+    // A point the first pointer never reached: only the second can put the
+    // window's pointer there, so the click below goes to that one.
+    input.move_pointer(name, second.0, second.1).unwrap();
     window
-        .wait_pointer("the second input's click", |events| {
-            buttons(&events[before..]) == click
-        })
-        .unwrap_or_else(|error| panic!("{error}: {:?}", window.pointer_events()));
-    // Nothing more arrives late: exactly one press and one release.
-    std::thread::sleep(std::time::Duration::from_secs(1));
+        .wait_pointer_at(second.0, second.1)
+        .unwrap_or_else(fail);
+    input.click(Button::PRIMARY).unwrap();
+    // And a third, after the click: what the compositor sent for the click
+    // has all arrived once the window hears the pointer there.
+    input.move_pointer(name, third.0, third.1).unwrap();
+    window
+        .wait_pointer_at(third.0, third.1)
+        .unwrap_or_else(fail);
     assert_eq!(
         buttons(&window.pointer_events()[before..]),
-        click,
-        "{:?}",
+        [pressed, released],
+        "exactly one press and one release: {:?}",
         window.pointer_events()
     );
 }

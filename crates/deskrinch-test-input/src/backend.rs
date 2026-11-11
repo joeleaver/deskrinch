@@ -48,6 +48,27 @@ pub(crate) enum Backend {
     Kwin(OrgKdeKwinFakeInput),
 }
 
+impl Backend {
+    /// Destroys the devices: the compositor removes them as it handles the
+    /// request, not when it notices the connection close. KWin's fake input
+    /// is destroyed so from version 5; before, with the connection.
+    pub(crate) fn destroy(&self) {
+        match self {
+            Self::Wlroots { keyboard, pointer } => {
+                keyboard.destroy();
+                if let Some(pointer) = pointer {
+                    pointer.destroy();
+                }
+            }
+            Self::Kwin(fake) => {
+                if fake.version() >= 5 {
+                    fake.destroy();
+                }
+            }
+        }
+    }
+}
+
 /// The queue's state: nothing is dispatched to it.
 #[derive(Debug)]
 pub(crate) struct State;
