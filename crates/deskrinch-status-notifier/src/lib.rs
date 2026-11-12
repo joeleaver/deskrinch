@@ -171,22 +171,29 @@
 //!
 //! # Never awaiting a reply beside an unread stream
 //!
-//! The host holds streams of signals: every `NameOwnerChanged`, every
-//! item's signals, and each open menu's. It never awaits a method's reply
-//! outside the one loop that polls those streams; every call that expects a
-//! reply (a read, `AboutToShow`, a match for a menu's signals, the host's
-//! names at start-up) is a future polled in that same loop.
+//! The rule: whoever polls a stream of signals never awaits a method's
+//! reply outside that poll. A task that holds no stream may await one.
+//!
+//! The host's tracker holds every stream the host has: every
+//! `NameOwnerChanged`, every item's signals, and each open menu's. Every
+//! call it makes that expects a reply (a read, `AboutToShow`, the match for
+//! a menu's signals, the host's names at start-up) is a future polled in
+//! the one loop that polls those streams. The watcher's own method handlers
+//! (`RegisterStatusNotifierItem`, `RegisterStatusNotifierHost`) await the
+//! bus too, for the registering name's owner, outside that loop: they run
+//! as tasks of their own on zbus's executor and hold no stream, and the
+//! tracker keeps draining every stream while they wait. Calls that expect
+//! no reply (the activations, a menu's events, the watcher's signals) only
+//! send, and are made inline.
 //!
 //! The reason is zbus's socket reader. It hands each message to every
 //! stream that matches it and, when a stream's queue (64 messages) is full,
 //! waits until there is room, reading nothing more from the socket
 //! meanwhile. A reply that arrives behind such a message is not read until
-//! the stream is drained; a reply awaited while that stream goes unread is
-//! never read at all. Names change in bursts at login, and applications
-//! signal in floods, so this is not hypothetical: a host built the other
-//! way stalls for good when it starts, or opens a menu, in one (the
-//! crate's tests show both). Calls that expect no reply (the activations,
-//! a menu's events, the watcher's signals) only send, and are made inline.
+//! the stream is drained; a reply awaited by the only code that would drain
+//! that stream is never read at all. Names change in bursts at login, and
+//! applications signal in floods: the crate's tests start the host, open a
+//! menu and register an item in such floods.
 //!
 //! # Example
 //!

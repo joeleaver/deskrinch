@@ -7,17 +7,17 @@
 //! It never awaits a reply from the bus outside that one poll: the host's
 //! module says why.
 
-use std::future::{Future, poll_fn};
+mod menu_read;
+mod sources;
+
+use std::future::poll_fn;
 use std::io;
-use std::pin::{Pin, pin};
 use std::sync::Arc;
 use std::sync::mpsc::SyncSender;
-use std::task::{Context, Poll};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
 
 use deskrinch_timer::Timer;
-use futures_core::Stream;
 use futures_util::stream::FuturesUnordered;
 use zbus::object_server::SignalEmitter;
 use zbus::{Connection, Message, MessageStream};
@@ -29,7 +29,8 @@ use crate::host::shared::{Call, Shared, Work};
 use crate::host::startup;
 use crate::item::ItemId;
 use crate::limits::Limits;
-use crate::model::{Due, MenuDue, MenuOutcome, MenuPlace, MenuSource, Outcome, Source};
+use crate::model::{Due, MenuDue, Outcome, Source};
+use sources::{Finished, MenuRead, Pending, Sources, Step, Watch, poll_sources};
 
 /// The tracker's thread, stopped and joined when dropped.
 pub(super) struct Tracker {
@@ -77,50 +78,6 @@ impl Drop for Tracker {
     }
 }
 
-/// What one of the tracker's calls that expect a reply came to.
-enum Finished {
-    /// The items' match is on the bus: the next stage of starting.
-    Items(Box<Result<MessageStream, StartError>>),
-    /// The host's names are owned, or could not be.
-    Started(Box<Result<(), StartError>>),
-    Read(Source, Outcome),
-    MenuRead(Box<MenuRead>),
-    /// `AboutToShow` for a submenu of the item's menu answered that the
-    /// menu needs reading again.
-    MenuStale(ItemId),
-    /// Nothing to apply: the read's item or menu went while it waited, or
-    /// the answer asked for nothing.
-    Nothing,
-}
-
-/// A read of the open menu at `place`, with the match for its signals made
-/// before it, and whether the menu signalled meanwhile.
-struct MenuRead {
-    source: MenuSource,
-    outcome: MenuOutcome,
-    place: MenuPlace,
-    stream: Option<MessageStream>,
-    signalled: bool,
-}
-
-type Pending = Pin<Box<dyn Future<Output = Finished> + Send>>;
-
-/// Messages a menu read takes from its stream in one poll: a stream's
-/// queue (zbus's default).
-const DRAIN_AT_ONCE: usize = 64;
-
-/// What woke the tracker.
-enum Step {
-    Stop,
-    Disconnected,
-    Work(Work),
-    Finished(Finished),
-    Owner(Message),
-    Signal(Message),
-    MenuSignal(Message),
-    Nothing,
-}
-
 struct State {
     connection: Connection,
     shared: Arc<Shared>,
@@ -145,23 +102,6 @@ impl From<Vec<Due>> for Next {
             menu_reads: Vec::new(),
         }
     }
-}
-
-/// An open menu's signals, followed while it is open: a match on the bus
-/// for its owner and object alone, dropped (and so removed from the bus)
-/// once the menu is not there any more.
-struct Watch {
-    menu: MenuPlace,
-    stream: MessageStream,
-}
-
-/// What the tracker waits on, besides its inbox.
-struct Sources {
-    pending: FuturesUnordered<Pending>,
-    owners: MessageStream,
-    /// From the first stage of starting on.
-    items: Option<MessageStream>,
-    watches: Vec<Watch>,
 }
 
 impl State {
@@ -246,13 +186,8 @@ impl State {
                 sources.pending.push(self.menu_read(due));
             }
         }
-        // Ended before it started: `Host::start` hears it.
-        if self.started.is_some() {
-            let gone = io::Error::from(io::ErrorKind::BrokenPipe);
-            self.start_ended(Err(StartError::Connect(zbus::Error::InputOutput(
-                Arc::new(gone),
-            ))));
-        }
+        // Ended before starting finished: `started` goes with `self`, and
+        // `Host::start` hears it as `StartError::Ended`.
     }
 
     /// Tells `Host::start` how starting ended.
@@ -283,73 +218,15 @@ impl State {
         })
     }
 
-    /// The menu read `due`, once its time has come, from wherever the menu
-    /// is then; nothing when it was closed by then.
-    ///
-    /// The match for the menu's signals there is made first, so that it is
-    /// on the bus before the read's first call: a change after the read is
-    /// never missed. When the place is followed already, zbus only counts
-    /// one more user of the match, without a call. The read's own stream is
-    /// drained while the read waits for its replies (a stream left full
-    /// would stall every reply behind it), and a change it shows asks for
-    /// one more read; the tracker then keeps the stream, unless it follows
-    /// the place already or the menu has gone.
+    /// The menu read `due` ([`menu_read::menu_read`]).
     fn menu_read(&self, due: MenuDue) -> Pending {
-        let wait = (due.at > Instant::now()).then(|| self.timer.sleep_until(due.at));
-        let connection = self.connection.clone();
-        let timer = self.timer.clone();
-        let shared = Arc::clone(&self.shared);
-        let limits = self.limits.clone();
-        Box::pin(async move {
-            if let Some(wait) = wait {
-                wait.await;
-            }
-            let Some(source) = shared.with_model(|m| m.menu_source(&due.id)) else {
-                return Finished::Nothing;
-            };
-            let place = MenuPlace {
-                id: source.id.clone(),
-                owner: source.owner.clone(),
-                path: source.path.clone(),
-            };
-            // It fails only when the connection is gone, which the end of
-            // the owners' stream reports.
-            let mut stream = streams::menu_signals(&connection, &place.owner, &place.path)
-                .await
-                .ok();
-            let mut read = pin!(menu::read(connection, timer, source, limits));
-            let mut signalled = false;
-            let (source, outcome) = poll_fn(|cx| {
-                if let Some(stream) = stream.as_mut() {
-                    // A queue's worth at a time, so that a menu that floods
-                    // cannot keep the read from being polled.
-                    let mut drained = 0;
-                    while drained < DRAIN_AT_ONCE {
-                        match Pin::new(&mut *stream).poll_next(cx) {
-                            Poll::Ready(Some(message)) => {
-                                signalled |=
-                                    message.is_ok_and(|m| streams::menu_signal(&m).is_some());
-                                drained += 1;
-                            }
-                            Poll::Ready(None) | Poll::Pending => break,
-                        }
-                    }
-                    // More may be waiting: this future is polled again soon.
-                    if drained == DRAIN_AT_ONCE {
-                        cx.waker().wake_by_ref();
-                    }
-                }
-                read.as_mut().poll(cx)
-            })
-            .await;
-            Finished::MenuRead(Box::new(MenuRead {
-                source,
-                outcome,
-                place,
-                stream,
-                signalled,
-            }))
-        })
+        menu_read::menu_read(
+            self.connection.clone(),
+            self.timer.clone(),
+            Arc::clone(&self.shared),
+            self.limits.clone(),
+            due,
+        )
     }
 
     /// `AboutToShow` for `entry` of the item `id`'s open menu, sent to
@@ -501,59 +378,5 @@ impl State {
         for _ in 0..hosts {
             let _sent = Watcher::status_notifier_host_unregistered(&emitter).await;
         }
-    }
-}
-
-/// Polls each source once, starting from a different one each turn; the
-/// first that is ready is the step.
-fn poll_sources(
-    cx: &mut Context<'_>,
-    turn: usize,
-    shared: &Shared,
-    sources: &mut Sources,
-) -> Poll<Step> {
-    if let Poll::Ready(asked) = shared.poll_inbox(cx) {
-        return Poll::Ready(asked.map_or(Step::Stop, Step::Work));
-    }
-    for index in 0..4 {
-        let step = match (turn + index) % 4 {
-            0 => match Pin::new(&mut sources.pending).poll_next(cx) {
-                Poll::Ready(Some(finished)) => Some(Step::Finished(finished)),
-                // Nothing in flight; the inbox wakes the tracker for more.
-                Poll::Ready(None) | Poll::Pending => None,
-            },
-            1 => message_step(Pin::new(&mut sources.owners).poll_next(cx), Step::Owner),
-            2 => sources
-                .items
-                .as_mut()
-                .and_then(|items| message_step(Pin::new(items).poll_next(cx), Step::Signal)),
-            _ => poll_watches(cx, turn, &mut sources.watches),
-        };
-        if let Some(step) = step {
-            return Poll::Ready(step);
-        }
-    }
-    Poll::Pending
-}
-
-/// Polls each open menu's signals once, from a different one each turn.
-fn poll_watches(cx: &mut Context<'_>, turn: usize, watches: &mut [Watch]) -> Option<Step> {
-    let count = watches.len();
-    (0..count).find_map(|index| {
-        let watch = &mut watches[(turn + index) % count];
-        message_step(Pin::new(&mut watch.stream).poll_next(cx), Step::MenuSignal)
-    })
-}
-
-fn message_step(
-    polled: Poll<Option<zbus::Result<Message>>>,
-    step: fn(Message) -> Step,
-) -> Option<Step> {
-    match polled {
-        Poll::Ready(Some(Ok(message))) => Some(step(message)),
-        // A message that failed to parse is not one this host follows.
-        Poll::Ready(Some(Err(_))) => Some(Step::Nothing),
-        Poll::Ready(None) => Some(Step::Disconnected),
-        Poll::Pending => None,
     }
 }

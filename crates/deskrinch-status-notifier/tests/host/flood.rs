@@ -11,6 +11,20 @@ use zbus::{Connection, Message};
 
 use crate::common::{PATIENCE, PrivateBus};
 
+/// Item signals a flood sends. The host drops each as it comes (no item is
+/// registered at the flood's object), so the host works through many
+/// cheaply, and the flood is still running when the step it tests awaits
+/// its reply: a stream left unread fills at once.
+pub(crate) const SIGNAL_FLOOD: usize = 20_000;
+
+/// Name changes a flood sends: fewer, as each is applied to the model.
+/// Nearly fifty of a stream's queues (64), so a stream left unread fills
+/// at once, yet a backlog that a host that keeps reading works through in
+/// a fraction of its read timeout. A flood of tens of thousands measures
+/// the machine instead: with the machine loaded several times over, the
+/// host fell more than its read timeout behind one of 40,000.
+pub(crate) const NAME_FLOOD: usize = 3_000;
+
 /// The flood's thread, stopped and joined when dropped.
 pub(crate) struct Flood {
     stop: Arc<AtomicBool>,

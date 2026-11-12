@@ -9,7 +9,7 @@ use deskrinch_status_notifier::{
 };
 
 use crate::common::{Events, MenuMatches, PrivateBus, STALL, start_with, within};
-use crate::flood::{self, Flood};
+use crate::flood::{self, Flood, SIGNAL_FLOOD};
 use crate::stand_in::{Call, Reply, StandIn, properties, v};
 use crate::stand_in_menu::{AboutToShow, Entry, Layout, MenuCall, Prop};
 
@@ -202,19 +202,20 @@ fn only_an_open_menu_s_signals_are_asked_of_the_bus() {
 
 #[test]
 fn a_menu_opened_in_a_flood_of_signals_is_read_and_followed_with_one_match() {
-    // zbus hands each message to every stream that matches it, and waits
-    // when one's queue (64) is full: had the host awaited the menu's
-    // `AddMatch` while not draining the items' stream, the reply would
-    // have waited behind the flood, and the match have been asked for
-    // again once the call timed out; the tracker this
-    // replaced stalled here for good, which the watchdog turns into a
-    // failure. The flood runs from before the opening until after it. A
-    // run in which the host drained the flood before the opening passes
-    // without having met the case; one in which it was still flooding,
-    // the usual run, shows it.
+    // Guards: opening a menu awaits no reply (the match for its signals,
+    // its read) while the items' stream goes unread, and asks for the
+    // match once. zbus stops reading the socket while a stream's queue
+    // (64) is full; a flood of item signals running from before the
+    // opening until after it fills that queue many times over, so a reply
+    // awaited beside the stream unread would not be read: the menu would
+    // not come, or the match would be asked for again after a timeout. A
+    // stall is turned into a failure by the watchdog. A run in which the
+    // host drained the flood before the opening passes without having met
+    // the case; one in which it was still flooding, the usual run, shows
+    // it.
     within(STALL, || {
         let f = Fixture::start(Limits::default(), root(vec![Entry::labelled(1, "Open")]));
-        let flood = Flood::start(&f.bus, 20_000, flood::item_signal);
+        let flood = Flood::start(&f.bus, SIGNAL_FLOOD, flood::item_signal);
         flood.wait_for(500);
         f.handle.open_menu(&f.added.id).unwrap();
         assert_eq!(f.events.menu().entries[0].label.text, "Open");

@@ -10,22 +10,24 @@ use crate::common::{
     ListChanges, PrivateBus, STALL, WatcherSignals, error_name, start, start_with,
     watcher_property, within,
 };
-use crate::flood::{self, Flood};
+use crate::flood::{self, Flood, NAME_FLOOD, SIGNAL_FLOOD};
 use crate::stand_in::{Reply, StandIn, properties, v};
 
 const NAME: &str = "org.kde.StatusNotifierItem-1-1";
 
 #[test]
 fn the_host_starts_in_a_flood_of_name_changes() {
-    // A panel starts at login, when names change in bursts. Every one
-    // reaches the host's stream of owner changes from the first moment:
-    // had it awaited its names' replies while not draining that stream,
-    // they would have waited behind the flood until the calls timed out
-    // and starting failed; the start this replaced
-    // stalled here for good, which the watchdog turns into a failure.
+    // Guards: starting awaits no reply while the stream of owner changes
+    // goes unread. That stream takes every name change on the bus from the
+    // first moment, and zbus stops reading the socket while a stream's
+    // queue is full; a flood of name changes (names change in bursts at
+    // login, when a panel starts) fills it at once, so a reply awaited
+    // beside it unread is never read. A stall is turned into a failure by
+    // the watchdog. A run in which the host started before the flood had
+    // filled the queue passes without having met the case.
     within(STALL, || {
         let bus = PrivateBus::start();
-        let flood = Flood::start(&bus, 40_000, flood::name_change);
+        let flood = Flood::start(&bus, NAME_FLOOD, flood::name_change);
         flood.wait_for(500);
         let (host, events) = start_with(bus.config(Limits::default()));
         drop(flood);
@@ -37,6 +39,35 @@ fn the_host_starts_in_a_flood_of_name_changes() {
         );
         item.register(&item.unique_name()).unwrap();
         assert_eq!(events.added().title, "A");
+        assert_eq!(host.handle().items().len(), 1);
+    });
+}
+
+#[test]
+fn an_item_registers_in_a_flood_of_item_signals() {
+    // Guards: the watcher's method handlers may await the bus (the
+    // registering name's owner) because they hold no stream, and the
+    // tracker keeps draining every stream the host holds while they wait.
+    // A flood of item signals fills the items' stream's queue many times
+    // over during the registration; were that stream left unread, the
+    // handler's reply would not be read either, and the application's
+    // registration would fail at the call's timeout (applications do not
+    // try again). A stall is turned into a failure by the watchdog. A run
+    // in which the flood was drained before the registration passes
+    // without having met the case.
+    within(STALL, || {
+        let bus = PrivateBus::start();
+        let (host, events) = start(&bus);
+        let flood = Flood::start(&bus, SIGNAL_FLOOD, flood::item_signal);
+        flood.wait_for(500);
+        let item = StandIn::start(
+            &bus,
+            "/StatusNotifierItem",
+            Reply::Properties(properties("A")),
+        );
+        item.register(&item.unique_name()).unwrap();
+        assert_eq!(events.added().title, "A");
+        drop(flood);
         assert_eq!(host.handle().items().len(), 1);
     });
 }

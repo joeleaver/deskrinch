@@ -106,6 +106,11 @@ pub enum StartError {
     /// The timer that paces the reads could not be started.
     #[error("could not start the host's timer")]
     Timer(#[source] deskrinch_timer::StartError),
+    /// The host's thread ended before starting finished: the connection
+    /// was lost while the host took its names, or the thread panicked
+    /// (which reported itself).
+    #[error("the host's thread ended before it started")]
+    Ended,
 }
 
 /// Why an operation on a [`Handle`] did nothing.
@@ -261,14 +266,13 @@ impl Host {
             Tracker::spawn(connection, owners, shared, limits, timer, started)
                 .map_err(StartError::Thread)?,
         );
-        // The tracker always answers, even when it ends first; dropping the
-        // host on an error stops it and gives up what it owned.
+        // Dropping the host on an error stops the tracker and gives up what
+        // it owned.
         match start.recv() {
             Ok(Ok(())) => Ok(host),
             Ok(Err(error)) => Err(error),
-            Err(mpsc::RecvError) => Err(StartError::Connect(zbus::Error::InputOutput(Arc::new(
-                io::Error::from(io::ErrorKind::BrokenPipe),
-            )))),
+            // The tracker's thread ended without an answer.
+            Err(mpsc::RecvError) => Err(StartError::Ended),
         }
     }
 
