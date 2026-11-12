@@ -2,18 +2,25 @@
 //!
 //! What follows was read in KWin's source, at the `v6.6.6` tag (the KWin
 //! this machine and CI's Ubuntu 26.04 run) and on the `Plasma/6.6` branch,
-//! which agree; it was not watched happening under a debugger.
+//! which agree, and its effect observed (below); the writer was not watched
+//! under a debugger.
 //!
 //! KWin's writer (`ScreenShotWriter2::run`, in
 //! `src/plugins/screenshot/screenshotdbusinterface2.cpp`) sets `O_NONBLOCK`
 //! on the descriptor it is given and writes through a buffered `QFile`
 //! (opened `QIODevice::WriteOnly`, without `Unbuffered`, and never flushed),
 //! stopping at `if (writtenCount == 0 || remainingSize == 0)`. The buffer's
-//! last bytes are written when the `QFile` is destroyed; into a pipe whose
-//! reader is behind (under load), that write fails with `EAGAIN` and the
-//! bytes are lost. KWin has answered the call already and only logs the
-//! failure, so the reader saw a clean end of file, short of what the answer
-//! described.
+//! last bytes are written when the `QFile` is destroyed. A reader that is
+//! behind *when the writer finishes* (one that keeps the pipe full to the
+//! end, as a busy machine makes it) loses bytes there: KWin has answered the
+//! call already and logs nothing, so the reader sees a clean end of file,
+//! short of what the answer described. A reader that is only slow to start
+//! loses nothing: the writer's `poll` loop waits for it.
+//!
+//! Observed under KWin 6.6.6 on a 1280×720 output (3,686,400 bytes described):
+//! a reader trickling 4 KiB at a time with 5 ms pauses got 3,674,112 bytes,
+//! short by 12,288, in 12 captures of 12; readers reading at once, or after
+//! a 2 s pause, got all of them in 12 of 12 each.
 //!
 //! A memory file never fills: every write KWin makes lands whole. End of
 //! file means nothing for a file, so the end of the writing is the file
