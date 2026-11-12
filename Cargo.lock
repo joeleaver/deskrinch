@@ -1059,6 +1059,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "ksni",
+ "png 0.18.1",
  "proptest",
  "serde",
  "thiserror 2.0.21",

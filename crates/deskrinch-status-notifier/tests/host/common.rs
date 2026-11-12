@@ -7,7 +7,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::Duration;
 
-use deskrinch_status_notifier::{Bus, Config, Event, Host, Item, ItemId, Limits};
+use deskrinch_status_notifier::{
+    Bus, Config, Event, Host, Item, ItemId, Limits, Menu, MenuFailure,
+};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::wire::OwnedVariant;
@@ -18,6 +20,10 @@ pub(crate) const QUIET: Duration = Duration::from_millis(300);
 
 /// How long a test waits for something that should happen.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
+
+/// How long a test that a stalled host would hang ([`within`]) may take:
+/// several waits of [`PATIENCE`] in a row.
+pub(crate) const STALL: Duration = Duration::from_secs(60);
 
 /// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.
 pub(crate) struct PrivateBus(deskrinch_test_dbus::PrivateBus);
@@ -87,6 +93,20 @@ impl Events {
         }
     }
 
+    pub(crate) fn menu(&self) -> Arc<Menu> {
+        match self.next() {
+            Event::Menu(menu) => menu,
+            other => panic!("expected Menu, got {other:?}"),
+        }
+    }
+
+    pub(crate) fn menu_failed(&self) -> (ItemId, MenuFailure) {
+        match self.next() {
+            Event::MenuFailed { item, reason } => (item, reason),
+            other => panic!("expected MenuFailed, got {other:?}"),
+        }
+    }
+
     pub(crate) fn quiet(&self) {
         if let Ok(event) = self.0.recv_timeout(QUIET) {
             panic!("unexpected event {event:?}");
@@ -103,6 +123,27 @@ pub(crate) fn start_with(config: Config) -> (Host, Events) {
     })
     .unwrap();
     (host, Events(rx))
+}
+
+/// Runs `test` on a thread of its own and fails unless it ends within
+/// `limit`: a host that stalls (as one that awaits the bus while a stream
+/// it holds fills can, for good) fails the test instead of hanging the
+/// run. The stalled thread is left behind.
+pub(crate) fn within(limit: Duration, test: impl FnOnce() + Send + 'static) {
+    let (done, ended) = mpsc::channel();
+    let thread = thread::spawn(move || {
+        test();
+        let _sent = done.send(());
+    });
+    match ended.recv_timeout(limit) {
+        Ok(()) => thread.join().unwrap(),
+        // It panicked: its own message says why.
+        Err(mpsc::RecvTimeoutError::Disconnected) => match thread.join() {
+            Ok(()) => {}
+            Err(panic) => std::panic::resume_unwind(panic),
+        },
+        Err(mpsc::RecvTimeoutError::Timeout) => panic!("the test stalled for {limit:?}"),
+    }
 }
 
 /// Starts a host on `bus` with the default limits.
@@ -215,29 +256,114 @@ impl ListChanges {
 /// (`org.freedesktop.DBus.Monitoring`) sees them.
 pub(crate) struct ReadDestinations(Receiver<String>);
 
+/// A monitor of `bus` (`org.freedesktop.DBus.Monitoring`) for the method
+/// calls `rules` match, forwarding what `pick` makes of each; every call
+/// sent after this returns is seen.
+fn monitor<T: Send + 'static>(
+    bus: &PrivateBus,
+    rules: &[&str],
+    pick: impl Fn(&Message) -> Option<T> + Send + 'static,
+) -> Receiver<T> {
+    let connection = bus.client();
+    // The monitor's own stream first, so that nothing after the call is
+    // missed.
+    let stream = MessageStream::from(&connection);
+    zbus::block_on(connection.call_method(
+        Some("org.freedesktop.DBus"),
+        "/org/freedesktop/DBus",
+        Some("org.freedesktop.DBus.Monitoring"),
+        "BecomeMonitor",
+        &(rules, 0_u32),
+    ))
+    .unwrap();
+    forward_stream(connection, stream, move |message| {
+        (message.header().message_type() == Type::MethodCall)
+            .then(|| pick(message))
+            .flatten()
+    })
+}
+
+fn member_is(message: &Message, member: &str) -> bool {
+    message
+        .header()
+        .member()
+        .map(zbus::names::MemberName::as_str)
+        == Some(member)
+}
+
+/// The match rules for the menus' interface held on the bus, as a monitor
+/// sees connections ask for them and give them up (`AddMatch`,
+/// `RemoveMatch`); only the host asks for those.
+pub(crate) struct MenuMatches {
+    calls: Receiver<(bool, String)>,
+    live: std::cell::RefCell<Vec<String>>,
+    added: std::cell::Cell<usize>,
+}
+
+impl MenuMatches {
+    /// Starts monitoring, before the host starts, so that every rule it
+    /// asks for is seen.
+    pub(crate) fn on(bus: &PrivateBus) -> Self {
+        let rules = [
+            "type='method_call',interface='org.freedesktop.DBus',member='AddMatch'",
+            "type='method_call',interface='org.freedesktop.DBus',member='RemoveMatch'",
+        ];
+        let calls = monitor(bus, &rules, |message| {
+            let added = member_is(message, "AddMatch");
+            let rule: String = message.body().deserialize().ok()?;
+            rule.contains("com.canonical.dbusmenu")
+                .then_some((added, rule))
+        });
+        Self {
+            calls,
+            live: std::cell::RefCell::new(Vec::new()),
+            added: std::cell::Cell::new(0),
+        }
+    }
+
+    /// The rules held once `settled` says they are as expected (the host
+    /// changes them on its own thread), with any further change made while
+    /// things settle.
+    pub(crate) fn live(&self, settled: impl Fn(&[String]) -> bool) -> Vec<String> {
+        let mut live = self.live.borrow_mut();
+        let apply = |live: &mut Vec<String>, (added, rule): (bool, String)| {
+            if added {
+                self.added.set(self.added.get() + 1);
+                live.push(rule);
+            } else if let Some(at) = live.iter().position(|r| *r == rule) {
+                live.remove(at);
+            }
+        };
+        let deadline = std::time::Instant::now() + PATIENCE;
+        while !settled(&live) {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            match self.calls.recv_timeout(left) {
+                Ok(call) => apply(&mut live, call),
+                Err(_) => break,
+            }
+        }
+        while let Ok(call) = self.calls.recv_timeout(QUIET) {
+            apply(&mut live, call);
+        }
+        live.clone()
+    }
+
+    /// How many times a menu's match has been asked for, as far as
+    /// [`live`](Self::live) has seen.
+    pub(crate) fn added(&self) -> usize {
+        self.added.get()
+    }
+}
+
 impl ReadDestinations {
     /// Starts monitoring; reads sent after this returns are all seen.
     pub(crate) fn on(bus: &PrivateBus) -> Self {
-        let connection = bus.client();
-        // The monitor's own stream first, so that nothing after the call is
-        // missed.
-        let stream = MessageStream::from(&connection);
-        zbus::block_on(connection.call_method(
-            Some("org.freedesktop.DBus"),
-            "/org/freedesktop/DBus",
-            Some("org.freedesktop.DBus.Monitoring"),
-            "BecomeMonitor",
-            &(vec!["type='method_call',member='GetAll'"], 0_u32),
-        ))
-        .unwrap();
-        Self(forward_stream(connection, stream, |message| {
-            let header = message.header();
-            if header.message_type() != Type::MethodCall
-                || header.member().map(zbus::names::MemberName::as_str) != Some("GetAll")
-            {
+        let rules = ["type='method_call',member='GetAll'"];
+        Self(monitor(bus, &rules, |message| {
+            if !member_is(message, "GetAll") {
                 return None;
             }
-            header.destination().map(ToString::to_string)
+            message.header().destination().map(ToString::to_string)
         }))
     }
 
