@@ -25,6 +25,14 @@ impl Key {
     pub const RIGHT: Self = Self(106);
     /// Down.
     pub const DOWN: Self = Self(108);
+    /// The left Control.
+    pub const LEFT_CTRL: Self = Self(29);
+    /// The left Shift.
+    pub const LEFT_SHIFT: Self = Self(42);
+    /// The left Alt.
+    pub const LEFT_ALT: Self = Self(56);
+    /// The left logo key (Super, Meta).
+    pub const LEFT_META: Self = Self(125);
 
     /// The key's evdev code.
     #[must_use]

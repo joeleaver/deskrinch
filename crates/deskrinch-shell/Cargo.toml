@@ -1,0 +1,12 @@
+[package]
+name = "deskrinch-shell"
+description = "What deskrinch's shell consists of: its components, in the order they start and what each one's being ready means, and the shell's own key bindings."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

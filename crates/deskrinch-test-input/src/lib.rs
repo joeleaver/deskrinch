@@ -18,7 +18,8 @@
 //!     KWin offers only to a binary granted [`KWIN_FAKE_INPUT_INTERFACE`]
 //!     (`cargo xtask compositor-tests` grants it through its suites table).
 //! - [`Key`]: a key by its evdev code, and the text a US layout types
-//!   without a modifier.
+//!   without a modifier; a key pressed with modifiers held, as a chord
+//!   ([`Input::press_with`]).
 //! - The pointer ([`Input::move_pointer`], [`Input::press_button`],
 //!   [`Input::release_button`], [`Input::click`]): moved to a point on a
 //!   named output, in that output's logical pixels from its top-left
@@ -49,8 +50,8 @@
 //! An `Input` leaves nothing behind it. A button pressed with
 //! [`Input::press_button`] and not released is released when the `Input` is
 //! dropped (a test that fails mid-drag included), and the keys have no way to
-//! be left down, since [`Input::press`] and [`Input::type_text`] release
-//! every key they press. Its devices are destroyed with it, and are gone
+//! be left down, since [`Input::press`], [`Input::press_with`] and
+//! [`Input::type_text`] release every key they press. Its devices are destroyed with it, and are gone
 //! when the drop returns: the next `Input`'s are never made while the
 //! seat is still taking these away, which would take the pointer from every
 //! window for a moment.

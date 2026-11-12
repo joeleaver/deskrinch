@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::cargo_messages::{self, Kind};
 use crate::error::Error;
 
 /// Which implementation of the Wayland client library a test binary is
@@ -101,32 +102,7 @@ fn build(
 
 /// The executable of `target` in Cargo's JSON messages.
 fn test_executable(messages: &str, target: Target) -> Option<PathBuf> {
-    messages
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter(|message| message["reason"] == "compiler-artifact")
-        .filter(|message| message["target"]["name"] == target.test)
-        .filter(|message| {
-            message["package_id"]
-                .as_str()
-                .is_some_and(|id| package_name(id) == Some(target.package))
-        })
-        .filter(|message| {
-            message["target"]["kind"]
-                .as_array()
-                .is_some_and(|kinds| kinds.iter().any(|kind| kind == "test"))
-        })
-        .find_map(|message| message["executable"].as_str().map(PathBuf::from))
-}
-
-/// The package name in a Cargo package id: `path+file:///…/name#0.1.0`, or
-/// `path+file:///…/dir#name@0.1.0` when the directory is named otherwise.
-fn package_name(id: &str) -> Option<&str> {
-    let (location, fragment) = id.rsplit_once('#')?;
-    match fragment.split_once('@') {
-        Some((name, _)) => Some(name),
-        None => location.rsplit('/').next(),
-    }
+    cargo_messages::executable(messages, target.package, target.test, Kind::Test)
 }
 
 #[cfg(test)]
@@ -190,15 +166,5 @@ not json
             test_executable(MESSAGES, target(SCREEN, "kwin_not_granted")),
             None
         );
-    }
-
-    #[test]
-    fn reads_package_ids() {
-        assert_eq!(package_name("path+file:///w/crates/a-b#0.1.0"), Some("a-b"));
-        assert_eq!(
-            package_name("path+file:///w/crates/dir#a-b@0.1.0"),
-            Some("a-b")
-        );
-        assert_eq!(package_name("no fragment"), None);
     }
 }

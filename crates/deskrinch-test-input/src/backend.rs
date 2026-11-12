@@ -157,6 +157,26 @@ impl Input {
         self.settle()
     }
 
+    /// Presses `key` while holding `modifiers` (such as [`Key::LEFT_CTRL`]),
+    /// as a person types a chord: the modifiers pressed in order, the key
+    /// pressed and released, the modifiers released in the reverse order.
+    /// The compositor reads the modifiers' state from the keys themselves.
+    ///
+    /// # Errors
+    ///
+    /// As [`press`](Self::press).
+    pub fn press_with(&mut self, modifiers: &[Key], key: Key) -> Result<(), Error> {
+        for &modifier in modifiers {
+            self.send(modifier, PRESSED);
+        }
+        self.send(key, PRESSED);
+        self.send(key, RELEASED);
+        for &modifier in modifiers.iter().rev() {
+            self.send(modifier, RELEASED);
+        }
+        self.settle()
+    }
+
     /// Types `text`, one key after another.
     ///
     /// # Errors

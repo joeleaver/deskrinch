@@ -993,6 +993,7 @@ dependencies = [
  "deskrinch-gestures",
  "deskrinch-icons",
  "deskrinch-settings",
+ "deskrinch-shell",
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-dbus",
@@ -1047,6 +1048,10 @@ dependencies = [
  "deskrinch-config",
  "serde",
 ]
+
+[[package]]
+name = "deskrinch-shell"
+version = "0.1.0"
 
 [[package]]
 name = "deskrinch-status-notifier"
@@ -6320,6 +6325,7 @@ dependencies = [
  "ctrlc",
  "deskrinch-bus",
  "deskrinch-kwin-access",
+ "deskrinch-shell",
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-dbus",
@@ -6332,6 +6338,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "wayland-client",
  "zbus 6.2.1",
 ]
 

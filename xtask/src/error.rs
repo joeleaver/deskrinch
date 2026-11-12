@@ -1,5 +1,6 @@
 //! Why a task could not run to completion.
 
+use std::ffi::OsString;
 use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
@@ -70,6 +71,18 @@ pub(crate) enum Error {
         /// The test target.
         name: &'static str,
     },
+    /// A key binding's program is not an absolute path.
+    #[error("a key binding must run an absolute path, not {}", .0.display())]
+    BindingNotAbsolute(PathBuf),
+    /// A key binding's command holds a word that would need quoting.
+    #[error(
+        "a key binding's command would need {0:?} quoted; only letters, digits and `/._-+,:=@` \
+         are written"
+    )]
+    BindingNeedsQuoting(OsString),
+    /// `cargo xtask desktop` could not run.
+    #[error(transparent)]
+    Desktop(#[from] crate::desktop::DesktopError),
     /// A test binary cannot be granted what KWin restricts.
     #[error("could not write a test binary's desktop file")]
     DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),

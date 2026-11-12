@@ -183,7 +183,7 @@ fn supervise(root: &Path, input: impl BufRead) -> Result<(), Error> {
 /// Whether `root` is a session's root: a directory (not a link to one)
 /// directly in [`ROOT_PARENT`], named with [`ROOT_PREFIX`], holding
 /// [`MARKER`].
-fn check(root: &Path) -> Result<(), Error> {
+pub(crate) fn check(root: &Path) -> Result<(), Error> {
     let refuse = |why| Error::NotASession {
         root: root.to_owned(),
         why,
@@ -207,6 +207,18 @@ fn check(root: &Path) -> Result<(), Error> {
         return Err(refuse("no session marker in it"));
     }
     Ok(())
+}
+
+/// A directory made and marked as a session's root, for tests of what
+/// checks one; removed when dropped.
+#[cfg(test)]
+pub(crate) fn fake_root() -> tempfile::TempDir {
+    let root = tempfile::Builder::new()
+        .prefix(ROOT_PREFIX)
+        .tempdir_in(ROOT_PARENT)
+        .unwrap();
+    fs::write(root.path().join(MARKER), "").unwrap();
+    root
 }
 
 #[cfg(test)]
