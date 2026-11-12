@@ -277,6 +277,7 @@ impl TestClient {
             paint,
             status: Mutex::new(Status::default()),
             changed: Condvar::new(),
+            decoration: Mutex::new(None),
         });
         lock(&self.windows).insert(surface.id(), Arc::clone(&shared));
         let xdg_surface = self
@@ -288,6 +289,7 @@ impl TestClient {
             decoration.set_mode(zxdg_toplevel_decoration_v1::Mode::ClientSide);
             decoration
         });
+        *lock(&shared.decoration) = decoration;
         toplevel.set_title(title.to_owned());
         toplevel.set_app_id(app_id.to_owned());
         toplevel.set_parent(parent);
@@ -302,7 +304,6 @@ impl TestClient {
             Arc::clone(&self.outputs),
             Arc::clone(&self.windows),
             toplevel,
-            decoration,
             xdg_surface,
             shared,
         );
