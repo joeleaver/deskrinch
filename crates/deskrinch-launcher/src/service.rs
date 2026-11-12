@@ -7,9 +7,11 @@
 //! - `Toggle() -> b`: shows the launcher if hidden, hides it if shown, and
 //!   answers whether it is now shown;
 //! - `Show()`, `Hide()`: shows or hides it; one already shown or hidden
-//!   stays so.
+//!   stays so;
 //! - `ForgetStarts()`: deletes the record of the applications started,
-//!   and returns once it is deleted.
+//!   and returns once it is deleted;
+//! - the property `Shown` (`b`, read-only): whether it is shown, or about
+//!   to be, read on demand (no `PropertiesChanged` is sent for it).
 //!
 //! The name is requested without queueing or replacement: a second
 //! launcher finds it taken ([`ServeError::Running`]) and leaves the first
@@ -54,6 +56,13 @@ impl Launcher {
     /// removal, which the caller waits on anyway.
     fn forget_starts(&self) {
         (self.forget_starts)();
+    }
+
+    /// Whether it is shown, or about to be. Read on demand: no signal says
+    /// when it changes.
+    #[zbus(property(emits_changed_signal = "false"))]
+    fn shown(&self) -> bool {
+        self.visibility.is_shown()
     }
 }
 

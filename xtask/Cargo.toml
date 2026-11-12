@@ -13,6 +13,8 @@ clap.workspace = true
 deskrinch-bus.workspace = true
 ctrlc.workspace = true
 deskrinch-kwin-access.workspace = true
+# What the desktop runs: the shell's components and its key bindings.
+deskrinch-shell.workspace = true
 deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true
 deskrinch-test-dbus.workspace = true
@@ -21,10 +23,12 @@ deskrinch-test-input.workspace = true
 deskrinch-test-screen.workspace = true
 deskrinch-test-wayland.workspace = true
 deskrinch-window-management.workspace = true
-rustix = { workspace = true, features = ["param", "process"] }
+rustix = { workspace = true, features = ["fs", "param", "process"] }
 serde_json.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
+# Following the desktop's outputs, which are its windows.
+wayland-client.workspace = true
 # Asking KWin how it composites, on the session's bus, driven by
 # `zbus::block_on`.
 zbus = { workspace = true, features = ["default-rt"] }

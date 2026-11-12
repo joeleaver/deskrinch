@@ -23,6 +23,36 @@ fn keys_typed_reach_the_window_with_the_focus_in_order() {
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn a_chord_holds_its_modifiers_around_its_key() {
+    Compositor::current();
+    let mut input = Input::connect().unwrap();
+    let client = TestClient::connect().unwrap();
+    let window = client.open("chorded", "org.deskrinch.InputTest").unwrap();
+    window.wait_keyboard().unwrap();
+    // Not a modifier: nothing is sent.
+    assert!(matches!(
+        input.press_with(&[Key::ESCAPE], Key::TAB),
+        Err(Error::NotAModifier(Key::ESCAPE))
+    ));
+    input
+        .press_with(&[Key::LEFT_CTRL, Key::LEFT_ALT], Key::TAB)
+        .unwrap();
+    input.press(Key::ENTER).unwrap();
+    window.wait_key(Key::ENTER.code()).unwrap();
+    // Each key pressed once, in order.
+    assert_eq!(
+        window.keys(),
+        [
+            Key::LEFT_CTRL.code(),
+            Key::LEFT_ALT.code(),
+            Key::TAB.code(),
+            Key::ENTER.code()
+        ]
+    );
+}
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn keys_go_to_the_window_with_the_focus_only() {
     Compositor::current();
     let mut input = Input::connect().unwrap();

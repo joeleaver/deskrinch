@@ -157,6 +157,53 @@ impl Input {
         self.settle()
     }
 
+    /// Presses `key` while holding `modifiers` (such as [`Key::LEFT_CTRL`]),
+    /// as a person types a chord: the modifiers pressed in order, the key
+    /// pressed and released, the modifiers released in the reverse order.
+    ///
+    /// KWin reads the modifiers' state from the keys themselves. wlroots'
+    /// virtual keyboard does not: it takes the state as the client sends it,
+    /// so it is sent after each modifier key, as a keyboard's own state
+    /// would change.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotAModifier`] for a modifier that is not one, before
+    /// anything is sent; otherwise as [`press`](Self::press).
+    pub fn press_with(&mut self, modifiers: &[Key], key: Key) -> Result<(), Error> {
+        let masks = modifiers
+            .iter()
+            .map(|&modifier| {
+                modifier
+                    .modifier_mask()
+                    .ok_or(Error::NotAModifier(modifier))
+            })
+            .collect::<Result<Vec<u32>, _>>()?;
+        let mut held = 0;
+        for (&modifier, mask) in modifiers.iter().zip(&masks) {
+            self.send(modifier, PRESSED);
+            held |= mask;
+            self.send_modifiers(held);
+        }
+        self.send(key, PRESSED);
+        self.send(key, RELEASED);
+        for (&modifier, mask) in modifiers.iter().zip(&masks).rev() {
+            self.send(modifier, RELEASED);
+            held &= !mask;
+            self.send_modifiers(held);
+        }
+        self.settle()
+    }
+
+    /// Tells a wlroots compositor the modifiers held, by their masks in
+    /// the keymap; KWin needs nothing.
+    fn send_modifiers(&self, depressed: u32) {
+        match &self.backend {
+            Backend::Wlroots { keyboard, .. } => keyboard.modifiers(depressed, 0, 0, 0),
+            Backend::Kwin(_) => {}
+        }
+    }
+
     /// Types `text`, one key after another.
     ///
     /// # Errors

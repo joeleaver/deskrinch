@@ -70,6 +70,14 @@ it. Only the project manager writes to Pimble.
   `scripts/isolated-session.sh` does the same. Nothing is
   installed, written or launched in the user's real session or home. This
   holds for work in rinch clones too.
+  One deliberate exception, approved by the owner: `cargo xtask desktop`
+  opens a window on the real desktop with a nested compositor and the shell
+  inside. Only the nested compositor is given the real display; everything
+  inside is isolated like a test session, with a home of its own. The owner
+  runs it. Agents, tests and CI never run it against the real desktop: the
+  command refuses to start outside an interactive terminal, and agents and
+  tests run it only inside `cargo xtask session`, where its window opens in
+  the headless session.
 - **Temporary files are your own.** Agents share scratch directories. Never
   write a fixed file name there (a PR description, a script, a log): make a
   directory with `mktemp -d` and work in it.

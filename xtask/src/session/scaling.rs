@@ -43,7 +43,7 @@ impl Session {
     }
 
     /// The path of the compositor's Wayland socket.
-    fn socket_path(&self) -> std::path::PathBuf {
+    pub(crate) fn socket_path(&self) -> std::path::PathBuf {
         self.root.join("run").join(&self.socket)
     }
 
