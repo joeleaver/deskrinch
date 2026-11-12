@@ -17,3 +17,5 @@ mod listing;
 mod placement;
 #[cfg(test)]
 mod session_end;
+#[cfg(test)]
+mod shared;

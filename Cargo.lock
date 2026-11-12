@@ -1194,11 +1194,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-wayland-client"
+version = "0.1.0"
+dependencies = [
+ "wayland-client",
+ "wayland-protocols",
+]
+
+[[package]]
 name = "deskrinch-window-management"
 version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-client",
+ "deskrinch-wayland-client",
  "rustix",
  "thiserror 2.0.21",
  "wayland-client",
