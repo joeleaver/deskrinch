@@ -4,12 +4,42 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use deskrinch_status_notifier::{Item, Status};
+use deskrinch_status_notifier::{Item, Limits, Status};
 
-use crate::common::{ListChanges, PrivateBus, WatcherSignals, error_name, start, watcher_property};
+use crate::common::{
+    ListChanges, PrivateBus, STALL, WatcherSignals, error_name, start, start_with,
+    watcher_property, within,
+};
+use crate::flood::{self, Flood};
 use crate::stand_in::{Reply, StandIn, properties, v};
 
 const NAME: &str = "org.kde.StatusNotifierItem-1-1";
+
+#[test]
+fn the_host_starts_in_a_flood_of_name_changes() {
+    // A panel starts at login, when names change in bursts. Every one
+    // reaches the host's stream of owner changes from the first moment:
+    // had it awaited its names' replies while not draining that stream,
+    // they would have waited behind the flood until the calls timed out
+    // and starting failed; the start this replaced
+    // stalled here for good, which the watchdog turns into a failure.
+    within(STALL, || {
+        let bus = PrivateBus::start();
+        let flood = Flood::start(&bus, 40_000, flood::name_change);
+        flood.wait_for(500);
+        let (host, events) = start_with(bus.config(Limits::default()));
+        drop(flood);
+        // And it works: an item registers and is read.
+        let item = StandIn::start(
+            &bus,
+            "/StatusNotifierItem",
+            Reply::Properties(properties("A")),
+        );
+        item.register(&item.unique_name()).unwrap();
+        assert_eq!(events.added().title, "A");
+        assert_eq!(host.handle().items().len(), 1);
+    });
+}
 
 #[test]
 fn an_item_registered_by_its_name_is_read_and_reported() {

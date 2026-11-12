@@ -14,6 +14,8 @@ mod activation;
 #[cfg(test)]
 mod common;
 #[cfg(test)]
+mod flood;
+#[cfg(test)]
 mod interop;
 #[cfg(test)]
 mod lifecycle;

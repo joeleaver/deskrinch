@@ -2,21 +2,20 @@
 //! and the handle the tray acts through.
 
 pub(crate) mod shared;
+mod startup;
 mod tracker;
 
 use std::io;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::mpsc;
 use std::thread::{self, JoinHandle};
 
 use deskrinch_bus::Bus;
 use deskrinch_timer::Timer;
 use zbus::Connection;
-use zbus::fdo::{RequestNameFlags, RequestNameReply};
-use zbus::object_server::SignalEmitter;
 
 use crate::dbus::watcher::Watcher;
-use crate::dbus::{HOST_NAME_PREFIX, WATCHER_NAME, WATCHER_PATH, streams};
+use crate::dbus::{WATCHER_NAME, WATCHER_PATH, streams};
 use crate::item::{Item, ItemId};
 use crate::limits::Limits;
 use crate::menu::{EntryId, Menu, MenuFailure};
@@ -223,7 +222,10 @@ impl Host {
         let watcher = Watcher {
             shared: Arc::clone(&shared),
         };
-        let (connection, owners, signals) = zbus::block_on(async {
+        // Only the owners' stream is opened here, while it is the only one:
+        // the calls that need a reply from then on are the tracker's, made
+        // while it polls the streams (`startup`).
+        let (connection, owners) = zbus::block_on(async {
             let connection = config
                 .bus
                 .builder()
@@ -235,22 +237,7 @@ impl Host {
             let owners = streams::owner_changes(&connection)
                 .await
                 .map_err(StartError::Connect)?;
-            let signals = streams::item_signals(&connection)
-                .await
-                .map_err(StartError::Connect)?;
-            if !own(&connection, WATCHER_NAME).await? {
-                return Err(StartError::NameTaken);
-            }
-            let host_name = host_name();
-            if !own(&connection, &host_name).await? {
-                return Err(StartError::HostNameTaken(host_name));
-            }
-            let emitter =
-                SignalEmitter::new(&connection, WATCHER_PATH).map_err(StartError::Connect)?;
-            // Items already waiting for a host learn of this one; it fails
-            // only when the connection is gone, which the tracker reports.
-            let _sent = Watcher::status_notifier_host_registered(&emitter).await;
-            Ok((connection, owners, signals))
+            Ok((connection, owners))
         })?;
         let mut host = Self {
             shared: Arc::clone(&shared),
@@ -269,11 +256,20 @@ impl Host {
                 })
                 .map_err(StartError::Thread)?,
         );
+        let (started, start) = mpsc::sync_channel(1);
         host.tracker = Some(
-            Tracker::spawn(connection, owners, signals, shared, limits, timer)
+            Tracker::spawn(connection, owners, shared, limits, timer, started)
                 .map_err(StartError::Thread)?,
         );
-        Ok(host)
+        // The tracker always answers, even when it ends first; dropping the
+        // host on an error stops it and gives up what it owned.
+        match start.recv() {
+            Ok(Ok(())) => Ok(host),
+            Ok(Err(error)) => Err(error),
+            Err(mpsc::RecvError) => Err(StartError::Connect(zbus::Error::InputOutput(Arc::new(
+                io::Error::from(io::ErrorKind::BrokenPipe),
+            )))),
+        }
     }
 
     /// A handle to act on the host from any thread.
@@ -300,29 +296,6 @@ impl Drop for Host {
         // which releases them too.
         let _closed = zbus::block_on(self.connection.clone().close());
     }
-}
-
-/// Requests `name`, without queueing or taking it over; whether it is now
-/// this connection's.
-async fn own(connection: &Connection, name: &str) -> Result<bool, StartError> {
-    let reply = connection
-        .request_name_with_flags(name, RequestNameFlags::DO_NOT_QUEUE)
-        .await;
-    match reply {
-        Ok(RequestNameReply::PrimaryOwner | RequestNameReply::AlreadyOwner) => Ok(true),
-        Ok(RequestNameReply::Exists | RequestNameReply::InQueue) | Err(zbus::Error::NameTaken) => {
-            Ok(false)
-        }
-        Err(e) => Err(StartError::RequestName(e)),
-    }
-}
-
-/// `org.kde.StatusNotifierHost-<pid>-<n>`: Plasma's form, with a count so
-/// that several hosts in one process (tests, on buses of their own) differ.
-fn host_name() -> String {
-    static COUNT: AtomicU32 = AtomicU32::new(0);
-    let n = COUNT.fetch_add(1, Ordering::Relaxed);
-    format!("{HOST_NAME_PREFIX}-{}-{n}", std::process::id())
 }
 
 /// A cheap, cloneable handle for the tray's operations, safe to use from

@@ -169,6 +169,25 @@
 //! subscriber is called on one of them, never with a lock held, so it may
 //! call back into a [`Handle`]. A UI forwards each event to its own thread.
 //!
+//! # Never awaiting a reply beside an unread stream
+//!
+//! The host holds streams of signals: every `NameOwnerChanged`, every
+//! item's signals, and each open menu's. It never awaits a method's reply
+//! outside the one loop that polls those streams; every call that expects a
+//! reply (a read, `AboutToShow`, a match for a menu's signals, the host's
+//! names at start-up) is a future polled in that same loop.
+//!
+//! The reason is zbus's socket reader. It hands each message to every
+//! stream that matches it and, when a stream's queue (64 messages) is full,
+//! waits until there is room, reading nothing more from the socket
+//! meanwhile. A reply that arrives behind such a message is not read until
+//! the stream is drained; a reply awaited while that stream goes unread is
+//! never read at all. Names change in bursts at login, and applications
+//! signal in floods, so this is not hypothetical: a host built the other
+//! way stalls for good when it starts, or opens a menu, in one (the
+//! crate's tests show both). Calls that expect no reply (the activations,
+//! a menu's events, the watcher's signals) only send, and are made inline.
+//!
 //! # Example
 //!
 //! ```no_run

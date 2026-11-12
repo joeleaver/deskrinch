@@ -21,6 +21,10 @@ pub(crate) const QUIET: Duration = Duration::from_millis(300);
 /// How long a test waits for something that should happen.
 pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
+/// How long a test that a stalled host would hang ([`within`]) may take:
+/// several waits of [`PATIENCE`] in a row.
+pub(crate) const STALL: Duration = Duration::from_secs(60);
+
 /// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.
 pub(crate) struct PrivateBus(deskrinch_test_dbus::PrivateBus);
 
@@ -119,6 +123,27 @@ pub(crate) fn start_with(config: Config) -> (Host, Events) {
     })
     .unwrap();
     (host, Events(rx))
+}
+
+/// Runs `test` on a thread of its own and fails unless it ends within
+/// `limit`: a host that stalls (as one that awaits the bus while a stream
+/// it holds fills can, for good) fails the test instead of hanging the
+/// run. The stalled thread is left behind.
+pub(crate) fn within(limit: Duration, test: impl FnOnce() + Send + 'static) {
+    let (done, ended) = mpsc::channel();
+    let thread = thread::spawn(move || {
+        test();
+        let _sent = done.send(());
+    });
+    match ended.recv_timeout(limit) {
+        Ok(()) => thread.join().unwrap(),
+        // It panicked: its own message says why.
+        Err(mpsc::RecvTimeoutError::Disconnected) => match thread.join() {
+            Ok(()) => {}
+            Err(panic) => std::panic::resume_unwind(panic),
+        },
+        Err(mpsc::RecvTimeoutError::Timeout) => panic!("the test stalled for {limit:?}"),
+    }
 }
 
 /// Starts a host on `bus` with the default limits.
@@ -272,6 +297,7 @@ fn member_is(message: &Message, member: &str) -> bool {
 pub(crate) struct MenuMatches {
     calls: Receiver<(bool, String)>,
     live: std::cell::RefCell<Vec<String>>,
+    added: std::cell::Cell<usize>,
 }
 
 impl MenuMatches {
@@ -291,6 +317,7 @@ impl MenuMatches {
         Self {
             calls,
             live: std::cell::RefCell::new(Vec::new()),
+            added: std::cell::Cell::new(0),
         }
     }
 
@@ -298,14 +325,15 @@ impl MenuMatches {
     /// changes them on its own thread), with any further change made while
     /// things settle.
     pub(crate) fn live(&self, settled: impl Fn(&[String]) -> bool) -> Vec<String> {
-        fn apply(live: &mut Vec<String>, (added, rule): (bool, String)) {
+        let mut live = self.live.borrow_mut();
+        let apply = |live: &mut Vec<String>, (added, rule): (bool, String)| {
             if added {
+                self.added.set(self.added.get() + 1);
                 live.push(rule);
             } else if let Some(at) = live.iter().position(|r| *r == rule) {
                 live.remove(at);
             }
-        }
-        let mut live = self.live.borrow_mut();
+        };
         let deadline = std::time::Instant::now() + PATIENCE;
         while !settled(&live) {
             let left = deadline.saturating_duration_since(std::time::Instant::now());
@@ -318,6 +346,12 @@ impl MenuMatches {
             apply(&mut live, call);
         }
         live.clone()
+    }
+
+    /// How many times a menu's match has been asked for, as far as
+    /// [`live`](Self::live) has seen.
+    pub(crate) fn added(&self) -> usize {
+        self.added.get()
     }
 }
 

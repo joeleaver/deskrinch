@@ -1,13 +1,17 @@
 //! The tracker thread: follows names changing owner and the items' and
-//! open menus' signals, runs every read at once (each no sooner than its
-//! read interval allows), sends the handles' calls, and turns what happens
-//! into the model's changes, the subscriber's events and the watcher's
-//! signals.
+//! open menus' signals, runs every call that expects a reply as a future
+//! polled alongside them (each read no sooner than its read interval
+//! allows), sends the handles' calls, and turns what happens into the
+//! model's changes, the subscriber's events and the watcher's signals.
+//!
+//! It never awaits a reply from the bus outside that one poll: the host's
+//! module says why.
 
 use std::future::{Future, poll_fn};
 use std::io;
-use std::pin::Pin;
+use std::pin::{Pin, pin};
 use std::sync::Arc;
+use std::sync::mpsc::SyncSender;
 use std::task::{Context, Poll};
 use std::thread::{self, JoinHandle};
 use std::time::Instant;
@@ -16,11 +20,13 @@ use deskrinch_timer::Timer;
 use futures_core::Stream;
 use futures_util::stream::FuturesUnordered;
 use zbus::object_server::SignalEmitter;
-use zbus::{AsyncDrop as _, Connection, Message, MessageStream};
+use zbus::{Connection, Message, MessageStream};
 
 use crate::dbus::watcher::{self, Watcher};
 use crate::dbus::{WATCHER_PATH, item, menu, streams};
+use crate::host::StartError;
 use crate::host::shared::{Call, Shared, Work};
+use crate::host::startup;
 use crate::item::ItemId;
 use crate::limits::Limits;
 use crate::model::{Due, MenuDue, MenuOutcome, MenuPlace, MenuSource, Outcome, Source};
@@ -32,24 +38,27 @@ pub(super) struct Tracker {
 }
 
 impl Tracker {
-    /// `signals` are the items' signals.
+    /// Starts following `owners` (every `NameOwnerChanged`, opened before
+    /// anything else), then finishes starting the host
+    /// ([`startup`]), saying how that went on `started`.
     pub(super) fn spawn(
         connection: Connection,
         owners: MessageStream,
-        signals: MessageStream,
         shared: Arc<Shared>,
         limits: Limits,
         timer: Timer,
+        started: SyncSender<Result<(), StartError>>,
     ) -> io::Result<Self> {
         let state = State {
             connection,
             shared: Arc::clone(&shared),
             limits,
             timer,
+            started: Some(started),
         };
         let thread = thread::Builder::new()
             .name("status-notifier-tracker".into())
-            .spawn(move || zbus::block_on(state.run([owners, signals])))?;
+            .spawn(move || zbus::block_on(state.run(owners)))?;
         Ok(Self {
             shared,
             thread: Some(thread),
@@ -70,8 +79,12 @@ impl Drop for Tracker {
 
 /// What one of the tracker's calls that expect a reply came to.
 enum Finished {
+    /// The items' match is on the bus: the next stage of starting.
+    Items(Box<Result<MessageStream, StartError>>),
+    /// The host's names are owned, or could not be.
+    Started(Box<Result<(), StartError>>),
     Read(Source, Outcome),
-    MenuRead(MenuSource, MenuOutcome),
+    MenuRead(Box<MenuRead>),
     /// `AboutToShow` for a submenu of the item's menu answered that the
     /// menu needs reading again.
     MenuStale(ItemId),
@@ -80,7 +93,21 @@ enum Finished {
     Nothing,
 }
 
+/// A read of the open menu at `place`, with the match for its signals made
+/// before it, and whether the menu signalled meanwhile.
+struct MenuRead {
+    source: MenuSource,
+    outcome: MenuOutcome,
+    place: MenuPlace,
+    stream: Option<MessageStream>,
+    signalled: bool,
+}
+
 type Pending = Pin<Box<dyn Future<Output = Finished> + Send>>;
+
+/// Messages a menu read takes from its stream in one poll: a stream's
+/// queue (zbus's default).
+const DRAIN_AT_ONCE: usize = 64;
 
 /// What woke the tracker.
 enum Step {
@@ -99,9 +126,12 @@ struct State {
     shared: Arc<Shared>,
     limits: Limits,
     timer: Timer,
+    /// Where `Host::start` waits to hear whether the host started, until
+    /// it has.
+    started: Option<SyncSender<Result<(), StartError>>>,
 }
 
-/// The reads and calls each step starts.
+/// The reads each step starts.
 #[derive(Default)]
 struct Next {
     reads: Vec<Due>,
@@ -118,39 +148,73 @@ impl From<Vec<Due>> for Next {
 }
 
 /// An open menu's signals, followed while it is open: a match on the bus
-/// for its owner and object alone.
+/// for its owner and object alone, dropped (and so removed from the bus)
+/// once the menu is not there any more.
 struct Watch {
     menu: MenuPlace,
     stream: MessageStream,
 }
 
+/// What the tracker waits on, besides its inbox.
+struct Sources {
+    pending: FuturesUnordered<Pending>,
+    owners: MessageStream,
+    /// From the first stage of starting on.
+    items: Option<MessageStream>,
+    watches: Vec<Watch>,
+}
+
 impl State {
-    /// `streams` are the owners' and the items' signals.
-    async fn run(self, mut streams: [MessageStream; 2]) {
-        let mut pending: FuturesUnordered<Pending> = FuturesUnordered::new();
-        let mut watches: Vec<Watch> = Vec::new();
+    async fn run(mut self, owners: MessageStream) {
+        let mut sources = Sources {
+            pending: FuturesUnordered::new(),
+            owners,
+            items: None,
+            watches: Vec::new(),
+        };
+        let connection = self.connection.clone();
+        sources.pending.push(Box::pin(async move {
+            Finished::Items(Box::new(startup::items(connection).await))
+        }));
         // Which source is polled first, turn by turn, so that a busy one
         // cannot starve the others.
         let mut turn = 0_usize;
         loop {
             let step = poll_fn(|cx| {
                 turn = turn.wrapping_add(1);
-                let mut sources = Sources {
-                    pending: &mut pending,
-                    streams: &mut streams,
-                    watches: &mut watches,
-                };
                 poll_sources(cx, turn, &self.shared, &mut sources)
             })
             .await;
             let next = match step {
-                Step::Stop => return,
+                Step::Stop => break,
                 Step::Disconnected => {
                     self.shared.disconnected();
-                    return;
+                    break;
                 }
-                Step::Work(work) => self.work(work, &mut pending).await,
-                Step::Finished(finished) => self.finished(finished).await,
+                Step::Work(work) => self.work(work, &mut sources.pending).await,
+                Step::Finished(Finished::Items(items)) => match *items {
+                    Ok(items) => {
+                        sources.items = Some(items);
+                        let connection = self.connection.clone();
+                        sources.pending.push(Box::pin(async move {
+                            Finished::Started(Box::new(startup::names(connection).await))
+                        }));
+                        Next::default()
+                    }
+                    Err(error) => {
+                        self.start_ended(Err(error));
+                        break;
+                    }
+                },
+                Step::Finished(Finished::Started(result)) => {
+                    let failed = result.is_err();
+                    self.start_ended(*result);
+                    if failed {
+                        break;
+                    }
+                    Next::default()
+                }
+                Step::Finished(finished) => self.finished(finished, &mut sources.watches).await,
                 Step::Owner(message) => self.owner_changed(&message).await,
                 Step::Signal(message) => match streams::item_signal(&message) {
                     Some((sender, path)) => self
@@ -170,45 +234,33 @@ impl State {
                 },
                 Step::Nothing => Next::default(),
             };
-            // A menu opened, closed or moved by this step is followed
-            // where it is now before any read of it starts, so that no
-            // change after the read is missed.
-            self.watch_menus(&mut watches).await;
+            // A menu closed, or moved away from, is no longer followed. Its
+            // match goes from the bus on the connection's own executor;
+            // signals that still arrive for it are dropped by the model.
+            let open = self.shared.with_model(|m| m.open_menus());
+            sources.watches.retain(|w| open.contains(&w.menu));
             for due in next.reads {
-                pending.push(self.read(due));
+                sources.pending.push(self.read(due));
             }
             for due in next.menu_reads {
-                pending.push(self.menu_read(due));
+                sources.pending.push(self.menu_read(due));
             }
+        }
+        // Ended before it started: `Host::start` hears it.
+        if self.started.is_some() {
+            let gone = io::Error::from(io::ErrorKind::BrokenPipe);
+            self.start_ended(Err(StartError::Connect(zbus::Error::InputOutput(
+                Arc::new(gone),
+            ))));
         }
     }
 
-    /// Follows the signals of the open menus, and of no other: a match
-    /// added for each menu opened or moved, and removed (on the bus, before
-    /// this returns) for each closed or moved.
-    async fn watch_menus(&self, watches: &mut Vec<Watch>) {
-        let open = self.shared.with_model(|m| m.open_menus());
-        let mut kept = Vec::with_capacity(open.len());
-        for watch in std::mem::take(watches) {
-            if open.contains(&watch.menu) {
-                kept.push(watch);
-            } else {
-                watch.stream.async_drop().await;
-            }
+    /// Tells `Host::start` how starting ended.
+    fn start_ended(&mut self, result: Result<(), StartError>) {
+        if let Some(started) = self.started.take() {
+            // `Host::start` waits for it; if it has gone, nobody needs it.
+            let _sent = started.send(result);
         }
-        for menu in open {
-            if kept.iter().any(|w| w.menu == menu) {
-                continue;
-            }
-            // It fails only when the connection is gone, which the end of
-            // the owners' stream reports.
-            if let Ok(stream) =
-                streams::menu_signals(&self.connection, &menu.owner, &menu.path).await
-            {
-                kept.push(Watch { menu, stream });
-            }
-        }
-        *watches = kept;
     }
 
     /// The read `due`, once its time has come, from whoever owns the item
@@ -233,6 +285,15 @@ impl State {
 
     /// The menu read `due`, once its time has come, from wherever the menu
     /// is then; nothing when it was closed by then.
+    ///
+    /// The match for the menu's signals there is made first, so that it is
+    /// on the bus before the read's first call: a change after the read is
+    /// never missed. When the place is followed already, zbus only counts
+    /// one more user of the match, without a call. The read's own stream is
+    /// drained while the read waits for its replies (a stream left full
+    /// would stall every reply behind it), and a change it shows asks for
+    /// one more read; the tracker then keeps the stream, unless it follows
+    /// the place already or the menu has gone.
     fn menu_read(&self, due: MenuDue) -> Pending {
         let wait = (due.at > Instant::now()).then(|| self.timer.sleep_until(due.at));
         let connection = self.connection.clone();
@@ -246,28 +307,62 @@ impl State {
             let Some(source) = shared.with_model(|m| m.menu_source(&due.id)) else {
                 return Finished::Nothing;
             };
-            let (source, outcome) = menu::read(connection, timer, source, limits).await;
-            Finished::MenuRead(source, outcome)
+            let place = MenuPlace {
+                id: source.id.clone(),
+                owner: source.owner.clone(),
+                path: source.path.clone(),
+            };
+            // It fails only when the connection is gone, which the end of
+            // the owners' stream reports.
+            let mut stream = streams::menu_signals(&connection, &place.owner, &place.path)
+                .await
+                .ok();
+            let mut read = pin!(menu::read(connection, timer, source, limits));
+            let mut signalled = false;
+            let (source, outcome) = poll_fn(|cx| {
+                if let Some(stream) = stream.as_mut() {
+                    // A queue's worth at a time, so that a menu that floods
+                    // cannot keep the read from being polled.
+                    let mut drained = 0;
+                    while drained < DRAIN_AT_ONCE {
+                        match Pin::new(&mut *stream).poll_next(cx) {
+                            Poll::Ready(Some(message)) => {
+                                signalled |=
+                                    message.is_ok_and(|m| streams::menu_signal(&m).is_some());
+                                drained += 1;
+                            }
+                            Poll::Ready(None) | Poll::Pending => break,
+                        }
+                    }
+                    // More may be waiting: this future is polled again soon.
+                    if drained == DRAIN_AT_ONCE {
+                        cx.waker().wake_by_ref();
+                    }
+                }
+                read.as_mut().poll(cx)
+            })
+            .await;
+            Finished::MenuRead(Box::new(MenuRead {
+                source,
+                outcome,
+                place,
+                stream,
+                signalled,
+            }))
         })
     }
 
     /// `AboutToShow` for `entry` of the item `id`'s open menu, sent to
     /// wherever the menu is now.
     fn about_to_show(&self, id: ItemId, entry: i32) -> Option<Pending> {
-        let source = self.shared.with_model(|m| m.menu_peer(&id))?;
+        let peer = self.shared.with_model(|m| m.menu_peer(&id))?;
         let connection = self.connection.clone();
         let timer = self.timer.clone();
         let timeout = self.limits.about_to_show_timeout;
         Some(Box::pin(async move {
-            let answer = menu::about_to_show(
-                &connection,
-                &timer,
-                &source.owner,
-                &source.path,
-                entry,
-                timeout,
-            )
-            .await;
+            let answer =
+                menu::about_to_show(&connection, &timer, &peer.owner, &peer.path, entry, timeout)
+                    .await;
             match answer {
                 Ok(true) => Finished::MenuStale(id),
                 Ok(false) | Err(_) => Finished::Nothing,
@@ -275,8 +370,8 @@ impl State {
         }))
     }
 
-    /// Sends the handles' calls, in order, starting those that expect a
-    /// reply; the reads asked for.
+    /// Sends the handles' calls, in order (none waits for a reply), and
+    /// starts those that expect one; the reads asked for.
     async fn work(&self, work: Work, pending: &mut FuturesUnordered<Pending>) -> Next {
         for call in work.calls {
             // Sending fails only when the connection is gone, which the end
@@ -306,20 +401,42 @@ impl State {
     }
 
     /// Applies what a call that expected a reply came to.
-    async fn finished(&self, finished: Finished) -> Next {
+    async fn finished(&self, finished: Finished, watches: &mut Vec<Watch>) -> Next {
         match finished {
             Finished::Read(source, outcome) => self.read_done(&source, outcome).await,
-            Finished::MenuRead(source, outcome) => {
+            Finished::MenuRead(read) => {
+                let MenuRead {
+                    source,
+                    outcome,
+                    place,
+                    stream,
+                    signalled,
+                } = *read;
+                let now = Instant::now();
                 let done = self
                     .shared
-                    .with_model(|m| m.menu_read_done(&source, outcome, Instant::now()));
+                    .with_model(|m| m.menu_read_done(&source, outcome, now));
                 if done.unregistered {
                     self.unregistered(std::slice::from_ref(&source.id), 0).await;
                 }
                 self.shared.report(done.change, None);
+                let mut menu_reads: Vec<MenuDue> = done.next.into_iter().collect();
+                if signalled {
+                    menu_reads.extend(self.shared.with_model(|m| m.ask_menu(&source.id, now)));
+                }
+                let open = self.shared.with_model(|m| m.open_menus());
+                if let Some(stream) = stream
+                    && open.contains(&place)
+                    && !watches.iter().any(|w| w.menu == place)
+                {
+                    watches.push(Watch {
+                        menu: place,
+                        stream,
+                    });
+                }
                 Next {
                     reads: Vec::new(),
-                    menu_reads: done.next.into_iter().collect(),
+                    menu_reads,
                 }
             }
             Finished::MenuStale(id) => Next {
@@ -330,7 +447,7 @@ impl State {
                     .into_iter()
                     .collect(),
             },
-            Finished::Nothing => Next::default(),
+            Finished::Items(_) | Finished::Started(_) | Finished::Nothing => Next::default(),
         }
     }
 
@@ -367,7 +484,8 @@ impl State {
         }
     }
 
-    /// Announces the items and the number of hosts that left.
+    /// Announces the items and the number of hosts that left; signals,
+    /// which expect no reply.
     async fn unregistered(&self, items: &[ItemId], hosts: usize) {
         let Ok(emitter) = SignalEmitter::new(&self.connection, WATCHER_PATH) else {
             return;
@@ -386,36 +504,30 @@ impl State {
     }
 }
 
-/// What the tracker waits on, besides its inbox.
-struct Sources<'s> {
-    pending: &'s mut FuturesUnordered<Pending>,
-    /// The owners' and the items' signals.
-    streams: &'s mut [MessageStream; 2],
-    watches: &'s mut [Watch],
-}
-
 /// Polls each source once, starting from a different one each turn; the
 /// first that is ready is the step.
 fn poll_sources(
     cx: &mut Context<'_>,
     turn: usize,
     shared: &Shared,
-    s: &mut Sources<'_>,
+    sources: &mut Sources,
 ) -> Poll<Step> {
     if let Poll::Ready(asked) = shared.poll_inbox(cx) {
         return Poll::Ready(asked.map_or(Step::Stop, Step::Work));
     }
-    let [owners, items] = &mut *s.streams;
     for index in 0..4 {
         let step = match (turn + index) % 4 {
-            0 => match Pin::new(&mut *s.pending).poll_next(cx) {
+            0 => match Pin::new(&mut sources.pending).poll_next(cx) {
                 Poll::Ready(Some(finished)) => Some(Step::Finished(finished)),
                 // Nothing in flight; the inbox wakes the tracker for more.
                 Poll::Ready(None) | Poll::Pending => None,
             },
-            1 => message_step(Pin::new(&mut *owners).poll_next(cx), Step::Owner),
-            2 => message_step(Pin::new(&mut *items).poll_next(cx), Step::Signal),
-            _ => poll_watches(cx, turn, s.watches),
+            1 => message_step(Pin::new(&mut sources.owners).poll_next(cx), Step::Owner),
+            2 => sources
+                .items
+                .as_mut()
+                .and_then(|items| message_step(Pin::new(items).poll_next(cx), Step::Signal)),
+            _ => poll_watches(cx, turn, &mut sources.watches),
         };
         if let Some(step) = step {
             return Poll::Ready(step);
