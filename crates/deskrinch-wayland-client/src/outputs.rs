@@ -218,6 +218,15 @@ impl Outputs {
             .collect()
     }
 
+    /// The names of every output that has one.
+    #[must_use]
+    pub fn all_names(&self) -> BTreeSet<String> {
+        self.by_global
+            .values()
+            .filter_map(|output| output.name.clone())
+            .collect()
+    }
+
     /// Each named output's logical rectangle.
     pub fn layout(&self) -> impl Iterator<Item = (&str, Rect)> {
         self.by_global
