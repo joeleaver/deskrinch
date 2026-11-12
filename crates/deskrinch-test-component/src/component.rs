@@ -85,8 +85,9 @@ pub struct Component {
 impl Component {
     /// Starts `command` presenting with `renderer`, logging each frame
     /// (`RINCH_PERF`), which renderer presents and the adapter wgpu chose
-    /// (rinch's `info` lines and wgpu's adapter line, through `RUST_LOG`),
-    /// with standard input closed and both output streams watched.
+    /// (rinch's `info` lines and wgpu's adapter line, through `RUST_LOG`,
+    /// added to any `RUST_LOG` the command was given), with standard input
+    /// closed and both output streams watched.
     ///
     /// # Errors
     ///
@@ -106,7 +107,15 @@ impl Component {
     /// [`start`](Self::start) without the nested-session guard, for this
     /// crate's own tests, which start `sh` and `sleep`.
     fn start_unguarded(mut command: Command, renderer: Renderer) -> io::Result<Self> {
-        let filter = log::rust_log(None);
+        // A filter the command was given (for lines a test waits on) is
+        // kept, with what is needed added.
+        let given = command
+            .get_envs()
+            .find(|(name, _)| *name == "RUST_LOG")
+            .and_then(|(_, value)| value)
+            .and_then(|value| value.to_str())
+            .map(str::to_owned);
+        let filter = log::rust_log(given.as_deref());
         command
             .env("RINCH_PERF", "1")
             .env("RINCH_RENDERER", renderer.env())
@@ -266,6 +275,27 @@ mod tests {
         let id = component.id();
         drop(component);
         assert!(!std::path::Path::new(&format!("/proc/{id}")).exists());
+    }
+
+    #[test]
+    fn a_filter_the_command_was_given_is_kept_with_the_renderers_added() {
+        let mut command = Command::new("sh");
+        command
+            .args(["-c", "echo \"filter=$RUST_LOG\"; exec sleep 600"])
+            .env("RUST_LOG", "warn,example=info");
+        let component = Component::start_unguarded(command, Renderer::Software).unwrap();
+        let expected = format!(
+            "filter=warn,example=info,{},{}",
+            log::RENDERER_DIRECTIVE,
+            log::ADAPTER_DIRECTIVE
+        );
+        assert!(
+            component
+                .watch()
+                .wait_for_line(Duration::from_secs(600), |line| line == expected),
+            "{}",
+            component.watch().tail()
+        );
     }
 
     #[test]
