@@ -1,4 +1,6 @@
-//! A `wl_shm` buffer in a temporary file of its own.
+//! A `wl_shm` buffer in a memory file of its own ([`memory_file`]).
+//!
+//! [`memory_file`]: crate::memory_file
 
 use std::fs::File;
 use std::io;
@@ -9,6 +11,8 @@ use wayland_client::protocol::wl_buffer::WlBuffer;
 use wayland_client::protocol::wl_shm::{self, WlShm};
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
 use wayland_client::{Dispatch, QueueHandle};
+
+use crate::memory::memory_file;
 
 /// Why a buffer could not be made or read.
 #[derive(Debug, thiserror::Error)]
@@ -95,7 +99,7 @@ impl ShmBuffer {
             });
         }
         let io_error = |what| move |source| ShmError::Io { what, source };
-        let file = tempfile::tempfile().map_err(io_error("create"))?;
+        let file = memory_file("deskrinch-wl-shm").map_err(io_error("create"))?;
         file.set_len(u64::try_from(len).map_err(|_| too_large())?)
             .map_err(io_error("size"))?;
         if let Some(contents) = contents {
