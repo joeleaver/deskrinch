@@ -192,14 +192,17 @@ mod desktop {
         fn launcher_shown(&self) -> bool {
             zbus::block_on(async {
                 let connection = self.connect().await;
-                let properties = zbus::fdo::PropertiesProxy::builder(&connection)
-                    .destination(LAUNCHER)
-                    .path(LAUNCHER_PATH)
-                    .build()
+                let reply = connection
+                    .call_method(
+                        Some(LAUNCHER),
+                        LAUNCHER_PATH,
+                        Some("org.freedesktop.DBus.Properties"),
+                        "Get",
+                        &(LAUNCHER_INTERFACE, "Shown"),
+                    )
                     .await
                     .unwrap();
-                let interface = zbus::names::InterfaceName::try_from(LAUNCHER_INTERFACE).unwrap();
-                let value = properties.get(interface, "Shown").await.unwrap();
+                let value: zbus::OwnedVariant = reply.body().deserialize().unwrap();
                 bool::try_from(value).unwrap()
             })
         }
@@ -278,11 +281,14 @@ mod desktop {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_chord_typed_into_its_window_summons_the_launcher() {
+        // The keyboard first: on a headless wlroots seat it is the seat's only
+        // one, and a window is given the focus as it maps only when there is
+        // one.
+        let mut input = Input::connect().unwrap();
         let mut desktop = start(&[], &[]);
         let windows = outer_windows();
         let window = windows.windows()[0].id;
         windows.perform(window, Action::Activate).unwrap();
-        let mut input = Input::connect().unwrap();
         let modifiers: Vec<Key> = LAUNCHER_CHORD
             .modifiers
             .iter()
@@ -292,7 +298,17 @@ mod desktop {
         input
             .press_with(&modifiers, key(LAUNCHER_CHORD.key))
             .unwrap();
-        until(|| desktop.launcher_shown(), "the launcher to be shown");
+        let deadline = Instant::now() + PATIENCE;
+        while !desktop.launcher_shown() {
+            assert!(
+                Instant::now() < deadline,
+                "the chord did not show the launcher; the desktop said:\n{}\n\
+                 its compositor said:\n{}",
+                desktop.said(),
+                fs::read_to_string(desktop.root.join("compositor.log")).unwrap_or_default()
+            );
+            thread::sleep(Duration::from_millis(100));
+        }
 
         desktop.signal(Signal::TERM);
         let status = desktop.wait();
@@ -406,7 +422,10 @@ mod desktop {
         let seen = dir.path().join("seen");
         let script = format!("cat \"$HOME/mark\" > '{}'; sleep 600", seen.display());
         let mut second = start(&options, &["sh", "-c", &script]);
-        until(|| seen.exists(), "the second desktop to read its home");
+        until(
+            || fs::read_to_string(&seen).is_ok_and(|text| text.ends_with('\n')),
+            "the second desktop to read its home",
+        );
         assert_eq!(fs::read_to_string(&seen).unwrap(), "kept\n");
 
         let stderr = dir.path().join("third");

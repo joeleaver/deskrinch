@@ -106,6 +106,9 @@ pub enum Error {
     /// The text has a character the keys cannot type.
     #[error("{0:?} cannot be typed without a modifier on a US layout")]
     Untypable(char),
+    /// A key held as a chord's modifier is not a modifier.
+    #[error("{0:?} is not a modifier")]
+    NotAModifier(Key),
     /// The compositor did not answer, or the connection failed.
     #[error("waiting for the compositor failed")]
     Wait(#[source] deskrinch_test_wayland::WaitError),

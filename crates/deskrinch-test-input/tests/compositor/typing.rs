@@ -29,6 +29,11 @@ fn a_chord_holds_its_modifiers_around_its_key() {
     let client = TestClient::connect().unwrap();
     let window = client.open("chorded", "org.deskrinch.InputTest").unwrap();
     window.wait_keyboard().unwrap();
+    // Not a modifier: nothing is sent.
+    assert!(matches!(
+        input.press_with(&[Key::ESCAPE], Key::TAB),
+        Err(Error::NotAModifier(Key::ESCAPE))
+    ));
     input
         .press_with(&[Key::LEFT_CTRL, Key::LEFT_ALT], Key::TAB)
         .unwrap();

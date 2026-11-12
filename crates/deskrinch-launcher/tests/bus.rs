@@ -48,14 +48,17 @@ mod launcher {
     fn shown(bus: &Bus) -> bool {
         zbus::block_on(async {
             let connection = bus.connect().await.unwrap();
-            let properties = zbus::fdo::PropertiesProxy::builder(&connection)
-                .destination(NAME)
-                .path(PATH)
-                .build()
+            let reply = connection
+                .call_method(
+                    Some(NAME),
+                    PATH,
+                    Some("org.freedesktop.DBus.Properties"),
+                    "Get",
+                    &(INTERFACE, "Shown"),
+                )
                 .await
                 .unwrap();
-            let interface = zbus::names::InterfaceName::try_from(INTERFACE).unwrap();
-            let value = properties.get(interface, "Shown").await.unwrap();
+            let value: zbus::OwnedVariant = reply.body().deserialize().unwrap();
             bool::try_from(value).unwrap()
         })
     }
