@@ -1,6 +1,10 @@
 //! Where KWin writes a screenshot's pixels: a memory file, not a pipe.
 //!
-//! KWin 6.6's writer (`ScreenShotWriter2::run`, in
+//! What follows was read in KWin's source, at the `v6.6.6` tag (the KWin
+//! this machine and CI's Ubuntu 26.04 run) and on the `Plasma/6.6` branch,
+//! which agree; it was not watched happening under a debugger.
+//!
+//! KWin's writer (`ScreenShotWriter2::run`, in
 //! `src/plugins/screenshot/screenshotdbusinterface2.cpp`) sets `O_NONBLOCK`
 //! on the descriptor it is given and writes through a buffered `QFile`
 //! (opened `QIODevice::WriteOnly`, without `Unbuffered`, and never flushed),
@@ -19,10 +23,10 @@
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
-use deskrinch_test_wayland::Deadline;
+use deskrinch_test_wayland::{Deadline, memory_file};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
-use rustix::fs::{MemfdFlags, Mode, OFlags, memfd_create, open};
+use rustix::fs::{Mode, OFlags, open};
 
 /// A memory file KWin writes the pixels into, and the watch on its writing.
 #[derive(Debug)]
@@ -39,12 +43,17 @@ pub(crate) struct Sink {
 impl Sink {
     /// A new, empty memory file, its write side open, and a watch on it.
     pub(crate) fn new() -> io::Result<Self> {
-        let file = memfd_create("deskrinch-screenshot", MemfdFlags::CLOEXEC)?;
+        let file = OwnedFd::from(memory_file("deskrinch-screenshot")?);
         let path = format!("/proc/self/fd/{}", rustix::fd::AsRawFd::as_raw_fd(&file));
         // A write side of its own (a description of its own), so that the
         // file's own descriptor, which stays open for reading, never holds
         // the write side open.
         let writer = open(&path, OFlags::WRONLY | OFlags::CLOEXEC, Mode::empty())?;
+        // The watch exists before the write side can leave our hands
+        // (`writer` hands it out only once this returns): a writer quick
+        // enough to close it before a watch was set would leave no event,
+        // and the wait would last until its deadline. A close after this
+        // point is queued on the watch, however soon the wait begins.
         let watch = inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK)?;
         inotify::add_watch(&watch, &path, WatchFlags::CLOSE_WRITE)?;
         Ok(Self {
@@ -167,6 +176,25 @@ mod tests {
         writing.join().unwrap();
         assert_eq!(read.len(), picture.len());
         assert!(read == picture, "the bytes are the ones written");
+    }
+
+    #[test]
+    fn a_writer_done_before_the_wait_begins_is_read_at_once() {
+        let mut sink = Sink::new().unwrap();
+        let theirs = sink.writer().unwrap().try_clone_to_owned().unwrap();
+        // The writer writes and closes before anyone waits, as a fast KWin
+        // may.
+        write_in_pieces(theirs, b"a whole picture");
+        sink.close_writer();
+        let started = std::time::Instant::now();
+        let read = sink
+            .wait_written(Deadline::after(Duration::from_secs(600)))
+            .unwrap();
+        assert_eq!(read, b"a whole picture");
+        assert!(
+            started.elapsed() < Duration::from_secs(10),
+            "read at once, not at the deadline"
+        );
     }
 
     #[test]
