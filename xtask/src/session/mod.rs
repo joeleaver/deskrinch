@@ -33,6 +33,10 @@
 //! - Afterwards, a check that nothing of the session runs any more: a
 //!   process that left the group is found by its environment, killed, and
 //!   reported as an error ([`leftovers`]).
+//! - A supervisor, started before anything of the session: should xtask
+//!   die without ending the session (`SIGKILL`, a crash), it ends the
+//!   group, the processes that left it, and the directory ([`supervisor`]).
+//!   A session whose supervisor cannot be started does not start.
 //!
 //! The isolation itself (directories, variables, the bus) is
 //! `deskrinch-test-dbus`'s, which the D-Bus tests use too.
@@ -46,6 +50,7 @@ mod render_nodes;
 mod rendering;
 mod scale;
 mod scaling;
+mod supervisor;
 mod transform;
 
 use std::ffi::{OsStr, OsString};
@@ -70,6 +75,8 @@ pub(crate) use self::render_nodes::RenderNodes;
 pub(crate) use self::rendering::CompositorRenderer;
 pub(crate) use self::scale::Scale;
 pub(crate) use self::scaling::Scaling;
+use self::supervisor::Supervisor;
+pub(crate) use self::supervisor::{SUBCOMMAND as SUPERVISOR, run as supervise};
 pub(crate) use self::transform::OutputTransform;
 use crate::error::Error;
 
@@ -99,6 +106,9 @@ pub(crate) struct Session {
     current_desktop: Option<OsString>,
     keep: bool,
     ended: bool,
+    /// Ends the session should xtask die without ending it; released once
+    /// the session has ended.
+    supervisor: Option<Supervisor>,
 }
 
 impl Session {
@@ -128,6 +138,9 @@ impl Session {
             what: "create the session's directories".into(),
             source,
         })?;
+        // Before anything of the session runs: a session that could not be
+        // supervised does not start.
+        let mut supervisor = Supervisor::start(&root)?;
         prepare(&root.join("data"))?;
         let bus = PrivateBus::start()?;
 
@@ -159,6 +172,7 @@ impl Session {
             .map_err(|source| Error::Spawn { program, source })?;
         let group = Pid::from_child(&child);
         interrupt::watch(group);
+        let told = supervisor.group(group);
 
         let mut session = Self {
             compositor,
@@ -172,7 +186,11 @@ impl Session {
             current_desktop: current_desktop.map(ToOwned::to_owned),
             keep: false,
             ended: false,
+            supervisor: Some(supervisor),
         };
+        // A supervisor that cannot be told the group cannot end it: the
+        // session ends now (dropped), and does not start.
+        told?;
         session.socket = session.wait_for_socket()?;
         session.wait_for_bus_names()?;
         session.check_wlroots_renderer()?;
@@ -280,23 +298,11 @@ impl Session {
             return Ok(());
         }
         self.ended = true;
-        let group_left = self.stop_group();
+        let child = &mut self.child;
+        let group_left = end_group(self.group, || drop(child.try_wait()));
         interrupt::forget(self.group);
         self.bus.stop();
-        let mut leftovers = leftovers::find(&self.root.join("run"));
-        for leftover in &leftovers {
-            // Already gone, or not ours to signal: either way not running on.
-            let _ = kill_process(leftover.pid, Signal::KILL);
-        }
-        // `SIGKILL` takes effect asynchronously; return once they are gone.
-        let deadline = Instant::now() + SHUTDOWN;
-        while leftovers
-            .iter()
-            .any(|leftover| test_kill_process(leftover.pid).is_ok())
-            && Instant::now() < deadline
-        {
-            thread::sleep(POLL);
-        }
+        let mut leftovers = kill_leftovers(&self.root.join("run"));
         if group_left {
             leftovers.insert(
                 0,
@@ -307,17 +313,23 @@ impl Session {
             );
         }
         let keep = self.keep || !leftovers.is_empty();
-        if let Some(dir) = self.dir.take() {
-            if keep {
+        let removed = match self.dir.take() {
+            Some(dir) if keep => {
                 let kept = dir.keep();
                 eprintln!("session: kept {}", kept.display());
-            } else {
-                dir.close().map_err(|source| Error::Io {
-                    what: format!("remove {}", self.root.display()),
-                    source,
-                })?;
+                Ok(())
             }
+            Some(dir) => dir.close().map_err(|source| Error::Io {
+                what: format!("remove {}", self.root.display()),
+                source,
+            }),
+            None => Ok(()),
+        };
+        // Ended, whatever came of the directory: the supervisor leaves.
+        if let Some(supervisor) = self.supervisor.take() {
+            supervisor.release();
         }
+        removed?;
         if leftovers.is_empty() {
             Ok(())
         } else {
@@ -373,29 +385,50 @@ impl Session {
         }
         Ok(())
     }
+}
 
-    /// Ends every process of the session's group: `SIGTERM`, then `SIGKILL`
-    /// for what is left after [`SHUTDOWN`]. Returns whether any of the group
-    /// outlived even that.
-    fn stop_group(&mut self) -> bool {
-        // The group may already be gone; either way it is asked to end.
-        let _ = kill_process_group(self.group, Signal::TERM);
-        let deadline = Instant::now() + SHUTDOWN;
-        loop {
-            // Reap the leader, so that its zombie does not keep the group.
-            drop(self.child.try_wait());
-            if test_kill_process_group(self.group).is_err() {
-                return false;
-            }
-            if Instant::now() >= deadline {
-                let _ = kill_process_group(self.group, Signal::KILL);
-                drop(self.child.wait());
-                thread::sleep(POLL);
-                return test_kill_process_group(self.group).is_ok();
-            }
-            thread::sleep(POLL);
+/// Ends every process of the process group `group`: `SIGTERM`, then
+/// `SIGKILL` for what is left after [`SHUTDOWN`]. `reap` reaps the group's
+/// leader, when the caller is its parent, so that its zombie does not keep
+/// the group. Returns whether any of the group outlived even that.
+fn end_group(group: Pid, mut reap: impl FnMut()) -> bool {
+    // The group may already be gone; either way it is asked to end.
+    let _ = kill_process_group(group, Signal::TERM);
+    let deadline = Instant::now() + SHUTDOWN;
+    loop {
+        reap();
+        if test_kill_process_group(group).is_err() {
+            return false;
         }
+        if Instant::now() >= deadline {
+            let _ = kill_process_group(group, Signal::KILL);
+            thread::sleep(POLL);
+            reap();
+            return test_kill_process_group(group).is_ok();
+        }
+        thread::sleep(POLL);
     }
+}
+
+/// Kills every process that names `runtime` as its `XDG_RUNTIME_DIR` (the
+/// session's processes that left its group, [`leftovers`]), and returns
+/// them once they are gone, or after [`SHUTDOWN`].
+fn kill_leftovers(runtime: &Path) -> Vec<Leftover> {
+    let leftovers = leftovers::find(runtime);
+    for leftover in &leftovers {
+        // Already gone, or not ours to signal: either way not running on.
+        let _ = kill_process(leftover.pid, Signal::KILL);
+    }
+    // `SIGKILL` takes effect asynchronously; return once they are gone.
+    let deadline = Instant::now() + SHUTDOWN;
+    while leftovers
+        .iter()
+        .any(|leftover| test_kill_process(leftover.pid).is_ok())
+        && Instant::now() < deadline
+    {
+        thread::sleep(POLL);
+    }
+    leftovers
 }
 
 impl Drop for Session {

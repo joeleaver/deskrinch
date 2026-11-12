@@ -29,5 +29,9 @@ thiserror.workspace = true
 # `zbus::block_on`.
 zbus = { workspace = true, features = ["default-rt"] }
 
+[dev-dependencies]
+# The session tests' xtask bound to the test, and whether a process runs.
+deskrinch-test-lifetime.workspace = true
+
 [lints]
 workspace = true

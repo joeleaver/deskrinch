@@ -285,6 +285,87 @@ mod session {
         fs::remove_dir_all(kept).unwrap();
     }
 
+    /// The processes whose parent is `pid`, with their command lines.
+    fn children_of(pid: u32) -> Vec<(u32, String)> {
+        fs::read_dir("/proc")
+            .unwrap()
+            .flatten()
+            .filter_map(|entry| {
+                let child: u32 = entry.file_name().to_str()?.parse().ok()?;
+                let stat = fs::read_to_string(entry.path().join("stat")).ok()?;
+                // The parent is the second field after the command name's
+                // closing parenthesis.
+                let parent: u32 = stat
+                    .rsplit_once(')')?
+                    .1
+                    .split_whitespace()
+                    .nth(1)?
+                    .parse()
+                    .ok()?;
+                let line = fs::read(entry.path().join("cmdline")).ok()?;
+                (parent == pid).then(|| (child, String::from_utf8_lossy(&line).replace('\0', " ")))
+            })
+            .collect()
+    }
+
+    /// xtask killed (`SIGKILL`: no handler runs) takes its session with it:
+    /// the session's supervisor ends the compositor (KWin's binary has file
+    /// capabilities, so the kernel's parent-death signal cannot), the
+    /// command, and the directory; the bus's daemon dies with xtask.
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_killed_xtask_takes_its_session_with_it() {
+        /// How long the session may take to be gone: the supervisor gives
+        /// the group five seconds to end on `SIGTERM` before `SIGKILL`.
+        const GONE_WITHIN: Duration = Duration::from_secs(20);
+        let dir = tempfile::tempdir().unwrap();
+        let report = dir.path().join("report");
+        let script = format!(
+            "echo $$ $DESKRINCH_SESSION_DIR > {}; exec sleep 600",
+            report.display()
+        );
+        let mut command = session(&["sh", "-c", &script]);
+        command.stdout(Stdio::null()).stderr(Stdio::null());
+        // Bound to this test, should it be killed itself.
+        let mut xtask = deskrinch_test_lifetime::spawn(command).unwrap();
+        let line = wait_for_file(&report);
+        let (pid, root) = line.trim().split_once(' ').unwrap();
+        let (pid, root): (u32, &Path) = (pid.parse().unwrap(), Path::new(root));
+        assert!(root.is_dir());
+        // The session's processes that are xtask's children: the
+        // compositor and the bus's daemon (not the supervisor).
+        let session: Vec<(u32, String)> = children_of(xtask.id())
+            .into_iter()
+            .filter(|(_, line)| !line.contains("session-supervisor"))
+            .collect();
+        let has = |what: &str| session.iter().any(|(_, line)| line.contains(what));
+        assert!(has(&compositor()), "no compositor in {session:?}");
+        assert!(has("dbus-daemon"), "no bus in {session:?}");
+
+        xtask.kill().unwrap();
+        xtask.wait().unwrap();
+
+        let deadline = Instant::now() + GONE_WITHIN;
+        let left = || {
+            let mut left: Vec<String> = session
+                .iter()
+                .filter(|(pid, _)| deskrinch_test_lifetime::running(*pid))
+                .map(|(_, line)| line.clone())
+                .collect();
+            if deskrinch_test_lifetime::running(pid) {
+                left.push("the command".into());
+            }
+            if root.exists() {
+                left.push(root.display().to_string());
+            }
+            left
+        };
+        while !left().is_empty() {
+            assert!(Instant::now() < deadline, "left running: {:?}", left());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn an_interrupt_ends_the_session() {
