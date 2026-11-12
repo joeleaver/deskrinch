@@ -98,9 +98,10 @@ pub(crate) struct Args {
     /// (unset otherwise).
     #[arg(long, value_name = "NAME")]
     current_desktop: Option<OsString>,
-    /// What the nested compositor renders with: by default the GPU under
-    /// sway and labwc when the components may present on it (as they need
-    /// it to), else software. KWin composites with OpenGL either way.
+    /// What the nested compositor renders with. By default, software on a
+    /// machine without a GPU (KWin with `QPainter`); with one, KWin with
+    /// OpenGL, and sway and labwc on the GPU when the components may
+    /// present on it (as they need it to), else in software.
     #[arg(long, value_enum)]
     compositor_renderer: Option<CompositorRenderer>,
     /// What the components render with, through `RINCH_RENDERER`; rinch's
@@ -228,13 +229,18 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         LAUNCHER_TOGGLE.args,
     )?;
     let bindings = [toggle];
-    let gpu_components =
-        args.renderer != Some(Renderer::Software) && RenderNodes::of_machine().has_gpu();
+    let has_gpu = RenderNodes::of_machine().has_gpu();
+    if !has_gpu && args.compositor_renderer.is_none() {
+        eprintln!("desktop: no GPU found: the nested compositor renders in software");
+    }
     let options = Options {
         compositor: args.compositor,
-        renderer: args
-            .compositor_renderer
-            .unwrap_or_else(|| CompositorRenderer::for_client(args.compositor, gpu_components)),
+        renderer: compositor_renderer(
+            args.compositor,
+            args.compositor_renderer,
+            args.renderer,
+            has_gpu,
+        ),
         outputs: Outputs {
             count: args.outputs,
             scale: args.scale,
@@ -257,6 +263,9 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     println!("desktop: session {}", session.root().display());
     println!("desktop: bus {}", session.bus_address());
     let components = start_components(&mut session, &binaries, args.renderer)?;
+    // By now the compositor has rendered its first frames, with the
+    // components in them: a KWin that could not says so in its log.
+    session.check_presents()?;
     let program = match args.command.split_first() {
         Some((program, rest)) => {
             let mut command = session.client(program);
@@ -276,6 +285,24 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     ended?;
     interrupt::check()?;
     Ok(outcome)
+}
+
+/// What the nested `compositor` renders with: what was `asked`, or by
+/// default software on a machine without a GPU; with one, the GPU for KWin
+/// (OpenGL), and for sway and labwc when the components, rendering with
+/// `components`, may present on it (as rinch's GPU renderer needs).
+fn compositor_renderer(
+    compositor: Compositor,
+    asked: Option<CompositorRenderer>,
+    components: Option<Renderer>,
+    has_gpu: bool,
+) -> CompositorRenderer {
+    match asked {
+        Some(asked) => asked,
+        None if !has_gpu => CompositorRenderer::Software,
+        None if compositor == Compositor::Kwin => CompositorRenderer::Gpu,
+        None => CompositorRenderer::for_client(compositor, components != Some(Renderer::Software)),
+    }
 }
 
 /// The absolute path of the Wayland socket this runs under: the window's
@@ -435,6 +462,23 @@ mod tests {
         assert!(LONG_ABOUT.contains(&chord_name()));
         assert!(include_str!("../../../README.md").contains(&chord_name()));
         assert!(LONG_ABOUT.lines().all(|line| line.len() <= 80));
+    }
+
+    #[test]
+    fn without_a_gpu_every_nested_compositor_renders_in_software() {
+        use CompositorRenderer::{Gpu, Software};
+        for compositor in [Compositor::Kwin, Compositor::Sway, Compositor::Labwc] {
+            assert_eq!(compositor_renderer(compositor, None, None, false), Software);
+            assert_eq!(compositor_renderer(compositor, Some(Gpu), None, false), Gpu);
+        }
+        assert_eq!(compositor_renderer(Compositor::Kwin, None, None, true), Gpu);
+        let soft = Some(Renderer::Software);
+        assert_eq!(compositor_renderer(Compositor::Kwin, None, soft, true), Gpu);
+        assert_eq!(compositor_renderer(Compositor::Sway, None, None, true), Gpu);
+        assert_eq!(
+            compositor_renderer(Compositor::Sway, None, soft, true),
+            Software
+        );
     }
 
     #[test]

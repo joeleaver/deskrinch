@@ -45,6 +45,7 @@
 //!
 //! [`REAL_SESSION_VARIABLES`]: deskrinch_test_dbus::session::REAL_SESSION_VARIABLES
 
+mod bindings;
 mod clients;
 mod compositing;
 mod compositor;
@@ -161,7 +162,7 @@ impl Session {
             current_desktop,
             ref display,
             ref home,
-            bindings: _,
+            bindings,
         } = *options;
         interrupt::install()?;
         interrupt::check()?;
@@ -235,6 +236,7 @@ impl Session {
         told?;
         session.socket = session.wait_for_socket()?;
         session.wait_for_bus_names()?;
+        session.wait_for_bindings(bindings)?;
         session.check_wlroots_renderer()?;
         session.set_up_outputs(outputs)?;
         Ok(session)

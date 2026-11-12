@@ -63,8 +63,12 @@ pub(super) fn command(
         .arg(format!("--width={}", OUTPUT_SIZE.0))
         .arg(format!("--height={}", OUTPUT_SIZE.1));
     // In a window, the Wayland backend: `show_on` names the compositor.
+    // There, rendering in software is compositing with QPainter; headless,
+    // KWin composites with OpenGL either way (its screenshots need it).
     if options.display == Display::Headless {
         command.arg("--virtual");
+    } else if options.renderer == CompositorRenderer::Software {
+        command.env("KWIN_COMPOSE", "Q");
     }
     // Not `--scale`, which enlarges the mode instead; the session scales
     // KWin's outputs once it runs.
@@ -74,8 +78,7 @@ pub(super) fn command(
         write_shortcuts(root, options.bindings)?;
     }
     write_applications_menu(root)?;
-    // It composites with OpenGL either way; a GPU must be there when one is
-    // asked for.
+    // A GPU must be there when one is asked for.
     if options.renderer == CompositorRenderer::Gpu && !nodes.has_gpu() {
         return Err(Error::NoGpu {
             nodes: nodes.to_string(),
@@ -161,6 +164,32 @@ mod tests {
         assert_eq!(fs::read_to_string(&menu).unwrap(), APPLICATIONS_MENU);
         let written: Vec<_> = fs::read_dir(root.path()).unwrap().collect();
         assert_eq!(written.len(), 1, "only config/ is written");
+    }
+
+    #[test]
+    fn in_a_window_software_is_qpainter_and_headless_is_opengl() {
+        use super::super::super::{Compositor, Outputs};
+
+        let compose = |display: Display| {
+            let root = tempfile::tempdir_in("/tmp").unwrap();
+            let options = Options {
+                display,
+                ..Options::headless(
+                    Compositor::Kwin,
+                    CompositorRenderer::Software,
+                    Outputs::plain(1),
+                    None,
+                )
+            };
+            let command = command(root.path(), &options, &RenderNodes::of_machine()).unwrap();
+            command
+                .get_envs()
+                .find(|(name, _)| *name == "KWIN_COMPOSE")
+                .and_then(|(_, value)| value.map(ToOwned::to_owned))
+        };
+        let window = Display::Window("/run/user/1000/wayland-0".into());
+        assert_eq!(compose(window), Some("Q".into()));
+        assert_eq!(compose(Display::Headless), None);
     }
 
     #[test]

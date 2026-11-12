@@ -80,6 +80,16 @@ pub(crate) enum Error {
          are written"
     )]
     BindingNeedsQuoting(OsString),
+    /// The compositor did not put a key binding in force in time.
+    #[error("{compositor} did not register the key binding {binding} in time; its log:\n{log}")]
+    BindingNotInForce {
+        /// The compositor.
+        compositor: &'static str,
+        /// The binding's id.
+        binding: String,
+        /// The compositor's output so far.
+        log: String,
+    },
     /// `cargo xtask desktop` could not run.
     #[error(transparent)]
     Desktop(#[from] crate::desktop::DesktopError),
