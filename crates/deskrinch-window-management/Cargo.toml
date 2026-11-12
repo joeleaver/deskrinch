@@ -10,6 +10,7 @@ publish.workspace = true
 
 [dependencies]
 bitflags.workspace = true
+deskrinch-wayland-client.workspace = true
 thiserror.workspace = true
 wayland-client.workspace = true
 wayland-protocols = { workspace = true, features = ["client", "unstable"] }

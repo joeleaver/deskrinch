@@ -9,7 +9,7 @@
 //! other end of its own Wayland connection runs in, and neither init's nor
 //! the test's own.
 
-use deskrinch_window_management::{Action, ActionError, EndReason, WindowManagement};
+use deskrinch_window_management::{Action, ActionError, Client, EndReason, WindowManagement};
 use rustix::net::sockopt::socket_peercred;
 use rustix::process::{Pid, RawPid, Signal, getpgid, getpgrp, kill_process_group};
 use wayland_client::Connection;
@@ -66,23 +66,34 @@ fn session_group() -> Pid {
 
 #[test]
 #[ignore = "ends the nested compositor: cargo xtask compositor-tests runs it last"]
-fn a_lost_connection_ends_the_stream_and_empties_the_list() {
+fn a_lost_connection_ends_every_stream_on_it_and_empties_the_lists() {
     Compositor::current();
     let group = session_group();
     let app_id = unique_app_id("doomed-session");
     let watcher = Watcher::connect();
+    // Two more on one shared connection: it ends for both.
+    let shared = Client::connect().unwrap();
+    let sharing = [
+        Watcher::connect_with(&shared),
+        Watcher::connect_with(&shared),
+    ];
     let client = TestClient::connect().unwrap();
     let _window = client.open("Doomed", &app_id).unwrap();
     let id = watcher.wait_window("the window", &app_id, |_| true).id;
+    for other in &sharing {
+        other.wait_window("the window, on the shared connection", &app_id, |_| true);
+    }
 
     // As if the compositor crashed: no goodbye, the socket just closes.
     kill_process_group(group, Signal::KILL).expect("end the session");
 
-    let reason = watcher.wait_ended("the end of the connection");
-    assert!(matches!(reason, EndReason::ConnectionLost(_)), "{reason:?}");
-    assert_eq!(watcher.manager.windows(), []);
-    let error = watcher.manager.perform(id, Action::Activate).unwrap_err();
-    assert!(matches!(error, ActionError::Ended), "{error:?}");
+    for ended in std::iter::once(&watcher).chain(&sharing) {
+        let reason = ended.wait_ended("the end of the connection");
+        assert!(matches!(reason, EndReason::ConnectionLost(_)), "{reason:?}");
+        assert_eq!(ended.manager.windows(), []);
+        let error = ended.manager.perform(id, Action::Activate).unwrap_err();
+        assert!(matches!(error, ActionError::Ended), "{error:?}");
+    }
 }
 
 #[test]

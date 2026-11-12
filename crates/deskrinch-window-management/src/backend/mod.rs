@@ -6,26 +6,28 @@
 //! objects that actions are sent on) is in [`Shared`], behind a mutex that is
 //! never held while the subscriber runs.
 
-mod outputs;
 mod plasma;
 mod wlr;
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+use deskrinch_wayland_client::{
+    Client, Ended, OutputGlobal, Outputs, OutputsHandler, Wake, layout_available, names_available,
+};
 use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_init};
-use wayland_client::protocol::wl_callback::{self, WlCallback};
+use wayland_client::protocol::wl_callback::WlCallback;
 use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_seat::{self, WlSeat};
-use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
+use wayland_client::{Connection, Dispatch, DispatchError, EventQueue, Proxy, QueueHandle};
 use wayland_protocols_plasma::plasma_window_management::client::org_kde_plasma_window::OrgKdePlasmaWindow;
 use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1;
 
 use crate::capabilities::{Action, Capabilities, Protocol};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
+use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::ZxdgOutputV1;
 
-use self::outputs::Outputs;
 use crate::error::{ActionError, ConnectError, EndReason};
 use crate::layout::{self, Rect};
 use crate::model::{Change, WindowList};
@@ -168,11 +170,6 @@ impl State {
         }
     }
 
-    /// Whether the connection has ended.
-    pub(crate) fn ended(&self) -> bool {
-        self.shared.lock().ended
-    }
-
     /// A window entered (`entered`) or left an output, as part of a batch of
     /// changes its protocol commits later.
     fn output_entered(&mut self, id: WindowId, output: &WlOutput, entered: bool) {
@@ -267,22 +264,44 @@ impl State {
     }
 }
 
+impl Ended for State {
+    fn connection_lost(&mut self, error: DispatchError) {
+        self.end(EndReason::ConnectionLost(Arc::new(error)));
+    }
+
+    fn ended(&self) -> bool {
+        self.shared.lock().ended
+    }
+}
+
+impl OutputsHandler for State {
+    fn outputs(&mut self) -> &mut Outputs {
+        &mut self.outputs
+    }
+
+    fn outputs_changed(&mut self) {
+        Self::outputs_changed(self);
+    }
+}
+
+wayland_client::delegate_dispatch!(State: [WlOutput: OutputGlobal] => Outputs);
+wayland_client::delegate_dispatch!(State: [ZxdgOutputV1: OutputGlobal] => Outputs);
+wayland_client::delegate_dispatch!(State: [ZxdgOutputManagerV1: ()] => Outputs);
+wayland_client::delegate_dispatch!(State: [WlCallback: Wake] => Wake);
+
 /// A connection whose initial window list is loaded, ready to be dispatched.
 pub(crate) struct Connected {
-    pub(crate) connection: Connection,
     pub(crate) queue: EventQueue<State>,
     pub(crate) state: State,
     pub(crate) shared: Arc<Shared>,
     pub(crate) capabilities: Capabilities,
 }
 
-/// Picks a backend from `connection`'s globals, binds it and loads the
-/// initial list, delivering it to `subscriber` on this thread.
-pub(crate) fn connect(
-    connection: Connection,
-    subscriber: Subscriber,
-) -> Result<Connected, ConnectError> {
-    let (globals, mut queue) = registry_queue_init::<State>(&connection)?;
+/// Picks a backend from the globals `client`'s connection offers, binds it
+/// on a queue of its own and loads the initial list, delivering it to
+/// `subscriber` on this thread.
+pub(crate) fn connect(client: &Client, subscriber: Subscriber) -> Result<Connected, ConnectError> {
+    let (globals, mut queue) = registry_queue_init::<State>(client.connection())?;
     let qh = queue.handle();
     let shared = Arc::new(Shared::default());
     let mut state = State {
@@ -311,8 +330,8 @@ pub(crate) fn connect(
         .roundtrip(&mut state)
         .map_err(ConnectError::InitialSync)?;
 
-    let output_names = outputs::names_available(&list);
-    let output_layout = outputs::layout_available(&list);
+    let output_names = names_available(&list);
+    let output_layout = layout_available(&list);
     let (mut capabilities, roundtrips) = bind_backend(&globals, &qh)?;
     capabilities.outputs = output_names
         && match capabilities.protocol {
@@ -326,7 +345,6 @@ pub(crate) fn connect(
             .map_err(ConnectError::InitialSync)?;
     }
     Ok(Connected {
-        connection,
         queue,
         state,
         shared,
@@ -392,19 +410,6 @@ impl Dispatch<WlSeat, ()> for State {
         _: &mut Self,
         _: &WlSeat,
         _: wl_seat::Event,
-        (): &(),
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-    }
-}
-
-/// The `wl_display.sync` the handle sends to wake the dispatch thread.
-impl Dispatch<WlCallback, ()> for State {
-    fn event(
-        _: &mut Self,
-        _: &WlCallback,
-        _: wl_callback::Event,
         (): &(),
         _: &Connection,
         _: &QueueHandle<Self>,
