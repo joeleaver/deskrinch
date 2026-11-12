@@ -191,9 +191,6 @@ mod tests {
 
     #[test]
     fn a_newer_version_is_named() {
-        assert_eq!(
-            parse("version = 2\nwhatever = true\n"),
-            Parsed::Newer(2)
-        );
+        assert_eq!(parse("version = 2\nwhatever = true\n"), Parsed::Newer(2));
     }
 }

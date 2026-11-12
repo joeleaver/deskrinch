@@ -76,8 +76,16 @@ fn an_old_habit_ranks_below_a_single_start_yesterday() {
     }
     let now = T0 + 60 * DAY;
     record.record(&id("new"), now - DAY);
-    assert!(near(worth(&record, "old", now), 0.26), "{}", worth(&record, "old", now));
-    assert!(near(worth(&record, "new", now), 0.91), "{}", worth(&record, "new", now));
+    assert!(
+        near(worth(&record, "old", now), 0.26),
+        "{}",
+        worth(&record, "old", now)
+    );
+    assert!(
+        near(worth(&record, "new", now), 0.91),
+        "{}",
+        worth(&record, "new", now)
+    );
     assert_eq!(ids(&record), ["new", "old"]);
 }
 
@@ -131,7 +139,7 @@ fn a_single_start_is_forgotten_after_five_weeks() {
     record.prune(T0 + 5 * 7 * DAY - HOUR);
     assert_eq!(record.len(), 1, "still worth more than 1/32");
     record.prune(T0 + 5 * 7 * DAY + HOUR);
-    assert!(record.is_empty());
+    assert_eq!(record, Record::new());
 }
 
 #[test]
@@ -171,5 +179,5 @@ fn top_takes_the_best_that_are_kept() {
         .collect();
     assert_eq!(top, ["a", "b", "c"]);
     assert_eq!(record.top(10, installed).len(), 5);
-    assert!(record.top(0, installed).is_empty());
+    assert_eq!(record.top(0, installed), Vec::<DesktopId>::new());
 }

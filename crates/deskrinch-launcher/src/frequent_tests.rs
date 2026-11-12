@@ -45,14 +45,21 @@ fn the_best_installed_are_taken_in_the_records_order() {
 
 #[test]
 fn only_the_first_few_are_taken() {
-    let rows = frequent(&record(&["g", "f", "e", "d", "c", "b", "a"]), &installed(), &[]);
+    let rows = frequent(
+        &record(&["g", "f", "e", "d", "c", "b", "a"]),
+        &installed(),
+        &[],
+    );
     assert_eq!(rows.len(), FREQUENT);
     assert_eq!(row_ids(&rows), ["g", "f", "e", "d", "c"]);
 }
 
 #[test]
 fn no_record_shows_nothing() {
-    assert!(frequent(&Record::new(), &installed(), &[]).is_empty());
+    assert_eq!(
+        frequent(&Record::new(), &installed(), &[]),
+        Vec::<Row>::new()
+    );
     let model = showing(&[]);
     assert_eq!(model, Model::new());
 }

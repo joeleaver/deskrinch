@@ -150,12 +150,13 @@ impl Record {
     /// Every application and its starts, best first: by worth, which ranks
     /// the same at any time; equal ones by ID.
     pub fn ranked(&self) -> impl Iterator<Item = (&DesktopId, Starts)> {
-        let mut ranked: Vec<(&DesktopId, Starts)> =
-            self.entries.iter().map(|(id, starts)| (id, *starts)).collect();
+        let mut ranked: Vec<(&DesktopId, Starts)> = self
+            .entries
+            .iter()
+            .map(|(id, starts)| (id, *starts))
+            .collect();
         ranked.sort_by(|(a_id, a), (b_id, b)| {
-            b.key()
-                .total_cmp(&a.key())
-                .then_with(|| a_id.cmp(b_id))
+            b.key().total_cmp(&a.key()).then_with(|| a_id.cmp(b_id))
         });
         ranked.into_iter()
     }

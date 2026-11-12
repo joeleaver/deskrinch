@@ -25,6 +25,7 @@ use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{DesktopEntry, Environment};
 use deskrinch_launcher::{Action, Input, Model, Visibility, frequent};
 use deskrinch_settings::general::GeneralSettings;
+use deskrinch_start_record::Record;
 use deskrinch_theme::Theme;
 use rinch::prelude::*;
 use rinch::reactive::Effect;
@@ -87,41 +88,15 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
         });
     }
 
-    // The record's thread follows `remember-starts` (it started with the
-    // value at start-up, and passes over one it has); off, nothing is shown
-    // from the record at once, whatever the thread has yet to do.
-    let remember = Memo::new(move || general.with(|g| g.remember_starts));
-    {
-        let starts = starts.clone();
-        Effect::new(move || starts.remember(remember.get()));
-    }
-    let frequent = {
-        let env = Rc::clone(&env);
-        Memo::new(move || {
-            if !remember.get() {
-                return Vec::new();
-            }
-            record.with(|record| entries.with(|entries| frequent(record, entries, &env.locales)))
-        })
-    };
-    // Built into the model while hidden, ready for the next show; never
-    // in place of what is shown.
-    {
-        let mut first = true;
-        Effect::new(move || {
-            let rows = frequent.get();
-            let hidden = !untracked(|| shown.get());
-            let apply = std::mem::take(&mut first) || hidden;
-            untracked(|| {
-                model.update(|m| {
-                    m.set_frequent(rows);
-                    if apply {
-                        m.clear();
-                    }
-                });
-            });
-        });
-    }
+    follow_frequent(&Frequent {
+        starts: &starts,
+        record,
+        general,
+        entries,
+        env: &env,
+        model,
+        shown,
+    });
 
     let on_query = {
         let env = Rc::clone(&env);
@@ -182,20 +157,76 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
         });
     }
 
-    // Leaving the launcher (another window took the keyboard, or an
-    // application it started did) hides it; it never takes the keyboard
-    // back.
-    {
-        let mut had_keyboard = false;
-        Effect::new(move || {
-            let focused = window_focused();
-            if had_keyboard && !focused && visibility.is_shown() {
-                untracked(|| starter.act(input(model, Input::KeyboardLost)));
-            }
-            had_keyboard = focused;
-        });
-    }
+    hide_when_left(starter, model);
     content
+}
+
+/// Leaving the launcher (another window took the keyboard, or an
+/// application it started did) hides it; it never takes the keyboard back.
+fn hide_when_left(starter: Starter, model: Signal<Model>) {
+    let mut had_keyboard = false;
+    Effect::new(move || {
+        let focused = window_focused();
+        if had_keyboard && !focused && starter.visibility.is_shown() {
+            untracked(|| starter.act(input(model, Input::KeyboardLost)));
+        }
+        had_keyboard = focused;
+    });
+}
+
+/// What the frequent applications follow, and the model they go to.
+struct Frequent<'a> {
+    starts: &'a Starts,
+    record: Signal<Arc<Record>>,
+    general: Signal<GeneralSettings>,
+    entries: Memo<Arc<Vec<DesktopEntry>>>,
+    env: &'a Rc<Environment>,
+    model: Signal<Model>,
+    /// Whether the window is shown.
+    shown: Signal<bool>,
+}
+
+/// Follows the frequent applications into the model: the record's thread
+/// follows `remember-starts` (it started with the value at start-up, and
+/// passes over one it has), and off, nothing is shown from the record at
+/// once, whatever the thread has yet to do. The rows are built into the
+/// model while it is hidden, ready for the next show, and never in place
+/// of what is shown.
+fn follow_frequent(parts: &Frequent<'_>) {
+    let &Frequent {
+        starts,
+        record,
+        general,
+        entries,
+        env,
+        model,
+        shown,
+    } = parts;
+    let remember = Memo::new(move || general.with(|g| g.remember_starts));
+    let starts = starts.clone();
+    Effect::new(move || starts.remember(remember.get()));
+    let env = Rc::clone(env);
+    let frequent = Memo::new(move || {
+        if !remember.get() {
+            return Vec::new();
+        }
+        let entries = entries.get();
+        record.with(|record| frequent(record, &entries, &env.locales))
+    });
+    let mut first = true;
+    Effect::new(move || {
+        let rows = frequent.get();
+        let hidden = !untracked(|| shown.get());
+        let apply = std::mem::take(&mut first) || hidden;
+        untracked(|| {
+            model.update(|m| {
+                m.set_frequent(rows);
+                if apply {
+                    m.clear();
+                }
+            });
+        });
+    });
 }
 
 /// Gives the model `input`; answers what to do.

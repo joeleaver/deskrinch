@@ -80,7 +80,9 @@ fn a_started_application_is_first_when_shown_again() {
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     assert!(
-        eventually(|| shown.launcher.said("recorded a start of org.deskrinch.Plain.desktop")),
+        eventually(|| shown
+            .launcher
+            .said("recorded a start of org.deskrinch.Plain.desktop")),
         "the start was not recorded\nthe launcher logged:\n{}",
         shown.launcher.log()
     );

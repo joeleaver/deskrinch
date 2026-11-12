@@ -55,12 +55,7 @@ pub(crate) struct Held {
 /// (to the bus) before the thread runs, and what is asked meanwhile waits.
 pub(crate) fn channel() -> (Starts, Waiting) {
     let (commands, receiver) = mpsc::channel();
-    (
-        Starts { commands },
-        Waiting {
-            commands: receiver,
-        },
-    )
+    (Starts { commands }, Waiting { commands: receiver })
 }
 
 impl Starts {
@@ -187,7 +182,10 @@ fn load(store: &Store) -> Record {
             if dropped > 0 {
                 tracing::warn!("{path}: {dropped} invalid starts left out");
             }
-            tracing::info!("the record of starts: {} applications ({path})", record.len());
+            tracing::info!(
+                "the record of starts: {} applications ({path})",
+                record.len()
+            );
             record
         }
         Ok(Loaded::Damaged { reason }) => {

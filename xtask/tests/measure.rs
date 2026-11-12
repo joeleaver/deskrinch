@@ -213,8 +213,8 @@ mod measure {
         let dir = tempfile::tempdir().unwrap();
         let seed = dir.path().join("seed");
         fs::create_dir_all(seed.join("deskrinch")).unwrap();
-        let record = "version = 1\n[[start]]\nid = \"a.desktop\"\nscore = 2.0\nlast = 5\n";
-        fs::write(seed.join("deskrinch/starts.toml"), record).unwrap();
+        let seeded = "version = 1\n[[start]]\nid = \"a.desktop\"\nscore = 2.0\nlast = 5\n";
+        fs::write(seed.join("deskrinch/starts.toml"), seeded).unwrap();
         // The stand-in copies what it finds at its start, then draws.
         let script = format!(
             "{}cp \"$XDG_STATE_HOME/deskrinch/starts.toml\" {found}; \
@@ -227,7 +227,10 @@ mod measure {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{stdout}\n{stderr}");
-        assert_eq!(fs::read_to_string(dir.path().join("found")).unwrap(), record);
+        assert_eq!(
+            fs::read_to_string(dir.path().join("found")).unwrap(),
+            seeded
+        );
         let note = format!("state seeded from {seed}");
         assert!(stdout.contains(&note), "no {note:?} in:\n{stdout}");
         assert_session_ended(dir.path());

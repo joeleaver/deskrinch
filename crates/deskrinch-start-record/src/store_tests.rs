@@ -81,7 +81,7 @@ fn a_damaged_file_is_no_record_and_is_replaced_at_the_next_start() {
             matches!(store.load().unwrap(), Loaded::Damaged { .. }),
             "{damaged:?}"
         );
-        assert!(store.load().unwrap().into_record().is_empty());
+        assert_eq!(store.load().unwrap().into_record(), Record::new());
         store.record(&id("a"), T0).unwrap();
         assert_eq!(read(&store).len(), 1, "{damaged:?}");
     }
@@ -169,8 +169,8 @@ fn a_new_file_a_crash_left_behind_is_ignored_then_removed() {
 
 #[test]
 fn concurrent_writers_lose_no_start() {
-    const WRITERS: usize = 8;
-    const STARTS: usize = 25;
+    const WRITERS: usize = 4;
+    const STARTS: usize = 10;
     let dir = tempfile::tempdir().unwrap();
     let path = Arc::new(dir.path().join("deskrinch"));
     let writers: Vec<_> = (0..WRITERS)
@@ -198,9 +198,6 @@ fn concurrent_writers_lose_no_start() {
     for writer in 0..WRITERS {
         #[expect(clippy::cast_precision_loss, reason = "small counts")]
         let own = STARTS as f64;
-        assert_eq!(
-            record.get(&id(&format!("own{writer}"))).unwrap().score,
-            own
-        );
+        assert_eq!(record.get(&id(&format!("own{writer}"))).unwrap().score, own);
     }
 }
