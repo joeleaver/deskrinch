@@ -88,6 +88,10 @@ fn a_middle_click_asks_the_window_to_close() {
     bar.click(icon, Button::MIDDLE);
     wait_until("the close request", || red.close_requested());
     assert!(!green.close_requested(), "only the window clicked");
+    // The window obeyed, as an application would, without breaking the
+    // protocol: its connection still opens windows.
+    drop(red);
+    bar.client.open("Red again", RED.id).unwrap();
 }
 
 #[test]

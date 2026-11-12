@@ -62,6 +62,21 @@ pub(crate) struct Shared {
     pub(crate) status: Mutex<Status>,
     /// Notified whenever `status` changes.
     pub(crate) changed: Condvar,
+    /// Its `xdg-decoration` object, where the compositor offers one, until
+    /// it is destroyed: always before its toplevel, as the protocol asks,
+    /// whether the test drops the window or the compositor asks it to close.
+    pub(crate) decoration: Mutex<Option<ZxdgToplevelDecorationV1>>,
+}
+
+impl Shared {
+    /// Destroys its decoration object, if it has one still: before its
+    /// toplevel, which the protocol requires (wlroots ends the connection
+    /// otherwise).
+    fn destroy_decoration(&self) {
+        if let Some(decoration) = lock(&self.decoration).take() {
+            decoration.destroy();
+        }
+    }
 }
 
 /// A mapped toplevel; dropping it destroys it.
@@ -71,8 +86,6 @@ pub struct TestWindow {
     outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
     windows: Windows,
     toplevel: XdgToplevel,
-    /// Its `xdg-decoration` object, where the compositor offers one.
-    decoration: Option<ZxdgToplevelDecorationV1>,
     xdg_surface: XdgSurface,
     pub(crate) shared: Arc<Shared>,
 }
@@ -83,7 +96,6 @@ impl TestWindow {
         outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
         windows: Windows,
         toplevel: XdgToplevel,
-        decoration: Option<ZxdgToplevelDecorationV1>,
         xdg_surface: XdgSurface,
         shared: Arc<Shared>,
     ) -> Self {
@@ -92,7 +104,6 @@ impl TestWindow {
             outputs,
             windows,
             toplevel,
-            decoration,
             xdg_surface,
             shared,
         }
@@ -287,10 +298,7 @@ impl TestWindow {
 impl Drop for TestWindow {
     fn drop(&mut self) {
         lock(&self.windows).remove(&self.shared.surface.id());
-        // Before its toplevel, as the protocol asks.
-        if let Some(decoration) = &self.decoration {
-            decoration.destroy();
-        }
+        self.shared.destroy_decoration();
         self.toplevel.destroy();
         self.xdg_surface.destroy();
         self.shared.surface.destroy();
@@ -355,6 +363,7 @@ impl Dispatch<XdgToplevel, Arc<Shared>> for Client {
                 // Obey, as an application would: the window goes. (Dropping
                 // the `TestWindow` later destroys the rest; a request to the
                 // destroyed toplevel is ignored.)
+                shared.destroy_decoration();
                 toplevel.destroy();
             }
             _ => {}
