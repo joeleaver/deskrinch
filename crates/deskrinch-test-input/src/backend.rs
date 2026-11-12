@@ -6,7 +6,7 @@ use std::os::fd::AsFd;
 use std::time::Instant;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_wayland::{Deadline, Globals, roundtrip};
+use deskrinch_test_wayland::{Deadline, Globals, memory_file, roundtrip};
 use wayland_client::protocol::wl_seat::WlSeat;
 use wayland_client::{Connection, EventQueue, Proxy, delegate_noop};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
@@ -248,7 +248,7 @@ impl Input {
 
 /// The keymap in a file of its own, ended by a NUL as the protocol wants.
 fn keymap() -> std::io::Result<std::fs::File> {
-    let mut file = tempfile::tempfile()?;
+    let mut file = memory_file("deskrinch-keymap")?;
     file.write_all(KEYMAP.as_bytes())?;
     file.write_all(&[0])?;
     file.rewind()?;
