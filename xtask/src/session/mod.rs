@@ -3,12 +3,12 @@
 //!
 //! What a session is, which [`Session::client`] commands share:
 //!
-//! - The explicit environment of `deskrinch-test-dbus`'s
-//!   [`session::isolate`]: its own `HOME` and XDG directories, private
-//!   directories under a fresh `/tmp/deskrinch-session-*` root, the XDG
-//!   search paths at their defaults, and none of the real session's display,
-//!   bus or login-session variables ([`session::REAL_SESSION_VARIABLES`]);
-//!   `XDG_CURRENT_DESKTOP` only when the caller asks for one.
+//! - The explicit environment of `deskrinch-test-dbus`'s [`isolate`]: its
+//!   own `HOME` and XDG directories, private directories under a fresh
+//!   `/tmp/deskrinch-session-*` root, the XDG search paths at their
+//!   defaults, and none of the real session's display, bus or login-session
+//!   variables ([`REAL_SESSION_VARIABLES`]); `XDG_CURRENT_DESKTOP` only when
+//!   the caller asks for one.
 //! - A private D-Bus session bus ([`PrivateBus`]) with no service activation,
 //!   named in `DBUS_SESSION_BUS_ADDRESS` for the compositor and every client.
 //! - Ready when the compositor's Wayland socket is open and it owns the
@@ -42,6 +42,8 @@
 //!
 //! The isolation itself (directories, variables, the bus) is
 //! `deskrinch-test-dbus`'s, which the D-Bus tests use too.
+//!
+//! [`REAL_SESSION_VARIABLES`]: deskrinch_test_dbus::session::REAL_SESSION_VARIABLES
 
 mod clients;
 mod compositing;

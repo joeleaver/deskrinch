@@ -3,14 +3,16 @@
 //!
 //! KWin 6 runs the global-shortcuts daemon (kglobalacceld) inside itself:
 //! with global shortcuts on it takes `org.kde.kglobalaccel` on the session's
-//! bus and needs nothing started there. A binding is a desktop file in
-//! `$XDG_DATA_HOME/kglobalaccel/`, whose `X-KDE-Shortcuts` is the default
-//! shortcut of its `_launch` action, which runs its `Exec`; a shortcut
-//! changed in the session (`kglobalshortcutsrc`) overrides that default and,
-//! in a profile, stays.
+//! bus and needs nothing started there. It finds shortcuts in the
+//! applications KDE's service cache lists: a binding is an application of
+//! the session's own (`$XDG_DATA_HOME/applications/`, hidden from menus),
+//! whose `X-KDE-Shortcuts` is the default shortcut of its `_launch` action,
+//! which runs its `Exec`. A shortcut changed in the session
+//! (`kglobalshortcutsrc`) overrides that default and, in a profile, stays.
+//! (A desktop file in `$XDG_DATA_HOME/kglobalaccel/` is not read: KWin 6.6
+//! registered no component for one.)
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::Command;
 
@@ -97,26 +99,20 @@ fn write_applications_menu(root: &Path) -> Result<(), Error> {
     write(&menus.join("applications.menu"), APPLICATIONS_MENU)
 }
 
-/// Writes each binding as a desktop file in the session's
-/// `kglobalaccel` data directory (`XDG_DATA_HOME`) under `root`.
-///
-/// Executable, as KDE runs a desktop file outside the system's application
-/// directories only when it is (it is the user's own, then).
+/// Writes each binding as an application, hidden from menus, in the
+/// session's application directory (`XDG_DATA_HOME/applications`) under
+/// `root`.
 fn write_shortcuts(root: &Path, bindings: &[Binding]) -> Result<(), Error> {
-    let dir = root.join("data").join("kglobalaccel");
+    let dir = root.join("data").join("applications");
     fs::create_dir_all(&dir).map_err(|source| Error::Io {
         what: format!("create {}", dir.display()),
         source,
     })?;
     for binding in bindings {
-        let path = dir.join(format!("{}.desktop", binding.id));
-        write(&path, &shortcut_entry(binding))?;
-        fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).map_err(|source| {
-            Error::Io {
-                what: format!("make {} executable", path.display()),
-                source,
-            }
-        })?;
+        write(
+            &dir.join(format!("{}.desktop", binding.id)),
+            &shortcut_entry(binding),
+        )?;
     }
     Ok(())
 }
@@ -178,12 +174,12 @@ mod tests {
     }
 
     #[test]
-    fn a_binding_is_an_executable_desktop_file_with_a_default_shortcut() {
+    fn a_binding_is_a_hidden_application_with_a_default_shortcut() {
         let root = tempfile::tempdir_in("/tmp").unwrap();
         let program = Path::new("/target/release/deskrinch-launcher");
         let binding = Binding::new("launcher", LAUNCHER_CHORD, program, &["toggle"]).unwrap();
         write_shortcuts(root.path(), &[binding]).unwrap();
-        let path = root.path().join("data/kglobalaccel/launcher.desktop");
+        let path = root.path().join("data/applications/launcher.desktop");
         let entry = fs::read_to_string(&path).unwrap();
         assert!(
             entry.contains("\nExec=/target/release/deskrinch-launcher toggle\n"),
@@ -193,7 +189,6 @@ mod tests {
             entry.contains("\nX-KDE-Shortcuts=Ctrl+Alt+Space\n"),
             "{entry}"
         );
-        let mode = fs::metadata(&path).unwrap().permissions().mode();
-        assert_eq!(mode & 0o777, 0o755);
+        assert!(entry.contains("\nNoDisplay=true\n"), "{entry}");
     }
 }

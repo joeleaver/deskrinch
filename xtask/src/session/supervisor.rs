@@ -59,6 +59,10 @@ pub(super) const MARKER: &str = ".deskrinch-session";
 /// What the supervisor says once it has checked its root.
 const READY: &str = "ready";
 
+/// The program this process runs, as the kernel keeps it: whatever has
+/// happened to its file since.
+const RUNNING_PROGRAM: &str = "/proc/self/exe";
+
 /// The session's side of the pipe.
 #[derive(Debug)]
 pub(super) struct Supervisor {
@@ -78,7 +82,11 @@ impl Supervisor {
             program: format!("xtask {SUBCOMMAND}"),
             source,
         };
-        let mut child = Command::new(std::env::current_exe().map_err(spawn)?)
+        // This very program, by `/proc/self/exe`, not by its path: Cargo may
+        // have rebuilt the file at that path since this started (as
+        // `compositor-tests` does, building xtask's own tests), and the path
+        // then names another program, or nothing while it is replaced.
+        let mut child = Command::new(RUNNING_PROGRAM)
             .arg(SUBCOMMAND)
             .arg(root)
             .stdin(Stdio::piped())
