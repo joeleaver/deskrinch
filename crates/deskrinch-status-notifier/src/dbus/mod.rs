@@ -1,9 +1,13 @@
-//! The bus side: the watcher object, reading and calling items, and the
-//! streams of signals the host follows.
+//! The bus side: the watcher object, reading and calling items and their
+//! menus, and the streams of signals the host follows.
 
 pub(crate) mod item;
+pub(crate) mod menu;
 pub(crate) mod streams;
 pub(crate) mod watcher;
+
+/// The menus' interface.
+pub(crate) const MENU_INTERFACE: &str = "com.canonical.dbusmenu";
 
 /// The well-known name the watcher owns.
 pub(crate) const WATCHER_NAME: &str = "org.kde.StatusNotifierWatcher";
