@@ -29,8 +29,9 @@
 //!   the scale and logical size each output reports.
 //! - The compositor, headless, and every client in one process group of
 //!   their own, which is ended as a whole (`SIGTERM`, then `SIGKILL` after
-//!   [`SHUTDOWN`]) when the session ends, and also when xtask gets `SIGINT`,
-//!   `SIGTERM` or `SIGHUP` ([`interrupt`]).
+//!   [`ending::SHUTDOWN`], then waited for until it is gone, [`ending`])
+//!   when the session ends, and also when xtask gets `SIGINT`, `SIGTERM` or
+//!   `SIGHUP` ([`interrupt`]).
 //! - Afterwards, a check that nothing of the session runs any more: a
 //!   process that left the group is found by its environment, killed, and
 //!   reported as an error ([`leftovers`]).
@@ -46,6 +47,7 @@ mod clients;
 mod compositing;
 mod compositor;
 mod display;
+mod ending;
 pub(crate) mod interrupt;
 mod leftovers;
 mod outputs;
@@ -66,10 +68,10 @@ use std::time::{Duration, Instant};
 
 use deskrinch_test_dbus::session::isolate;
 use deskrinch_test_dbus::{NameError, PrivateBus};
-use rustix::process::{
-    Pid, Signal, kill_process, kill_process_group, test_kill_process, test_kill_process_group,
-};
+use rustix::process::Pid;
 use tempfile::TempDir;
+
+use self::ending::{end_group, kill_leftovers};
 
 pub(crate) use self::clients::ClientId;
 pub(crate) use self::compositor::Compositor;
@@ -102,8 +104,6 @@ const ROOT_PREFIX: &str = "deskrinch-session-";
 
 /// How long a compositor has to open its socket.
 const STARTUP: Duration = Duration::from_secs(20);
-/// How long a session has to end after `SIGTERM` before it gets `SIGKILL`.
-const SHUTDOWN: Duration = Duration::from_secs(5);
 /// How often to look again while waiting.
 const POLL: Duration = Duration::from_millis(50);
 
@@ -376,50 +376,6 @@ impl Session {
     pub(crate) fn bus_address(&self) -> &str {
         self.bus.address()
     }
-}
-
-/// Ends every process of the process group `group`: `SIGTERM`, then
-/// `SIGKILL` for what is left after [`SHUTDOWN`]. `reap` reaps the group's
-/// leader, when the caller is its parent, so that its zombie does not keep
-/// the group. Returns whether any of the group outlived even that.
-fn end_group(group: Pid, mut reap: impl FnMut()) -> bool {
-    // The group may already be gone; either way it is asked to end.
-    let _ = kill_process_group(group, Signal::TERM);
-    let deadline = Instant::now() + SHUTDOWN;
-    loop {
-        reap();
-        if test_kill_process_group(group).is_err() {
-            return false;
-        }
-        if Instant::now() >= deadline {
-            let _ = kill_process_group(group, Signal::KILL);
-            thread::sleep(POLL);
-            reap();
-            return test_kill_process_group(group).is_ok();
-        }
-        thread::sleep(POLL);
-    }
-}
-
-/// Kills every process that names `runtime` as its `XDG_RUNTIME_DIR` (the
-/// session's processes that left its group, [`leftovers`]), and returns
-/// them once they are gone, or after [`SHUTDOWN`].
-fn kill_leftovers(runtime: &Path) -> Vec<Leftover> {
-    let leftovers = leftovers::find(runtime);
-    for leftover in &leftovers {
-        // Already gone, or not ours to signal: either way not running on.
-        let _ = kill_process(leftover.pid, Signal::KILL);
-    }
-    // `SIGKILL` takes effect asynchronously; return once they are gone.
-    let deadline = Instant::now() + SHUTDOWN;
-    while leftovers
-        .iter()
-        .any(|leftover| test_kill_process(leftover.pid).is_ok())
-        && Instant::now() < deadline
-    {
-        thread::sleep(POLL);
-    }
-    leftovers
 }
 
 impl Drop for Session {
