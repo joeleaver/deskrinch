@@ -15,8 +15,9 @@ use crate::log::{self, Adapter};
 
 /// How many of the last lines are kept.
 const TAIL: usize = 20;
-/// How long an exited program's streams are given to close.
-const LAST_WORDS: Duration = Duration::from_secs(2);
+/// How long [`Watch::last_words`] gives an exited program's streams to
+/// close.
+pub const LAST_WORDS: Duration = Duration::from_secs(2);
 
 /// Which of rinch's renderers presented a program's frames.
 #[derive(Debug, Clone, PartialEq, Eq)]
