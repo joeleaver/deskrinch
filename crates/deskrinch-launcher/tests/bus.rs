@@ -4,6 +4,7 @@
 #[cfg(test)]
 mod launcher {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
 
     use deskrinch_bus::Bus;
     use deskrinch_launcher::{Answer, Request, ServeError, Service, Visibility, send};
@@ -23,7 +24,7 @@ mod launcher {
     fn toggle_show_and_hide_reach_the_running_launcher() {
         let (_private, bus) = bus();
         let visibility = Arc::new(Visibility::new(false));
-        let _service = Service::start(&bus, Arc::clone(&visibility)).unwrap();
+        let _service = Service::start(&bus, Arc::clone(&visibility), || {}).unwrap();
 
         assert_eq!(send(&bus, Request::Toggle).unwrap(), done(Some(true)));
         assert!(visibility.is_shown());
@@ -43,11 +44,24 @@ mod launcher {
     }
 
     #[test]
+    fn forget_starts_returns_once_the_launcher_has_forgotten() {
+        let (_private, bus) = bus();
+        let forgotten = Arc::new(AtomicUsize::new(0));
+        let counted = Arc::clone(&forgotten);
+        let _service = Service::start(&bus, Arc::new(Visibility::new(false)), move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        })
+        .unwrap();
+        assert_eq!(send(&bus, Request::ForgetStarts).unwrap(), done(None));
+        assert_eq!(forgotten.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
     fn a_second_launcher_finds_the_first() {
         let (_private, bus) = bus();
         let first = Arc::new(Visibility::new(false));
-        let _service = Service::start(&bus, Arc::clone(&first)).unwrap();
-        let second = Service::start(&bus, Arc::new(Visibility::new(false)));
+        let _service = Service::start(&bus, Arc::clone(&first), || {}).unwrap();
+        let second = Service::start(&bus, Arc::new(Visibility::new(false)), || {});
         assert!(matches!(second, Err(ServeError::Running)), "{second:?}");
         // The first still answers.
         assert_eq!(send(&bus, Request::Show).unwrap(), done(None));
@@ -57,7 +71,12 @@ mod launcher {
     #[test]
     fn with_no_launcher_a_request_says_so() {
         let (_private, bus) = bus();
-        for request in [Request::Toggle, Request::Show, Request::Hide] {
+        for request in [
+            Request::Toggle,
+            Request::Show,
+            Request::Hide,
+            Request::ForgetStarts,
+        ] {
             assert_eq!(
                 send(&bus, request).unwrap(),
                 Answer::NotRunning,
@@ -69,11 +88,11 @@ mod launcher {
     #[test]
     fn a_launcher_that_ends_gives_its_name_back() {
         let (_private, bus) = bus();
-        let service = Service::start(&bus, Arc::new(Visibility::new(false))).unwrap();
+        let service = Service::start(&bus, Arc::new(Visibility::new(false)), || {}).unwrap();
         drop(service);
         assert_eq!(send(&bus, Request::Toggle).unwrap(), Answer::NotRunning);
         let again = Arc::new(Visibility::new(false));
-        let _service = Service::start(&bus, Arc::clone(&again)).unwrap();
+        let _service = Service::start(&bus, Arc::clone(&again), || {}).unwrap();
         assert_eq!(send(&bus, Request::Toggle).unwrap(), done(Some(true)));
         assert!(again.is_shown());
     }
@@ -83,7 +102,7 @@ mod launcher {
         let bus = Bus::Address("unix:path=/nonexistent/bus".into());
         assert!(send(&bus, Request::Toggle).is_err());
         assert!(matches!(
-            Service::start(&bus, Arc::new(Visibility::new(false))),
+            Service::start(&bus, Arc::new(Visibility::new(false)), || {}),
             Err(ServeError::Bus(_))
         ));
     }

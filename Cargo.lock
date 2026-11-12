@@ -993,6 +993,7 @@ dependencies = [
  "deskrinch-gestures",
  "deskrinch-icons",
  "deskrinch-settings",
+ "deskrinch-start-record",
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-dbus",

@@ -6,6 +6,9 @@
 //! - `deskrinch-launcher toggle | show | hide` asks the running launcher, as
 //!   a key binding does. With none running, `toggle` and `show` start one,
 //!   shown.
+//! - `deskrinch-launcher forget-starts` deletes the record of the
+//!   applications started (see [`starts`]), through the running launcher,
+//!   or itself when none runs.
 //!
 //! The window is a `wlr-layer-shell` surface (see [`surface`]): centred, in
 //! the overlay layer, with all the keyboard while it is shown.
@@ -20,6 +23,7 @@
 
 mod root;
 mod start;
+mod starts;
 mod surface;
 mod view;
 
@@ -34,6 +38,7 @@ use deskrinch_desktop_entries::Environment;
 use deskrinch_icons::SearchPath;
 use deskrinch_launcher::{Answer, Request, ServeError, Service, Visibility, send};
 use deskrinch_settings::general::GeneralSettings;
+use deskrinch_start_record::Store;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 use rinch::prelude::*;
@@ -58,6 +63,9 @@ enum Ask {
     Show,
     /// Hide it; nothing if none runs.
     Hide,
+    /// Delete the record of the applications started; with none running,
+    /// delete it here, and start none.
+    ForgetStarts,
 }
 
 impl From<Ask> for Request {
@@ -66,6 +74,7 @@ impl From<Ask> for Request {
             Ask::Toggle => Self::Toggle,
             Ask::Show => Self::Show,
             Ask::Hide => Self::Hide,
+            Ask::ForgetStarts => Self::ForgetStarts,
         }
     }
 }
@@ -81,11 +90,13 @@ fn main() -> ExitCode {
 }
 
 /// Asks the running launcher; starts one, shown, when a toggle or a show
-/// finds none.
+/// finds none, and deletes the record of starts itself when a
+/// `forget-starts` does.
 fn request(ask: Ask) -> ExitCode {
     match send(&Bus::Session, ask.into()) {
         Ok(Answer::Done { .. }) => ExitCode::SUCCESS,
         Ok(Answer::NotRunning) if matches!(ask, Ask::Hide) => ExitCode::SUCCESS,
+        Ok(Answer::NotRunning) if matches!(ask, Ask::ForgetStarts) => forget_starts(),
         Ok(Answer::NotRunning) => start_shown(),
         Err(error) => {
             report::error("asking the launcher", &error);
@@ -115,10 +126,31 @@ fn start_shown() -> ExitCode {
     }
 }
 
+/// Deletes the record of starts with no launcher running.
+fn forget_starts() -> ExitCode {
+    let Some(store) = Store::new(&BaseDirs::from_process()) else {
+        tracing::warn!("there is no state directory, so no record of starts");
+        return ExitCode::SUCCESS;
+    };
+    match store.forget() {
+        Ok(_deleted) => ExitCode::SUCCESS,
+        Err(error) => {
+            report::error("deleting the record of starts", &error);
+            ExitCode::FAILURE
+        }
+    }
+}
+
 /// Runs the launcher until the session ends.
 fn run(show: bool) -> ExitCode {
     let visibility = Arc::new(Visibility::new(show));
-    let service = match Service::start(&Bus::Session, Arc::clone(&visibility)) {
+    // The bus may ask to forget before the record's thread runs: that
+    // waits for it.
+    let (starts, waiting) = starts::channel();
+    let forget = starts.clone();
+    let service = match Service::start(&Bus::Session, Arc::clone(&visibility), move || {
+        forget.forget();
+    }) {
         Ok(service) => service,
         Err(ServeError::Running) => {
             tracing::info!("a launcher is already running; leaving it to answer");
@@ -135,10 +167,12 @@ fn run(show: bool) -> ExitCode {
     };
     let base_dirs = BaseDirs::from_process();
     let configuration = Configuration::start(&base_dirs);
-    let theme = Theme::start(&configuration, Bus::Session);
-    // For the terminal applications run in; the look follows `[general]`
-    // through the theme.
+    // For the terminal applications run in and whether starts are
+    // remembered; the look follows `[general]` through the theme.
     let general = configuration.follow::<GeneralSettings>();
+    // First, so that the record loads while the rest starts.
+    let record = waiting.start(Store::new(&base_dirs), general.initial.remember_starts);
+    let theme = Theme::start(&configuration, Bus::Session);
     let first_theme = theme.initial();
     let env = Environment::from_process();
     let installed = Installed::start(&env);
@@ -151,6 +185,8 @@ fn run(show: bool) -> ExitCode {
         installed,
         icons,
         env,
+        starts,
+        record,
     };
     App::new(move |scope| root::launcher(scope, parts))
         .window_props(surface::window_props(show))

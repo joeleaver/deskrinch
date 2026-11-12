@@ -192,26 +192,27 @@ impl Store {
         Ok(record)
     }
 
-    /// Deletes the record, under the lock. With no directory there is
-    /// nothing to delete, and nothing is made. The lock file stays: a
-    /// writer may be waiting on it.
+    /// Deletes the record, under the lock; answers whether there was one.
+    /// With no directory there is nothing to delete, and nothing is made.
+    /// The lock file stays: a writer may be waiting on it.
     ///
     /// # Errors
     ///
     /// [`StoreError::Write`] when the file cannot be deleted.
-    pub fn forget(&self) -> Result<(), StoreError> {
+    pub fn forget(&self) -> Result<bool, StoreError> {
         if !self.directory.is_dir() {
-            return Ok(());
+            return Ok(false);
         }
         let _lock = self.lock()?;
         let path = self.path();
-        match fs::remove_file(&path) {
-            Ok(()) => {}
-            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+        let deleted = match fs::remove_file(&path) {
+            Ok(()) => true,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => false,
             Err(source) => return Err(StoreError::Write { path, source }),
-        }
+        };
         self.remove_pending()?;
-        self.sync_directory()
+        self.sync_directory()?;
+        Ok(deleted)
     }
 
     /// Takes the lock, making the directory and the lock file if they are

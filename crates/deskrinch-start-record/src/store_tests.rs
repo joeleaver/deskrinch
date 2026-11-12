@@ -122,11 +122,11 @@ fn a_newer_versions_file_is_left_as_it_is() {
 fn forgetting_deletes_the_record() {
     let (_dir, store) = store();
     store.record(&id("a"), T0).unwrap();
-    store.forget().unwrap();
+    assert!(store.forget().unwrap(), "there was a record");
     assert!(!store.path().exists());
     assert_eq!(store.load().unwrap(), Loaded::Missing);
     // Forgotten twice is forgotten.
-    store.forget().unwrap();
+    assert!(!store.forget().unwrap(), "there was none");
     // The next start begins a new record.
     let record = store.record(&id("b"), T0).unwrap();
     assert_eq!(record.len(), 1);
@@ -135,7 +135,7 @@ fn forgetting_deletes_the_record() {
 #[test]
 fn forgetting_with_no_directory_makes_none() {
     let (dir, store) = store();
-    store.forget().unwrap();
+    assert!(!store.forget().unwrap());
     assert!(!dir.path().join("state").exists());
 }
 
