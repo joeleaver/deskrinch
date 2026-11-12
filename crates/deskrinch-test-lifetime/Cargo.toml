@@ -1,0 +1,17 @@
+[package]
+name = "deskrinch-test-lifetime"
+description = "What a test process starts, ended with it however it ends: children the kernel kills when the process dies, and temporary directories swept once their owner is gone."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The parent-death signal, and the parent's and children's process ids.
+rustix = { workspace = true, features = ["process"] }
+tempfile.workspace = true
+
+[lints]
+workspace = true

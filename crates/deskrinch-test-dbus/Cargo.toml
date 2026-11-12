@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 deskrinch-bus.workspace = true
+# The daemon killed, and its directory swept, when the test process dies.
+deskrinch-test-lifetime.workspace = true
 futures-core.workspace = true
 rustix = { workspace = true, features = ["process"] }
 tempfile.workspace = true

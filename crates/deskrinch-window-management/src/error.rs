@@ -52,9 +52,18 @@ pub enum ConnectError {
     /// The exchange that loads the initial window list failed.
     #[error("could not load the initial window list")]
     InitialSync(#[source] DispatchError),
-    /// The thread that dispatches the connection could not be started.
-    #[error("could not start the dispatch thread")]
+    /// The client's thread, which dispatches the connection, could not be
+    /// started.
+    #[error("could not start the client's thread")]
     Thread(#[source] io::Error),
+    /// The shared connection ended (it was lost, or a handler on it
+    /// panicked) before the window list could be loaded.
+    #[error("the connection to the compositor has ended")]
+    ConnectionEnded,
+    /// [`connect_with`](crate::connect_with) was called from the client's
+    /// own thread (from inside a subscriber), which would wait for itself.
+    #[error("cannot connect from inside a subscriber on the client's thread")]
+    OnClientThread,
 }
 
 /// Why an [`Action`] could not be requested.
@@ -92,4 +101,9 @@ pub enum EndReason {
     /// The connection to the compositor failed.
     #[error("the connection to the compositor was lost")]
     ConnectionLost(#[source] Arc<DispatchError>),
+    /// A subscriber or handler of some crate on the same connection
+    /// panicked; the panic was reported where it happened, and every stream
+    /// on the connection ended.
+    #[error("a handler on the connection panicked")]
+    HandlerPanicked,
 }

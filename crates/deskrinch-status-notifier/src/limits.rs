@@ -29,7 +29,12 @@ pub struct Limits {
     pub max_items_per_connection: usize,
     /// Hosts other than this one registered with the watcher at once.
     pub max_hosts: usize,
-    /// How long one read of an item's properties may take.
+    /// How long one read of an item's properties, or of a menu's layout or
+    /// properties, may take: a bound on an untrusted application's answer,
+    /// and on nothing else. The host's own calls to the bus daemon (taking
+    /// its names, asking for signals, a registering name's owner) have no
+    /// limit: the daemon answers them, and only the connection ending ends
+    /// one.
     pub read_timeout: Duration,
     /// The least time between the starts of two reads of one item. An item
     /// that signals faster (an animated icon, say) is read at this pace,

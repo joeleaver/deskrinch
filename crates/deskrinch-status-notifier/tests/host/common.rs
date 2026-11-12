@@ -56,6 +56,15 @@ impl PrivateBus {
         self.0.command(program)
     }
 
+    /// Starts `command` (from [`command`](Self::command)), killed should
+    /// the test process die without ending it.
+    pub(crate) fn spawn(
+        &self,
+        command: std::process::Command,
+    ) -> std::io::Result<std::process::Child> {
+        self.0.spawn(command)
+    }
+
     /// Stops the daemon now.
     pub(crate) fn kill(&mut self) {
         self.0.stop();
@@ -108,7 +117,12 @@ impl Events {
     }
 
     pub(crate) fn quiet(&self) {
-        if let Ok(event) = self.0.recv_timeout(QUIET) {
+        self.quiet_for(QUIET);
+    }
+
+    /// That no event arrives for `time`.
+    pub(crate) fn quiet_for(&self, time: Duration) {
+        if let Ok(event) = self.0.recv_timeout(time) {
             panic!("unexpected event {event:?}");
         }
     }

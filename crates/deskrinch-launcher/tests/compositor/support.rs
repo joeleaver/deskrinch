@@ -110,6 +110,14 @@ pub(crate) fn run(command: Command) -> Component {
 }
 
 /// Runs `deskrinch-launcher` with `args` to its end.
+///
+/// Not started with `deskrinch_test_lifetime::spawn`: it ends by itself,
+/// asking the running launcher over the bus and leaving, bounded by the
+/// bus call's timeout. (With none running, `toggle` and `show` would start
+/// one in a process group of its own; the tests call it so only while one
+/// runs, and the one test that has it start one,
+/// `with_none_running_toggle_starts_one_shown`, runs it as a component and
+/// ends what it started itself.)
 pub(crate) fn client(args: &[&str]) -> ExitStatus {
     launcher(args)
         .stdin(Stdio::null())

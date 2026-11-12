@@ -1,10 +1,11 @@
-//! The protocol side: one Wayland connection, the globals both backends
-//! share (outputs, a seat), and the choice of backend.
+//! The protocol side: the state attached to the client's connection, the
+//! globals both backends share (outputs, a seat), and the choice of
+//! backend.
 //!
-//! [`State`] is what the event queue dispatches into. It lives on the
-//! dispatch thread; what the handle also needs (the list, the protocol
-//! objects that actions are sent on) is in [`Shared`], behind a mutex that is
-//! never held while the subscriber runs.
+//! [`State`] is what the client's thread dispatches into. What the handle
+//! also needs (the list, the protocol objects that actions are sent on) is
+//! in [`Shared`], behind a mutex that is never held while the subscriber
+//! runs.
 
 mod plasma;
 mod wlr;
@@ -13,14 +14,14 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use deskrinch_wayland_client::{
-    Client, Ended, OutputGlobal, Outputs, OutputsHandler, Wake, layout_available, names_available,
+    AttachError, Attachment, Client, Detached, EndCause, Ended, OutputGlobal, Outputs,
+    OutputsHandler, Setup, layout_available, names_available,
 };
-use wayland_client::globals::{GlobalList, GlobalListContents, registry_queue_init};
-use wayland_client::protocol::wl_callback::WlCallback;
+use wayland_client::globals::{GlobalList, GlobalListContents};
 use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::protocol::wl_seat::{self, WlSeat};
-use wayland_client::{Connection, Dispatch, DispatchError, EventQueue, Proxy, QueueHandle};
+use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols_plasma::plasma_window_management::client::org_kde_plasma_window::OrgKdePlasmaWindow;
 use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1;
 
@@ -110,10 +111,12 @@ enum Placement {
     Geometry(Rect),
 }
 
-/// The dispatch state of one connection.
+/// The state attached to the client's connection.
 pub(crate) struct State {
     shared: Arc<Shared>,
     subscriber: Subscriber,
+    /// Set once the handle is dropped: the subscriber hears nothing more.
+    detached: Detached,
     outputs: Outputs,
     /// Where each window is, for those whose protocol has said.
     placements: HashMap<WindowId, Placement>,
@@ -134,6 +137,13 @@ impl State {
     fn update<E: IntoIterator<Item = Event>>(&mut self, change: impl FnOnce(&mut Inner) -> E) {
         let events: Vec<_> = change(&mut self.shared.lock()).into_iter().collect();
         for event in events {
+            self.deliver(event);
+        }
+    }
+
+    /// Tells the subscriber, unless the handle has been dropped.
+    fn deliver(&self, event: Event) {
+        if !self.detached.is_set() {
             (self.subscriber)(event);
         }
     }
@@ -166,7 +176,7 @@ impl State {
             first
         };
         if first {
-            (self.subscriber)(Event::Ended(reason));
+            self.deliver(Event::Ended(reason));
         }
     }
 
@@ -265,12 +275,12 @@ impl State {
 }
 
 impl Ended for State {
-    fn connection_lost(&mut self, error: DispatchError) {
-        self.end(EndReason::ConnectionLost(Arc::new(error)));
-    }
-
-    fn ended(&self) -> bool {
-        self.shared.lock().ended
+    fn end(&mut self, cause: EndCause) {
+        let reason = match cause {
+            EndCause::ConnectionLost(error) => EndReason::ConnectionLost(error),
+            EndCause::HandlerPanicked => EndReason::HandlerPanicked,
+        };
+        Self::end(self, reason);
     }
 }
 
@@ -287,30 +297,49 @@ impl OutputsHandler for State {
 wayland_client::delegate_dispatch!(State: [WlOutput: OutputGlobal] => Outputs);
 wayland_client::delegate_dispatch!(State: [ZxdgOutputV1: OutputGlobal] => Outputs);
 wayland_client::delegate_dispatch!(State: [ZxdgOutputManagerV1: ()] => Outputs);
-wayland_client::delegate_dispatch!(State: [WlCallback: Wake] => Wake);
 
-/// A connection whose initial window list is loaded, ready to be dispatched.
+/// A state attached and its initial window list loaded.
 pub(crate) struct Connected {
-    pub(crate) queue: EventQueue<State>,
-    pub(crate) state: State,
+    pub(crate) attachment: Attachment,
     pub(crate) shared: Arc<Shared>,
     pub(crate) capabilities: Capabilities,
 }
 
-/// Picks a backend from the globals `client`'s connection offers, binds it
-/// on a queue of its own and loads the initial list, delivering it to
-/// `subscriber` on this thread.
+/// Attaches a state to `client`: picks a backend from the globals, binds it
+/// and loads the initial list, delivering it to `subscriber` (on the
+/// client's thread, before this returns).
 pub(crate) fn connect(client: &Client, subscriber: Subscriber) -> Result<Connected, ConnectError> {
-    let (globals, mut queue) = registry_queue_init::<State>(client.connection())?;
-    let qh = queue.handle();
+    let (attachment, (shared, capabilities)) = client
+        .attach(move |setup| set_up(setup, subscriber))
+        .map_err(|error| match error {
+            AttachError::Setup(error) => error,
+            AttachError::Globals(error) => ConnectError::Globals(error),
+            AttachError::OnClientThread => ConnectError::OnClientThread,
+            AttachError::Ended => ConnectError::ConnectionEnded,
+        })?;
+    Ok(Connected {
+        attachment,
+        shared,
+        capabilities,
+    })
+}
+
+/// The setup, on the client's thread: the state, and what the handle keeps.
+fn set_up(
+    setup: &mut Setup<'_, State>,
+    subscriber: Subscriber,
+) -> Result<(State, (Arc<Shared>, Capabilities)), ConnectError> {
+    let registry = setup.globals().registry().clone();
+    let list = setup.globals().contents().clone_list();
+    let qh = setup.handle();
     let shared = Arc::new(Shared::default());
     let mut state = State {
         shared: Arc::clone(&shared),
         subscriber,
+        detached: setup.detached(),
         outputs: Outputs::default(),
         placements: HashMap::new(),
     };
-    let list = globals.contents().clone_list();
     // The xdg-output manager first, so that each output is described as it
     // is bound.
     let (managers, others): (Vec<_>, Vec<_>) = list
@@ -318,7 +347,7 @@ pub(crate) fn connect(client: &Client, subscriber: Subscriber) -> Result<Connect
         .partition(|global| global.interface == ZxdgOutputManagerV1::interface().name);
     for global in managers.into_iter().chain(others) {
         state.global_added(
-            globals.registry(),
+            &registry,
             global.name,
             &global.interface,
             global.version,
@@ -326,13 +355,13 @@ pub(crate) fn connect(client: &Client, subscriber: Subscriber) -> Result<Connect
         );
     }
     // Output names first, so that windows entering outputs can be named.
-    queue
+    setup
         .roundtrip(&mut state)
         .map_err(ConnectError::InitialSync)?;
 
     let output_names = names_available(&list);
     let output_layout = layout_available(&list);
-    let (mut capabilities, roundtrips) = bind_backend(&globals, &qh)?;
+    let (mut capabilities, roundtrips) = bind_backend(setup.globals(), &qh)?;
     capabilities.outputs = output_names
         && match capabilities.protocol {
             Protocol::WlrForeignToplevel => true,
@@ -340,16 +369,11 @@ pub(crate) fn connect(client: &Client, subscriber: Subscriber) -> Result<Connect
             Protocol::PlasmaWindowManagement => output_layout,
         };
     for _ in 0..roundtrips {
-        queue
+        setup
             .roundtrip(&mut state)
             .map_err(ConnectError::InitialSync)?;
     }
-    Ok(Connected {
-        queue,
-        state,
-        shared,
-        capabilities,
-    })
+    Ok((state, (shared, capabilities)))
 }
 
 /// Binds the preferred backend `globals` offers. Returns its capabilities and

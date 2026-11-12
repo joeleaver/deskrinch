@@ -2,7 +2,7 @@
 
 use deskrinch_test_wayland::Transform;
 
-use super::build::Target;
+use super::build::{Backend, Target};
 use crate::session::{Compositor, Outputs, Scale};
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
@@ -10,6 +10,7 @@ const SCREEN: &str = "deskrinch-test-screen";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
 const PANEL: &str = "deskrinch-panel";
+const WAYLAND_CLIENT: &str = "deskrinch-wayland-client";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
@@ -93,11 +94,12 @@ pub(super) struct Suite {
 pub(super) const SESSION_END: &str = "session_end::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 9] = [
+pub(super) const SUITES: [Suite; 12] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
             test: "compositor",
+            backend: Backend::Rust,
         },
         grant: Some(Grant {
             id: "org.deskrinch.WindowManagementTests",
@@ -114,6 +116,7 @@ pub(super) const SUITES: [Suite; 9] = [
         target: Target {
             package: WINDOW_MANAGEMENT,
             test: "kwin_not_granted",
+            backend: Backend::Rust,
         },
         grant: None,
         compositors: KWIN,
@@ -125,6 +128,7 @@ pub(super) const SUITES: [Suite; 9] = [
         target: Target {
             package: SCREEN,
             test: "compositor",
+            backend: Backend::Rust,
         },
         grant: Some(Grant {
             id: "org.deskrinch.TestScreenTests",
@@ -141,6 +145,7 @@ pub(super) const SUITES: [Suite; 9] = [
         target: Target {
             package: SCREEN,
             test: "wlroots",
+            backend: Backend::Rust,
         },
         grant: None,
         compositors: WLROOTS,
@@ -153,6 +158,7 @@ pub(super) const SUITES: [Suite; 9] = [
         target: Target {
             package: SCREEN,
             test: "kwin_not_granted",
+            backend: Backend::Rust,
         },
         grant: None,
         compositors: KWIN,
@@ -167,6 +173,7 @@ pub(super) const SUITES: [Suite; 9] = [
         target: Target {
             package: INPUT,
             test: "compositor",
+            backend: Backend::Rust,
         },
         grant: Some(Grant {
             id: "org.deskrinch.TestInputTests",
@@ -185,6 +192,7 @@ pub(super) const SUITES: [Suite; 9] = [
         target: Target {
             package: LAUNCHER,
             test: "compositor",
+            backend: Backend::Rust,
         },
         grant: Some(Grant {
             id: "org.deskrinch.LauncherTests",
@@ -204,6 +212,7 @@ pub(super) const SUITES: [Suite; 9] = [
         target: Target {
             package: PANEL,
             test: "compositor",
+            backend: Backend::Rust,
         },
         grant: Some(Grant {
             id: "org.deskrinch.PanelTests",
@@ -216,11 +225,60 @@ pub(super) const SUITES: [Suite; 9] = [
         renders: true,
         filter: &[],
     },
+    // The shared connection's one thread: states attached and detached from
+    // several threads at once, and how the thread and its states end.
+    Suite {
+        target: Target {
+            package: WAYLAND_CLIENT,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: PLAIN,
+        renders: false,
+        filter: &[],
+    },
+    // The two suites that exercise the shared connection, again on
+    // libwayland: what every binary that links rinch gets (winit selects
+    // `wayland-client`'s `system` backend), while these crates alone get the
+    // Rust one. Window management's session-ending test runs once, last, on
+    // the Rust backend: a session ends only once.
+    Suite {
+        target: Target {
+            package: WAYLAND_CLIENT,
+            test: "compositor",
+            backend: Backend::System,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: PLAIN,
+        renders: false,
+        filter: &[],
+    },
+    Suite {
+        target: Target {
+            package: WINDOW_MANAGEMENT,
+            test: "compositor",
+            backend: Backend::System,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.WindowManagementTestsLibwayland",
+            name: "deskrinch window-management tests on libwayland",
+            wayland: &[deskrinch_window_management::KWIN_INTERFACE],
+            dbus: &[],
+        }),
+        compositors: ALL,
+        passes: PLAIN,
+        renders: false,
+        filter: &["--skip", SESSION_END],
+    },
     // Last: it ends the session.
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
             test: "compositor",
+            backend: Backend::Rust,
         },
         grant: None,
         compositors: ALL,
