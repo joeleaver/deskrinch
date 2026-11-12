@@ -200,13 +200,25 @@ impl PrivateBus {
     }
 
     /// A command for `program` that runs in this bus's isolated session,
-    /// with `DBUS_SESSION_BUS_ADDRESS` naming this bus.
+    /// with `DBUS_SESSION_BUS_ADDRESS` naming this bus. Start it with
+    /// [`spawn`](Self::spawn).
     #[must_use]
     pub fn command(&self, program: impl AsRef<OsStr>) -> Command {
         let mut command = Command::new(program);
         session::isolate(&mut command, self.dir.path());
         command.env("DBUS_SESSION_BUS_ADDRESS", &self.address);
         command
+    }
+
+    /// Starts `command` (one from [`command`](Self::command)) as a child
+    /// that the kernel kills should the test process die without ending it
+    /// ([`deskrinch_test_lifetime::spawn`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`deskrinch_test_lifetime::spawn`].
+    pub fn spawn(&self, command: Command) -> io::Result<Child> {
+        deskrinch_test_lifetime::spawn(command)
     }
 
     /// The variables [`command`](Self::command) sets: the session's
