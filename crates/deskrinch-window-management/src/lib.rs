@@ -43,15 +43,16 @@
 //! its own, separate from any UI toolkit's; [`connect_with`] uses a
 //! [`Client`]'s connection instead, which other crates
 //! (`deskrinch-workspaces`) may share, so that a component using both holds
-//! one connection beside its toolkit's. Either way the crate dispatches an
-//! event queue of its own on a thread it owns. A shared connection is
-//! shared in full: a protocol error raised by any of its users, or the
-//! compositor going away, ends every stream on it ([`Event::Ended`]).
+//! one connection beside its toolkit's. Either way the crate's state is
+//! attached to a [`Client`], whose one thread reads the connection and
+//! dispatches every state on it (`deskrinch-wayland-client` says why one
+//! thread). A shared connection is shared in full: a protocol error raised
+//! by any of its users, the compositor going away, or a panic in any
+//! subscriber on it ends every stream on it ([`Event::Ended`]).
 //!
-//! The subscriber runs on the dispatch thread (and, for the windows already
-//! open, on the thread calling [`connect`] before it returns), so a UI
-//! forwards events into its own loop. The [`WindowManager`] handle may be
-//! used from any thread.
+//! The subscriber runs on the client's thread, the windows already open
+//! included (before [`connect`] returns), so a UI forwards events into its
+//! own loop. The [`WindowManager`] handle may be used from any thread.
 //!
 //! # Example
 //!

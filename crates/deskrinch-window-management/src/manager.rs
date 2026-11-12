@@ -3,9 +3,9 @@
 
 use std::sync::Arc;
 
-use deskrinch_wayland_client::{Client, DispatchThread};
+use deskrinch_wayland_client::{Attachment, Client, ClientError};
 
-use crate::backend::{self, Connected, Shared, State};
+use crate::backend::{self, Connected, Shared};
 use crate::capabilities::{Action, Capabilities};
 use crate::error::{ActionError, ConnectError};
 use crate::window::{Event, Window, WindowId};
@@ -38,14 +38,15 @@ pub trait WindowManagement: Send + Sync {
 
 /// A connection to the compositor's window management.
 ///
-/// It has an event queue of its own, dispatched on a thread it owns, and
-/// calls the subscriber given to [`connect`] or [`connect_with`] on that
-/// thread. Methods may be called from any thread. Dropping it stops the
-/// thread (waiting for it, unless dropped on that thread, from inside the
-/// subscriber); the connection closes once nothing else uses it.
+/// Its state is attached to a [`Client`], whose one thread dispatches it and
+/// calls the subscriber given to [`connect`] or [`connect_with`]. Methods
+/// may be called from any thread. Dropping it detaches the state: it returns
+/// once the client's thread will call the subscriber no more (dropped from
+/// inside the subscriber, it returns at once, and the subscriber hears
+/// nothing more). The connection closes once nothing else uses it.
 #[derive(Debug)]
 pub struct WindowManager {
-    dispatch: DispatchThread<State>,
+    attachment: Attachment,
     shared: Arc<Shared>,
     capabilities: Capabilities,
 }
@@ -60,41 +61,44 @@ pub struct WindowManager {
 /// As [`connect_with`], and [`ConnectError::Connect`] when no compositor can
 /// be reached.
 pub fn connect(subscriber: impl Fn(Event) + Send + 'static) -> Result<WindowManager, ConnectError> {
-    connect_with(&Client::connect()?, subscriber)
+    let client = Client::connect().map_err(|error| match error {
+        ClientError::Connect(error) => ConnectError::Connect(error),
+        ClientError::Thread(error) => ConnectError::Thread(error),
+    })?;
+    connect_with(&client, subscriber)
 }
 
 /// Picks the protocol `client`'s compositor offers and loads the window
-/// list, on an event queue and dispatch thread of its own on `client`'s
-/// connection, which other crates (`deskrinch-workspaces`) may share.
+/// list, attached to `client`'s connection, which other crates
+/// (`deskrinch-workspaces`) may share; the client's one thread dispatches
+/// them all.
 ///
 /// A shared connection is shared in full: a protocol error raised by any of
-/// its users, or the compositor going away, ends this connection's stream
-/// too ([`Event::Ended`]).
+/// its users, the compositor going away, or a panic in any subscriber on it
+/// ends this connection's stream too ([`Event::Ended`]).
 ///
-/// `subscriber` hears an [`Event::Added`] for every window already open
-/// before this returns, called on this thread, and every later change on the
-/// dispatch thread. It must not block for long: while it runs, no further
-/// events are read.
+/// `subscriber` is called on the client's thread: an [`Event::Added`] for
+/// every window already open before this returns, then every later change.
+/// It must not block for long: while it runs, nothing else on the
+/// connection is dispatched.
 ///
 /// # Errors
 ///
 /// [`ConnectError::Unsupported`] or [`ConnectError::NotGranted`] when the
-/// compositor offers no usable protocol, and others when the connection or
-/// its first exchanges fail.
+/// compositor offers no usable protocol, [`ConnectError::OnClientThread`]
+/// when called from inside a subscriber on `client`'s thread, and others
+/// when the connection or its first exchanges fail.
 pub fn connect_with(
     client: &Client,
     subscriber: impl Fn(Event) + Send + 'static,
 ) -> Result<WindowManager, ConnectError> {
     let Connected {
-        queue,
-        state,
+        attachment,
         shared,
         capabilities,
     } = backend::connect(client, Box::new(subscriber))?;
-    let dispatch = DispatchThread::spawn("deskrinch-window-management", client, queue, state)
-        .map_err(ConnectError::Thread)?;
     Ok(WindowManager {
-        dispatch,
+        attachment,
         shared,
         capabilities,
     })
@@ -111,9 +115,11 @@ impl WindowManagement for WindowManager {
 
     fn perform(&self, id: WindowId, action: Action) -> Result<(), ActionError> {
         self.shared.lock().request(self.capabilities, id, action)?;
-        self.dispatch
-            .connection()
+        // A socket that would block is not a failure: the client's thread
+        // finishes sending.
+        self.attachment
             .flush()
+            .map(|_flushed| ())
             .map_err(ActionError::Send)
     }
 }

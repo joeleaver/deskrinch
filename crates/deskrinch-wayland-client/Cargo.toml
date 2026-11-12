@@ -1,6 +1,6 @@
 [package]
 name = "deskrinch-wayland-client"
-description = "A Wayland connection the shell's protocol crates share: dispatched on threads they own, with the outputs named and laid out."
+description = "A Wayland connection the shell's protocol crates share: one thread reads it and dispatches every crate's queue, with the outputs named and laid out."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,8 +9,21 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The thread's wake-up (an eventfd) and its wait on the socket and it.
+rustix = { workspace = true, features = ["event"] }
+thiserror.workspace = true
 wayland-client.workspace = true
 wayland-protocols = { workspace = true, features = ["client", "unstable"] }
+
+[dev-dependencies]
+deskrinch-test-client.workspace = true
+
+# The compositor tests run inside a nested compositor that
+# `cargo xtask compositor-tests` starts; they are ignored by a plain
+# `cargo test`.
+[[test]]
+name = "compositor"
+path = "tests/compositor/main.rs"
 
 [lints]
 workspace = true
