@@ -19,7 +19,11 @@
 //! offers only to a program it has granted it to by an installed desktop
 //! file (`deskrinch-kwin-access`). Without a window list (not granted, or
 //! a compositor that offers none) the taskbar is empty, and says why once
-//! in the log; so it does when the compositor stops reporting windows.
+//! in the log; so it does when the compositor stops reporting windows. The
+//! window list and the installed applications are read on threads of their
+//! own, off the first frame's path: the taskbar is empty until the
+//! compositor has answered, and its icons follow when the applications are
+//! scanned.
 //!
 //! # Settings
 //!

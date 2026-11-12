@@ -8,6 +8,10 @@
 //! handed the buttons that result, as a whole, through a [`Handover`],
 //! which keeps the newest: an older list of buttons is of no use once a
 //! newer one exists. The UI's presses and releases take the same lock.
+//!
+//! The connection is made on a thread of its own, off the first frame's
+//! path: the taskbar is empty until the compositor has answered with its
+//! windows, and stays empty, with why reported once, when it offers none.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
@@ -25,56 +29,41 @@ pub(crate) type Buttons = Arc<Vec<Button<WindowId>>>;
 pub(crate) struct Following {
     model: Arc<Mutex<Taskbar<WindowId>>>,
     buttons: Arc<Handover<Buttons>>,
-    initial: Buttons,
-    /// `None` when the compositor offers no window list (reported).
-    manager: Option<WindowManager>,
+    /// `None` until connected, and when the compositor offers no window
+    /// list (reported).
+    manager: Arc<Mutex<Option<WindowManager>>>,
 }
 
 impl Following {
-    /// Connects to the compositor's window list and follows it. When it
-    /// cannot, the taskbar shows nothing, and why is reported once.
+    /// Starts connecting to the compositor's window list, on a thread of
+    /// its own, and following it; returns at once. When it cannot connect,
+    /// the taskbar shows nothing, and why is reported once.
     pub(crate) fn start() -> Self {
         let model = Arc::new(Mutex::new(Taskbar::new()));
         let buttons: Arc<Handover<Buttons>> = Arc::default();
-        let applied = Arc::clone(&model);
-        let deliver = Arc::clone(&buttons);
-        let connected = connect(move |event| {
-            let Some(change) = change(event) else {
-                return;
-            };
-            let mut model = lock(&applied);
-            let before = model.buttons();
-            if let Answer::Ended(reason) = model.input(Input::Change(change)) {
-                report::error("following the windows (the taskbar is empty)", &reason);
-            }
-            let after = model.buttons();
-            if after != before {
-                deliver.deliver(Arc::new(after));
-            }
-        });
-        let manager = match connected {
-            Ok(manager) => {
-                lock(&model).connected(manager.capabilities().actions);
-                Some(manager)
-            }
-            Err(error) => {
-                report::error("following the windows (the taskbar shows none)", &error);
-                *lock(&model) = Taskbar::unavailable();
-                None
-            }
-        };
-        let initial = Arc::new(lock(&model).buttons());
+        let manager = Arc::new(Mutex::new(None));
+        let (thread_model, thread_buttons, thread_manager) = (
+            Arc::clone(&model),
+            Arc::clone(&buttons),
+            Arc::clone(&manager),
+        );
+        let spawned = std::thread::Builder::new()
+            .name("taskbar-connect".into())
+            .spawn(move || follow(&thread_model, &thread_buttons, &thread_manager));
+        if let Err(error) = spawned {
+            report::error("starting the thread that follows the windows", &error);
+        }
         Self {
             model,
             buttons,
-            initial,
             manager,
         }
     }
 
-    /// The UI's signal of the buttons, on the UI thread.
+    /// The UI's signal of the buttons, on the UI thread: none until the
+    /// compositor has answered.
     pub(crate) fn signal(&self) -> Signal<Buttons> {
-        self.buttons.signal(Arc::clone(&self.initial))
+        self.buttons.signal(Arc::default())
     }
 
     /// A press or a release from the UI; what it adds up to is requested of
@@ -82,7 +71,11 @@ impl Following {
     pub(crate) fn input(&self, input: Input<WindowId>) {
         // The lock is let go before the requests go out.
         let answer = lock(&self.model).input(input);
-        let (Answer::Perform(id, actions), Some(manager)) = (answer, &self.manager) else {
+        let Answer::Perform(id, actions) = answer else {
+            return;
+        };
+        let manager = lock(&self.manager);
+        let Some(manager) = manager.as_ref() else {
             return;
         };
         for action in actions {
@@ -90,6 +83,41 @@ impl Following {
                 report::error(&format!("asking to {action} {id}"), &error);
                 return;
             }
+        }
+    }
+}
+
+/// Connects to the window list, applying each event to `model` and handing
+/// `buttons` what results, and keeps the connection in `manager`.
+fn follow(
+    model: &Arc<Mutex<Taskbar<WindowId>>>,
+    buttons: &Arc<Handover<Buttons>>,
+    manager: &Mutex<Option<WindowManager>>,
+) {
+    let applied = Arc::clone(model);
+    let deliver = Arc::clone(buttons);
+    let connected = connect(move |event| {
+        let Some(change) = change(event) else {
+            return;
+        };
+        let mut model = lock(&applied);
+        let before = model.buttons();
+        if let Answer::Ended(reason) = model.input(Input::Change(change)) {
+            report::error("following the windows (the taskbar is empty)", &reason);
+        }
+        let after = model.buttons();
+        if after != before {
+            deliver.deliver(Arc::new(after));
+        }
+    });
+    match connected {
+        Ok(connected) => {
+            lock(model).connected(connected.capabilities().actions);
+            *lock(manager) = Some(connected);
+        }
+        Err(error) => {
+            report::error("following the windows (the taskbar shows none)", &error);
+            *lock(model) = Taskbar::unavailable();
         }
     }
 }
