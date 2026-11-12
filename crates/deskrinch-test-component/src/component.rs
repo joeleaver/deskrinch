@@ -13,6 +13,10 @@ use crate::watch::{Presented, Watch};
 /// The variable `cargo xtask compositor-tests` names a run's renderer in.
 pub const RENDERER_VARIABLE: &str = "DESKRINCH_TEST_RENDERER";
 
+/// rinch's own variable for the renderer it presents with, which takes a
+/// [`Renderer::env`] value.
+pub const RINCH_RENDERER_VARIABLE: &str = "RINCH_RENDERER";
+
 /// The renderer a component is told to present with, through rinch's
 /// `RINCH_RENDERER`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,7 +113,7 @@ impl Component {
         let filter = log::rust_log(None);
         command
             .env("RINCH_PERF", "1")
-            .env("RINCH_RENDERER", renderer.env())
+            .env(RINCH_RENDERER_VARIABLE, renderer.env())
             .env("RUST_LOG", filter)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

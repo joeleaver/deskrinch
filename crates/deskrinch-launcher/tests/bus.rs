@@ -6,7 +6,9 @@ mod launcher {
     use std::sync::Arc;
 
     use deskrinch_bus::Bus;
-    use deskrinch_launcher::{Answer, Request, ServeError, Service, Visibility, send};
+    use deskrinch_launcher::{
+        Answer, INTERFACE, NAME, PATH, Request, ServeError, Service, Visibility, send,
+    };
     use deskrinch_test_dbus::PrivateBus;
 
     fn bus() -> (PrivateBus, Bus) {
@@ -40,6 +42,54 @@ mod launcher {
         visibility.show();
         visibility.hide();
         assert_eq!(send(&bus, Request::Toggle).unwrap(), done(Some(true)));
+    }
+
+    /// The launcher's `Shown` property, read on `bus`.
+    fn shown(bus: &Bus) -> bool {
+        zbus::block_on(async {
+            let connection = bus.connect().await.unwrap();
+            let reply = connection
+                .call_method(
+                    Some(NAME),
+                    PATH,
+                    Some("org.freedesktop.DBus.Properties"),
+                    "Get",
+                    &(INTERFACE, "Shown"),
+                )
+                .await
+                .unwrap();
+            let value: zbus::OwnedVariant = reply.body().deserialize().unwrap();
+            bool::try_from(value).unwrap()
+        })
+    }
+
+    #[test]
+    fn the_shown_property_follows_every_change() {
+        let (_private, bus) = bus();
+        let visibility = Arc::new(Visibility::new(false));
+        let _service = Service::start(&bus, Arc::clone(&visibility)).unwrap();
+        assert!(!shown(&bus));
+        send(&bus, Request::Toggle).unwrap();
+        assert!(shown(&bus));
+        // Hidden by its own UI.
+        visibility.hide();
+        assert!(!shown(&bus));
+    }
+
+    /// The shell starts the launcher and waits for it by the name the shell's
+    /// description gives; it must be the one the launcher takes.
+    #[test]
+    fn owns_the_name_the_shell_waits_for() {
+        let launcher = deskrinch_shell::COMPONENTS
+            .iter()
+            .find(|component| component.package == env!("CARGO_PKG_NAME"))
+            .unwrap();
+        assert_eq!(launcher.ready, deskrinch_shell::Ready::BusName(NAME));
+        assert_eq!(
+            deskrinch_shell::LAUNCHER_TOGGLE.package,
+            env!("CARGO_PKG_NAME")
+        );
+        assert_eq!(deskrinch_shell::LAUNCHER_TOGGLE.args, ["toggle"]);
     }
 
     #[test]
