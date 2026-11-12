@@ -174,6 +174,12 @@ enum Task {
         /// the cold one.
         #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=20))]
         shows: u32,
+        /// Open one window with this app id at the idle window's start, and
+        /// keep it open to its end: the idle figures then include what it
+        /// costs the program. A run fails if it cannot be opened or is gone
+        /// by the end.
+        #[arg(long, value_name = "APP_ID", conflicts_with = "summon")]
+        window: Option<String>,
         /// The program to measure.
         program: OsString,
         /// Its arguments.
@@ -226,6 +232,7 @@ impl Task {
                 summon,
                 dismiss,
                 shows,
+                window,
                 program,
                 args,
             } => measure::run(&measure::Request {
@@ -246,6 +253,7 @@ impl Task {
                 summons: summon
                     .zip(dismiss)
                     .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
+                window,
             }),
             Self::Session {
                 outputs,

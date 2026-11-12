@@ -38,6 +38,7 @@ mod report;
 mod show;
 mod smaps;
 mod system;
+mod window;
 
 pub(crate) use show::Summons;
 
@@ -46,6 +47,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use self::window::Stimulus;
 use crate::Outcome;
 use crate::error::Error;
 use crate::session::{Compositor, CompositorRenderer, Outputs, RenderNodes, Session};
@@ -92,6 +94,14 @@ after each show. Each show reports CPU time (or with --instructions the
 instructions) from the summon command to the first frame after it, the
 first show cold, each later one after a hide. The summon command's own
 process is not counted. Memory and the idle window are not measured.
+
+--window APP_ID opens one window with that app id in the session at the
+idle window's start (once it has had its first configure and drawn), and
+keeps it open to its end: the idle figures then include what it costs the
+program, and the report also prints the idle window's wake-ups and frames
+as totals. A run with it minus one without is the cost of a window
+appearing plus what a window held open costs over the window. A run fails
+if the window cannot be opened or is gone by the end.
 
 Needs valgrind and callgrind_control for --instructions.";
 
@@ -214,6 +224,9 @@ pub(crate) struct Request {
     /// With `--summon`: the program starts hidden, and each show is measured
     /// instead of the start.
     pub(crate) summons: Option<Summons>,
+    /// With `--window`: the app id of a window opened at the idle window's
+    /// start and kept open to its end.
+    pub(crate) window: Option<String>,
 }
 
 impl Request {
@@ -255,7 +268,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                     let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
                     show::measure(command, &ask, &program, timing, summons).map(drop)
                 }
-                None => probe::measure(command, &program, timing).map(drop),
+                None => probe::measure(command, &program, timing, &Stimulus::none()).map(drop),
             }
         })?;
     }
@@ -292,7 +305,14 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                             command, &control, &ask, &program, &out, timing, summons,
                         )
                     }
-                    None => callgrind::measure(command, control, &program, &out, timing),
+                    None => callgrind::measure(
+                        command,
+                        control,
+                        &program,
+                        &out,
+                        timing,
+                        &Stimulus::of(session, request.window.as_deref()),
+                    ),
                 }
             } else {
                 let command = client(session, request, cache);
@@ -301,7 +321,12 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                         let ask = |args: &[OsString]| asked(session, request, cache, args);
                         show::measure(command, &ask, &program, timing, summons)
                     }
-                    None => probe::measure(command, &program, timing),
+                    None => probe::measure(
+                        command,
+                        &program,
+                        timing,
+                        &Stimulus::of(session, request.window.as_deref()),
+                    ),
                 }
             }
         })?;

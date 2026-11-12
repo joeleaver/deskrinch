@@ -237,6 +237,25 @@ pub(crate) enum Error {
         /// The program.
         program: String,
     },
+    /// `--window`'s window could not be opened: no run is reported without
+    /// it.
+    #[error("the window with app id {app_id} could not be opened at the idle window's start")]
+    WindowNotOpened {
+        /// The window's app id.
+        app_id: String,
+        /// Why.
+        source: Box<deskrinch_test_client::Error>,
+    },
+    /// `--window`'s window was gone by the end of the idle window (its
+    /// connection ended, or the compositor asked it to close): the figures
+    /// would not be what one window costs.
+    #[error("the window with app id {app_id} was gone by the end of the idle window ({why})")]
+    WindowGone {
+        /// The window's app id.
+        app_id: String,
+        /// What happened to it.
+        why: &'static str,
+    },
     /// `callgrind_control` could not get a dump.
     #[error("callgrind_control could not dump the profile ({status})")]
     CallgrindControl {

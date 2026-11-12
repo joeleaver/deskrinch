@@ -167,6 +167,16 @@ impl TestClient {
         })
     }
 
+    /// Whether the connection is still dispatched: false once the
+    /// compositor closed it or it failed, when the client's windows are
+    /// gone with it.
+    #[must_use]
+    pub fn is_connected(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_some_and(|thread| !thread.is_finished())
+    }
+
     /// Whether the compositor offered this client a global of `interface`
     /// when it connected.
     #[must_use]
