@@ -14,14 +14,22 @@ mod activation;
 #[cfg(test)]
 mod common;
 #[cfg(test)]
+mod flood;
+#[cfg(test)]
 mod interop;
 #[cfg(test)]
 mod lifecycle;
+#[cfg(test)]
+mod menu_failures;
+#[cfg(test)]
+mod menus;
 #[cfg(test)]
 mod names;
 #[cfg(test)]
 mod reads;
 #[cfg(test)]
 mod stand_in;
+#[cfg(test)]
+mod stand_in_menu;
 #[cfg(test)]
 mod untrusted;

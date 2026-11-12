@@ -54,15 +54,56 @@
 //! `activate` never waits on the bus: the host's own thread sends the
 //! calls, in order, so a UI thread may call it.
 //!
+//! # Menus
+//!
+//! An item's menu (`com.canonical.dbusmenu`) is read only while the caller
+//! has it open. [`Handle::open_menu`] tells the application (`Event`
+//! `opened`), asks it to get the menu ready (`AboutToShow`, in which
+//! applications build their menus) and waits for its answer, but no longer
+//! than [`Limits::about_to_show_timeout`], then reads the whole layout.
+//! The subscriber hears of it as [`Event::Menu`], or [`Event::MenuFailed`]
+//! with the reason, or, if the application has gone, as the item's
+//! [`Event::Removed`]: one of the three always answers an opening. The host
+//! asks the bus for an open menu's signals alone (a match on its owner and
+//! object, made before the first read, moved with the menu and dropped when
+//! it closes), so menus that are not open, which applications update all
+//! the same, cost nothing. While it is open, each `LayoutUpdated` or
+//! `ItemsPropertiesUpdated` asks for the whole layout to be read again,
+//! paced and coalesced as an item's reads are, so a storm of them costs one
+//! read an interval; the menu is also read again when its item moves to
+//! another connection, and from its new object when the item's `Menu`
+//! moves (an item that no longer has one fails the menu,
+//! [`MenuFailure::NoMenu`]). [`Handle::close_menu`] tells the application
+//! and releases what was read.
+//!
+//! An entry is named by an [`EntryId`], which names the entry the caller
+//! was given, not only the application's number for it: some applications
+//! number entries by their place, so after a change the same number can
+//! name another entry. [`Handle::activate_entry`] sends `Event` `clicked`
+//! only while the menu still has that entry as it was (the same kind,
+//! label, toggle kind, and submenu or not), and refuses otherwise.
+//! [`Handle::open_submenu`] and [`Handle::close_submenu`] tell the
+//! application about submenus, many of which are filled only when opened.
+//!
+//! `ItemActivationRequested`, an application asking for its menu to be
+//! shown (meant for a global menu bar answering a keyboard shortcut), is
+//! not followed: a tray opens a menu when the user asks it to, and an
+//! application opening one on its own would put up a popup the user did
+//! not ask for.
+//!
 //! # Whom a call goes to
 //!
-//! Every call that expects a reply (reading the properties now, the menu's
-//! calls to come) goes to the unique name of the connection that owns the
-//! item. The bus never activates a unique name, so no read can start a
-//! service, even for an item registered under a well-known name that has a
-//! service file and has just left. Calls that expect no reply (the
-//! activations) go to the name the item registered and carry
-//! `NO_AUTO_START`, which says the same to the bus.
+//! Every call that expects a reply (reading the properties, and the menu's
+//! `GetLayout`, its properties and `AboutToShow`) goes to the unique name
+//! of the connection that owns the item, looked up when the call starts. The
+//! bus never activates a unique name, so no read can start a service, even
+//! for an item registered under a well-known name that has a service file
+//! and has just left. An answer from a connection that no longer owns the
+//! item, or from an object that is no longer its menu, says nothing about
+//! it, whatever it says; the read the change asked for follows. Calls that
+//! expect no reply (the activations, and the menu's `Event`s) go to the
+//! name the item registered and carry `NO_AUTO_START`, which says the same
+//! to the bus.
 //!
 //! # Untrusted input
 //!
@@ -78,6 +119,17 @@
 //! left in it, icon names checked to be names and not paths, and pixmaps
 //! validated (their data must match their size, within bounds) and decoded
 //! to RGBA.
+//!
+//! A menu is held to the same rules. Its layout is read straight into
+//! entries, stopping at the first entry deeper or one more than its bounds
+//! allow, and such a layout is refused whole, as is a reply over its size:
+//! a menu is never shown with entries silently missing. Each field is
+//! bounded on its own: a label is cleaned and truncated, an icon's PNG
+//! (`icon-data`) is decoded within its bounds or dropped, shortcuts beyond
+//! their count are dropped. Labels are text, not markup: the protocol
+//! defines markup for none of an entry's properties, so `<b>` is shown as
+//! written; underscores mark the mnemonic ([`Label`]). Hidden entries are
+//! left out; nothing else is tidied, separators included.
 //!
 //! # What real items send
 //!
@@ -98,11 +150,50 @@
 //! read. An empty title is common, and the UI chooses what to show
 //! instead.
 //!
+//! Their menus differ too:
+//!
+//! | | libdbusmenu-glib (libayatana, GTK applications) | Qt | ksni |
+//! |---|---|---|---|
+//! | Entry ids | a counter per process, given once to each entry: the same for its life | a counter per process, given as each entry is made: the same for its life | the entry's place in the menu, all moved past the last when the layout changes: never reused |
+//! | `children-display` | `submenu` while the entry has children | `submenu` for every submenu, empty or not | `submenu` while the entry has children |
+//! | Toggles | from GTK: `checkmark`, or `radio` when GTK draws it as one; state 0 or 1 | `checkmark`, or `radio` in an exclusive group; state 0 or 1 | `checkmark`, `radio`; state 0 or 1 |
+//! | Icons | `icon-data`, a PNG of the GTK image | `icon-name` when the icon has a name, otherwise `icon-data`, a 16-pixel PNG | either or both, as the application gives |
+//! | Shortcuts | one shortcut: `Control`, `Alt`, `Shift`, `Super`, then GDK's key name | one list per step of the key sequence: `Super`, `Control`, `Alt`, `Shift`, `Num`, then Qt's key name | as the application gives |
+//! | Labels | from GTK: its `_` mnemonic as it is, every underscore doubled in a label without one, Pango markup taken out | the first `&` made `_`; an underscore of the label's own is not doubled, and reads as a mnemonic | as the application gives |
+//! | `AboutToShow` | answers false, then does its work | answers false; the application fills the menu then, and says it changed | answers false; says when the menu changed |
+//! | Properties at their default | left out: `enabled` and `visible` true, `disposition` normal, and a label of exactly `Label Empty`, libdbusmenu's default (such an entry arrives with no label) | `label`, `enabled` and `visible` always sent | left out |
+//!
 //! # Threads
 //!
 //! No async runtime is needed. The host runs on threads of its own; the
 //! subscriber is called on one of them, never with a lock held, so it may
 //! call back into a [`Handle`]. A UI forwards each event to its own thread.
+//!
+//! # Never awaiting a reply beside an unread stream
+//!
+//! The rule: whoever polls a stream of signals never awaits a method's
+//! reply outside that poll. A task that holds no stream may await one.
+//!
+//! The host's tracker holds every stream the host has: every
+//! `NameOwnerChanged`, every item's signals, and each open menu's. Every
+//! call it makes that expects a reply (a read, `AboutToShow`, the match for
+//! a menu's signals, the host's names at start-up) is a future polled in
+//! the one loop that polls those streams. The watcher's own method handlers
+//! (`RegisterStatusNotifierItem`, `RegisterStatusNotifierHost`) await the
+//! bus too, for the registering name's owner, outside that loop: they run
+//! as tasks of their own on zbus's executor and hold no stream, and the
+//! tracker keeps draining every stream while they wait. Calls that expect
+//! no reply (the activations, a menu's events, the watcher's signals) only
+//! send, and are made inline.
+//!
+//! The reason is zbus's socket reader. It hands each message to every
+//! stream that matches it and, when a stream's queue (64 messages) is full,
+//! waits until there is room, reading nothing more from the socket
+//! meanwhile. A reply that arrives behind such a message is not read until
+//! the stream is drained; a reply awaited by the only code that would drain
+//! that stream is never read at all. Names change in bursts at login, and
+//! applications signal in floods: the crate's tests start the host, open a
+//! menu and register an item in such floods.
 //!
 //! # Example
 //!
@@ -125,6 +216,7 @@ mod dbus;
 mod host;
 mod item;
 mod limits;
+mod menu;
 mod model;
 mod parse;
 mod wire;
@@ -134,3 +226,7 @@ pub use deskrinch_untrusted::{IconName, Image};
 pub use host::{Activation, Config, Event, Handle, Host, OperationError, Orientation, StartError};
 pub use item::{Category, Icon, Item, ItemId, Status, ToolTip};
 pub use limits::Limits;
+pub use menu::{
+    Disposition, EntryId, EntryKind, Label, Menu, MenuEntry, MenuFailure, Shortcut, TextDirection,
+    Toggle, ToggleState,
+};

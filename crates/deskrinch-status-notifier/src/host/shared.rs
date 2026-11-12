@@ -8,9 +8,11 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::task::{Context, Poll, Waker};
 use std::time::Instant;
 
+use crate::dbus::menu::ROOT;
 use crate::host::{Activation, Event, OperationError};
 use crate::item::{Item, ItemId};
-use crate::model::{Change, Due, Model, Refusal, Target};
+use crate::menu::{EntryId, EntryKind, Menu, MenuEntry};
+use crate::model::{Change, Due, MenuDue, MenuRefusal, MenuTarget, Model, Refusal, Target};
 
 pub(crate) struct Shared {
     state: Mutex<State>,
@@ -29,21 +31,63 @@ struct State {
     stopping: bool,
 }
 
-/// A call the tracker sends for a handle: `activation` to `target`, after
-/// `ProvideXdgActivationToken` with `token` if there is one.
+/// A call the tracker makes for a handle.
 #[derive(Debug, Clone)]
-pub(crate) struct Call {
-    pub(crate) target: Target,
-    pub(crate) activation: Activation,
-    pub(crate) token: Option<String>,
+pub(crate) enum Call {
+    /// `activation` to `target`, after `ProvideXdgActivationToken` with
+    /// `token` if there is one.
+    Activate {
+        target: Target,
+        activation: Activation,
+        token: Option<String>,
+    },
+    /// The menu event `event` about `entry` to `target`, after
+    /// `ProvideXdgActivationToken` with `token` if there is one.
+    MenuEvent {
+        target: MenuTarget,
+        entry: i32,
+        event: &'static str,
+        token: Option<String>,
+    },
+    /// `AboutToShow` for `entry` of the item `id`'s open menu, whose answer
+    /// may ask for the menu to be read again.
+    AboutToShow { id: ItemId, entry: i32 },
 }
 
 /// The work the tracker is asked for.
 #[derive(Debug, Default)]
 pub(crate) struct Work {
     pub(crate) reads: Vec<Due>,
+    pub(crate) menu_reads: Vec<MenuDue>,
     /// In the order the handles queued them.
     pub(crate) calls: Vec<Call>,
+}
+
+impl Work {
+    fn is_empty(&self) -> bool {
+        self.reads.is_empty() && self.menu_reads.is_empty() && self.calls.is_empty()
+    }
+}
+
+fn menu_event(target: MenuTarget, entry: i32, event: &'static str, token: Option<String>) -> Call {
+    Call::MenuEvent {
+        target,
+        entry,
+        event,
+        token,
+    }
+}
+
+/// The handle's error for the model's refusal of an operation on the item
+/// `id`'s menu, or on its `entry`.
+fn menu_error(refusal: MenuRefusal, id: &ItemId, entry: Option<EntryId>) -> OperationError {
+    match (refusal, entry) {
+        (MenuRefusal::NotFound, _) => OperationError::NotFound(id.clone()),
+        (MenuRefusal::NoMenu, _) | (MenuRefusal::NoEntry, None) => {
+            OperationError::NoMenu(id.clone())
+        }
+        (MenuRefusal::NoEntry, Some(entry)) => OperationError::EntryUnavailable(entry),
+    }
 }
 
 /// What the tracker is asked to do, and how to wake it.
@@ -116,25 +160,143 @@ impl Shared {
         activation: Activation,
         token: Option<&str>,
     ) -> Result<(), OperationError> {
-        let target = {
-            let state = self.lock();
-            if state.stopped {
+        self.queue(|model| {
+            let target = model
+                .target(id)
+                .ok_or_else(|| OperationError::NotFound(id.clone()))?;
+            Ok(Work {
+                calls: vec![Call::Activate {
+                    target,
+                    activation,
+                    token: token.map(str::to_owned),
+                }],
+                ..Work::default()
+            })
+        })
+    }
+
+    /// Opens the item `id`'s menu: says so to the application, and asks
+    /// the tracker to read it. Nothing when it is open already.
+    pub(crate) fn open_menu(&self, id: &ItemId) -> Result<(), OperationError> {
+        self.queue(|model| {
+            let opened = model
+                .open_menu(id, Instant::now())
+                .map_err(|r| menu_error(r, id, None))?;
+            Ok(opened.map_or_else(Work::default, |(target, due)| Work {
+                menu_reads: vec![due],
+                calls: vec![menu_event(target, ROOT, "opened", None)],
+                ..Work::default()
+            }))
+        })
+    }
+
+    /// Closes the item `id`'s menu, and says so to the application.
+    /// Nothing when it is not open.
+    pub(crate) fn close_menu(&self, id: &ItemId) -> Result<(), OperationError> {
+        self.queue(|model| {
+            if model.item(id).is_none() {
+                return Err(OperationError::NotFound(id.clone()));
+            }
+            Ok(Work {
+                calls: model
+                    .close_menu(id)
+                    .map(|target| menu_event(target, ROOT, "closed", None))
+                    .into_iter()
+                    .collect(),
+                ..Work::default()
+            })
+        })
+    }
+
+    /// Says to the application that the submenu of `entry` opened, with
+    /// `AboutToShow`, whose answer may ask for the menu to be read again.
+    pub(crate) fn open_submenu(&self, id: &ItemId, entry: EntryId) -> Result<(), OperationError> {
+        self.queue(|model| {
+            let target = model
+                .entry_target(id, entry, |e| e.submenu.is_some())
+                .map_err(|r| menu_error(r, id, Some(entry)))?;
+            Ok(Work {
+                // As on opening the menu itself: the event, then the call.
+                calls: vec![
+                    menu_event(target, entry.id, "opened", None),
+                    Call::AboutToShow {
+                        id: id.clone(),
+                        entry: entry.id,
+                    },
+                ],
+                ..Work::default()
+            })
+        })
+    }
+
+    /// Says to the application that the submenu of `entry` closed.
+    pub(crate) fn close_submenu(&self, id: &ItemId, entry: EntryId) -> Result<(), OperationError> {
+        self.queue(|model| {
+            let target = model
+                .entry_target(id, entry, |e| e.submenu.is_some())
+                .map_err(|r| menu_error(r, id, Some(entry)))?;
+            Ok(Work {
+                calls: vec![menu_event(target, entry.id, "closed", None)],
+                ..Work::default()
+            })
+        })
+    }
+
+    /// Activates `entry` of the item `id`'s open menu, if it is still the
+    /// entry the caller was given and can be activated.
+    pub(crate) fn activate_entry(
+        &self,
+        id: &ItemId,
+        entry: EntryId,
+        token: Option<&str>,
+    ) -> Result<(), OperationError> {
+        self.queue(|model| {
+            let activatable = |e: &MenuEntry| e.kind == EntryKind::Standard && e.enabled;
+            let target = model
+                .entry_target(id, entry, activatable)
+                .map_err(|r| menu_error(r, id, Some(entry)))?;
+            Ok(Work {
+                calls: vec![menu_event(
+                    target,
+                    entry.id,
+                    "clicked",
+                    token.map(str::to_owned),
+                )],
+                ..Work::default()
+            })
+        })
+    }
+
+    /// The item `id`'s open menu, as last read.
+    pub(crate) fn menu(&self, id: &ItemId) -> Option<Arc<Menu>> {
+        self.lock().model.menu(id)
+    }
+
+    /// Asks the model for the work an operation queues, and queues it for
+    /// the tracker, in order with what is queued already; the operation's
+    /// error, or that the host has stopped.
+    fn queue(
+        &self,
+        operation: impl FnOnce(&mut Model) -> Result<Work, OperationError>,
+    ) -> Result<(), OperationError> {
+        // The inbox is held from the model's decision to the queueing, so
+        // that two handles' operations are queued in the order the model
+        // saw them; the tracker never takes the state's lock while it holds
+        // the inbox's.
+        let mut inbox = self.lock_inbox();
+        let work = {
+            let mut state = self.lock();
+            if state.stopped || inbox.stopped {
                 return Err(OperationError::Stopped);
             }
-            state
-                .model
-                .target(id)
-                .ok_or_else(|| OperationError::NotFound(id.clone()))?
+            operation(&mut state.model)?
         };
-        let mut inbox = self.lock_inbox();
-        if inbox.stopped {
-            return Err(OperationError::Stopped);
+        if work.is_empty() {
+            return Ok(());
         }
-        inbox.work.calls.push(Call {
-            target,
-            activation,
-            token: token.map(str::to_owned),
-        });
+        inbox.work.reads.extend(work.reads);
+        inbox.work.menu_reads.extend(work.menu_reads);
+        inbox.work.calls.extend(work.calls);
         if let Some(waker) = inbox.waker.take() {
             waker.wake();
         }
@@ -162,7 +324,7 @@ impl Shared {
     }
 
     /// Asks the tracker to start `reads`.
-    pub(crate) fn read(&self, reads: Vec<Due>) {
+    fn read(&self, reads: Vec<Due>) {
         if reads.is_empty() {
             return;
         }
@@ -180,7 +342,7 @@ impl Shared {
         if inbox.stopped {
             return Poll::Ready(None);
         }
-        if !inbox.work.reads.is_empty() || !inbox.work.calls.is_empty() {
+        if !inbox.work.is_empty() {
             return Poll::Ready(Some(mem::take(&mut inbox.work)));
         }
         inbox.waker = Some(cx.waker().clone());
