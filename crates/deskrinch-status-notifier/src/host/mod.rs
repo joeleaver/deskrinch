@@ -230,11 +230,15 @@ impl Host {
         // Only the owners' stream is opened here, while it is the only one:
         // the calls that need a reply from then on are the tracker's, made
         // while it polls the streams (`startup`).
+        //
+        // The connection has no method timeout: an item's read is bounded
+        // by `Limits::read_timeout` where it is made; the host's own calls
+        // to the bus daemon (its names, its matches, a name's owner) are
+        // answered by the daemon, and only the connection ending ends one.
         let (connection, owners) = zbus::block_on(async {
             let connection = config
                 .bus
                 .builder()
-                .method_timeout(limits.read_timeout)
                 .serve_at(WATCHER_PATH, watcher)
                 .build()
                 .await
