@@ -1497,7 +1497,7 @@ dependencies = [
 [[package]]
 name = "fontique"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=070603bb84600f032cafd77e952198f5949ff187#070603bb84600f032cafd77e952198f5949ff187"
+source = "git+https://github.com/joeleaver/parley-fork?rev=d1826da3581098d86bc2c145bbea5f26036d1009#d1826da3581098d86bc2c145bbea5f26036d1009"
 dependencies = [
  "hashbrown 0.17.1",
  "linebender_resource_handle",
@@ -3272,7 +3272,7 @@ dependencies = [
 [[package]]
 name = "parlance"
 version = "0.1.1"
-source = "git+https://github.com/joeleaver/parley-fork?rev=070603bb84600f032cafd77e952198f5949ff187#070603bb84600f032cafd77e952198f5949ff187"
+source = "git+https://github.com/joeleaver/parley-fork?rev=d1826da3581098d86bc2c145bbea5f26036d1009#d1826da3581098d86bc2c145bbea5f26036d1009"
 dependencies = [
  "bytemuck",
 ]
@@ -3280,10 +3280,11 @@ dependencies = [
 [[package]]
 name = "parley"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=070603bb84600f032cafd77e952198f5949ff187#070603bb84600f032cafd77e952198f5949ff187"
+source = "git+https://github.com/joeleaver/parley-fork?rev=d1826da3581098d86bc2c145bbea5f26036d1009#d1826da3581098d86bc2c145bbea5f26036d1009"
 dependencies = [
  "fontique",
  "hashbrown 0.17.1",
+ "icu_properties",
  "linebender_resource_handle",
  "parlance",
  "parley_engine",
@@ -3293,7 +3294,7 @@ dependencies = [
 [[package]]
 name = "parley_data"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=070603bb84600f032cafd77e952198f5949ff187#070603bb84600f032cafd77e952198f5949ff187"
+source = "git+https://github.com/joeleaver/parley-fork?rev=d1826da3581098d86bc2c145bbea5f26036d1009#d1826da3581098d86bc2c145bbea5f26036d1009"
 dependencies = [
  "icu_collections",
  "icu_properties",
@@ -3302,12 +3303,12 @@ dependencies = [
 [[package]]
 name = "parley_emoji"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=070603bb84600f032cafd77e952198f5949ff187#070603bb84600f032cafd77e952198f5949ff187"
+source = "git+https://github.com/joeleaver/parley-fork?rev=d1826da3581098d86bc2c145bbea5f26036d1009#d1826da3581098d86bc2c145bbea5f26036d1009"
 
 [[package]]
 name = "parley_engine"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=070603bb84600f032cafd77e952198f5949ff187#070603bb84600f032cafd77e952198f5949ff187"
+source = "git+https://github.com/joeleaver/parley-fork?rev=d1826da3581098d86bc2c145bbea5f26036d1009#d1826da3581098d86bc2c145bbea5f26036d1009"
 dependencies = [
  "fontique",
  "harfrust",
@@ -3873,7 +3874,7 @@ dependencies = [
 [[package]]
 name = "rinch"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "base64",
  "bytemuck",
@@ -3920,7 +3921,7 @@ dependencies = [
 [[package]]
 name = "rinch-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "thiserror 1.0.69",
  "tracing",
@@ -3930,7 +3931,7 @@ dependencies = [
 [[package]]
 name = "rinch-debug"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "getrandom 0.3.4",
  "libc",
@@ -3942,7 +3943,7 @@ dependencies = [
 [[package]]
 name = "rinch-dom"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -3986,7 +3987,7 @@ dependencies = [
 [[package]]
 name = "rinch-editable"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "rinch-words",
 ]
@@ -3994,7 +3995,7 @@ dependencies = [
 [[package]]
 name = "rinch-editor-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "regex",
  "rinch-core",
@@ -4005,7 +4006,7 @@ dependencies = [
 [[package]]
 name = "rinch-editor-view"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "rinch-core",
  "rinch-editor-core",
@@ -4015,7 +4016,7 @@ dependencies = [
 [[package]]
 name = "rinch-macros"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4025,7 +4026,7 @@ dependencies = [
 [[package]]
 name = "rinch-platform"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "peniko",
  "vello",
@@ -4035,7 +4036,7 @@ dependencies = [
 [[package]]
 name = "rinch-renderer"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "rinch-core",
  "thiserror 1.0.69",
@@ -4047,12 +4048,12 @@ dependencies = [
 [[package]]
 name = "rinch-theme"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 
 [[package]]
 name = "rinch-words"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#6cdddfa3015f41425e54b6d67ff5c8cf479493a2"
+source = "git+https://github.com/joeleaver/rinch?branch=main#758adc7297ddaac9ec5d4eaf3f7c34f34b83c1d6"
 dependencies = [
  "icu_segmenter",
  "regex",
@@ -4771,7 +4772,7 @@ dependencies = [
 [[package]]
 name = "taffy"
 version = "0.14.0"
-source = "git+https://github.com/joeleaver/taffy-fork?rev=85244a41e2ec33371b3e6bdb218e5b77fb49b480#85244a41e2ec33371b3e6bdb218e5b77fb49b480"
+source = "git+https://github.com/joeleaver/taffy-fork?rev=37899060c1263b9020eb58b129daf4f18d90fd9f#37899060c1263b9020eb58b129daf4f18d90fd9f"
 dependencies = [
  "arrayvec",
  "serde",
@@ -5259,7 +5260,7 @@ checksum = "ba73ea9cf16a25df0c8caa16c51acb937d5712a8429db78a3ee29d5dcacd3a65"
 [[package]]
 name = "vello"
 version = "0.11.0"
-source = "git+https://github.com/joeleaver/vello-fork?rev=544112f749b6fc49baaea9230d3234508c2b281e#544112f749b6fc49baaea9230d3234508c2b281e"
+source = "git+https://github.com/joeleaver/vello-fork?rev=b800513d819ab7e7d78f0ac0501893280b6394cc#b800513d819ab7e7d78f0ac0501893280b6394cc"
 dependencies = [
  "bytemuck",
  "futures-intrusive",
@@ -5279,7 +5280,7 @@ dependencies = [
 [[package]]
 name = "vello_encoding"
 version = "0.11.0"
-source = "git+https://github.com/joeleaver/vello-fork?rev=544112f749b6fc49baaea9230d3234508c2b281e#544112f749b6fc49baaea9230d3234508c2b281e"
+source = "git+https://github.com/joeleaver/vello-fork?rev=b800513d819ab7e7d78f0ac0501893280b6394cc#b800513d819ab7e7d78f0ac0501893280b6394cc"
 dependencies = [
  "bytemuck",
  "guillotiere",
@@ -5291,7 +5292,7 @@ dependencies = [
 [[package]]
 name = "vello_shaders"
 version = "0.11.0"
-source = "git+https://github.com/joeleaver/vello-fork?rev=544112f749b6fc49baaea9230d3234508c2b281e#544112f749b6fc49baaea9230d3234508c2b281e"
+source = "git+https://github.com/joeleaver/vello-fork?rev=b800513d819ab7e7d78f0ac0501893280b6394cc#b800513d819ab7e7d78f0ac0501893280b6394cc"
 dependencies = [
  "bytemuck",
  "log",
@@ -5974,7 +5975,7 @@ checksum = "589f6da84c646204747d1270a2a5661ea66ed1cced2631d546fdfb155959f9ec"
 [[package]]
 name = "winit"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "bitflags 2.13.2",
  "cfg_aliases",
@@ -6000,7 +6001,7 @@ dependencies = [
 [[package]]
 name = "winit-android"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "android-activity",
  "bitflags 2.13.2",
@@ -6015,7 +6016,7 @@ dependencies = [
 [[package]]
 name = "winit-appkit"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "bitflags 2.13.2",
  "block2 0.6.2",
@@ -6037,7 +6038,7 @@ dependencies = [
 [[package]]
 name = "winit-common"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "block2 0.6.2",
  "dpi",
@@ -6055,7 +6056,7 @@ dependencies = [
 [[package]]
 name = "winit-core"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "bitflags 2.13.2",
  "cursor-icon",
@@ -6069,7 +6070,7 @@ dependencies = [
 [[package]]
 name = "winit-orbital"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "bitflags 2.13.2",
  "dpi",
@@ -6085,7 +6086,7 @@ dependencies = [
 [[package]]
 name = "winit-uikit"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "bitflags 2.13.2",
  "block2 0.6.2",
@@ -6105,7 +6106,7 @@ dependencies = [
 [[package]]
 name = "winit-wayland"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "bitflags 2.13.2",
  "calloop",
@@ -6132,7 +6133,7 @@ dependencies = [
 [[package]]
 name = "winit-web"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "atomic-waker",
  "bitflags 2.13.2",
@@ -6154,7 +6155,7 @@ dependencies = [
 [[package]]
 name = "winit-win32"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "bitflags 2.13.2",
  "cursor-icon",
@@ -6172,7 +6173,7 @@ dependencies = [
 [[package]]
 name = "winit-x11"
 version = "0.31.0-beta.4"
-source = "git+https://github.com/joeleaver/winit-fork?rev=b402059b01743bc5614f8f20ff88fa677f268cc0#b402059b01743bc5614f8f20ff88fa677f268cc0"
+source = "git+https://github.com/joeleaver/winit-fork?rev=6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77#6f69d8c4c8578f4065ef8a5a90554f1d7ccb4b77"
 dependencies = [
  "bitflags 2.13.2",
  "bytemuck",
