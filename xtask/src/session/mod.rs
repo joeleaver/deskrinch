@@ -84,6 +84,13 @@ use crate::error::Error;
 /// unset unless asked.
 const CURRENT_DESKTOP: &str = "XDG_CURRENT_DESKTOP";
 
+/// Where a session's root is made: `/tmp`, not `$TMPDIR`, as the Wayland
+/// socket's path must fit a Unix socket address (108 bytes), and `$TMPDIR`
+/// may be long.
+const ROOT_PARENT: &str = "/tmp";
+/// What a session's root is named, before tempfile's random part.
+const ROOT_PREFIX: &str = "deskrinch-session-";
+
 /// How long a compositor has to open its socket.
 const STARTUP: Duration = Duration::from_secs(20);
 /// How long a session has to end after `SIGTERM` before it gets `SIGKILL`.
@@ -124,11 +131,9 @@ impl Session {
     ) -> Result<Self, Error> {
         interrupt::install()?;
         interrupt::check()?;
-        // In `/tmp`, not `$TMPDIR`: the Wayland socket's path must fit a Unix
-        // socket address (108 bytes), and `$TMPDIR` may be long.
         let dir = tempfile::Builder::new()
-            .prefix("deskrinch-session-")
-            .tempdir_in("/tmp")
+            .prefix(ROOT_PREFIX)
+            .tempdir_in(ROOT_PARENT)
             .map_err(|source| Error::Io {
                 what: "create the session directory".into(),
                 source,

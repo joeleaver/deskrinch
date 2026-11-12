@@ -237,6 +237,42 @@ mod session {
         }
     }
 
+    /// `xtask session-supervisor <root>`, its standard input closed at once
+    /// (as when xtask has died).
+    fn supervisor(root: &Path) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .arg("session-supervisor")
+            .arg(root)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    }
+
+    #[test]
+    fn the_supervisor_refuses_a_directory_that_is_not_a_session_s() {
+        // Named as a session's and where a session's is, but not marked.
+        let unmarked = tempfile::Builder::new()
+            .prefix("deskrinch-session-")
+            .tempdir_in("/tmp")
+            .unwrap();
+        fs::write(unmarked.path().join("keep"), "").unwrap();
+        let output = supervisor(unmarked.path());
+        assert!(!output.status.success(), "{output:?}");
+        assert!(output.stdout.is_empty(), "it said it was ready: {output:?}");
+        assert!(unmarked.path().join("keep").is_file());
+    }
+
+    #[test]
+    fn the_supervisor_refuses_a_marked_directory_outside_the_temporary_one() {
+        let outer = tempfile::tempdir().unwrap();
+        let root = outer.path().join("deskrinch-session-x");
+        fs::create_dir(&root).unwrap();
+        fs::write(root.join(".deskrinch-session"), "").unwrap();
+        let output = supervisor(&root);
+        assert!(!output.status.success(), "{output:?}");
+        assert!(root.join(".deskrinch-session").is_file());
+    }
+
     #[test]
     fn refuses_a_scale_that_is_not_positive() {
         for scale in ["0", "-1", "inf", "two"] {

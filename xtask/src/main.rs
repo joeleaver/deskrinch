@@ -220,10 +220,7 @@ impl Task {
                 renderer,
             } => compositor_tests::run(root, &compositors, renderer),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
-            Self::SessionSupervisor { root } => {
-                session::supervise(&root);
-                Ok(Outcome::Passed)
-            }
+            Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
             Self::Measure {
                 compositor,
                 runs,
