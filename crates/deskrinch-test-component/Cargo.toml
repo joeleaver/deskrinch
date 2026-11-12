@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 # The nested-session guard a component is started behind.
 deskrinch-test-client.workspace = true
+# The component killed when the test process dies.
+deskrinch-test-lifetime.workspace = true
 
 [lints]
 workspace = true

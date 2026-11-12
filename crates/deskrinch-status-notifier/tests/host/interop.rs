@@ -159,14 +159,13 @@ struct Item {
 
 impl Item {
     fn start(bus: &PrivateBus) -> Self {
-        let mut child = bus
-            .command(std::env::current_exe().unwrap())
+        let mut command = bus.command(std::env::current_exe().unwrap());
+        command
             .args(["--exact", "interop::ksni_item", "--ignored", "--nocapture"])
             .env(CHILD, "1")
             .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .spawn()
-            .unwrap();
+            .stdout(Stdio::piped());
+        let mut child = bus.spawn(command).unwrap();
         let stdout = child.stdout.take().unwrap();
         let (tx, lines) = mpsc::channel();
         thread::spawn(move || {
