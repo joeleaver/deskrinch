@@ -204,6 +204,7 @@ impl State {
     fn read(&self, due: Due) -> Pending {
         let wait = (due.at > Instant::now()).then(|| self.timer.sleep_until(due.at));
         let connection = self.connection.clone();
+        let timer = self.timer.clone();
         let shared = Arc::clone(&self.shared);
         let limits = self.limits.clone();
         Box::pin(async move {
@@ -213,7 +214,7 @@ impl State {
             let Some(source) = shared.with_model(|m| m.source(&due.id)) else {
                 return Finished::Nothing;
             };
-            let (source, outcome) = item::read(connection, source, limits).await;
+            let (source, outcome) = item::read(connection, timer, source, limits).await;
             Finished::Read(source, outcome)
         })
     }
