@@ -66,6 +66,17 @@
 //! where it happens, and no state is left silently undispatched. The thread
 //! ends when the last [`Client`] clone and the last [`Attachment`] are
 //! gone.
+//!
+//! A compositor that stops reading for long enough, while the crates keep
+//! sending, still ends the connection, and that limit is upstream's, not
+//! one this crate can lift. Behind the socket's own kernel buffer, the
+//! Rust backend holds unsent requests in a buffer of its own of 4096
+//! bytes (`DEFAULT_MAX_BUFFER_SIZE` in wayland-backend's `src/rs/mod.rs`),
+//! about 250 to 340 requests of the 12 to 16 bytes the crates send (a
+//! `sync`, an activation); a request that finds it full while the socket
+//! takes nothing is recorded as the connection's error
+//! (`InnerBackend::send_request` in `src/rs/client_impl/mod.rs`).
+//! libwayland's buffer is its own, 4096 bytes by default too.
 
 mod attach;
 mod client;
