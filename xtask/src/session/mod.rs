@@ -88,7 +88,7 @@ use self::supervisor::Supervisor;
 #[cfg(test)]
 pub(crate) use self::supervisor::fake_root;
 pub(crate) use self::supervisor::{
-    SUBCOMMAND as SUPERVISOR, check as check_root, run as supervise,
+    SUBCOMMAND as SUPERVISOR, check as check_root, run as supervise, supervised,
 };
 pub(crate) use self::transform::OutputTransform;
 use crate::error::Error;
@@ -250,6 +250,11 @@ impl Session {
     /// `DESKRINCH_SESSION_DIR`.
     pub(crate) fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// The session's process group: the compositor and its clients.
+    pub(crate) fn group(&self) -> Pid {
+        self.group
     }
 
     /// How the compositor ended, once it has; `None` while it runs.

@@ -252,7 +252,7 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         session.keep();
     }
     if let Some(profile) = &mut profile {
-        profile.claim(session.root())?;
+        profile.claim(session.root(), session.group())?;
     }
     println!("desktop: session {}", session.root().display());
     println!("desktop: bus {}", session.bus_address());

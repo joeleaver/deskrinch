@@ -447,4 +447,75 @@ mod desktop {
         second.wait_for_root_gone();
         assert!(profile.dir.join("home/mark").exists(), "the home is kept");
     }
+
+    /// Every file under `dir`, by its path relative to `dir`, with its
+    /// contents; the lock and the claim aside.
+    fn files(dir: &Path) -> HashMap<PathBuf, Vec<u8>> {
+        let mut found = HashMap::new();
+        let mut pending = vec![dir.to_owned()];
+        while let Some(next) = pending.pop() {
+            for entry in fs::read_dir(&next).unwrap() {
+                let path = entry.unwrap().path();
+                let relative = path.strip_prefix(dir).unwrap().to_owned();
+                if relative == Path::new(".lock") || relative == Path::new(".session") {
+                    continue;
+                }
+                let kind = fs::symlink_metadata(&path).unwrap().file_type();
+                if kind.is_dir() {
+                    pending.push(path);
+                } else if kind.is_file() {
+                    found.insert(relative, fs::read(&path).unwrap());
+                }
+            }
+        }
+        found
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+    fn a_killed_desktop_leaves_its_profile_whole_and_free() {
+        let profile = TestProfile::new();
+        let options = ["--profile", profile.name.as_str()];
+        let dir = tempfile::tempdir().unwrap();
+        let written = dir.path().join("written");
+        let script = format!(
+            "echo kept > \"$HOME/mark\" && echo kept > \"$XDG_CONFIG_HOME/mark\" && \
+             touch '{}'; sleep 600",
+            written.display()
+        );
+        let mut killed = start(&options, &["sh", "-c", &script]);
+        until(|| written.exists(), "the desktop to write its profile");
+        let before = files(&profile.dir);
+        killed.signal(Signal::KILL);
+        assert_eq!(killed.wait().code(), None, "killed");
+        killed.wait_for_root_gone();
+
+        // The supervisor removed the session's links, not what they lead to.
+        let after = files(&profile.dir);
+        for (path, contents) in &before {
+            assert_eq!(
+                after.get(path),
+                Some(contents),
+                "{} changed",
+                path.display()
+            );
+        }
+        assert_eq!(after[Path::new("home/mark")], b"kept\n");
+        // No lock is left held.
+        let lock = File::open(profile.dir.join(".lock")).unwrap();
+        rustix::fs::flock(&lock, rustix::fs::FlockOperation::NonBlockingLockExclusive)
+            .expect("the lock is free");
+        drop(lock);
+
+        // The claim no longer stands in the way: a new desktop starts on it.
+        let mut next = start(&options, &[]);
+        assert!(!next.launcher_shown(), "its launcher runs, hidden");
+        next.signal(Signal::TERM);
+        assert_eq!(next.wait().code(), Some(130), "it said:\n{}", next.said());
+        next.wait_for_root_gone();
+        assert!(
+            !profile.dir.join(".session").exists(),
+            "its claim ended with it"
+        );
+    }
 }

@@ -41,6 +41,7 @@
 
 use std::fs;
 use std::io::{self, BufRead, BufReader, Write as _};
+use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::process::CommandExt as _;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -218,6 +219,22 @@ pub(crate) fn check(root: &Path) -> Result<(), Error> {
     Ok(())
 }
 
+/// Whether a supervisor of the session under `root` runs: a process of this
+/// user whose command line is `<program> session-supervisor <root>`.
+pub(crate) fn supervised(root: &Path) -> bool {
+    let wanted = [SUBCOMMAND.as_bytes(), root.as_os_str().as_bytes()];
+    fs::read_dir("/proc")
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| entry.file_name().as_bytes().iter().all(u8::is_ascii_digit))
+        .filter_map(|entry| fs::read(entry.path().join("cmdline")).ok())
+        .any(|cmdline| {
+            let args: Vec<&[u8]> = cmdline.split(|&byte| byte == 0).collect();
+            args.get(1..3) == Some(&wanted[..])
+        })
+}
+
 /// A directory made and marked as a session's root, for tests of what
 /// checks one; removed when dropped.
 #[cfg(test)]
@@ -288,6 +305,30 @@ mod tests {
         let outcome = supervise(root.path(), io::empty());
         assert!(matches!(outcome, Err(Error::NotASession { .. })));
         assert!(root.path().is_dir());
+    }
+
+    #[test]
+    fn a_running_supervisor_is_found_by_its_root() {
+        let root = session_like();
+        let other = session_like();
+        assert!(!supervised(root.path()));
+        // A stand-in with a supervisor's command line: a script named as the
+        // subcommand, run as `sh session-supervisor ROOT`, waiting on its
+        // standard input.
+        let scripts = tempfile::tempdir().unwrap();
+        fs::write(scripts.path().join(SUBCOMMAND), "read -r line\n").unwrap();
+        let mut command = Command::new("sh");
+        command
+            .current_dir(scripts.path())
+            .arg(SUBCOMMAND)
+            .arg(root.path())
+            .stdin(Stdio::piped());
+        let mut stand_in = deskrinch_test_lifetime::spawn(command).unwrap();
+        assert!(supervised(root.path()));
+        assert!(!supervised(other.path()), "another root's");
+        drop(stand_in.stdin.take());
+        stand_in.wait().unwrap();
+        assert!(!supervised(root.path()), "gone");
     }
 
     #[test]

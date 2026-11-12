@@ -6,11 +6,18 @@
 //!
 //! - a lock (`flock` on `.lock`) held for as long as `cargo xtask desktop`
 //!   runs, which the kernel releases however it ends;
-//! - the session that uses it, named in `.session` while it runs. Should
-//!   the command be killed, its session's supervisor is still ending that
-//!   session, with the profile's programs, after the lock is gone; the
-//!   profile is in use until the session's root is removed, which the
-//!   supervisor does last.
+//! - the session that uses it, claimed in `.session` (its root and its
+//!   process group) while it runs. Should the command be killed, its
+//!   session's supervisor is still ending that session, with the profile's
+//!   programs, after the lock is gone. The profile is in use while the
+//!   claimed root is there and either its supervisor or its process group
+//!   still runs; the supervisor removes the root last.
+//!
+//! A claim can outlive both: a supervisor that was itself killed leaves the
+//! root, and the claim naming it, behind. Once neither the supervisor nor
+//! any process of the session's group runs, nothing writes to the profile
+//! any more, and the next desktop on it clears the claim, saying so, and
+//! leaves the root for the owner to remove.
 
 use std::fs::{self, DirBuilder, File, OpenOptions};
 use std::io;
@@ -18,9 +25,11 @@ use std::os::unix::fs::DirBuilderExt;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{FlockOperation, flock};
+use rustix::process::{Pid, test_kill_process_group};
 
 use super::DesktopError;
 use crate::error::Error;
+use crate::session;
 
 /// Where profiles are kept, under the workspace.
 const PROFILES: &str = ".work/desktop";
@@ -72,14 +81,26 @@ impl Profile {
             }
             .into());
         }
-        if let Ok(session) = fs::read_to_string(dir.join(SESSION))
-            && Path::new(session.trim_end()).exists()
-        {
-            return Err(DesktopError::ProfileInUse {
-                profile: dir,
-                why: "the session of a desktop that was killed is still being ended",
+        if let Ok(text) = fs::read_to_string(dir.join(SESSION)) {
+            let claim = Claim::read(&text);
+            if claim.running() {
+                return Err(DesktopError::ProfileInUse {
+                    profile: dir,
+                    why: "the session of a desktop that was killed is still being ended",
+                }
+                .into());
             }
-            .into());
+            if claim.root.exists() {
+                eprintln!(
+                    "desktop: the profile's claim by {} is stale (neither its supervisor nor any \
+                     of its processes runs), and is cleared; that directory is left for you to \
+                     remove",
+                    claim.root.display()
+                );
+            }
+            let path = dir.join(SESSION);
+            fs::remove_file(&path)
+                .map_err(|source| io_error(&format!("remove {}", path.display()), source))?;
         }
         Ok(Self {
             dir,
@@ -93,13 +114,54 @@ impl Profile {
         &self.dir
     }
 
-    /// Names `session_root` as the session that uses the profile.
-    pub(super) fn claim(&mut self, session_root: &Path) -> Result<(), Error> {
+    /// Claims the profile for the session under `session_root`, whose
+    /// process group is `group`.
+    pub(super) fn claim(&mut self, session_root: &Path, group: Pid) -> Result<(), Error> {
         let path = self.dir.join(SESSION);
-        fs::write(&path, format!("{}\n", session_root.display()))
+        let claim = Claim {
+            root: session_root.to_owned(),
+            group: Some(group),
+        };
+        fs::write(&path, claim.text())
             .map_err(|source| io_error(&format!("write {}", path.display()), source))?;
         self.claimed = true;
         Ok(())
+    }
+}
+
+/// A session's claim on a profile, as `.session` holds it: the session's
+/// root on its first line, its process group on the second.
+#[derive(Debug, PartialEq, Eq)]
+struct Claim {
+    root: PathBuf,
+    /// `None` when the line is missing or not a process id.
+    group: Option<Pid>,
+}
+
+impl Claim {
+    fn read(text: &str) -> Self {
+        let mut lines = text.lines();
+        let root = PathBuf::from(lines.next().unwrap_or_default());
+        let group = lines
+            .next()
+            .and_then(|line| line.parse().ok())
+            .and_then(Pid::from_raw);
+        Self { root, group }
+    }
+
+    fn text(&self) -> String {
+        let group = self.group.map_or(0, |group| group.as_raw_nonzero().get());
+        format!("{}\n{group}\n", self.root.display())
+    }
+
+    /// Whether the claiming session may still run: its root is there, and
+    /// its supervisor or a process of its group runs.
+    fn running(&self) -> bool {
+        self.root.exists()
+            && (session::supervised(&self.root)
+                || self
+                    .group
+                    .is_some_and(|group| test_kill_process_group(group).is_ok()))
     }
 }
 
@@ -132,6 +194,9 @@ fn io_error(what: &str, source: io::Error) -> Error {
 
 #[cfg(test)]
 mod tests {
+    use std::os::unix::process::CommandExt;
+    use std::process::Command;
+
     use super::*;
 
     #[test]
@@ -156,23 +221,78 @@ mod tests {
         Profile::open(workspace.path(), "work").unwrap();
     }
 
+    /// A process group of its own that runs until killed.
+    fn running_group() -> (std::process::Child, Pid) {
+        let mut command = Command::new("sleep");
+        command.arg("600").process_group(0);
+        // Bound to this test process, should it die before killing it.
+        let child = deskrinch_test_lifetime::spawn(command).unwrap();
+        let group = Pid::from_child(&child);
+        (child, group)
+    }
+
+    /// Writes the claim of a desktop that was killed: its lock is gone, its
+    /// claim stays.
+    fn claimed_by(workspace: &Path, root: &Path, group: Pid) -> PathBuf {
+        let dir = workspace.join(".work/desktop/work");
+        fs::create_dir_all(&dir).unwrap();
+        let claim = Claim {
+            root: root.to_owned(),
+            group: Some(group),
+        };
+        fs::write(dir.join(SESSION), claim.text()).unwrap();
+        dir
+    }
+
+    #[test]
+    fn a_claim_reads_back() {
+        let claim = Claim {
+            root: PathBuf::from("/tmp/deskrinch-session-x"),
+            group: Pid::from_raw(4242),
+        };
+        assert_eq!(Claim::read(&claim.text()), claim);
+        assert_eq!(
+            Claim::read("/tmp/x\n"),
+            Claim {
+                root: PathBuf::from("/tmp/x"),
+                group: None
+            }
+        );
+    }
+
     #[test]
     fn a_session_still_ending_keeps_it_in_use() {
         let workspace = tempfile::tempdir().unwrap();
         let session = tempfile::tempdir().unwrap();
-        // A desktop that was killed: its lock is gone, its claim stays.
-        let dir = workspace.path().join(".work/desktop/work");
-        fs::create_dir_all(&dir).unwrap();
-        fs::write(dir.join(SESSION), format!("{}\n", session.path().display())).unwrap();
+        let (mut child, group) = running_group();
+        let dir = claimed_by(workspace.path(), session.path(), group);
         assert!(matches!(
             Profile::open(workspace.path(), "work"),
             Err(Error::Desktop(DesktopError::ProfileInUse { .. }))
         ));
-        // Once the supervisor has removed the session's root, it is free.
+        // Once the supervisor has ended the group and removed the root, it
+        // is free, and a clean end leaves no claim.
+        child.kill().unwrap();
+        child.wait().unwrap();
         drop(session);
         let mut second = Profile::open(workspace.path(), "work").unwrap();
-        second.claim(Path::new("/nonexistent")).unwrap();
+        second.claim(Path::new("/nonexistent"), group).unwrap();
         drop(second);
         assert!(!dir.join(SESSION).exists());
+    }
+
+    #[test]
+    fn a_claim_whose_supervisor_and_processes_are_gone_is_cleared() {
+        let workspace = tempfile::tempdir().unwrap();
+        // The supervisor was killed too: the root stays, nothing runs.
+        let session = tempfile::tempdir().unwrap();
+        let (mut child, group) = running_group();
+        child.kill().unwrap();
+        child.wait().unwrap();
+        let dir = claimed_by(workspace.path(), session.path(), group);
+        let profile = Profile::open(workspace.path(), "work").unwrap();
+        assert!(!dir.join(SESSION).exists(), "cleared");
+        assert!(session.path().exists(), "the root is left to its owner");
+        drop(profile);
     }
 }
