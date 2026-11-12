@@ -63,50 +63,43 @@ impl<State: Ended + Send + 'static> Live for Queue<State> {
 pub(crate) fn run(connection: &Connection, controls: &Receiver<Control>, wake: &OwnedFd) {
     let mut attached: Vec<Attached> = Vec::new();
     let cause = loop {
-        // What other threads asked, first: a detached state is never
-        // dispatched again.
-        while let Ok(control) = controls.try_recv() {
-            match control {
-                Control::Attach(job) => {
-                    match panic::catch_unwind(AssertUnwindSafe(|| job(Some(connection)))) {
-                        Ok(Some(new)) => attached.push(new),
-                        Ok(None) => {}
-                        // A setup's handler panicked (its waiter has heard the
-                        // end already: the answer was dropped unsent).
-                        Err(_) => {
-                            end_all(&mut attached, &EndCause::HandlerPanicked);
-                            refuse_until_stopped(controls);
-                            return;
-                        }
-                    }
-                }
-                Control::Detach(id, acknowledge) => {
-                    attached.retain(|attachment| attachment.id != id);
-                    if let Some(acknowledge) = acknowledge {
-                        // The waiter may be gone; nothing else to tell.
-                        let _ = acknowledge.send(());
-                    }
-                }
-                Control::Stop => return,
-            }
+        match take_controls(connection, controls, &mut attached) {
+            Next::Go => {}
+            Next::End(cause) => break cause,
+            // The last handle is gone, and with it every attachment.
+            Next::Stop => return,
         }
         if let Some(cause) = dispatch_all(&mut attached) {
             break cause;
         }
-        if let Err(error) = connection.flush() {
-            break lost(error);
-        }
+        // Whether requests are left unsent: the socket would not take them,
+        // so the thread also waits for it to be writable.
+        let unsent = match connection.flush() {
+            Ok(()) => false,
+            // The compositor is slow to read: not an error (the backend does
+            // not record it as one). Try again once the socket is writable.
+            Err(WaylandError::Io(error)) if error.kind() == ErrorKind::WouldBlock => true,
+            Err(error) => break lost(error),
+        };
         // The connection's only reader: no other thread can take events
         // meant for a queue this thread is about to wait for.
         let Some(guard) = connection.prepare_read() else {
-            // Events are already queued (the system backend's own queue):
-            // dispatch them first.
+            // The backend's own queue holds events (the system backend):
+            // sort them into the attached queues here, whether or not any
+            // state is attached, so that this cannot spin.
+            if let Err(error) = connection.backend().dispatch_inner_queue() {
+                break lost(error);
+            }
             continue;
         };
-        let (socket, woken) = {
+        let (readable, woken) = {
             let socket = guard.connection_fd();
+            let mut wanted = PollFlags::IN | PollFlags::ERR;
+            if unsent {
+                wanted |= PollFlags::OUT;
+            }
             let mut fds = [
-                PollFd::new(&socket, PollFlags::IN | PollFlags::ERR),
+                PollFd::new(&socket, wanted),
                 PollFd::new(wake, PollFlags::IN),
             ];
             match poll(&mut fds, None) {
@@ -114,24 +107,79 @@ pub(crate) fn run(connection: &Connection, controls: &Receiver<Control>, wake: &
                 Err(rustix::io::Errno::INTR) => continue,
                 Err(error) => break lost(WaylandError::Io(error.into())),
             }
-            (!fds[0].revents().is_empty(), !fds[1].revents().is_empty())
+            let socket = fds[0].revents();
+            (
+                socket.intersects(PollFlags::IN | PollFlags::ERR | PollFlags::HUP),
+                !fds[1].revents().is_empty(),
+            )
         };
         if woken {
             drain(wake);
         }
-        if socket {
+        if readable {
             match guard.read() {
                 Ok(_) => {}
                 Err(WaylandError::Io(error)) if error.kind() == ErrorKind::WouldBlock => {}
                 Err(error) => break lost(error),
             }
         } else {
-            // Woken for a control: no read this time.
+            // Woken for a control, or the socket became writable: no read
+            // this time; the next round flushes.
             drop(guard);
         }
     };
     end_all(&mut attached, &cause);
     refuse_until_stopped(controls);
+}
+
+/// What the thread does after taking the controls.
+enum Next {
+    /// Dispatch, and wait.
+    Go,
+    /// End every state, for this cause.
+    End(EndCause),
+    /// Stop: the last handle is gone.
+    Stop,
+}
+
+/// Carries out what other threads asked, first in every round: a detached
+/// state is never dispatched again. A setup or a detached state's drop that
+/// panics ends the connection.
+fn take_controls(
+    connection: &Connection,
+    controls: &Receiver<Control>,
+    attached: &mut Vec<Attached>,
+) -> Next {
+    while let Ok(control) = controls.try_recv() {
+        match control {
+            Control::Attach(job) => {
+                match panic::catch_unwind(AssertUnwindSafe(|| job(Some(connection)))) {
+                    Ok(Some(new)) => attached.push(new),
+                    Ok(None) => {}
+                    // A setup's handler panicked (its waiter has heard the
+                    // end already: the answer was dropped unsent).
+                    Err(_) => return Next::End(EndCause::HandlerPanicked),
+                }
+            }
+            Control::Detach(id, acknowledge) => {
+                let detached = attached
+                    .iter()
+                    .position(|attachment| attachment.id == id)
+                    .map(|index| attached.remove(index));
+                // A state whose drop panics is a handler panicking.
+                let dropped = panic::catch_unwind(AssertUnwindSafe(|| drop(detached)));
+                if let Some(acknowledge) = acknowledge {
+                    // The waiter may be gone; nothing else to tell.
+                    let _ = acknowledge.send(());
+                }
+                if dropped.is_err() {
+                    return Next::End(EndCause::HandlerPanicked);
+                }
+            }
+            Control::Stop => return Next::Stop,
+        }
+    }
+    Next::Go
 }
 
 /// Dispatches every attached queue; why the connection ends, if it does.

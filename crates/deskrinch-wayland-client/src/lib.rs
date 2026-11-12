@@ -24,7 +24,13 @@
 //! which is also the only one ever to read the socket. No crate holds an
 //! [`EventQueue`](wayland_client::EventQueue) once it is attached: its
 //! setup runs on the client's thread, and it keeps only its queue's handle
-//! (to send requests) and the connection (to flush them).
+//! (to send requests) and its [`Attachment`] (to flush them). The
+//! connection itself is not handed out.
+//!
+//! A flush the socket will not take whole (the compositor is slow to read)
+//! is not a failure: [`Attachment::flush`] says [`Flushed::Pending`], and
+//! the client's thread waits until the socket is writable and sends the
+//! rest. The connection ends only on a real error.
 //!
 //! The reason: with a thread per queue, each calling
 //! [`EventQueue::blocking_dispatch`](wayland_client::EventQueue::blocking_dispatch),
@@ -67,7 +73,7 @@ mod ended;
 mod outputs;
 mod thread;
 
-pub use attach::{AttachError, Attachment, Detached, Setup};
+pub use attach::{AttachError, Attachment, Detached, Flushed, Setup};
 pub use client::{Client, ClientError};
 pub use ended::{EndCause, Ended};
 pub use outputs::{OutputGlobal, Outputs, OutputsHandler, Rect, layout_available, names_available};

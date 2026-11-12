@@ -6,7 +6,6 @@ use wayland_client::DispatchError;
 
 /// Why the client's thread ended the attached states.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub enum EndCause {
     /// The connection failed: the compositor went away, or sent something
     /// that ended it (a protocol error raised by any user of the

@@ -29,11 +29,8 @@ fn states_attach_and_detach_on_one_client_without_waiting_forever() {
                     assert!(attached.record.lock().unwrap().outputs > 0);
                     // An exchange on the state's own queue, answered on the
                     // client's thread, while others attach and detach.
-                    client
-                        .connection()
-                        .display()
-                        .sync(&attached.queue, OnDone::Nothing);
-                    client.connection().flush().unwrap();
+                    client.display().sync(&attached.queue, OnDone::Nothing);
+                    attached.attachment.flush().unwrap();
                     bounded("detaching a probe", move || drop(attached));
                 }
             })

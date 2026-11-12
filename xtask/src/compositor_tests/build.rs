@@ -5,24 +5,80 @@ use std::process::{Command, Stdio};
 
 use crate::error::Error;
 
-/// A test target of a package, by its `[[test]]` name.
+/// Which implementation of the Wayland client library a test binary is
+/// built with.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Backend {
+    /// wayland-backend's own Rust implementation, the default.
+    Rust,
+    /// libwayland (`wayland-client`'s `system` feature), which every binary
+    /// that links rinch gets through winit.
+    System,
+}
+
+impl Backend {
+    /// The features that select it, for `cargo test`.
+    fn features(self) -> &'static [&'static str] {
+        match self {
+            Self::Rust => &[],
+            Self::System => &["--features", "wayland-client/system"],
+        }
+    }
+}
+
+/// A test target of a package, by its `[[test]]` name, built with a
+/// Wayland backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) struct Target {
     /// The package.
     pub(super) package: &'static str,
     /// The `[[test]]` name.
     pub(super) test: &'static str,
+    /// The Wayland client library's implementation.
+    pub(super) backend: Backend,
 }
 
-/// Builds `targets` with one `cargo test --no-run` and returns their
-/// binaries, in the same order.
+/// Builds `targets`, one `cargo test --no-run` per backend, and returns
+/// their binaries, in the same order.
 pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<PathBuf>, Error> {
+    let mut binaries: Vec<Option<PathBuf>> = vec![None; targets.len()];
+    for backend in [Backend::Rust, Backend::System] {
+        let built: Vec<(usize, Target)> = targets
+            .iter()
+            .copied()
+            .enumerate()
+            .filter(|(_, target)| target.backend == backend)
+            .collect();
+        if built.is_empty() {
+            continue;
+        }
+        let messages = build(root, backend, built.iter().map(|&(_, target)| target))?;
+        for (index, target) in built {
+            binaries[index] = Some(test_executable(&messages, target).ok_or(
+                Error::MissingTestBinary {
+                    package: target.package,
+                    name: target.test,
+                },
+            )?);
+        }
+    }
+    Ok(binaries.into_iter().flatten().collect())
+}
+
+/// Builds `targets` with `backend` in one `cargo test --no-run`; Cargo's
+/// JSON messages.
+fn build(
+    root: &Path,
+    backend: Backend,
+    targets: impl Iterator<Item = Target>,
+) -> Result<String, Error> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let mut command = Command::new(&cargo);
     command.current_dir(root).arg("test");
     for target in targets {
         command.args(["--package", target.package, "--test", target.test]);
     }
+    command.args(backend.features());
     let output = command
         .args([
             "--no-run",
@@ -40,16 +96,7 @@ pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<PathB
             status: output.status,
         });
     }
-    let messages = String::from_utf8_lossy(&output.stdout);
-    targets
-        .iter()
-        .map(|&target| {
-            test_executable(&messages, target).ok_or(Error::MissingTestBinary {
-                package: target.package,
-                name: target.test,
-            })
-        })
-        .collect()
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
 /// The executable of `target` in Cargo's JSON messages.
@@ -97,7 +144,23 @@ not json
 {"reason":"build-finished","success":true}"#;
 
     fn target(package: &'static str, test: &'static str) -> Target {
-        Target { package, test }
+        Target {
+            package,
+            test,
+            backend: Backend::Rust,
+        }
+    }
+
+    #[test]
+    fn the_system_backend_is_a_feature_of_the_client_library() {
+        assert!(
+            Backend::Rust.features().is_empty(),
+            "the default needs no feature"
+        );
+        assert_eq!(
+            Backend::System.features(),
+            ["--features", "wayland-client/system"]
+        );
     }
 
     #[test]

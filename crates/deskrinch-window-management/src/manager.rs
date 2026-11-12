@@ -64,8 +64,6 @@ pub fn connect(subscriber: impl Fn(Event) + Send + 'static) -> Result<WindowMana
     let client = Client::connect().map_err(|error| match error {
         ClientError::Connect(error) => ConnectError::Connect(error),
         ClientError::Thread(error) => ConnectError::Thread(error),
-        // Whatever the client adds later: no connection to attach to.
-        _ => ConnectError::ConnectionEnded,
     })?;
     connect_with(&client, subscriber)
 }
@@ -117,9 +115,11 @@ impl WindowManagement for WindowManager {
 
     fn perform(&self, id: WindowId, action: Action) -> Result<(), ActionError> {
         self.shared.lock().request(self.capabilities, id, action)?;
+        // A socket that would block is not a failure: the client's thread
+        // finishes sending.
         self.attachment
-            .connection()
             .flush()
+            .map(|_flushed| ())
             .map_err(ActionError::Send)
     }
 }

@@ -278,9 +278,7 @@ impl Ended for State {
     fn end(&mut self, cause: EndCause) {
         let reason = match cause {
             EndCause::ConnectionLost(error) => EndReason::ConnectionLost(error),
-            // A panic, and any cause the client adds later: the stream ends
-            // for something other than the connection failing.
-            _ => EndReason::HandlerPanicked,
+            EndCause::HandlerPanicked => EndReason::HandlerPanicked,
         };
         Self::end(self, reason);
     }
@@ -317,8 +315,7 @@ pub(crate) fn connect(client: &Client, subscriber: Subscriber) -> Result<Connect
             AttachError::Setup(error) => error,
             AttachError::Globals(error) => ConnectError::Globals(error),
             AttachError::OnClientThread => ConnectError::OnClientThread,
-            // `Ended`, and whatever the client adds later: nothing to attach to.
-            _ => ConnectError::ConnectionEnded,
+            AttachError::Ended => ConnectError::ConnectionEnded,
         })?;
     Ok(Connected {
         attachment,

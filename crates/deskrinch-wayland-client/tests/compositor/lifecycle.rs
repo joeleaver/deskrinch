@@ -31,11 +31,8 @@ fn a_panicking_handler_ends_every_state_once() {
     let client = Client::connect().unwrap();
     let panicking = attach(&client);
     let bystander = attach(&client);
-    client
-        .connection()
-        .display()
-        .sync(&panicking.queue, OnDone::Panic);
-    client.connection().flush().unwrap();
+    client.display().sync(&panicking.queue, OnDone::Panic);
+    panicking.attachment.flush().unwrap();
     for record in [&panicking.record, &bystander.record] {
         eventually("every state ended", || {
             !record.lock().unwrap().ends.is_empty()
@@ -67,10 +64,14 @@ fn a_handle_dropped_inside_its_own_handler_does_not_deadlock() {
     let attached = attach(&client);
     let held = Arc::new(Mutex::new(Some(attached.attachment)));
     client
-        .connection()
         .display()
         .sync(&attached.queue, OnDone::Detach(Arc::clone(&held)));
-    client.connection().flush().unwrap();
+    held.lock()
+        .unwrap()
+        .as_ref()
+        .expect("still held: the answer cannot come before the flush")
+        .flush()
+        .unwrap();
     eventually("the handle dropped by its handler", || {
         held.lock().unwrap().is_none()
     });

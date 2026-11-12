@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle, ThreadId};
 
 use rustix::event::{EventfdFlags, eventfd};
+use wayland_client::protocol::wl_display::WlDisplay;
 use wayland_client::{ConnectError, Connection};
 
 use crate::thread::{self as client_thread, Control};
@@ -18,7 +19,6 @@ pub(crate) const THREAD_NAME: &str = "deskrinch-wl";
 
 /// Why a [`Client`] could not be made.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum ClientError {
     /// No Wayland compositor could be reached (`WAYLAND_DISPLAY` or
     /// `WAYLAND_SOCKET`).
@@ -95,10 +95,13 @@ impl Client {
         })
     }
 
-    /// The connection, for sending requests and flushing them.
+    /// The connection's `wl_display`, for a `sync` on a state's queue. The
+    /// connection itself is not handed out: reading it is the client's
+    /// thread's alone, and an attachment flushes through
+    /// [`Attachment::flush`](crate::Attachment::flush).
     #[must_use]
-    pub fn connection(&self) -> &Connection {
-        &self.shared.connection
+    pub fn display(&self) -> WlDisplay {
+        self.shared.connection.display()
     }
 }
 
@@ -112,6 +115,11 @@ impl Shared {
         // channel says so.
         drop(controls.send(control));
         drop(controls);
+        self.wake();
+    }
+
+    /// Wakes the client's thread (to take a control, or to finish a flush).
+    pub(crate) fn wake(&self) {
         // Non-blocking: a full counter means the thread is being woken
         // already.
         let _ = rustix::io::write(self.wake.as_fd(), &1_u64.to_ne_bytes());

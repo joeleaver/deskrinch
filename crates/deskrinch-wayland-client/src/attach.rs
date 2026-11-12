@@ -1,9 +1,11 @@
 //! Attaching a crate's state to a [`Client`], and detaching it.
 
+use std::io::ErrorKind;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
+use wayland_client::backend::WaylandError;
 use wayland_client::globals::{GlobalError, GlobalList, GlobalListContents, registry_queue_init};
 use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::{Connection, Dispatch, DispatchError, EventQueue, QueueHandle};
@@ -14,7 +16,6 @@ use crate::thread::{Attached, Control, Queue};
 
 /// Why a state could not be attached.
 #[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
 pub enum AttachError<E> {
     /// The compositor's globals could not be listed.
     #[error("could not list the compositor's globals")]
@@ -112,11 +113,35 @@ pub struct Attachment {
     detached: Detached,
 }
 
+/// What became of the requests a flush was asked to send.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flushed {
+    /// They reached the compositor's socket.
+    Sent,
+    /// The socket would not take them all now (the compositor is slow to
+    /// read): the client's thread sends the rest once it can. Nothing is
+    /// lost and nothing has failed.
+    Pending,
+}
+
 impl Attachment {
-    /// The connection, for flushing the requests the crate sends.
-    #[must_use]
-    pub fn connection(&self) -> &Connection {
-        self.client.connection()
+    /// Sends the requests the crate has made. A socket that would block is
+    /// not a failure: the client's thread finishes the flush
+    /// ([`Flushed::Pending`]).
+    ///
+    /// # Errors
+    ///
+    /// When the connection has failed.
+    pub fn flush(&self) -> Result<Flushed, WaylandError> {
+        let shared = &self.client.shared;
+        match shared.connection.flush() {
+            Ok(()) => Ok(Flushed::Sent),
+            Err(WaylandError::Io(error)) if error.kind() == ErrorKind::WouldBlock => {
+                shared.wake();
+                Ok(Flushed::Pending)
+            }
+            Err(error) => Err(error),
+        }
     }
 }
 
