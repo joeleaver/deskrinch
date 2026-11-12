@@ -7,7 +7,8 @@ use std::process::Command;
 
 use deskrinch_test_dbus::session;
 
-use super::{Outputs, Scaling};
+use super::rendering::{CompositorRenderer, Wlroots};
+use super::{Outputs, RenderNodes, Scaling};
 use crate::error::Error;
 
 /// The KWin socket's name; the wlroots compositors pick their own.
@@ -60,9 +61,16 @@ impl Compositor {
 
     /// The command that starts it with `outputs` side by side, in the
     /// session whose root is `root` (the caller isolates it), at their scale
-    /// and transform where it takes them at start-up ([`Scaling::StartUp`]).
-    pub(super) fn command(self, root: &Path, outputs: Outputs) -> Result<Command, Error> {
+    /// and transform where it takes them at start-up ([`Scaling::StartUp`]),
+    /// rendering with `renderer`.
+    pub(super) fn command(
+        self,
+        root: &Path,
+        outputs: Outputs,
+        renderer: CompositorRenderer,
+    ) -> Result<Command, Error> {
         let count = outputs.count;
+        let nodes = RenderNodes::of_machine();
         match self {
             Self::Kwin => {
                 // No `--xwayland`: KWin then starts neither Xwayland nor the
@@ -82,6 +90,13 @@ impl Compositor {
                 // Not `--scale`, which enlarges the mode instead; the session
                 // scales KWin's outputs once it runs.
                 write_applications_menu(root)?;
+                // It composites with OpenGL either way; a GPU must be there
+                // when one is asked for.
+                if renderer == CompositorRenderer::Gpu && !nodes.has_gpu() {
+                    return Err(Error::NoGpu {
+                        nodes: nodes.to_string(),
+                    });
+                }
                 // KWin's virtual backend takes `CI` to mean KWin's own CI and
                 // then opens only `/dev/dri/card1`; on any other machine
                 // (GitHub's runners set `CI` too) it must look for a DRM
@@ -109,7 +124,7 @@ impl Compositor {
                 })?;
                 let mut command = Command::new("sway");
                 command.arg("--config").arg(&config);
-                wlroots_headless(&mut command, count);
+                wlroots_headless(&mut command, count, &renderer.wlroots(&nodes)?);
                 Ok(command)
             }
             Self::Labwc => {
@@ -127,7 +142,7 @@ impl Compositor {
                     // labwc pushes its environment into the D-Bus and systemd
                     // activation environments on a DRM backend; never here.
                     .env("LABWC_UPDATE_ACTIVATION_ENV", "false");
-                wlroots_headless(&mut command, count);
+                wlroots_headless(&mut command, count, &renderer.wlroots(&nodes)?);
                 Ok(command)
             }
         }
@@ -198,14 +213,14 @@ fn write_applications_menu(root: &Path) -> Result<(), Error> {
         })
 }
 
-/// Runs a wlroots compositor on the headless backend, with software
-/// rendering, no input devices and `outputs` outputs.
-fn wlroots_headless(command: &mut Command, outputs: u32) {
+/// Runs a wlroots compositor on the headless backend, rendering as
+/// `renderer` says, with no input devices and `outputs` outputs.
+fn wlroots_headless(command: &mut Command, outputs: u32, renderer: &Wlroots) {
     command
         .env("WLR_BACKENDS", "headless")
-        .env("WLR_RENDERER", "pixman")
         .env("WLR_HEADLESS_OUTPUTS", outputs.to_string())
         .env("WLR_LIBINPUT_NO_DEVICES", "1");
+    renderer.apply(command);
 }
 
 /// The name of the Wayland socket in `runtime`, once there is one.

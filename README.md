@@ -61,11 +61,13 @@ cargo xtask compositor-tests --renderer software sway
 The suites that start a real component (the panel's and the launcher's) run
 once per renderer, and each of their tests checks which one presented.
 `--renderer software` runs rinch's software renderer only, as CI does;
-`--renderer gpu` the GPU
-renderer only, under KWin, and fails on a machine without a GPU; `all` (the
-default) both, the GPU under KWin only and only where the machine has one.
-Headless sway and labwc composite with pixman and offer no dmabuf, so the
-GPU renderer has nothing to present on there. Whether the machine has a GPU
+`--renderer gpu` the GPU renderer only, and fails on a machine without a
+GPU; `all` (the default) both, the GPU only where the machine has one.
+Headless sway and labwc composite with pixman, which offers no dmabuf, so
+the GPU renderer has nothing to present on there: their GPU pass runs in one
+more session per pass whose compositor renders on the GPU
+(`--compositor-renderer gpu`, below), and only the rendering suites run in
+it. Whether the machine has a GPU
 is a guess from `/sys/class/drm/renderD*`, a render node with a driver other
 than vgem; the run prints which renderers it chose and why. A test binary
 reads the run's renderer from `DESKRINCH_TEST_RENDERER`
@@ -193,6 +195,13 @@ What the command, and everything it starts, sees:
   activation off, which the compositor uses too: no portal, secret service
   or notification daemon is ever started on demand.
 - `XDG_CURRENT_DESKTOP` only when `--current-desktop NAME` sets it.
+- With `--compositor-renderer gpu`, sway and labwc render with wlroots'
+  GLES2 renderer on the GPU's render node (`WLR_RENDER_DRM_DEVICE`; a render
+  node only, no KMS, seat or logind) instead of pixman, which a client
+  presenting through Vulkan needs; the session fails (70) on a machine
+  without a GPU, and unless the compositor's own log says it created its
+  GLES2 renderer on a GL that is not Mesa's software rasteriser. KWin
+  composites with OpenGL either way.
 - Under sway, no borders or title bars on any window, so that a tiled or
   maximised window fills the area it is given.
 - None of your `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `WAYLAND_SOCKET`,
@@ -285,11 +294,12 @@ average, as not comparable.
 
 Each session's shader cache starts empty (`--shader-cache cold`, a first
 start); `--shader-cache warm` fills one with an unmeasured start first, as
-every later start in a real session finds it. Measure GPU costs under KWin
-(`--compositor kwin`, the default), which composites with the GPU: headless
-sway and labwc render with pixman and offer no dmabuf, so wgpu offers only a
-software Vulkan driver there, which rinch's default renderer declines for its
-software renderer (`--renderer gpu` uses it anyway). `--expect-renderer
+every later start in a real session finds it. KWin (`--compositor kwin`,
+the default) composites with the GPU. Headless sway and labwc render with
+pixman, which offers no dmabuf, so wgpu would offer only a software Vulkan
+driver there, which rinch's default renderer declines for its software
+renderer; `--renderer gpu` under them gets a session whose compositor
+renders on the GPU instead (`--compositor-renderer gpu`). `--expect-renderer
 software|gpu` fails (exit 1), naming what presented, unless every run
 presented with that renderer; CI measures the panel once under sway with
 `--expect-renderer software`. `cargo xtask measure --help` has the details.

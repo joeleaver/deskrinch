@@ -42,6 +42,8 @@ mod compositor;
 pub(crate) mod interrupt;
 mod leftovers;
 mod outputs;
+mod render_nodes;
+mod rendering;
 mod scale;
 mod scaling;
 mod transform;
@@ -64,6 +66,8 @@ use tempfile::TempDir;
 pub(crate) use self::compositor::Compositor;
 pub(crate) use self::leftovers::Leftover;
 pub(crate) use self::outputs::Outputs;
+pub(crate) use self::render_nodes::RenderNodes;
+pub(crate) use self::rendering::CompositorRenderer;
 pub(crate) use self::scale::Scale;
 pub(crate) use self::scaling::Scaling;
 pub(crate) use self::transform::OutputTransform;
@@ -84,6 +88,7 @@ const POLL: Duration = Duration::from_millis(50);
 #[derive(Debug)]
 pub(crate) struct Session {
     compositor: Compositor,
+    renderer: CompositorRenderer,
     /// The session's root; `None` once it has been kept or removed.
     dir: Option<TempDir>,
     root: PathBuf,
@@ -97,10 +102,12 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    /// Starts `compositor` with `outputs` in a new isolated session, after
-    /// `prepare` has set up the session's data directory (`XDG_DATA_HOME`).
+    /// Starts `compositor` rendering with `renderer`, with `outputs`, in a
+    /// new isolated session, after `prepare` has set up the session's data
+    /// directory (`XDG_DATA_HOME`).
     pub(crate) fn start(
         compositor: Compositor,
+        renderer: CompositorRenderer,
         outputs: Outputs,
         current_desktop: Option<&OsStr>,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
@@ -134,7 +141,7 @@ impl Session {
             source,
         })?;
 
-        let mut command = compositor.command(&root, outputs)?;
+        let mut command = compositor.command(&root, outputs, renderer)?;
         isolate(&mut command, &root);
         if let Some(desktop) = current_desktop {
             command.env(CURRENT_DESKTOP, desktop);
@@ -155,6 +162,7 @@ impl Session {
 
         let mut session = Self {
             compositor,
+            renderer,
             dir: Some(dir),
             root,
             bus,
@@ -167,6 +175,7 @@ impl Session {
         };
         session.socket = session.wait_for_socket()?;
         session.wait_for_bus_names()?;
+        session.check_wlroots_renderer()?;
         session.set_up_outputs(outputs)?;
         Ok(session)
     }

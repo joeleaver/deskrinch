@@ -148,6 +148,12 @@ pub(crate) enum Error {
         /// What it printed.
         log: String,
     },
+    /// A session was to render on the GPU, and the machine has none.
+    #[error("the compositor was to render on the GPU, but this machine has none: {nodes}")]
+    NoGpu {
+        /// The machine's render nodes, as `RenderNodes` lists them.
+        nodes: String,
+    },
     /// The nested compositor's outputs could not be set up.
     #[error("could not {what} under {compositor}; its log:\n{log}")]
     OutputSetup {

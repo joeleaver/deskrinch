@@ -61,10 +61,12 @@ enum Task {
         #[arg(value_enum)]
         compositors: Vec<session::Compositor>,
         /// The renderers the suites that draw run with: `software`; `gpu`
-        /// (under KWin, failing where the machine has no GPU); or `all`,
-        /// software and, where the machine has a GPU, the GPU under KWin
-        /// (sway and labwc run on pixman, which the GPU renderer cannot
-        /// present on). The run says which it chose, and why.
+        /// (failing where the machine has no GPU); or `all`, software and,
+        /// where the machine has a GPU, the GPU. Under sway and labwc the
+        /// GPU pass runs in a session of its own whose compositor renders on
+        /// the GPU too (wlroots' pixman renderer, which every other session
+        /// has, offers nothing the GPU renderer can present on). The run
+        /// says which it chose, and why.
         #[arg(long, value_enum, default_value = "all")]
         renderer: compositor_tests::renderers::Choice,
     },
@@ -100,6 +102,14 @@ enum Task {
         /// otherwise), such as `KDE` or `sway`.
         #[arg(long, value_name = "NAME")]
         current_desktop: Option<OsString>,
+        /// What the compositor renders with: `software` (wlroots' pixman
+        /// renderer for sway and labwc), or `gpu` (wlroots' GLES2 renderer on
+        /// the GPU's render node, which a client presenting through Vulkan
+        /// needs). KWin composites with OpenGL either way. `gpu` fails (70)
+        /// where the machine has no GPU, and when the compositor does not say
+        /// it renders on it.
+        #[arg(long, value_enum, default_value = "software")]
+        compositor_renderer: session::CompositorRenderer,
         /// The compositor to run.
         #[arg(value_enum)]
         compositor: session::Compositor,
@@ -243,11 +253,13 @@ impl Task {
                 transform,
                 keep,
                 current_desktop,
+                compositor_renderer,
                 compositor,
                 program,
                 args,
             } => run_in_session::run(&run_in_session::Request {
                 compositor,
+                compositor_renderer,
                 outputs: session::Outputs {
                     count: outputs,
                     scale,
