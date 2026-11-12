@@ -62,14 +62,21 @@ impl Shown {
     /// `deskrinch-launcher show`, as a key binding would, and this returns
     /// once it is on the screen.
     pub(crate) fn summon(config: &str, prepare: impl FnOnce(&Path)) -> Self {
-        let mut shown = Self::prepare(config, prepare, &[]);
-        assert!(
-            eventually(|| shown.launcher.said("record of starts")),
-            "the record of starts was not loaded\nthe launcher logged:\n{}",
-            shown.launcher.log()
-        );
+        let mut shown = Self::hidden(config, prepare);
         shown.show_again();
         shown
+    }
+
+    /// As [`summon`](Self::summon), left hidden once it has loaded its
+    /// record of starts.
+    pub(crate) fn hidden(config: &str, prepare: impl FnOnce(&Path)) -> Self {
+        let hidden = Self::prepare(config, prepare, &[]);
+        assert!(
+            eventually(|| hidden.launcher.said("record of starts")),
+            "the record of starts was not loaded\nthe launcher logged:\n{}",
+            hidden.launcher.log()
+        );
+        hidden
     }
 
     /// Shows the launcher again with `deskrinch-launcher show`, once it is

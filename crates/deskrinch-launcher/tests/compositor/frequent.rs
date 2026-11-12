@@ -99,6 +99,28 @@ fn a_started_application_is_first_when_shown_again() {
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn a_hidden_launcher_builds_its_list_and_draws_nothing() {
+    let hidden = Shown::hidden("", |dir| write_record(dir, &["Plain", "Other"]));
+    assert!(
+        stays(|| hidden.launcher.frames() == 0),
+        "a hidden launcher drew\nthe launcher logged:\n{}",
+        hidden.launcher.log()
+    );
+    // A forgetting while hidden changes the list, and draws nothing either.
+    let forget = launcher(&["forget-starts"])
+        .stdin(Stdio::null())
+        .status()
+        .unwrap();
+    assert!(forget.success());
+    assert!(
+        stays(|| hidden.launcher.frames() == 0),
+        "a hidden launcher drew\nthe launcher logged:\n{}",
+        hidden.launcher.log()
+    );
+}
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn the_best_installed_application_of_the_record_comes_first() {
     let mut shown = Shown::summon("", |dir| write_record(dir, &["Gone", "Other", "Plain"]));
     shown.see("the record's applications", results_drawn);
