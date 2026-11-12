@@ -117,7 +117,12 @@ impl Events {
     }
 
     pub(crate) fn quiet(&self) {
-        if let Ok(event) = self.0.recv_timeout(QUIET) {
+        self.quiet_for(QUIET);
+    }
+
+    /// That no event arrives for `time`.
+    pub(crate) fn quiet_for(&self, time: Duration) {
+        if let Ok(event) = self.0.recv_timeout(time) {
             panic!("unexpected event {event:?}");
         }
     }

@@ -1,5 +1,6 @@
 //! Reading an item's properties, and calling its methods.
 
+use deskrinch_timer::Timer;
 use zbus::message::{Flags, Message};
 use zbus::{Connection, DBusError as _};
 
@@ -12,27 +13,27 @@ use crate::wire::Properties;
 
 /// Reads the properties of the item at `source`, within `limits`, from its
 /// owner's unique name: a unique name is never activated, so a read never
-/// starts a service. The connection's method timeout is the read's.
+/// starts a service. It must answer within [`Limits::read_timeout`].
 pub(crate) async fn read(
     connection: Connection,
+    timer: Timer,
     source: Source,
     limits: Limits,
 ) -> (Source, Outcome) {
-    let reply = connection
-        .call_method(
-            Some(source.owner.as_str()),
-            source.path.as_str(),
-            Some("org.freedesktop.DBus.Properties"),
-            "GetAll",
-            &(ITEM_INTERFACE,),
-        )
-        .await;
-    let properties = match reply {
-        Ok(reply) if reply.data().len() <= limits.max_reply_bytes => {
+    let body = (ITEM_INTERFACE,);
+    let call = connection.call_method(
+        Some(source.owner.as_str()),
+        source.path.as_str(),
+        Some("org.freedesktop.DBus.Properties"),
+        "GetAll",
+        &body,
+    );
+    let properties = match timer.timeout(limits.read_timeout, call).await {
+        Ok(Ok(reply)) if reply.data().len() <= limits.max_reply_bytes => {
             reply.body().deserialize::<Properties>().ok()
         }
-        Err(error) if gone(&error) => return (source, Outcome::Gone),
-        // Too large, timed out, or refused by the item.
+        Ok(Err(error)) if gone(&error) => return (source, Outcome::Gone),
+        // Too large, refused by the item, or not in time.
         Ok(_) | Err(_) => None,
     };
     let outcome = properties.map_or(Outcome::Failed, |properties| {

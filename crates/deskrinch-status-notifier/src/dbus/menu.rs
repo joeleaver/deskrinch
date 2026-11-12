@@ -24,7 +24,8 @@ pub(crate) const ROOT: i32 = 0;
 /// owner's unique name; the menu's own properties with it. The first read
 /// of an opening says `AboutToShow` first and waits for the answer, in
 /// which applications build their menus, for no longer than its own
-/// timeout. The connection's method timeout is the read's.
+/// timeout. The layout and the properties must each answer within
+/// [`Limits::read_timeout`].
 pub(crate) async fn read(
     connection: Connection,
     timer: Timer,
@@ -57,24 +58,24 @@ async fn read_menu(
             return MenuOutcome::Gone;
         }
     }
-    let reply = connection
-        .call_method(
-            Some(source.owner.as_str()),
-            source.path.as_str(),
-            Some(MENU_INTERFACE),
-            "GetLayout",
-            &(ROOT, -1_i32, Vec::<&str>::new()),
-        )
-        .await;
-    let reply = match reply {
-        Ok(reply) if reply.data().len() <= limits.max_menu_reply_bytes => reply,
-        Ok(_) => return MenuOutcome::Failed(MenuFailure::TooLarge),
-        Err(error) => {
+    let body = (ROOT, -1_i32, Vec::<&str>::new());
+    let call = connection.call_method(
+        Some(source.owner.as_str()),
+        source.path.as_str(),
+        Some(MENU_INTERFACE),
+        "GetLayout",
+        &body,
+    );
+    let reply = match timer.timeout(limits.read_timeout, call).await {
+        Ok(Ok(reply)) if reply.data().len() <= limits.max_menu_reply_bytes => reply,
+        Ok(Ok(_)) => return MenuOutcome::Failed(MenuFailure::TooLarge),
+        Ok(Err(error)) => {
             return match failed(&error) {
                 Failed::Gone => MenuOutcome::Gone,
                 Failed::Because(reason) => MenuOutcome::Failed(reason),
             };
         }
+        Err(_) => return MenuOutcome::Failed(MenuFailure::TimedOut),
     };
     let body = reply.body();
     let bounds = Bounds {
@@ -87,7 +88,7 @@ async fn read_menu(
         Err(Refused::OverBound) => return MenuOutcome::Failed(MenuFailure::OverBound),
         Err(Refused::Malformed) => return MenuOutcome::Failed(MenuFailure::Malformed),
     };
-    let properties = properties(connection, source, limits).await;
+    let properties = properties(connection, timer, source, limits).await;
     let id: ItemId = source.id.clone();
     MenuOutcome::Read(Box::new(parse::menu::menu(id, root, properties, limits)))
 }
@@ -96,20 +97,20 @@ async fn read_menu(
 /// the menu as it is.
 async fn properties(
     connection: &Connection,
+    timer: &Timer,
     source: &MenuSource,
     limits: &Limits,
 ) -> RawMenuProperties {
-    let reply = connection
-        .call_method(
-            Some(source.owner.as_str()),
-            source.path.as_str(),
-            Some("org.freedesktop.DBus.Properties"),
-            "GetAll",
-            &(MENU_INTERFACE,),
-        )
-        .await;
-    match reply {
-        Ok(reply) if reply.data().len() <= limits.max_reply_bytes => {
+    let body = (MENU_INTERFACE,);
+    let call = connection.call_method(
+        Some(source.owner.as_str()),
+        source.path.as_str(),
+        Some("org.freedesktop.DBus.Properties"),
+        "GetAll",
+        &body,
+    );
+    match timer.timeout(limits.read_timeout, call).await {
+        Ok(Ok(reply)) if reply.data().len() <= limits.max_reply_bytes => {
             reply.body().deserialize().unwrap_or_default()
         }
         Ok(_) | Err(_) => RawMenuProperties::default(),

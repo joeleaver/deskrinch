@@ -91,18 +91,41 @@ fn an_item_that_never_answers_holds_up_no_other() {
 
 #[test]
 fn an_item_whose_read_times_out_stays_pending() {
+    // Long enough for a real answer on a loaded machine: the item that does
+    // answer below must not time out too.
+    let read_timeout = Duration::from_secs(2);
     let bus = PrivateBus::start();
     let (host, events) = start_with(bus.config(Limits {
-        read_timeout: Duration::from_millis(100),
+        read_timeout,
         ..Limits::default()
     }));
     let silent = StandIn::start(&bus, "/StatusNotifierItem", Reply::Silent);
     silent.register(&silent.unique_name()).unwrap();
-    events.quiet();
+    // Its read times out, and it is not reported.
+    events.quiet_for(read_timeout + Duration::from_millis(500));
     assert_eq!(host.handle().items(), Vec::<Arc<Item>>::new());
     silent.set(Reply::Properties(properties("A")));
     silent.signal("NewTitle");
     assert_eq!(events.added().title, "A");
+}
+
+/// The read timeout bounds the applications' answers and nothing else: with
+/// one of a nanosecond, which no call to the bus can meet, the host still
+/// starts (its names and matches taken from the bus daemon), and an item's
+/// registration still succeeds (its name's owner asked of the daemon). A
+/// host whose own calls the read timeout bounded could not start at all.
+/// The item answers no read, so it stays pending whatever the timer does.
+#[test]
+fn the_read_timeout_does_not_bound_the_host_s_own_calls() {
+    let bus = PrivateBus::start();
+    let (host, events) = start_with(bus.config(Limits {
+        read_timeout: Duration::from_nanos(1),
+        ..Limits::default()
+    }));
+    let item = StandIn::start(&bus, "/StatusNotifierItem", Reply::Silent);
+    item.register(&item.unique_name()).unwrap();
+    events.quiet();
+    assert_eq!(host.handle().items(), Vec::<Arc<Item>>::new());
 }
 
 #[test]
