@@ -72,12 +72,28 @@ impl Panel {
     /// Starts the panel with the run's renderer, and returns once it has
     /// presented, having checked that renderer is what presented.
     pub(crate) fn start() -> Self {
+        Self::start_with(Self::command())
+    }
+
+    /// The command that starts the panel binary, for a test to add to.
+    pub(crate) fn command() -> Command {
+        Command::new(PANEL)
+    }
+
+    /// [`start`](Self::start), with `command` (from
+    /// [`command`](Self::command)).
+    pub(crate) fn start_with(command: Command) -> Self {
         let renderer = Renderer::of_run();
-        let component = Component::start(Command::new(PANEL), renderer).unwrap();
+        let component = Component::start(command, renderer).unwrap();
         if let Err(why) = component.wait_presented_with(renderer, PATIENCE) {
             panic!("the panel: {why}");
         }
         Self { component }
+    }
+
+    /// The panel's last lines of output, for a failure to show.
+    pub(crate) fn log(&self) -> String {
+        self.component.watch().tail()
     }
 
     /// Waits until the panel has reported a mistake in its settings whose
@@ -89,7 +105,7 @@ impl Panel {
         assert!(
             reported,
             "the panel did not report {says}; its last lines:\n{}",
-            self.component.watch().tail()
+            self.log()
         );
     }
 }

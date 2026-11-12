@@ -46,7 +46,9 @@ thiserror.workspace = true
 [dev-dependencies]
 deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true
+deskrinch-test-input.workspace = true
 deskrinch-test-screen.workspace = true
+tempfile.workspace = true
 
 # The compositor tests run inside nested compositors that
 # `cargo xtask compositor-tests` starts; they are ignored by a plain
