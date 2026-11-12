@@ -6,32 +6,22 @@
 
 use std::collections::BTreeSet;
 
-/// A rectangle in global logical coordinates.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Rect {
-    pub(crate) x: i32,
-    pub(crate) y: i32,
-    pub(crate) width: i32,
-    pub(crate) height: i32,
-}
+pub(crate) use deskrinch_wayland_client::Rect;
 
-impl Rect {
-    /// Whether the two share any area. Touching edges share none, and an
-    /// empty rectangle shares none with anything.
-    fn overlaps(self, other: Self) -> bool {
-        let span = |start: i32, length: i32| {
-            (
-                i64::from(start),
-                i64::from(start) + i64::from(length.max(0)),
-            )
-        };
-        let (left, right) = span(self.x, self.width);
-        let (top, bottom) = span(self.y, self.height);
-        let (other_left, other_right) = span(other.x, other.width);
-        let (other_top, other_bottom) = span(other.y, other.height);
-        left.max(other_left) < right.min(other_right)
-            && top.max(other_top) < bottom.min(other_bottom)
-    }
+/// Whether the two share any area. Touching edges share none, and an empty
+/// rectangle shares none with anything.
+fn overlaps(this: Rect, other: Rect) -> bool {
+    let span = |start: i32, length: i32| {
+        (
+            i64::from(start),
+            i64::from(start) + i64::from(length.max(0)),
+        )
+    };
+    let (left, right) = span(this.x, this.width);
+    let (top, bottom) = span(this.y, this.height);
+    let (other_left, other_right) = span(other.x, other.width);
+    let (other_top, other_bottom) = span(other.y, other.height);
+    left.max(other_left) < right.min(other_right) && top.max(other_top) < bottom.min(other_bottom)
 }
 
 /// The names of the outputs `window` overlaps.
@@ -41,7 +31,7 @@ pub(crate) fn outputs_under<'a>(
 ) -> BTreeSet<String> {
     outputs
         .into_iter()
-        .filter(|&(_, output)| window.overlaps(output))
+        .filter(|&(_, output)| overlaps(window, output))
         .map(|(name, _)| name.to_owned())
         .collect()
 }
