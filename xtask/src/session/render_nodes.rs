@@ -19,7 +19,8 @@ const NOT_A_GPU: &[&str] = &["vgem"];
 /// The machine's render nodes, and which of them are a GPU's.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub(crate) struct RenderNodes {
-    /// Each render node, with its kernel driver (`None` when it names none).
+    /// Each render node, with its kernel driver (`None` when it names none),
+    /// or for a virtual device of [`NOT_A_GPU`], that device's name.
     pub(crate) nodes: Vec<(String, Option<String>)>,
 }
 
@@ -38,9 +39,18 @@ impl RenderNodes {
             .filter_map(|entry| entry.file_name().into_string().ok())
             .filter(|name| name.starts_with("renderD"))
             .map(|name| {
-                let driver = fs::read_link(sys_drm.join(&name).join("device/driver"))
-                    .ok()
-                    .and_then(|target| target.file_name()?.to_str().map(ToOwned::to_owned));
+                let device = sys_drm.join(&name).join("device");
+                let base = |link: &Path| {
+                    fs::read_link(link)
+                        .ok()
+                        .and_then(|target| target.file_name()?.to_str().map(ToOwned::to_owned))
+                };
+                // A virtual device by its own name: since Linux 6.15 vgem
+                // is a faux device (`/sys/devices/faux/vgem`), bound to the
+                // generic `faux_driver`, which names no GPU either way.
+                let driver = base(&device)
+                    .filter(|own| NOT_A_GPU.contains(&own.as_str()))
+                    .or_else(|| base(&device.join("driver")));
                 (name, driver)
             })
             .collect();
@@ -128,6 +138,24 @@ mod tests {
         assert_eq!(nodes.to_string(), "renderD128 (vgem, ignored: not a GPU)");
         let both = sys_drm(&[("renderD128", Some("vgem")), ("renderD129", Some("i915"))]);
         assert!(RenderNodes::read(both.path()).has_gpu());
+    }
+
+    #[test]
+    fn vgem_as_a_faux_device_is_no_gpu() {
+        // As Linux 6.15 and later list it: the device is
+        // `/sys/devices/faux/vgem`, its driver the generic `faux_driver`.
+        let dir = tempfile::tempdir().unwrap();
+        let devices = dir.path().join("devices/faux");
+        let vgem = devices.join("vgem");
+        let driver = dir.path().join("drivers/faux_driver");
+        fs::create_dir_all(&vgem).unwrap();
+        fs::create_dir_all(&driver).unwrap();
+        symlink(&driver, vgem.join("driver")).unwrap();
+        fs::create_dir_all(dir.path().join("renderD128")).unwrap();
+        symlink(&vgem, dir.path().join("renderD128/device")).unwrap();
+        let nodes = RenderNodes::read(dir.path());
+        assert!(!nodes.has_gpu());
+        assert_eq!(nodes.to_string(), "renderD128 (vgem, ignored: not a GPU)");
     }
 
     #[test]

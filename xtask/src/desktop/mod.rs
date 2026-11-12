@@ -229,9 +229,10 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         LAUNCHER_TOGGLE.args,
     )?;
     let bindings = [toggle];
-    let has_gpu = RenderNodes::of_machine().has_gpu();
+    let nodes = RenderNodes::of_machine();
+    let has_gpu = nodes.has_gpu();
     if !has_gpu && args.compositor_renderer.is_none() {
-        eprintln!("desktop: no GPU found: the nested compositor renders in software");
+        eprintln!("desktop: no GPU found ({nodes}): the nested compositor renders in software");
     }
     let options = Options {
         compositor: args.compositor,
