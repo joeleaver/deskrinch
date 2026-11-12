@@ -15,7 +15,6 @@ deskrinch-test-client.workspace = true
 # The connection's waits, with deadlines, and the globals.
 deskrinch-test-wayland.workspace = true
 # The virtual keyboard's keymap, in a file of its own.
-tempfile.workspace = true
 thiserror.workspace = true
 wayland-client.workspace = true
 # wlroots' `zwp_virtual_keyboard_v1`.

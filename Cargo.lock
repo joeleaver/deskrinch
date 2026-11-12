@@ -1118,7 +1118,6 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
  "deskrinch-test-wayland",
- "tempfile",
  "thiserror 2.0.21",
  "wayland-client",
  "wayland-protocols-misc",
@@ -1164,7 +1163,6 @@ name = "deskrinch-test-wayland"
 version = "0.1.0"
 dependencies = [
  "rustix",
- "tempfile",
  "thiserror 2.0.21",
  "wayland-client",
 ]
