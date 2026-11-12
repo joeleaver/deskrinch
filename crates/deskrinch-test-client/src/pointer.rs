@@ -187,6 +187,38 @@ impl TestWindow {
             position(events) == Some((x, y))
         })
     }
+
+    /// A mark in what it has heard of the pointer: what comes after it was
+    /// heard later ([`wait_pointer_at_since`](Self::wait_pointer_at_since)).
+    #[must_use]
+    pub fn pointer_mark(&self) -> PointerMark {
+        PointerMark(lock(&self.shared.status).input.pointer.len())
+    }
+
+    /// Waits until it has heard, since `mark`, the pointer come to `(x, y)`
+    /// and not leave. Unlike [`wait_pointer_at`](Self::wait_pointer_at), a
+    /// position heard before the mark does not count: the pointer may have
+    /// been left there by an earlier test, or by a device since gone.
+    ///
+    /// # Errors
+    ///
+    /// When it does not within [`PATIENCE`](crate::PATIENCE).
+    pub fn wait_pointer_at_since(&self, mark: PointerMark, x: f64, y: f64) -> Result<(), Error> {
+        self.wait_pointer(&format!("the pointer at ({x}, {y}) again"), |events| {
+            at_since(events, mark, (x, y))
+        })
+    }
+}
+
+/// A place in a window's pointer events ([`TestWindow::pointer_mark`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PointerMark(usize);
+
+/// Whether `events` since `mark` leave the pointer at `point`.
+fn at_since(events: &[PointerEvent], mark: PointerMark, point: (f64, f64)) -> bool {
+    events
+        .get(mark.0..)
+        .is_some_and(|since| position(since) == Some(point))
 }
 
 /// Where `events` leave the pointer: the last point named, unless it left
@@ -205,6 +237,20 @@ fn position(events: &[PointerEvent]) -> Option<(f64, f64)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_position_heard_before_the_mark_does_not_count() {
+        use PointerEvent::{Entered, Left, Moved};
+        let events = [Entered { x: 1.0, y: 2.0 }];
+        assert!(
+            !at_since(&events, PointerMark(1), (1.0, 2.0)),
+            "nothing since"
+        );
+        let events = [Entered { x: 1.0, y: 2.0 }, Moved { x: 1.0, y: 2.0 }];
+        assert!(at_since(&events, PointerMark(1), (1.0, 2.0)));
+        let events = [Entered { x: 1.0, y: 2.0 }, Moved { x: 1.0, y: 2.0 }, Left];
+        assert!(!at_since(&events, PointerMark(1), (1.0, 2.0)), "left since");
+    }
 
     #[test]
     fn the_position_is_the_last_point_until_it_leaves() {

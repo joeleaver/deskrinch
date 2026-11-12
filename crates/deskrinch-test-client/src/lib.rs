@@ -50,7 +50,7 @@ pub use compositor::Compositor;
 pub use output_info::OutputInfo;
 pub use outputs::{OutputChange, OutputSettings, configure_every_output, configure_output};
 pub use paint::Paint;
-pub use pointer::PointerEvent;
+pub use pointer::{PointerEvent, PointerMark};
 pub use window::TestWindow;
 
 /// How long anything here waits for the compositor (a window to be drawn
