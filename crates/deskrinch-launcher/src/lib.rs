@@ -15,8 +15,8 @@
 //! - [`Visibility`]: whether the launcher is shown, one value that the bus
 //!   and the launcher's own UI change and its window follows.
 //! - [`Service`]: the launcher's interface on the session bus
-//!   (`org.deskrinch.Launcher`: `Toggle`, `Show`, `Hide`), whose name makes
-//!   it one per session.
+//!   (`org.deskrinch.Launcher`: `Toggle`, `Show`, `Hide`, `ForgetStarts`),
+//!   whose name makes it one per session.
 //! - [`send`]: the other end, what `deskrinch-launcher toggle` uses.
 //!
 //! # The process
@@ -30,14 +30,38 @@
 //! and are what a key binding runs. With none running, `toggle` and `show`
 //! start one shown; `hide` does nothing.
 //!
+//! `deskrinch-launcher forget-starts` deletes the record of the
+//! applications started: the running launcher empties its copy and deletes
+//! the file, and answers once it is gone; with none running, the command
+//! deletes the file itself and starts nothing.
+//!
+//! # The record of starts
+//!
+//! The launcher holds the shell's record of starts
+//! (`deskrinch-start-record`) on a thread of its own, which does all its
+//! file work in turn: it loads the record at start-up, before the first
+//! show; records each application the launcher started (once the start
+//! succeeded); deletes the record on `ForgetStarts`; and follows
+//! `[general]` `remember-starts`, deleting the record when it is off (at
+//! start-up too) and loading it again when it is turned back on. Each
+//! change goes to the UI, which ranks it then: showing does no file work
+//! and no ranking.
+//!
 //! # How the launcher behaves
 //!
 //! These are the model's rules; the process follows the [`Action`] each
 //! [`Input`] gives.
 //!
 //! - The results are the applications shown in menus that match the query,
-//!   by `deskrinch-desktop-entries`' search ranking. An empty query matches
-//!   nothing.
+//!   by `deskrinch-desktop-entries`' search ranking.
+//! - An empty query's results are the [`FREQUENT`] applications the record
+//!   of starts (`deskrinch-start-record`) ranks best, among those shown in
+//!   menus ([`frequent`]), drawn as any results are; with no record, or
+//!   `[general]` `remember-starts = false`, there are none. A change to them
+//!   while the launcher is shown is not drawn in place of what is shown:
+//!   they are the results from the next hide on, or the next time the
+//!   query is emptied. (While shown, an application removed meanwhile
+//!   leaves them, as it leaves a search's.)
 //! - The first result is selected whenever the query changes. Up and Down
 //!   move the selection, stopping at the first and the last result.
 //! - Eight results are drawn at once. The list moves only when the
@@ -62,8 +86,9 @@
 //!   another window, and KWin moves it to an application the launcher
 //!   started as soon as that maps: either way the launcher has been left,
 //!   and it never takes the keyboard back.
-//! - The launcher starts empty each time it is shown: the process
-//!   [`clear`](Model::clear)s the model when it hides.
+//! - The launcher starts with an empty query each time it is shown: the
+//!   process [`clear`](Model::clear)s the model when it hides, which leaves
+//!   the frequent applications as its results, ready before the next show.
 
 mod client;
 mod model;
@@ -71,6 +96,6 @@ mod service;
 mod visibility;
 
 pub use client::{Answer, ClientError, Request, send};
-pub use model::{Action, Input, Model, ROWS, Row};
+pub use model::{Action, FREQUENT, Input, Model, ROWS, Row, frequent};
 pub use service::{INTERFACE, NAME, PATH, ServeError, Service};
 pub use visibility::Visibility;

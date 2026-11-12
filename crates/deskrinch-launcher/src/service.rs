@@ -8,6 +8,8 @@
 //!   answers whether it is now shown;
 //! - `Show()`, `Hide()`: shows or hides it; one already shown or hidden
 //!   stays so;
+//! - `ForgetStarts()`: deletes the record of the applications started,
+//!   and returns once it is deleted;
 //! - the property `Shown` (`b`, read-only): whether it is shown, or about
 //!   to be, read on demand (no `PropertiesChanged` is sent for it).
 //!
@@ -33,6 +35,7 @@ pub const INTERFACE: &str = "org.deskrinch.Launcher1";
 /// The served object.
 struct Launcher {
     visibility: Arc<Visibility>,
+    forget_starts: Box<dyn Fn() + Send + Sync>,
 }
 
 #[zbus::interface(name = "org.deskrinch.Launcher1")]
@@ -47,6 +50,12 @@ impl Launcher {
 
     fn hide(&self) {
         self.visibility.hide();
+    }
+
+    /// Blocks the connection's thread while the record is deleted: a file
+    /// removal, which the caller waits on anyway.
+    fn forget_starts(&self) {
+        (self.forget_starts)();
     }
 
     /// Whether it is shown, or about to be. Read on demand: no signal says
@@ -78,14 +87,23 @@ pub struct Service {
 
 impl Service {
     /// Serves the interface on `bus` and takes the name; calls change
-    /// `visibility`. The connection runs on zbus's own thread.
+    /// `visibility`, and `ForgetStarts` calls `forget_starts`, which
+    /// returns once the record is deleted. The connection runs on zbus's
+    /// own thread.
     ///
     /// # Errors
     ///
     /// [`ServeError::Running`] when another launcher has the name;
     /// [`ServeError::Bus`] when the bus fails.
-    pub fn start(bus: &Bus, visibility: Arc<Visibility>) -> Result<Self, ServeError> {
-        let object = Launcher { visibility };
+    pub fn start(
+        bus: &Bus,
+        visibility: Arc<Visibility>,
+        forget_starts: impl Fn() + Send + Sync + 'static,
+    ) -> Result<Self, ServeError> {
+        let object = Launcher {
+            visibility,
+            forget_starts: Box::new(forget_starts),
+        };
         let connection = zbus::block_on(async {
             let connection = bus
                 .builder()

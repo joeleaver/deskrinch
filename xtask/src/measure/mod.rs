@@ -37,6 +37,7 @@ mod procfs;
 mod report;
 mod show;
 mod smaps;
+mod state;
 mod system;
 
 pub(crate) use show::Summons;
@@ -92,6 +93,11 @@ after each show. Each show reports CPU time (or with --instructions the
 instructions) from the summon command to the first frame after it, the
 first show cold, each later one after a hide. The summon command's own
 process is not counted. Memory and the idle window are not measured.
+
+--state DIR starts each run's state directory (XDG_STATE_HOME) with a copy
+of DIR's contents, such as the launcher's record of starts
+(deskrinch/starts.toml); the report says the state was seeded, and from
+where. A DIR that is not a readable directory fails before any session.
 
 Needs valgrind and callgrind_control for --instructions.";
 
@@ -209,6 +215,8 @@ pub(crate) struct Request {
     /// Where to keep each run's Callgrind profile (`run-N/`), for
     /// `callgrind_annotate`; inside the session, and gone with it, if unset.
     pub(crate) profiles: Option<PathBuf>,
+    /// With `--state`: what each run's state directory starts with.
+    pub(crate) state: Option<PathBuf>,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
     /// With `--summon`: the program starts hidden, and each show is measured
@@ -227,6 +235,9 @@ impl Request {
 
 /// Runs the measurement and prints its report.
 pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
+    if let Some(state) = &request.state {
+        state::check(state)?;
+    }
     let program = request.program.to_string_lossy().into_owned();
     // A warm cache lives outside the sessions, for as long as this task.
     let cache_dir = (request.shader_cache == ShaderCache::Warm)
@@ -308,6 +319,9 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         runs.push(run);
     }
     println!("{}", header(request));
+    if let Some(note) = state::note(request.state.as_deref()) {
+        println!("{note}");
+    }
     println!("{}", report::render(&program, &runs));
     match request.expect_renderer {
         Some(expected) => Ok(check_renderer(expected, &runs)),
@@ -328,7 +342,11 @@ fn in_session<T>(
         None,
         |_| Ok(()),
     )?;
-    let result = measure(&session);
+    let result = match &request.state {
+        Some(state) => state::seed(state, &session.root().join("state")),
+        None => Ok(()),
+    }
+    .and_then(|()| measure(&session));
     let ended = session.end();
     let value = result?;
     ended?;

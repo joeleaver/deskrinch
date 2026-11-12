@@ -180,6 +180,11 @@ enum Task {
         /// the cold one.
         #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=20))]
         shows: u32,
+        /// Each run's state directory (`XDG_STATE_HOME`) starts with a copy
+        /// of this directory's contents: state the program reads, such as
+        /// the record of starts the launcher shows (`deskrinch/starts.toml`).
+        #[arg(long, value_name = "DIR")]
+        state: Option<PathBuf>,
         /// The program to measure.
         program: OsString,
         /// Its arguments.
@@ -242,6 +247,7 @@ impl Task {
                 summon,
                 dismiss,
                 shows,
+                state,
                 program,
                 args,
             } => measure::run(&measure::Request {
@@ -257,6 +263,7 @@ impl Task {
                 ),
                 instructions,
                 profiles,
+                state,
                 program,
                 args,
                 summons: summon

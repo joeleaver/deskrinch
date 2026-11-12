@@ -32,6 +32,9 @@ deskrinch-gestures.workspace = true
 deskrinch-icons.workspace = true
 # `[general]`: the terminal applications run in.
 deskrinch-settings.workspace = true
+# The record of the applications started, which an empty query shows the
+# best of.
+deskrinch-start-record.workspace = true
 deskrinch-theme.workspace = true
 deskrinch-xdg.workspace = true
 # `gpu` adds the GPU renderer beside the software one rinch always has on

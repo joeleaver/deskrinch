@@ -1,7 +1,7 @@
 use super::*;
 
 /// An application entry with `id`, `name` and any further keys in `extra`.
-fn app(id: &str, name: &str, extra: &str) -> DesktopEntry {
+pub(super) fn app(id: &str, name: &str, extra: &str) -> DesktopEntry {
     let text = format!("[Desktop Entry]\nType=Application\nName={name}\nExec=run-{id}\n{extra}");
     let id = DesktopId::new(format!("{id}.desktop")).unwrap();
     DesktopEntry::parse(id, "/x".into(), &text).unwrap()
@@ -17,15 +17,15 @@ fn terminals() -> Vec<DesktopEntry> {
 }
 
 /// The rows' app ids, in order.
-fn ids(model: &Model) -> Vec<&str> {
+pub(super) fn ids(model: &Model) -> Vec<&str> {
     model.rows().iter().map(|row| row.id.app_id()).collect()
 }
 
-fn selected(model: &Model) -> Option<&str> {
+pub(super) fn selected(model: &Model) -> Option<&str> {
     model.selected_row().map(|row| row.id.app_id())
 }
 
-fn id(name: &str) -> DesktopId {
+pub(super) fn id(name: &str) -> DesktopId {
     DesktopId::new(format!("{name}.desktop")).unwrap()
 }
 
