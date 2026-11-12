@@ -9,11 +9,12 @@ use deskrinch_notification_service::{CloseReason, Event, ImageSource, Urgency};
 use crate::common::{PATIENCE, PrivateBus, start};
 
 pub(crate) fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
-    bus.command("notify-send")
+    let mut command = bus.command("notify-send");
+    command
         .args(args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
+        .stderr(Stdio::piped());
+    bus.spawn(command)
         .expect("notify-send (libnotify) must be installed to run these tests")
 }
 

@@ -1082,6 +1082,7 @@ name = "deskrinch-test-component"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
+ "deskrinch-test-lifetime",
 ]
 
 [[package]]
@@ -1089,6 +1090,7 @@ name = "deskrinch-test-dbus"
 version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
+ "deskrinch-test-lifetime",
  "futures-core",
  "rustix",
  "tempfile",
@@ -1108,6 +1110,14 @@ dependencies = [
  "wayland-protocols-misc",
  "wayland-protocols-plasma",
  "wayland-protocols-wlr",
+]
+
+[[package]]
+name = "deskrinch-test-lifetime"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+ "tempfile",
 ]
 
 [[package]]

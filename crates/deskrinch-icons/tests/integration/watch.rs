@@ -28,6 +28,20 @@ fn next(events: &Receiver<Event>) -> Arc<Index> {
     }
 }
 
+/// The first index reported of which `wanted` holds. One change to the
+/// files can be reported in steps: a directory made, then the file in it;
+/// a file made empty, then written (the fixture writes in place). Each step
+/// read in between is a different index, reported in its turn, and only
+/// the last is the state the test made.
+fn until(events: &Receiver<Event>, wanted: impl Fn(&Index) -> bool) -> Arc<Index> {
+    loop {
+        let index = next(events);
+        if wanted(&index) {
+            return index;
+        }
+    }
+}
+
 fn nothing(events: &Receiver<Event>) {
     if let Ok(event) = events.recv_timeout(Duration::from_millis(1500)) {
         panic!("expected nothing, got {event:?}");
@@ -41,12 +55,12 @@ fn follows_icons_added_and_removed() {
     let (_watcher, index, events) = watch(&f, HICOLOR);
     assert_eq!(found(&index, "new"), None);
     let path = f.icon("b1", HICOLOR, "48", "new.png");
-    assert_eq!(found(&next(&events), "new"), Some(path.clone()));
+    until(&events, |i| found(i, "new") == Some(path.clone()));
     // The user's copy of the theme, in a base directory with no hicolor yet.
     let user = f.icon("b0", HICOLOR, "48", "new.png");
-    assert_eq!(found(&next(&events), "new"), Some(user.clone()));
+    until(&events, |i| found(i, "new") == Some(user.clone()));
     fs::remove_file(&user).unwrap();
-    assert_eq!(found(&next(&events), "new"), Some(path));
+    until(&events, |i| found(i, "new") == Some(path.clone()));
 }
 
 #[test]
@@ -54,7 +68,7 @@ fn follows_unthemed_icons() {
     let f = Fixture::new();
     let (_watcher, _, events) = watch(&f, HICOLOR);
     let path = f.icon("pixmaps", "", "", "app.png");
-    assert_eq!(found(&next(&events), "app"), Some(path));
+    until(&events, |i| found(i, "app") == Some(path.clone()));
 }
 
 #[test]
@@ -65,18 +79,12 @@ fn follows_a_new_parent_theme() {
     assert_eq!(index.consulted(), ["child", HICOLOR]);
     // Inherit from a theme that is not installed yet, then install it.
     f.theme("b0", "child", &theme_text("parent", &["48:48:Fixed"]));
-    assert_eq!(next(&events).consulted(), ["child", "parent", HICOLOR]);
+    until(&events, |i| i.consulted() == ["child", "parent", HICOLOR]);
     f.theme("b1", "parent", &theme_text("", &["48:48:Fixed"]));
-    let installed = next(&events);
-    assert!(installed.installed("parent").is_some());
+    until(&events, |i| i.installed("parent").is_some());
     // The new parent's icons are followed too.
     let path = f.icon("b1", "parent", "48", "from-parent.png");
-    let mut index = next(&events);
-    // The directory's creation and the file may arrive as two reports.
-    if found(&index, "from-parent").is_none() {
-        index = next(&events);
-    }
-    assert_eq!(found(&index, "from-parent"), Some(path));
+    until(&events, |i| found(i, "from-parent") == Some(path.clone()));
 }
 
 #[test]
@@ -90,7 +98,8 @@ fn delivers_nothing_for_changes_that_leave_the_index_alone() {
     f.theme("b1", "unrelated", &theme_text("", &["48:48:Fixed"]));
     f.icon("b0", HICOLOR, "unlisted", "x.png");
     nothing(&events);
-    // Had anything above been delivered, it would arrive before this.
+    // Had anything above been delivered, it would arrive before this, and
+    // be the next report.
     let path = f.icon("b0", HICOLOR, "48", "real.png");
     assert_eq!(found(&next(&events), "real"), Some(path));
 }

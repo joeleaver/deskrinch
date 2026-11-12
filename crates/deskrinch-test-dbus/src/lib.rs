@@ -107,6 +107,13 @@ pub enum Error {
 /// in a process group of its own that [`stop`](Self::stop) ends as a whole,
 /// services it activated included. Programs a test runs against the bus
 /// come from [`command`](Self::command), isolated the same way.
+///
+/// A test process killed without dropping its bus (`SIGKILL`, an abort)
+/// still takes the daemon with it: the kernel kills it then
+/// ([`deskrinch_test_lifetime::spawn`]), whichever of the process's threads
+/// started the bus. The services it activated are not killed with it; they
+/// lose their bus. The temporary root is removed when the next test process
+/// starts a bus ([`deskrinch_test_lifetime::owned_dir`]).
 #[derive(Debug)]
 pub struct PrivateBus {
     daemon: Child,
@@ -132,7 +139,7 @@ impl PrivateBus {
     /// When the session cannot be set up or `dbus-daemon` cannot run.
     pub fn start_with_services(service_dirs: &[&Path]) -> Result<Self, Error> {
         static BUSES: AtomicUsize = AtomicUsize::new(0);
-        let dir = tempfile::tempdir().map_err(Error::Config)?;
+        let dir = deskrinch_test_lifetime::owned_dir().map_err(Error::Config)?;
         session::create_dirs(dir.path()).map_err(Error::Config)?;
         let socket = format!(
             "/tmp/dbus-deskrinch-{}-{}",
@@ -147,14 +154,14 @@ impl PrivateBus {
         .map_err(Error::Config)?;
         let mut command = Command::new("dbus-daemon");
         session::isolate(&mut command, dir.path());
-        let mut daemon = command
+        command
             .arg(format!("--config-file={}", path.display()))
             .args(["--nofork", "--print-address=1"])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .process_group(0)
-            .spawn()
-            .map_err(Error::Spawn)?;
+            .process_group(0);
+        // Killed by the kernel should this process die without dropping it.
+        let mut daemon = deskrinch_test_lifetime::spawn(command).map_err(Error::Spawn)?;
         // The daemon prints its address once it listens.
         let mut address = String::new();
         let read = match daemon.stdout.take() {
@@ -193,13 +200,25 @@ impl PrivateBus {
     }
 
     /// A command for `program` that runs in this bus's isolated session,
-    /// with `DBUS_SESSION_BUS_ADDRESS` naming this bus.
+    /// with `DBUS_SESSION_BUS_ADDRESS` naming this bus. Start it with
+    /// [`spawn`](Self::spawn).
     #[must_use]
     pub fn command(&self, program: impl AsRef<OsStr>) -> Command {
         let mut command = Command::new(program);
         session::isolate(&mut command, self.dir.path());
         command.env("DBUS_SESSION_BUS_ADDRESS", &self.address);
         command
+    }
+
+    /// Starts `command` (one from [`command`](Self::command)) as a child
+    /// that the kernel kills should the test process die without ending it
+    /// ([`deskrinch_test_lifetime::spawn`]).
+    ///
+    /// # Errors
+    ///
+    /// As [`deskrinch_test_lifetime::spawn`].
+    pub fn spawn(&self, command: Command) -> io::Result<Child> {
+        deskrinch_test_lifetime::spawn(command)
     }
 
     /// The variables [`command`](Self::command) sets: the session's

@@ -110,7 +110,10 @@ fn with_none_running_toggle_starts_one_shown() {
     let started = owner_pid().unwrap();
     let shown = eventually(|| toggle.watch().frames() > 0);
     // It runs in a process group of its own, so the session would not
-    // end it: this test does, before it asserts anything more.
+    // end it: this test does, before it asserts anything more. (The binary
+    // under test starts it, so it cannot be bound to this process; should
+    // this test be killed before here, it ends when the nested session's
+    // compositor does, its display gone.)
     let pid = Pid::from_raw(i32::try_from(started).unwrap()).unwrap();
     kill_process(pid, Signal::TERM).unwrap();
     assert!(eventually(|| owner_pid().is_none()), "it did not end");
