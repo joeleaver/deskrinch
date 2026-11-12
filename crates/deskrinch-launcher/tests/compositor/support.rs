@@ -66,10 +66,7 @@ impl Launcher {
 
     /// Waits until it has presented, with the run's renderer.
     pub(crate) fn wait_presented(&self) {
-        if let Err(why) = self
-            .component()
-            .wait_presented_with(Renderer::of_run(), PATIENCE)
-        {
+        if let Err(why) = self.component().wait_presented_with(Renderer::of_run()) {
             panic!("the launcher: {why}");
         }
     }

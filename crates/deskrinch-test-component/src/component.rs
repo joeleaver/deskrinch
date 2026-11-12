@@ -13,6 +13,18 @@ use crate::watch::{Presented, Watch};
 /// The variable `cargo xtask compositor-tests` names a run's renderer in.
 pub const RENDERER_VARIABLE: &str = "DESKRINCH_TEST_RENDERER";
 
+/// How long a component may go without presenting its first frame before
+/// it is taken to be hung: two minutes.
+///
+/// A hang detector, not a performance expectation: it is there so that a
+/// component that never presents fails instead of hanging the test, and is
+/// generous enough that only a hang reaches it, a cold GPU start on a
+/// loaded machine included (device and pipeline set-up alone can be silent
+/// for many seconds). How fast a first frame is, is measured with
+/// `cargo xtask measure`, never by a test's wait. A component that ends
+/// before presenting fails at once, not after this.
+pub const HUNG_AFTER: Duration = Duration::from_secs(120);
+
 /// The renderer a component is told to present with, through rinch's
 /// `RINCH_RENDERER`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -164,15 +176,17 @@ impl Component {
         }
     }
 
-    /// Waits up to `patience` for its first frame, then for its saying
-    /// which renderer presented it; returns that.
+    /// Waits for its first frame, then for its saying which renderer
+    /// presented it; returns that. A component that has not presented
+    /// within [`HUNG_AFTER`] is taken to be hung; one that ends first fails
+    /// at once.
     ///
     /// # Errors
     ///
     /// When no frame came, or it ended first; the error holds its last
     /// lines.
-    pub fn wait_presented(&self, patience: Duration) -> Result<Presented, String> {
-        if self.watch.wait_first_frame(patience).is_none() {
+    pub fn wait_presented(&self) -> Result<Presented, String> {
+        if self.watch.wait_first_frame(HUNG_AFTER).is_none() {
             return Err(format!(
                 "no frame; its last lines:\n{}",
                 self.watch.last_words()
@@ -180,7 +194,7 @@ impl Component {
         }
         // The two streams are read apart: the renderer's line may come after
         // the frame's.
-        self.watch.wait_for_line(patience, |line| {
+        self.watch.wait_for_line(HUNG_AFTER, |line| {
             log::presents_with_software(line) || log::adapter(line).is_some()
         });
         self.watch.presented().ok_or_else(|| {
@@ -197,12 +211,8 @@ impl Component {
     /// # Errors
     ///
     /// As `wait_presented`, and when another renderer presented.
-    pub fn wait_presented_with(
-        &self,
-        renderer: Renderer,
-        patience: Duration,
-    ) -> Result<(), String> {
-        let presented = self.wait_presented(patience)?;
+    pub fn wait_presented_with(&self, renderer: Renderer) -> Result<(), String> {
+        let presented = self.wait_presented()?;
         if renderer.presented(&presented) {
             Ok(())
         } else {
@@ -264,17 +274,29 @@ mod tests {
              exec sleep 600",
         ]);
         let component = Component::start_unguarded(command, Renderer::Software).unwrap();
-        let presented = component.wait_presented(Duration::from_secs(600)).unwrap();
+        let presented = component.wait_presented().unwrap();
         assert_eq!(presented, Presented::Software);
-        let patience = Duration::from_secs(600);
-        component
-            .wait_presented_with(Renderer::Software, patience)
-            .unwrap();
-        let wrong = component.wait_presented_with(Renderer::Gpu, patience);
+        component.wait_presented_with(Renderer::Software).unwrap();
+        let wrong = component.wait_presented_with(Renderer::Gpu);
         assert!(wrong.unwrap_err().contains("gpu renderer, but Software"));
         let id = component.id();
         drop(component);
         assert!(!std::path::Path::new(&format!("/proc/{id}")).exists());
+    }
+
+    #[test]
+    fn a_program_that_ends_before_presenting_fails_at_once() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "echo 'cannot start' >&2; exit 1"]);
+        let component = Component::start_unguarded(command, Renderer::Software).unwrap();
+        let started = Instant::now();
+        let error = component.wait_presented().unwrap_err();
+        assert!(error.contains("cannot start"), "{error}");
+        assert!(
+            started.elapsed() < HUNG_AFTER / 4,
+            "it waited {:?} for a program that had ended",
+            started.elapsed()
+        );
     }
 
     #[test]
