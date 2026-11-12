@@ -12,6 +12,7 @@ use rustix::process::{Pid, Signal, kill_process};
 
 use super::procfs::{self, ProcessSample, ThreadSample};
 use super::report::{Run, Unit, per_minute, per_second_milli};
+use super::window::{self, Stimulus};
 use super::{gpu, smaps};
 use crate::error::Error;
 use crate::session::interrupt;
@@ -33,7 +34,12 @@ pub(crate) struct Timing {
 }
 
 /// Starts `command` (a session client) and measures it; ends it afterwards.
-pub(crate) fn measure(mut command: Command, program: &str, timing: Timing) -> Result<Run, Error> {
+pub(crate) fn measure(
+    mut command: Command,
+    program: &str,
+    timing: Timing,
+    stimulus: &Stimulus,
+) -> Result<Run, Error> {
     let start = Instant::now();
     let mut child = command
         .stdout(Stdio::piped())
@@ -45,7 +51,7 @@ pub(crate) fn measure(mut command: Command, program: &str, timing: Timing) -> Re
         })?;
     let watch = Watch::default();
     watch.follow_child(&mut child);
-    let result = measure_child(&mut child, &watch, program, start, timing);
+    let result = measure_child(&mut child, &watch, program, start, timing, stimulus);
     stop(&mut child);
     result
 }
@@ -56,12 +62,13 @@ fn measure_child(
     program: &str,
     start: Instant,
     timing: Timing,
+    stimulus: &Stimulus,
 ) -> Result<Run, Error> {
     let mut run = Run::default();
     startup(&mut run, child, watch, program, start, timing.first_frame)?;
     wait(child, watch, program, timing.settle)?;
     memory(&mut run, child.id(), program)?;
-    idle(&mut run, child, watch, program, timing.idle)?;
+    idle(&mut run, child, watch, program, timing.idle, stimulus)?;
     run.push("frames in all", Unit::Count, watch.frames());
     Ok(run)
 }
@@ -177,20 +184,23 @@ fn memory(run: &mut Run, pid: u32, program: &str) -> Result<(), Error> {
 }
 
 /// Records an idle window of `duration`: CPU time, wake-ups, preemptions
-/// and frames.
+/// and frames; with `stimulus`'s window opened at its start, totals too.
 fn idle(
     run: &mut Run,
     child: &mut Child,
     watch: &Watch,
     program: &str,
     duration: Duration,
+    stimulus: &Stimulus,
 ) -> Result<(), Error> {
     let pid = child.id();
     let before = procfs::read_threads(pid);
     let frames_before = watch.frames();
     let window_start = Instant::now();
+    let opened = stimulus.begin()?;
     wait(child, watch, program, duration)?;
     let after = procfs::read_threads(pid);
+    window::end(opened, run)?;
     let millis = u64::try_from(window_start.elapsed().as_millis()).unwrap_or(u64::MAX);
     let frames = watch.frames() - frames_before;
     // A thread that started inside the window counts from zero.
@@ -209,6 +219,13 @@ fn idle(
         Unit::Milli,
         per_second_milli(delta(|t| t.voluntary_switches), millis),
     );
+    if stimulus.opens_a_window() {
+        run.push(
+            "wake-ups in the idle window (voluntary switches)",
+            Unit::Count,
+            delta(|t| t.voluntary_switches),
+        );
+    }
     run.push(
         "preemptions per second",
         Unit::Milli,

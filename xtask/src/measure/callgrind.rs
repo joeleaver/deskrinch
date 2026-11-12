@@ -16,6 +16,7 @@ use std::time::{Duration, Instant};
 
 use super::probe::{self, Timing};
 use super::report::{Run, Unit};
+use super::window::{self, Stimulus};
 use crate::error::Error;
 use crate::session::interrupt;
 use deskrinch_test_component::Watch;
@@ -40,6 +41,7 @@ pub(crate) fn measure(
     program: &str,
     out: &Path,
     timing: Timing,
+    stimulus: &Stimulus,
 ) -> Result<Run, Error> {
     let mut child = command
         .stdout(Stdio::piped())
@@ -51,7 +53,7 @@ pub(crate) fn measure(
         })?;
     let watch = Watch::default();
     watch.follow_child(&mut child);
-    let result = run_child(&mut child, &watch, &control, program, out, timing);
+    let result = run_child(&mut child, &watch, &control, program, out, timing, stimulus);
     probe::stop(&mut child);
     result
 }
@@ -63,6 +65,7 @@ fn run_child(
     program: &str,
     out: &Path,
     timing: Timing,
+    stimulus: &Stimulus,
 ) -> Result<Run, Error> {
     let pid = child.id().to_string();
     let start = Instant::now();
@@ -90,16 +93,18 @@ fn run_child(
     dump(control, &pid, "first-frame")?;
     let frames_before = watch.frames();
     let end = Instant::now() + timing.idle;
+    let opened = stimulus.begin()?;
     while Instant::now() < end {
         interrupt::check()?;
         thread::sleep((end - Instant::now()).min(Duration::from_millis(100)));
     }
     let frames = watch.frames() - frames_before;
     dump(control, &pid, "idle")?;
+    let mut run = Run::default();
+    window::end(opened, &mut run)?;
 
     let first = totals(out, 1)?;
     let idle = totals(out, 2)?;
-    let mut run = Run::default();
     run.push("instructions to first frame (Ir)", Unit::Count, first);
     run.push("instructions in the idle window (Ir)", Unit::Count, idle);
     run.push("frames in the idle window", Unit::Count, frames);

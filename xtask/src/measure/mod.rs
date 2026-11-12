@@ -39,6 +39,7 @@ mod show;
 mod smaps;
 mod state;
 mod system;
+mod window;
 
 pub(crate) use show::Summons;
 
@@ -47,6 +48,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use self::window::Stimulus;
 use crate::Outcome;
 use crate::error::Error;
 use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, RenderNodes, Session};
@@ -93,6 +95,14 @@ after each show. Each show reports CPU time (or with --instructions the
 instructions) from the summon command to the first frame after it, the
 first show cold, each later one after a hide. The summon command's own
 process is not counted. Memory and the idle window are not measured.
+
+--window APP_ID opens one window with that app id in the session at the
+idle window's start (once it has had its first configure and drawn), and
+keeps it open to its end: the idle figures then include what it costs the
+program, and the report also prints the idle window's wake-ups and frames
+as totals. A run with it minus one without is the cost of a window
+appearing plus what a window held open costs over the window. A run fails
+if the window cannot be opened or is gone by the end.
 
 --state DIR starts each run's state directory (XDG_STATE_HOME) with a copy
 of DIR's contents, such as the launcher's record of starts
@@ -224,6 +234,9 @@ pub(crate) struct Request {
     /// With `--summon`: the program starts hidden, and each show is measured
     /// instead of the start.
     pub(crate) summons: Option<Summons>,
+    /// With `--window`: the app id of a window opened at the idle window's
+    /// start and kept open to its end.
+    pub(crate) window: Option<String>,
 }
 
 impl Request {
@@ -268,7 +281,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                     let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
                     show::measure(command, &ask, &program, timing, summons).map(drop)
                 }
-                None => probe::measure(command, &program, timing).map(drop),
+                None => probe::measure(command, &program, timing, &Stimulus::none()).map(drop),
             }
         })?;
     }
@@ -281,42 +294,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
         let run = in_session(request, |session| {
-            if request.instructions {
-                let dir = request.profiles.as_ref().map_or_else(
-                    || session.root().join("callgrind"),
-                    |dir| dir.join(format!("run-{index}")),
-                );
-                std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
-                    what: format!("create {}", dir.display()),
-                    source,
-                })?;
-                let out = dir.join("callgrind.out");
-                let mut command = session.client("valgrind".as_ref());
-                command
-                    .args(callgrind::valgrind_args(&out))
-                    .arg(&request.program);
-                environment(&mut command, request, cache);
-                command.args(&request.args);
-                let control = || session.client("callgrind_control".as_ref());
-                match &request.summons {
-                    Some(summons) => {
-                        let ask = |args: &[OsString]| asked(session, request, cache, args);
-                        show::measure_instructions(
-                            command, &control, &ask, &program, &out, timing, summons,
-                        )
-                    }
-                    None => callgrind::measure(command, control, &program, &out, timing),
-                }
-            } else {
-                let command = client(session, request, cache);
-                match &request.summons {
-                    Some(summons) => {
-                        let ask = |args: &[OsString]| asked(session, request, cache, args);
-                        show::measure(command, &ask, &program, timing, summons)
-                    }
-                    None => probe::measure(command, &program, timing),
-                }
-            }
+            measure_run(request, session, index, cache, &program, timing)
         })?;
         runs.push(run);
     }
@@ -328,6 +306,50 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     match request.expect_renderer {
         Some(expected) => Ok(check_renderer(expected, &runs)),
         None => Ok(Outcome::Passed),
+    }
+}
+
+/// Measures run `index` of `program` in `session` as `request` asks: under
+/// Callgrind with `--instructions`, else from `/proc`; its shows with
+/// `--summon`, else its start and idle window.
+fn measure_run(
+    request: &Request,
+    session: &Session,
+    index: u32,
+    cache: Option<&Path>,
+    program: &str,
+    timing: probe::Timing,
+) -> Result<report::Run, Error> {
+    let ask = |args: &[OsString]| asked(session, request, cache, args);
+    let stimulus = || Stimulus::of(session, request.window.as_deref());
+    if !request.instructions {
+        let command = client(session, request, cache);
+        return match &request.summons {
+            Some(summons) => show::measure(command, &ask, program, timing, summons),
+            None => probe::measure(command, program, timing, &stimulus()),
+        };
+    }
+    let dir = request.profiles.as_ref().map_or_else(
+        || session.root().join("callgrind"),
+        |dir| dir.join(format!("run-{index}")),
+    );
+    std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
+        what: format!("create {}", dir.display()),
+        source,
+    })?;
+    let out = dir.join("callgrind.out");
+    let mut command = session.client("valgrind".as_ref());
+    command
+        .args(callgrind::valgrind_args(&out))
+        .arg(&request.program);
+    environment(&mut command, request, cache);
+    command.args(&request.args);
+    let control = || session.client("callgrind_control".as_ref());
+    match &request.summons {
+        Some(summons) => {
+            show::measure_instructions(command, &control, &ask, program, &out, timing, summons)
+        }
+        None => callgrind::measure(command, control, program, &out, timing, &stimulus()),
     }
 }
 
