@@ -1049,6 +1049,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-start-record"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-desktop-entries",
+ "deskrinch-xdg",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml 1.2.1+spec-1.1.0",
+ "tracing",
+]
+
+[[package]]
 name = "deskrinch-status-notifier"
 version = "0.1.0"
 dependencies = [
