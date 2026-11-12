@@ -65,13 +65,11 @@
 //! - The launcher starts empty each time it is shown: the process
 //!   [`clear`](Model::clear)s the model when it hides.
 
-mod applications;
 mod client;
 mod model;
 mod service;
 mod visibility;
 
-pub use applications::Applications;
 pub use client::{Answer, ClientError, Request, send};
 pub use model::{Action, Input, Model, ROWS, Row};
 pub use service::{INTERFACE, NAME, PATH, ServeError, Service};

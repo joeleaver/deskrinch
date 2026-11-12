@@ -5,7 +5,7 @@
 //! including, its last component, so two spellings of one directory are
 //! one watch (inotify gives a directory one watch however it is named).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::Target;
@@ -15,6 +15,11 @@ use crate::Target;
 pub(crate) struct Plan {
     /// Each directory watched, and whether recursively.
     pub(crate) watches: BTreeMap<PathBuf, bool>,
+    /// The directories watched whose entries' contents matter (a file's
+    /// own directory, a directory target): their entries written or
+    /// changed are watched for, not only made, removed and renamed. A
+    /// recursive watch's directories are all such.
+    pub(crate) entries: BTreeSet<PathBuf>,
     /// The paths whose changes matter: each target where it is written,
     /// and where it points when it is a symbolic link; and whether what is
     /// below it matters to any depth or only its entries.
@@ -46,7 +51,10 @@ impl Plan {
                 // replaced by a rename or re-pointed; its nearest existing
                 // ancestor sees the way to it created.
                 if let Some(dir) = point.ancestors().skip(1).find(|dir| dir.is_dir()) {
-                    plan.add(dir.to_path_buf(), false);
+                    // A file's own directory sees it written; for anything
+                    // else, only names made, removed and renamed matter.
+                    let own = matches!(target, Target::File(_)) && point.parent() == Some(dir);
+                    plan.add(dir.to_path_buf(), false, own);
                 }
                 plan.interest.push((point, depth));
             }
@@ -58,15 +66,24 @@ impl Plan {
             if let Ok(dir) = path.canonicalize()
                 && dir.is_dir()
             {
-                plan.add(dir, recursive);
+                plan.add(dir, recursive, true);
             }
         }
         plan.prune();
         plan
     }
 
-    fn add(&mut self, dir: PathBuf, recursive: bool) {
+    fn add(&mut self, dir: PathBuf, recursive: bool, entries: bool) {
+        if entries {
+            self.entries.insert(dir.clone());
+        }
         *self.watches.entry(dir).or_default() |= recursive;
+    }
+
+    /// Whether the changes of `dir`'s entries' contents are watched for:
+    /// it is in a recursive watch, or its entries matter.
+    pub(crate) fn wants_entries(&self, dir: &Path) -> bool {
+        self.entries.contains(dir) || self.watches.get(dir) == Some(&true)
     }
 
     /// Drops the watches a recursive one already covers.
@@ -77,11 +94,13 @@ impl Plan {
             .filter(|(_, recursive)| **recursive)
             .map(|(dir, _)| dir.clone())
             .collect();
-        self.watches.retain(|dir, _| {
-            !recursive
+        let covered = |dir: &PathBuf| {
+            recursive
                 .iter()
                 .any(|tree| dir != tree && dir.starts_with(tree))
-        });
+        };
+        self.watches.retain(|dir, _| !covered(dir));
+        self.entries.retain(|dir| !covered(dir));
     }
 
     /// Whether a change at `path` may concern a target: it is the target,
@@ -195,6 +214,41 @@ mod tests {
         assert_eq!(
             watches(&plan),
             [(root.clone(), false), (root.join("tree"), true)]
+        );
+    }
+
+    #[test]
+    fn only_a_files_own_directory_and_targets_want_their_entries_contents() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        fs::create_dir_all(root.join("config")).unwrap();
+        fs::create_dir_all(root.join("share/applications")).unwrap();
+        fs::create_dir_all(root.join("pixmaps")).unwrap();
+        let plan = Plan::new(&[
+            Target::File(root.join("config/deskrinch.toml")),
+            Target::File(root.join("absent/other.toml")),
+            Target::Tree(root.join("share/applications")),
+            Target::Directory(root.join("pixmaps")),
+        ]);
+        assert!(
+            plan.wants_entries(&root.join("config")),
+            "a file's directory"
+        );
+        assert!(
+            plan.wants_entries(&root.join("share/applications")),
+            "a tree"
+        );
+        assert!(
+            plan.wants_entries(&root.join("pixmaps")),
+            "a directory target"
+        );
+        assert!(
+            !plan.wants_entries(&root.join("share")),
+            "the directory holding a tree: only the tree's name"
+        );
+        assert!(
+            !plan.wants_entries(&root),
+            "a missing path's ancestor, and the directory holding a directory"
         );
     }
 

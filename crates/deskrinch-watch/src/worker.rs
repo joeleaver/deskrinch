@@ -1,13 +1,17 @@
 //! The watching thread: changes in, debounced, filtered and reported.
+//!
+//! The thread waits in the kernel ([`Backend::wait`]) for a change or for a
+//! message from a [`Handle`] or the [`Watcher`], which is sent on a channel
+//! and announced by the backend's [`Waker`]. Nothing else wakes it.
 
-use std::path::Path;
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
-
-use notify::{EventKind, RecursiveMode};
+use std::time::{Duration, Instant};
 
 use crate::error::WatchError;
+use crate::inotify::Inotify;
 use crate::plan::Plan;
 use crate::{Event, Target, Timing};
 
@@ -15,32 +19,84 @@ use crate::{Event, Target, Timing};
 /// planning a watch and adding it.
 const REPLANS: usize = 3;
 
-/// What adds and removes watches: notify's watcher, or a stand-in in tests.
-pub(crate) trait Backend: Send {
-    fn watch(&mut self, dir: &Path, recursive: bool) -> notify::Result<()>;
-    fn unwatch(&mut self, dir: &Path) -> notify::Result<()>;
+/// How a directory is watched.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct How {
+    /// With every directory below it.
+    pub(crate) recursive: bool,
+    /// For its entries written or changed, not only made, removed and
+    /// renamed.
+    pub(crate) entries: bool,
 }
 
-impl Backend for notify::RecommendedWatcher {
-    fn watch(&mut self, dir: &Path, recursive: bool) -> notify::Result<()> {
-        let mode = if recursive {
-            RecursiveMode::Recursive
-        } else {
-            RecursiveMode::NonRecursive
-        };
-        notify::Watcher::watch(self, dir, mode)
-    }
+/// What changed, as the backend read it.
+#[derive(Debug)]
+pub(crate) enum Change {
+    /// Something at this path: an entry of a watched directory, or the
+    /// directory itself.
+    At(PathBuf),
+    /// Something, where is not known: the kernel's queue overflowed, or it
+    /// dropped a watch.
+    Unknown,
+    /// Watching failed in part (a directory made in a tree could not be
+    /// watched); what it missed is unknown.
+    Error(WatchError),
+}
 
-    fn unwatch(&mut self, dir: &Path) -> notify::Result<()> {
-        notify::Watcher::unwatch(self, dir)
-    }
+/// What one wait saw.
+#[derive(Debug)]
+pub(crate) enum Wait {
+    /// Changes were read.
+    Changes(Vec<Change>),
+    /// The [`Waker`] was called: a message is waiting.
+    Woken,
+    /// The time ran out, or nothing that is a change arrived.
+    Quiet,
+    /// The backend cannot go on.
+    Failed(WatchError),
+}
+
+/// Wakes the backend's wait, from any thread.
+pub(crate) type Waker = Arc<dyn Fn() + Send + Sync>;
+
+/// What adds and removes watches and waits for changes: inotify, or a
+/// stand-in in tests.
+pub(crate) trait Backend: Send {
+    fn watch(&mut self, dir: &Path, how: How) -> Result<(), WatchError>;
+    fn unwatch(&mut self, dir: &Path);
+    /// Waits for changes or the waker, for at most `timeout` (none: as
+    /// long as it takes).
+    fn wait(&mut self, timeout: Option<Duration>) -> Wait;
+    fn waker(&self) -> Waker;
 }
 
 pub(crate) enum Message {
-    Changed(notify::Result<notify::Event>),
     Refresh,
     Targets(Vec<Target>),
     Stop,
+}
+
+/// Sends messages to the watcher's thread, and wakes it to read them.
+#[derive(Clone)]
+struct Mailbox {
+    messages: Sender<Message>,
+    wake: Waker,
+}
+
+impl Mailbox {
+    fn send(&self, message: Message) {
+        // Fails only once the worker has stopped, when there is no one left
+        // to tell.
+        if self.messages.send(message).is_ok() {
+            (self.wake)();
+        }
+    }
+}
+
+impl std::fmt::Debug for Mailbox {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Mailbox").finish_non_exhaustive()
+    }
 }
 
 /// Asks a watcher, from any thread, to report a change now or to watch
@@ -48,7 +104,7 @@ pub(crate) enum Message {
 /// once the [`Watcher`] is dropped, what a handle asks is ignored.
 #[derive(Debug, Clone)]
 pub struct Handle {
-    messages: Sender<Message>,
+    mailbox: Mailbox,
 }
 
 impl Handle {
@@ -58,8 +114,7 @@ impl Handle {
     /// event follows on the watcher's thread. During a burst of changes it
     /// joins the burst's one report.
     pub fn refresh(&self) {
-        // Fails only once the worker has stopped.
-        self.messages.send(Message::Refresh).ok();
+        self.mailbox.send(Message::Refresh);
     }
 
     /// Watches `targets` instead of the targets so far, then reports
@@ -67,8 +122,7 @@ impl Handle {
     /// subscriber reads again what the new targets hold. For a caller
     /// whose targets depend on what it read (an icon theme's parents).
     pub fn set_targets(&self, targets: Vec<Target>) {
-        // Fails only once the worker has stopped.
-        self.messages.send(Message::Targets(targets)).ok();
+        self.mailbox.send(Message::Targets(targets));
     }
 }
 
@@ -80,7 +134,7 @@ impl Handle {
 /// happens while it reads.
 pub struct Armed {
     core: Core,
-    messages: Sender<Message>,
+    mailbox: Mailbox,
     inbox: Receiver<Message>,
 }
 
@@ -109,24 +163,19 @@ impl Armed {
     /// cannot be watched (for example when the inotify watch limit is
     /// reached).
     pub fn new(targets: Vec<Target>, timing: Timing) -> Result<Self, WatchError> {
-        let (messages, inbox) = mpsc::channel();
-        let forward = messages.clone();
-        let backend = notify::recommended_watcher(move |change| {
-            // A send fails only once the worker has stopped, when there is
-            // no one left to tell.
-            forward.send(Message::Changed(change)).ok();
-        })
-        .map_err(WatchError::from_backend)?;
-        Self::with_backend(Box::new(backend), messages, inbox, targets, timing)
+        Self::with_backend(Box::new(Inotify::new()?), targets, timing)
     }
 
     pub(crate) fn with_backend(
         backend: Box<dyn Backend>,
-        messages: Sender<Message>,
-        inbox: Receiver<Message>,
         targets: Vec<Target>,
         timing: Timing,
     ) -> Result<Self, WatchError> {
+        let (messages, inbox) = mpsc::channel();
+        let mailbox = Mailbox {
+            messages,
+            wake: backend.waker(),
+        };
         let mut core = Core {
             backend,
             targets,
@@ -138,7 +187,7 @@ impl Armed {
         }
         Ok(Self {
             core,
-            messages,
+            mailbox,
             inbox,
         })
     }
@@ -148,7 +197,7 @@ impl Armed {
     #[must_use]
     pub fn handle(&self) -> Handle {
         Handle {
-            messages: self.messages.clone(),
+            mailbox: self.mailbox.clone(),
         }
     }
 
@@ -166,7 +215,7 @@ impl Armed {
     ) -> Result<Watcher, WatchError> {
         let Self {
             core,
-            messages,
+            mailbox,
             inbox,
         } = self;
         let worker = thread::Builder::new()
@@ -174,7 +223,7 @@ impl Armed {
             .spawn(move || core.run(&inbox, subscriber))
             .map_err(WatchError::Thread)?;
         Ok(Watcher {
-            messages,
+            mailbox,
             worker: Some(worker),
         })
     }
@@ -184,7 +233,7 @@ impl Armed {
 /// its own, until dropped.
 #[derive(Debug)]
 pub struct Watcher {
-    messages: Sender<Message>,
+    mailbox: Mailbox,
     worker: Option<JoinHandle<()>>,
 }
 
@@ -208,7 +257,7 @@ impl Watcher {
     #[must_use]
     pub fn handle(&self) -> Handle {
         Handle {
-            messages: self.messages.clone(),
+            mailbox: self.mailbox.clone(),
         }
     }
 
@@ -220,7 +269,7 @@ impl Watcher {
 
 impl Drop for Watcher {
     fn drop(&mut self) {
-        self.messages.send(Message::Stop).ok();
+        self.mailbox.send(Message::Stop);
         if let Some(worker) = self.worker.take()
             // Dropped by its own subscriber: the thread ends when the
             // subscriber returns, and cannot wait for itself.
@@ -233,40 +282,43 @@ impl Drop for Watcher {
     }
 }
 
+/// What one wait for the next thing heard gave.
+enum Heard {
+    /// Asked to report now (a refresh, new targets).
+    Asked,
+    /// Changes read; whether any concerns a target.
+    Changes(bool),
+    /// The time ran out.
+    Nothing,
+    /// Stop: asked to, or the backend failed.
+    Stop,
+}
+
 impl Core {
     fn run(mut self, inbox: &Receiver<Message>, mut subscriber: impl FnMut(Event)) {
         loop {
-            let relevant = match inbox.recv() {
+            let relevant = match self.hear(inbox, None, &mut subscriber) {
+                Heard::Stop => return,
+                Heard::Nothing => continue,
                 // Asked for now: no waiting for a pause.
-                Ok(Message::Refresh) => true,
-                Ok(Message::Targets(targets)) => {
-                    self.targets = targets;
-                    true
-                }
-                Ok(Message::Changed(change)) => {
-                    let mut relevant = self.consider(change, &mut subscriber);
+                Heard::Asked => true,
+                Heard::Changes(concerns) => {
+                    let mut relevant = concerns;
                     let deadline = Instant::now() + self.timing.max_delay;
                     loop {
                         let wait = self
                             .timing
                             .quiet
                             .min(deadline.saturating_duration_since(Instant::now()));
-                        match inbox.recv_timeout(wait) {
-                            Ok(Message::Changed(change)) => {
-                                relevant |= self.consider(change, &mut subscriber);
-                            }
-                            Ok(Message::Refresh) => relevant = true,
-                            Ok(Message::Targets(targets)) => {
-                                self.targets = targets;
-                                relevant = true;
-                            }
-                            Ok(Message::Stop) | Err(RecvTimeoutError::Disconnected) => return,
-                            Err(RecvTimeoutError::Timeout) => break,
+                        match self.hear(inbox, Some(wait), &mut subscriber) {
+                            Heard::Changes(concerns) => relevant |= concerns,
+                            Heard::Asked => relevant = true,
+                            Heard::Nothing => break,
+                            Heard::Stop => return,
                         }
                     }
                     relevant
                 }
-                Ok(Message::Stop) | Err(_) => return,
             };
             if relevant {
                 for error in self.retarget() {
@@ -277,24 +329,59 @@ impl Core {
         }
     }
 
-    /// Whether a change may concern a target. Reading files changes
-    /// nothing. A backend error is reported, and counts as a change: what
-    /// it missed is unknown.
-    fn consider(
-        &self,
-        change: notify::Result<notify::Event>,
+    /// The next thing heard: a message first, else what the backend reads
+    /// within `timeout`.
+    fn hear(
+        &mut self,
+        inbox: &Receiver<Message>,
+        timeout: Option<Duration>,
         subscriber: &mut impl FnMut(Event),
-    ) -> bool {
-        match change {
-            Ok(event) => {
-                !matches!(event.kind, EventKind::Access(_))
-                    && event.paths.iter().any(|path| self.plan.concerns(path))
+    ) -> Heard {
+        let deadline = timeout.map(|timeout| Instant::now() + timeout);
+        loop {
+            match inbox.try_recv() {
+                Ok(Message::Refresh) => return Heard::Asked,
+                Ok(Message::Targets(targets)) => {
+                    self.targets = targets;
+                    return Heard::Asked;
+                }
+                Ok(Message::Stop) | Err(TryRecvError::Disconnected) => return Heard::Stop,
+                Err(TryRecvError::Empty) => {}
             }
-            Err(error) => {
-                subscriber(Event::Error(WatchError::from_backend(error)));
-                true
+            let left = deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+            match self.backend.wait(left) {
+                Wait::Changes(changes) => {
+                    return Heard::Changes(self.consider(changes, subscriber));
+                }
+                Wait::Woken => {}
+                Wait::Quiet => {
+                    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                        return Heard::Nothing;
+                    }
+                }
+                Wait::Failed(error) => {
+                    subscriber(Event::Error(error));
+                    return Heard::Stop;
+                }
             }
         }
+    }
+
+    /// Whether `changes` may concern a target. A backend error is reported,
+    /// and counts as a change: what it missed is unknown.
+    fn consider(&self, changes: Vec<Change>, subscriber: &mut impl FnMut(Event)) -> bool {
+        let mut relevant = false;
+        for change in changes {
+            relevant |= match change {
+                Change::At(path) => self.plan.concerns(&path),
+                Change::Unknown => true,
+                Change::Error(error) => {
+                    subscriber(Event::Error(error));
+                    true
+                }
+            };
+        }
+        relevant
     }
 
     /// Watches what the targets now need, and returns the watches that
@@ -311,19 +398,25 @@ impl Core {
     }
 
     fn apply(&mut self, wanted: Plan) -> Vec<WatchError> {
+        let how = |plan: &Plan, dir: &Path, recursive: bool| How {
+            recursive,
+            entries: plan.wants_entries(dir),
+        };
         for (dir, recursive) in &self.plan.watches {
-            if wanted.watches.get(dir) != Some(recursive) {
-                // The directory may be gone already, which removed its
-                // watch.
-                self.backend.unwatch(dir).ok();
+            let was = how(&self.plan, dir, *recursive);
+            let now = wanted.watches.get(dir).map(|r| how(&wanted, dir, *r));
+            if now != Some(was) {
+                self.backend.unwatch(dir);
             }
         }
         let mut errors = Vec::new();
         for (dir, recursive) in &wanted.watches {
-            if self.plan.watches.get(dir) != Some(recursive)
-                && let Err(error) = self.backend.watch(dir, *recursive)
+            let now = how(&wanted, dir, *recursive);
+            let was = self.plan.watches.get(dir).map(|r| how(&self.plan, dir, *r));
+            if was != Some(now)
+                && let Err(error) = self.backend.watch(dir, now)
             {
-                errors.push(WatchError::from_backend(error.add_path(dir.clone())));
+                errors.push(error);
             }
         }
         self.plan = wanted;
@@ -332,90 +425,4 @@ impl Core {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::sync::{Arc, Mutex};
-
-    /// A backend that records watches and refuses any beyond `limit`, as
-    /// inotify does at `max_user_watches`.
-    struct Limited {
-        limit: usize,
-        watched: Arc<Mutex<Vec<std::path::PathBuf>>>,
-    }
-
-    impl Backend for Limited {
-        fn watch(&mut self, dir: &Path, _recursive: bool) -> notify::Result<()> {
-            let mut watched = self.watched.lock().unwrap();
-            if watched.len() >= self.limit {
-                return Err(notify::Error::new(notify::ErrorKind::MaxFilesWatch));
-            }
-            watched.push(dir.to_path_buf());
-            Ok(())
-        }
-
-        fn unwatch(&mut self, dir: &Path) -> notify::Result<()> {
-            self.watched.lock().unwrap().retain(|d| d != dir);
-            Ok(())
-        }
-    }
-
-    fn arm(limit: usize, targets: Vec<Target>) -> (Result<Armed, WatchError>, Sender<Message>) {
-        let (messages, inbox) = mpsc::channel();
-        let backend = Limited {
-            limit,
-            watched: Arc::default(),
-        };
-        let armed = Armed::with_backend(
-            Box::new(backend),
-            messages.clone(),
-            inbox,
-            targets,
-            Timing::default(),
-        );
-        (armed, messages)
-    }
-
-    #[test]
-    fn reports_the_watch_limit_when_arming() {
-        let root = tempfile::tempdir().unwrap();
-        let root = root.path().canonicalize().unwrap();
-        std::fs::create_dir_all(root.join("a")).unwrap();
-        let targets = vec![Target::File(root.join("a/f")), Target::File(root.join("g"))];
-        let (armed, _) = arm(1, targets);
-        let error = armed.unwrap_err();
-        assert!(
-            matches!(&error, WatchError::WatchLimit { path: Some(p) } if p == &root.join("a")),
-            "{error:?}"
-        );
-    }
-
-    #[test]
-    fn reports_the_watch_limit_when_the_backend_hits_it_later() {
-        let root = tempfile::tempdir().unwrap();
-        let (armed, messages) = arm(8, vec![Target::Tree(root.path().to_path_buf())]);
-        let (events, received) = mpsc::channel();
-        let watcher = armed
-            .unwrap()
-            .start("test-watch", move |event| {
-                events.send(event).ok();
-            })
-            .unwrap();
-        // What inotify reports when a directory created inside a recursive
-        // watch cannot be watched.
-        messages
-            .send(Message::Changed(Err(notify::Error::new(
-                notify::ErrorKind::MaxFilesWatch,
-            ))))
-            .unwrap();
-        let timeout = std::time::Duration::from_secs(10);
-        assert!(matches!(
-            received.recv_timeout(timeout).unwrap(),
-            Event::Error(WatchError::WatchLimit { .. })
-        ));
-        assert!(matches!(
-            received.recv_timeout(timeout).unwrap(),
-            Event::Changed
-        ));
-        drop(watcher);
-    }
-}
+mod tests;

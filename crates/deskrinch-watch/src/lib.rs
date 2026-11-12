@@ -21,6 +21,18 @@
 //! What is watched is planned again after every reported change, as
 //! directories come and go.
 //!
+//! The kernel is asked for exactly the changes that can alter what is read,
+//! through inotify: an entry made, removed, renamed, written and closed, or
+//! its attributes changed, where entries' contents matter; only names made,
+//! removed and renamed where a directory is watched for one name (the one
+//! holding a tree, a missing path's nearest ancestor). Reading a file or
+//! listing a directory is never asked for, so it wakes nothing. A tree is
+//! one watch per directory, symbolic links followed; the user's watch limit
+//! (`fs.inotify.max_user_watches`) reached is a [`WatchError::WatchLimit`],
+//! never silence. The watcher's thread sleeps in the kernel until a change
+//! or a message from a [`Handle`]; if waiting itself fails, the error is
+//! reported and the thread ends.
+//!
 //! Changes are debounced: after a change that concerns a target, the
 //! watcher waits until changes pause for [`Timing::quiet`], but no longer
 //! than [`Timing::max_delay`], then reports one [`Event::Changed`]. The
@@ -54,6 +66,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 mod error;
+mod inotify;
 mod plan;
 mod worker;
 

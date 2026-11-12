@@ -1,0 +1,12 @@
+[package]
+name = "deskrinch-gestures"
+description = "Pointer gestures made of presses and releases, such as a click, independent of any toolkit: what a press and a release add up to."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true
