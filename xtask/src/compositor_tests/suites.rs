@@ -10,6 +10,7 @@ const SCREEN: &str = "deskrinch-test-screen";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
 const PANEL: &str = "deskrinch-panel";
+const WAYLAND_CLIENT: &str = "deskrinch-wayland-client";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
@@ -93,7 +94,7 @@ pub(super) struct Suite {
 pub(super) const SESSION_END: &str = "session_end::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 9] = [
+pub(super) const SUITES: [Suite; 10] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -214,6 +215,19 @@ pub(super) const SUITES: [Suite; 9] = [
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
+        filter: &[],
+    },
+    // The shared connection's one thread: states attached and detached from
+    // several threads at once, and how the thread and its states end.
+    Suite {
+        target: Target {
+            package: WAYLAND_CLIENT,
+            test: "compositor",
+        },
+        grant: None,
+        compositors: ALL,
+        passes: PLAIN,
+        renders: false,
         filter: &[],
     },
     // Last: it ends the session.
