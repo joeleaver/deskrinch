@@ -81,17 +81,32 @@ impl Window {
         })
     }
 
-    /// Waits up to `wait` for the window to close; whether it has: the
-    /// compositor has no output left, or is gone.
-    pub(super) fn closed(&mut self, wait: Duration) -> bool {
+    /// Waits up to `wait` for the window to close; what was seen.
+    pub(super) fn watch(&mut self, wait: Duration) -> Seen {
         let waited = dispatch_until(
             &mut self.queue,
             &mut self.outputs,
             Deadline::after(wait),
             |outputs| outputs.0.is_empty(),
         );
-        // Anything but running out of time: no outputs, or the connection
-        // failed, the compositor being gone.
-        !matches!(waited, Err(WaitError::TimedOut(_)))
+        match waited {
+            Ok(()) => Seen::NoOutputs,
+            Err(WaitError::TimedOut(_)) => Seen::Open,
+            // The connection failed: the compositor is gone.
+            Err(_) => Seen::Gone,
+        }
     }
+}
+
+/// What following the window saw.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Seen {
+    /// It is open.
+    Open,
+    /// The compositor runs on with no output: every window was closed
+    /// (sway and labwc).
+    NoOutputs,
+    /// The compositor is gone: its window was closed (KWin), or it ended
+    /// for another reason.
+    Gone,
 }

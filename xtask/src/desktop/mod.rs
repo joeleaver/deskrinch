@@ -15,6 +15,7 @@
 //! exits; should it be killed, the session's supervisor ends the session.
 
 mod build;
+mod ending;
 mod guard;
 mod profile;
 mod window;
@@ -29,11 +30,10 @@ use std::time::{Duration, Instant};
 use deskrinch_shell::{COMPONENTS, LAUNCHER_CHORD, LAUNCHER_TOGGLE, Ready};
 use deskrinch_test_component::{RINCH_RENDERER_VARIABLE, Renderer as Rinch};
 
+use self::ending::run_until_ended;
 use self::profile::Profile;
-use self::window::Window;
 use crate::Outcome;
 use crate::error::Error;
-use crate::run_in_session::exit_code;
 use crate::session::{
     Binding, ClientId, Compositor, CompositorRenderer, Display, Home, Options, OutputTransform,
     Outputs, RenderNodes, Scale, Session, interrupt,
@@ -45,7 +45,7 @@ pub(crate) const REFUSED: u8 = 77;
 /// How long a component has to be ready.
 const COMPONENT_STARTUP: Duration = Duration::from_secs(60);
 /// How often to look again while waiting.
-const POLL: Duration = Duration::from_millis(100);
+pub(super) const POLL: Duration = Duration::from_millis(100);
 
 /// `cargo xtask desktop --help`.
 pub(crate) const LONG_ABOUT: &str = "\
@@ -376,41 +376,6 @@ fn wait_until_ready(
         }
         if Instant::now() >= deadline {
             return Err(DesktopError::ComponentNotReady { package, name }.into());
-        }
-    }
-}
-
-/// Runs until the window closes, the command exits or xtask is
-/// interrupted; says when a component exits meanwhile.
-fn run_until_ended(
-    session: &mut Session,
-    components: &[(&'static str, ClientId)],
-    program: Option<ClientId>,
-) -> Result<Outcome, Error> {
-    let mut window = Window::follow(&session.socket_path())?;
-    let mut reported = vec![false; components.len()];
-    loop {
-        interrupt::check()?;
-        if let Some(status) = program.and_then(|id| session.client_status(id)) {
-            return Ok(Outcome::Exit(exit_code(status)));
-        }
-        for ((package, id), reported) in components.iter().zip(&mut reported) {
-            if !*reported && let Some(status) = session.client_status(*id) {
-                eprintln!("desktop: {package} exited ({status}); the desktop runs on without it");
-                *reported = true;
-            }
-        }
-        if window.closed(POLL) {
-            return Ok(match session.compositor_status() {
-                Some(status) if !status.success() => {
-                    eprintln!(
-                        "desktop: the compositor exited ({status}); its log:\n{}",
-                        session.log()
-                    );
-                    Outcome::Failed
-                }
-                _ => Outcome::Passed,
-            });
         }
     }
 }
