@@ -169,10 +169,11 @@ fn supervise(root: &Path, input: impl BufRead) -> Result<(), Error> {
     }
     if let Some(group) = group {
         // Not the group's parent: the leader's zombie is reaped by whoever
-        // inherited it.
-        super::end_group(group, || {});
+        // inherited it when xtask died (the user's subreaper, or init), and
+        // `end_group` waits for that.
+        super::ending::end_group(group, || {});
     }
-    super::kill_leftovers(&root.join("run"));
+    super::ending::kill_leftovers(&root.join("run"));
     check(root)?;
     fs::remove_dir_all(root).map_err(|source| Error::Io {
         what: format!("remove {}", root.display()),
