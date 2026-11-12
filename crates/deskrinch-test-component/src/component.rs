@@ -72,7 +72,10 @@ impl Renderer {
     }
 }
 
-/// A component's process, its output watched; killed when dropped.
+/// A component's process, its output watched; killed when dropped, and by
+/// the kernel should the test process die without dropping it
+/// ([`deskrinch_test_lifetime::spawn`]). The programs the component starts
+/// in turn are not killed with it.
 #[derive(Debug)]
 pub struct Component {
     child: Child,
@@ -104,14 +107,16 @@ impl Component {
     /// crate's own tests, which start `sh` and `sleep`.
     fn start_unguarded(mut command: Command, renderer: Renderer) -> io::Result<Self> {
         let filter = log::rust_log(None);
-        let mut child = command
+        command
             .env("RINCH_PERF", "1")
             .env("RINCH_RENDERER", renderer.env())
             .env("RUST_LOG", filter)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .spawn()?;
+            .stderr(Stdio::piped());
+        // Killed by the kernel should the test process die without
+        // dropping it.
+        let mut child = deskrinch_test_lifetime::spawn(command)?;
         let watch = Watch::default();
         watch.follow_child(&mut child);
         Ok(Self { child, watch })

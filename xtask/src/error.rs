@@ -96,6 +96,18 @@ pub(crate) enum Error {
     /// A signal asked xtask to stop; the sessions it ran have been ended.
     #[error("interrupted; the session was ended")]
     Interrupted,
+    /// A session's supervisor was given a directory that is not a session's
+    /// root, and refused to touch it.
+    #[error("{} is not a session's directory ({why}); the supervisor does nothing to it", root.display())]
+    NotASession {
+        /// The directory it was given.
+        root: PathBuf,
+        /// What it is not.
+        why: &'static str,
+    },
+    /// A session's supervisor did not say it was ready.
+    #[error("the session's supervisor did not start")]
+    SupervisorNotReady,
     /// Processes of a session were still running after it was ended. They
     /// have been killed; the session's directory is kept.
     #[error(

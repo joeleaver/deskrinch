@@ -31,7 +31,7 @@ use std::path::{Path, PathBuf};
 use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_component::{RENDERER_VARIABLE, Renderer};
 
-use self::build::{Bin, Target};
+use self::build::{Backend, Bin, Target};
 use self::suites::{Grant, Pass, Program, SUITES, Suite};
 use crate::Outcome;
 use crate::error::Error;
@@ -177,8 +177,13 @@ fn run_in(
         let (suite, binary) = (&SUITES[index], &binaries[index]);
         let Some(renderer) = renderer else {
             println!(
-                "compositor-tests: {} {}",
-                suite.target.package, suite.target.test
+                "compositor-tests: {} {}{}",
+                suite.target.package,
+                suite.target.test,
+                match suite.target.backend {
+                    Backend::Rust => "",
+                    Backend::System => " on libwayland",
+                }
             );
             passed &= session.run_tests(binary, suite.filter, &[])?;
             continue;

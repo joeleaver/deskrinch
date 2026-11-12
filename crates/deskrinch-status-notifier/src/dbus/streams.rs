@@ -1,11 +1,11 @@
-//! The signals the host follows: names changing owner, and items saying
-//! that something changed.
+//! The signals the host follows: names changing owner, and items and
+//! menus saying that something changed.
 
 use zbus::message::Type;
 use zbus::names::MemberName;
 use zbus::{Connection, MatchRule, Message, MessageStream};
 
-use crate::dbus::ITEM_INTERFACE;
+use crate::dbus::{ITEM_INTERFACE, MENU_INTERFACE};
 
 /// Every `NameOwnerChanged` on the bus, opened before the watcher's name is
 /// requested so that no departure is missed.
@@ -25,6 +25,24 @@ pub(crate) async fn item_signals(connection: &Connection) -> zbus::Result<Messag
     let rule = MatchRule::builder()
         .msg_type(Type::Signal)
         .interface(ITEM_INTERFACE)
+        .build()?;
+    MessageStream::for_match_rule(rule, connection, None).await
+}
+
+/// The signals of the one menu at `path` of connection `owner`, while it is
+/// open: the bus sends the host no other menu's, so menus that are not open
+/// cost nothing. The match is on the bus once this returns, and goes when
+/// the stream is dropped.
+pub(crate) async fn menu_signals(
+    connection: &Connection,
+    owner: &str,
+    path: &str,
+) -> zbus::Result<MessageStream> {
+    let rule = MatchRule::builder()
+        .msg_type(Type::Signal)
+        .sender(owner)
+        .path(path)
+        .interface(MENU_INTERFACE)
         .build()?;
     MessageStream::for_match_rule(rule, connection, None).await
 }
@@ -54,6 +72,18 @@ pub(crate) fn item_signal(message: &Message) -> Option<(String, String)> {
             | "NewStatus"
     );
     if !changed {
+        return None;
+    }
+    Some((header.sender()?.to_string(), header.path()?.to_string()))
+}
+
+/// A menu's signal that its layout or its entries changed: its sender and
+/// path. `ItemActivationRequested`, an application asking for its menu to
+/// be shown, is not followed.
+pub(crate) fn menu_signal(message: &Message) -> Option<(String, String)> {
+    let header = message.header();
+    let member = header.member()?.as_str();
+    if !matches!(member, "LayoutUpdated" | "ItemsPropertiesUpdated") {
         return None;
     }
     Some((header.sender()?.to_string(), header.path()?.to_string()))

@@ -206,6 +206,14 @@ enum Task {
     /// Uses the systemd user instance of the current session: it starts
     /// only the test's own recorder script, in a scope it stops again.
     SystemdScopeTests,
+    /// The supervisor of a session that xtask starts for each one it runs:
+    /// it ends the session under `root` should xtask die without ending it.
+    /// Not for running by hand.
+    #[command(name = session::SUPERVISOR, hide = true)]
+    SessionSupervisor {
+        /// The session's root directory.
+        root: PathBuf,
+    },
 }
 
 impl Task {
@@ -218,6 +226,7 @@ impl Task {
                 renderer,
             } => compositor_tests::run(root, &compositors, renderer),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
+            Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
             Self::Measure {
                 compositor,
                 runs,

@@ -24,6 +24,7 @@ runs exactly these, and a pull request merges only when all pass:
 cargo fmt --all --check
 cargo clippy --workspace --all-targets --locked -- -D warnings
 cargo test --workspace --locked
+RUSTDOCFLAGS="-D warnings" cargo doc --workspace --no-deps --locked
 cargo deny --locked check      # cargo install cargo-deny --locked
 cargo xtask file-length
 ```

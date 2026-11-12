@@ -41,6 +41,7 @@ deskrinch-test-client = { path = "crates/deskrinch-test-client" }
 deskrinch-test-component = { path = "crates/deskrinch-test-component" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
 deskrinch-test-input = { path = "crates/deskrinch-test-input" }
+deskrinch-test-lifetime = { path = "crates/deskrinch-test-lifetime" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
 deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }

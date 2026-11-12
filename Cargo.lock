@@ -1066,6 +1066,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "ksni",
+ "png 0.18.1",
  "proptest",
  "serde",
  "thiserror 2.0.21",
@@ -1096,6 +1097,7 @@ name = "deskrinch-test-component"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
+ "deskrinch-test-lifetime",
 ]
 
 [[package]]
@@ -1103,6 +1105,7 @@ name = "deskrinch-test-dbus"
 version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
+ "deskrinch-test-lifetime",
  "futures-core",
  "rustix",
  "tempfile",
@@ -1122,6 +1125,14 @@ dependencies = [
  "wayland-protocols-misc",
  "wayland-protocols-plasma",
  "wayland-protocols-wlr",
+]
+
+[[package]]
+name = "deskrinch-test-lifetime"
+version = "0.1.0"
+dependencies = [
+ "rustix",
+ "tempfile",
 ]
 
 [[package]]
@@ -1199,6 +1210,9 @@ dependencies = [
 name = "deskrinch-wayland-client"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-client",
+ "rustix",
+ "thiserror 2.0.21",
  "wayland-client",
  "wayland-protocols",
 ]
@@ -6325,6 +6339,7 @@ dependencies = [
  "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
+ "deskrinch-test-lifetime",
  "deskrinch-test-screen",
  "deskrinch-test-wayland",
  "deskrinch-window-management",
