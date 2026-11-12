@@ -4,6 +4,8 @@ use std::error::Error as StdError;
 use std::io;
 use std::path::PathBuf;
 
+use rustix::io::Errno;
+
 /// A boxed error from the file-watching backend.
 pub type BoxedError = Box<dyn StdError + Send + Sync>;
 
@@ -43,17 +45,14 @@ fn at(path: Option<&PathBuf>) -> String {
 }
 
 impl WatchError {
-    /// The typed form of a backend error.
-    pub(crate) fn from_backend(error: notify::Error) -> Self {
-        let path = error.paths.first().cloned();
-        match &error.kind {
-            notify::ErrorKind::MaxFilesWatch => Self::WatchLimit { path },
-            notify::ErrorKind::Io(io) if io.raw_os_error() == Some(libc::EMFILE) => {
-                Self::InstanceLimit
-            }
+    /// The typed form of the kernel's answer `errno` to watching `path`.
+    pub(crate) fn from_errno(errno: Errno, path: Option<PathBuf>) -> Self {
+        match errno {
+            Errno::NOSPC => Self::WatchLimit { path },
+            Errno::MFILE | Errno::NFILE => Self::InstanceLimit,
             _ => Self::Backend {
                 path,
-                source: Box::new(error),
+                source: Box::new(io::Error::from(errno)),
             },
         }
     }
@@ -64,9 +63,12 @@ impl WatchError {
         let Self::Backend { source, .. } = self else {
             return false;
         };
-        source
-            .downcast_ref::<notify::Error>()
-            .is_some_and(|error| matches!(error.kind, notify::ErrorKind::PathNotFound))
+        source.downcast_ref::<io::Error>().is_some_and(|error| {
+            matches!(
+                error.raw_os_error(),
+                Some(code) if code == Errno::NOENT.raw_os_error() || code == Errno::NOTDIR.raw_os_error()
+            )
+        })
     }
 }
 
@@ -76,23 +78,19 @@ mod tests {
 
     #[test]
     fn types_the_inotify_limits() {
-        let full = notify::Error::new(notify::ErrorKind::MaxFilesWatch).add_path("/d".into());
-        let error = WatchError::from_backend(full);
+        let error = WatchError::from_errno(Errno::NOSPC, Some("/d".into()));
         assert!(matches!(&error, WatchError::WatchLimit { path: Some(p) } if p == "/d"));
         assert_eq!(
             error.to_string(),
             "the inotify watch limit is reached at /d"
         );
-
-        let instances = notify::Error::io(io::Error::from_raw_os_error(libc::EMFILE));
         assert!(matches!(
-            WatchError::from_backend(instances),
+            WatchError::from_errno(Errno::MFILE, None),
             WatchError::InstanceLimit
         ));
-
-        let gone = WatchError::from_backend(notify::Error::path_not_found());
+        let gone = WatchError::from_errno(Errno::NOENT, Some("/gone".into()));
         assert!(gone.is_path_not_found());
-        let other = WatchError::from_backend(notify::Error::generic("broken"));
+        let other = WatchError::from_errno(Errno::ACCESS, None);
         assert!(matches!(other, WatchError::Backend { path: None, .. }));
         assert!(!other.is_path_not_found());
     }

@@ -2,14 +2,12 @@
 //! Wayland connection.
 
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{self, JoinHandle};
 
-use wayland_client::{Connection, EventQueue, QueueHandle};
+use deskrinch_wayland_client::{Client, DispatchThread};
 
 use crate::backend::{self, Connected, Shared, State};
 use crate::capabilities::{Action, Capabilities};
-use crate::error::{ActionError, ConnectError, EndReason};
+use crate::error::{ActionError, ConnectError};
 use crate::window::{Event, Window, WindowId};
 
 /// The compositor's window list and the actions on it, whatever protocol
@@ -40,24 +38,38 @@ pub trait WindowManagement: Send + Sync {
 
 /// A connection to the compositor's window management.
 ///
-/// It owns a Wayland connection of its own, dispatched on a thread it owns,
-/// and calls the subscriber given to [`connect`] on that thread. Methods may
-/// be called from any thread. Dropping it stops the thread (waiting for it,
-/// unless dropped on that thread, from inside the subscriber) and closes the
-/// connection.
+/// It has an event queue of its own, dispatched on a thread it owns, and
+/// calls the subscriber given to [`connect`] or [`connect_with`] on that
+/// thread. Methods may be called from any thread. Dropping it stops the
+/// thread (waiting for it, unless dropped on that thread, from inside the
+/// subscriber); the connection closes once nothing else uses it.
 #[derive(Debug)]
 pub struct WindowManager {
-    connection: Connection,
-    queue: QueueHandle<State>,
+    dispatch: DispatchThread<State>,
     shared: Arc<Shared>,
     capabilities: Capabilities,
-    stop: Arc<AtomicBool>,
-    thread: Option<JoinHandle<()>>,
 }
 
 /// Connects to the compositor named by the environment (`WAYLAND_DISPLAY` or
-/// `WAYLAND_SOCKET`), picks the protocol it offers, and loads the window
-/// list.
+/// `WAYLAND_SOCKET`) on a connection of its own, picks the protocol it
+/// offers, and loads the window list: [`connect_with`] on a new
+/// [`Client`].
+///
+/// # Errors
+///
+/// As [`connect_with`], and [`ConnectError::Connect`] when no compositor can
+/// be reached.
+pub fn connect(subscriber: impl Fn(Event) + Send + 'static) -> Result<WindowManager, ConnectError> {
+    connect_with(&Client::connect()?, subscriber)
+}
+
+/// Picks the protocol `client`'s compositor offers and loads the window
+/// list, on an event queue and dispatch thread of its own on `client`'s
+/// connection, which other crates (`deskrinch-workspaces`) may share.
+///
+/// A shared connection is shared in full: a protocol error raised by any of
+/// its users, or the compositor going away, ends this connection's stream
+/// too ([`Event::Ended`]).
 ///
 /// `subscriber` hears an [`Event::Added`] for every window already open
 /// before this returns, called on this thread, and every later change on the
@@ -69,48 +81,23 @@ pub struct WindowManager {
 /// [`ConnectError::Unsupported`] or [`ConnectError::NotGranted`] when the
 /// compositor offers no usable protocol, and others when the connection or
 /// its first exchanges fail.
-pub fn connect(subscriber: impl Fn(Event) + Send + 'static) -> Result<WindowManager, ConnectError> {
-    let connection = Connection::connect_to_env()?;
+pub fn connect_with(
+    client: &Client,
+    subscriber: impl Fn(Event) + Send + 'static,
+) -> Result<WindowManager, ConnectError> {
     let Connected {
-        connection,
         queue,
         state,
         shared,
         capabilities,
-    } = backend::connect(connection, Box::new(subscriber))?;
-    let stop = Arc::new(AtomicBool::new(false));
-    let queue_handle = queue.handle();
-    let thread = thread::Builder::new()
-        .name("deskrinch-window-management".into())
-        .spawn({
-            let stop = Arc::clone(&stop);
-            move || dispatch(queue, state, &stop)
-        })
+    } = backend::connect(client, Box::new(subscriber))?;
+    let dispatch = DispatchThread::spawn("deskrinch-window-management", client, queue, state)
         .map_err(ConnectError::Thread)?;
     Ok(WindowManager {
-        connection,
-        queue: queue_handle,
+        dispatch,
         shared,
         capabilities,
-        stop,
-        thread: Some(thread),
     })
-}
-
-/// The dispatch thread: reads and dispatches events until told to stop or the
-/// connection fails.
-fn dispatch(mut queue: EventQueue<State>, mut state: State, stop: &AtomicBool) {
-    while !stop.load(Ordering::Acquire) {
-        if let Err(error) = queue.blocking_dispatch(&mut state) {
-            if !stop.load(Ordering::Acquire) {
-                state.end(EndReason::ConnectionLost(Arc::new(error)));
-            }
-            return;
-        }
-        if state.ended() {
-            return;
-        }
-    }
 }
 
 impl WindowManagement for WindowManager {
@@ -124,28 +111,9 @@ impl WindowManagement for WindowManager {
 
     fn perform(&self, id: WindowId, action: Action) -> Result<(), ActionError> {
         self.shared.lock().request(self.capabilities, id, action)?;
-        self.connection.flush().map_err(ActionError::Send)
-    }
-}
-
-impl Drop for WindowManager {
-    fn drop(&mut self) {
-        self.stop.store(true, Ordering::Release);
-        // Wake the dispatch thread: the compositor answers the sync, the
-        // thread dispatches the answer and sees `stop`. If the connection is
-        // already gone the thread has ended or is ending on the error.
-        self.connection.display().sync(&self.queue, ());
-        // A failed flush means the connection is gone, which ends the thread
-        // as well; a drop has nothing else to do with the error.
-        drop(self.connection.flush());
-        let Some(thread) = self.thread.take() else {
-            return;
-        };
-        if thread.thread().id() != thread::current().id() {
-            // The thread can only panic in the subscriber, and that panic
-            // has already been reported on the thread; re-raising it from a
-            // drop would abort.
-            drop(thread.join());
-        }
+        self.dispatch
+            .connection()
+            .flush()
+            .map_err(ActionError::Send)
     }
 }

@@ -9,7 +9,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use deskrinch_window_management::{
-    EndReason, Event, Protocol, Window, WindowId, WindowManager, connect,
+    Client, EndReason, Event, Protocol, Window, WindowId, WindowManager, connect, connect_with,
 };
 
 /// How long a test waits for the compositor to report something.
@@ -81,6 +81,7 @@ pub(crate) struct Watcher {
 }
 
 impl Watcher {
+    /// A manager on a connection of its own.
     pub(crate) fn connect() -> Self {
         let (sender, events) = mpsc::channel();
         let manager = connect(move |event| {
@@ -88,6 +89,21 @@ impl Watcher {
             sender.send(event).unwrap();
         })
         .expect("connect to the compositor's window management");
+        Self::watching(manager, events)
+    }
+
+    /// A manager on `client`'s connection, which others may share.
+    pub(crate) fn connect_with(client: &Client) -> Self {
+        let (sender, events) = mpsc::channel();
+        let manager = connect_with(client, move |event| {
+            // The receiver outlives the manager in every test.
+            sender.send(event).unwrap();
+        })
+        .expect("connect to the compositor's window management");
+        Self::watching(manager, events)
+    }
+
+    fn watching(manager: WindowManager, events: Receiver<Event>) -> Self {
         Self {
             manager,
             events,

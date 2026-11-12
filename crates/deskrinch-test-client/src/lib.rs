@@ -6,6 +6,21 @@
 //!   application. Its [`TestWindow`]s are mapped `xdg_toplevel`s that draw
 //!   a [`Paint`] (nothing, one colour, or four quarters) at whatever size
 //!   the compositor asks for, with a buffer scale of 1.
+//! - The keyboard: the client takes the seat's keyboard whenever the seat
+//!   has one (on a headless wlroots compositor, only once
+//!   `deskrinch-test-input` has made a virtual keyboard). A window notes
+//!   whether it has the keyboard focus ([`TestWindow::has_keyboard`],
+//!   [`TestWindow::wait_keyboard`]) and records each key pressed while it
+//!   does, by evdev code, in order ([`TestWindow::keys`],
+//!   [`TestWindow::wait_key`]). That is all it does with the keyboard: a
+//!   release, a repeat, the keymap and the modifiers are not kept, and keys
+//!   pressed while another window has the focus are not its own.
+//! - The pointer: the client takes the seat's pointer whenever the seat has
+//!   one. A window records what it hears of it while the pointer is over
+//!   it, in its surface coordinates and in order: entering, moving, buttons
+//!   pressed and released, leaving ([`PointerEvent`],
+//!   [`TestWindow::pointer_events`], [`TestWindow::wait_pointer_at`]). Wheel
+//!   events, frames and the cursor are not kept.
 //! - [`Compositor::current`] says which nested compositor the tests run
 //!   in, and refuses to go on outside one.
 //! - [`configure_output`] changes an output's scale or transform, under a
@@ -19,9 +34,12 @@
 
 mod client;
 mod compositor;
+mod keyboard;
 mod output_info;
 mod outputs;
 mod paint;
+mod pointer;
+mod seat;
 mod window;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};
@@ -32,6 +50,7 @@ pub use compositor::Compositor;
 pub use output_info::OutputInfo;
 pub use outputs::{OutputChange, OutputSettings, configure_every_output, configure_output};
 pub use paint::Paint;
+pub use pointer::{PointerEvent, PointerMark};
 pub use window::TestWindow;
 
 /// How long anything here waits for the compositor (a window to be drawn
@@ -84,6 +103,14 @@ pub enum Error {
         what: String,
         /// The size it last drew, if any.
         drawn: Option<(i32, i32)>,
+    },
+    /// A window did not receive the input waited for within [`PATIENCE`].
+    #[error("the window {title:?} did not receive {what}")]
+    NotReceived {
+        /// The window's title.
+        title: String,
+        /// What was waited for.
+        what: String,
     },
     /// A window's buffer could not be made.
     #[error("could not make a window's buffer")]

@@ -15,7 +15,7 @@ use deskrinch_test_dbus::session;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Scale, Session, interrupt};
+use crate::session::{Compositor, CompositorRenderer, Outputs, Session, interrupt};
 
 /// `cargo xtask session --help`: what the session is, exactly. The lists of
 /// variables come from `deskrinch-test-dbus`, which sets them.
@@ -51,6 +51,8 @@ The environment the command and everything it starts see:
     the real home), so cargo and rustup work with HOME moved.
   - WAYLAND_DISPLAY naming the nested compositor, and SWAYSOCK its IPC under
     sway. No X server: KWin runs without Xwayland, so no kcminit either.
+  - DESKRINCH_TEST_COMPOSITOR naming the compositor (kwin, sway or labwc), as
+    the compositor tests' guard against the real session expects.
   - DBUS_SESSION_BUS_ADDRESS naming a private dbus-daemon with service
     activation off: nothing (portals, secret service, notification daemons)
     is started on demand. The compositor uses the same bus.
@@ -67,8 +69,16 @@ MESA_SHADER_CACHE_DIR in the command to keep one across sessions.
 Under KWin the session also checks that KWin composites with OpenGL (its
 own support information says so), and fails if not: with QPainter its
 ScreenShot2 captures nothing. Without a GPU that needs a DRM device such as
-vgem's and Mesa's software driver. --scale under KWin runs kscreen-doctor,
-which needs Qt's Wayland xdg-shell integration (libqt6wlshellintegration6).
+vgem's and Mesa's software driver. --scale and --transform under KWin run
+kscreen-doctor, which needs Qt's Wayland xdg-shell integration
+(libqt6wlshellintegration6).
+
+sway and labwc render with wlroots' pixman renderer, which offers no dmabuf.
+With --compositor-renderer gpu they render with its GLES2 renderer on the
+GPU's render node (WLR_RENDER_DRM_DEVICE; a render node only, no KMS, seat or
+logind) and log at info level, and the session fails unless their own log
+says they created the GLES2 renderer on a GL that is not Mesa's software
+rasteriser; it fails too on a machine without a GPU.
 
 How it runs and ends:
   - Standard input is closed: the session's process group is not the
@@ -124,8 +134,8 @@ pub(crate) const SESSION_FAILED: u8 = 70;
 #[derive(Debug)]
 pub(crate) struct Request {
     pub(crate) compositor: Compositor,
-    pub(crate) outputs: u32,
-    pub(crate) scale: Scale,
+    pub(crate) compositor_renderer: CompositorRenderer,
+    pub(crate) outputs: Outputs,
     pub(crate) keep: bool,
     pub(crate) current_desktop: Option<OsString>,
     pub(crate) program: OsString,
@@ -137,8 +147,8 @@ pub(crate) struct Request {
 pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let mut session = Session::start(
         request.compositor,
+        request.compositor_renderer,
         request.outputs,
-        request.scale,
         request.current_desktop.as_deref(),
         |_| Ok(()),
     )?;
@@ -146,10 +156,9 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         session.keep();
     }
     eprintln!(
-        "session: {} with {} output(s) at scale {} in {}",
+        "session: {} with {} in {}",
         request.compositor.name(),
         request.outputs,
-        request.scale,
         session.root().display()
     );
     let status = session

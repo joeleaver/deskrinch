@@ -1,7 +1,10 @@
 //! What a [`TestClient`](crate::TestClient) knows about each output: its
-//! whole scale and current mode from `wl_output`, and its logical size from
-//! `xdg-output`, which together tell a fractional scale from a whole one.
+//! whole scale, current mode and transform from `wl_output`, and its logical
+//! size and position from `xdg-output`: the size and the mode together tell
+//! a fractional scale from a whole one, and the position places it in the
+//! layout.
 
+use deskrinch_test_wayland::Transform;
 use wayland_client::backend::ObjectId;
 use wayland_client::protocol::wl_output::{self, WlOutput};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle, WEnum};
@@ -22,6 +25,12 @@ pub struct OutputInfo {
     /// The output's size in the logical layout (`xdg-output`), once
     /// reported: the mode divided by the scale, turned with the transform.
     pub logical_size: Option<(i32, i32)>,
+    /// Where its top-left corner is in the logical layout (`xdg-output`),
+    /// once reported: the compositor's global coordinates, which the
+    /// outputs share.
+    pub logical_position: Option<(i32, i32)>,
+    /// The transform `wl_output` reports.
+    pub transform: Transform,
 }
 
 impl Default for OutputInfo {
@@ -30,6 +39,8 @@ impl Default for OutputInfo {
             scale: 1,
             mode: None,
             logical_size: None,
+            logical_position: None,
+            transform: Transform::Normal,
         }
     }
 }
@@ -49,6 +60,16 @@ impl Dispatch<WlOutput, ()> for Client {
             }
             wl_output::Event::Scale { factor } => {
                 lock(&client.infos).entry(output.id()).or_default().scale = factor;
+            }
+            wl_output::Event::Geometry { transform, .. } => {
+                let value = match transform {
+                    WEnum::Value(transform) => transform.into(),
+                    WEnum::Unknown(value) => value,
+                };
+                lock(&client.infos)
+                    .entry(output.id())
+                    .or_default()
+                    .transform = Transform::from_wayland(value).unwrap_or_default();
             }
             wl_output::Event::Mode {
                 flags: WEnum::Value(flags),
@@ -72,11 +93,16 @@ impl Dispatch<ZxdgOutputV1, ObjectId> for Client {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
-        if let zxdg_output_v1::Event::LogicalSize { width, height } = event {
-            lock(&client.infos)
-                .entry(output.clone())
-                .or_default()
-                .logical_size = Some((width, height));
+        let mut infos = lock(&client.infos);
+        let info = infos.entry(output.clone()).or_default();
+        match event {
+            zxdg_output_v1::Event::LogicalSize { width, height } => {
+                info.logical_size = Some((width, height));
+            }
+            zxdg_output_v1::Event::LogicalPosition { x, y } => {
+                info.logical_position = Some((x, y));
+            }
+            _ => {}
         }
     }
 }

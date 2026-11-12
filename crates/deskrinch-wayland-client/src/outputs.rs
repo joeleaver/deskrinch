@@ -5,6 +5,15 @@
 //! `zxdg_output_v1.name` (version 2). The layout (each output's logical
 //! rectangle) comes from `zxdg_output_v1` and is applied atomically on
 //! `wl_output.done`, or `zxdg_output_v1.done` where that is the one sent.
+//!
+//! [`Outputs`] lives in a crate's own dispatch state, which implements
+//! [`OutputsHandler`] and hands the outputs' events to it:
+//!
+//! ```ignore
+//! wayland_client::delegate_dispatch!(State: [WlOutput: OutputGlobal] => Outputs);
+//! wayland_client::delegate_dispatch!(State: [ZxdgOutputV1: OutputGlobal] => Outputs);
+//! wayland_client::delegate_dispatch!(State: [ZxdgOutputManagerV1: ()] => Outputs);
+//! ```
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -17,8 +26,33 @@ use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::{
 };
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::{self, ZxdgOutputV1};
 
-use super::State;
-use crate::layout::Rect;
+/// A rectangle in the compositor's global logical coordinate space (the
+/// space `zxdg_output_v1` describes outputs in).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Rect {
+    /// Its left edge.
+    pub x: i32,
+    /// Its top edge.
+    pub y: i32,
+    /// Its width.
+    pub width: i32,
+    /// Its height.
+    pub height: i32,
+}
+
+/// The user data of a bound output and its xdg-output description: the
+/// output's registry name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OutputGlobal(pub u32);
+
+/// A dispatch state that holds [`Outputs`].
+pub trait OutputsHandler {
+    /// The outputs.
+    fn outputs(&mut self) -> &mut Outputs;
+
+    /// An output's name or logical rectangle changed.
+    fn outputs_changed(&mut self);
+}
 
 /// `wl_output.name` arrived in version 4.
 const OUTPUT_NAME_SINCE: u32 = 4;
@@ -34,7 +68,8 @@ const XDG_DONE_REPLACED_SINCE: u32 = 3;
 
 /// Whether the outputs `globals` offers will have names: every `wl_output`
 /// is new enough to send one, or `zxdg_output_v1` can.
-pub(super) fn names_available(globals: &[Global]) -> bool {
+#[must_use]
+pub fn names_available(globals: &[Global]) -> bool {
     let interface = |global: &&Global, name: &str| global.interface == name;
     let mut outputs = globals
         .iter()
@@ -50,7 +85,8 @@ pub(super) fn names_available(globals: &[Global]) -> bool {
 }
 
 /// Whether `globals` describes the output layout (`zxdg_output_v1`).
-pub(super) fn layout_available(globals: &[Global]) -> bool {
+#[must_use]
+pub fn layout_available(globals: &[Global]) -> bool {
     globals
         .iter()
         .any(|global| global.interface == ZxdgOutputManagerV1::interface().name)
@@ -98,25 +134,28 @@ impl Output {
 
 /// Every bound output, by registry name.
 #[derive(Debug, Default)]
-pub(super) struct Outputs {
+pub struct Outputs {
     by_global: HashMap<u32, Output>,
     manager: Option<ZxdgOutputManagerV1>,
 }
 
 impl Outputs {
     /// Binds the output with registry name `global`.
-    pub(super) fn add(
+    pub fn add<State>(
         &mut self,
         registry: &WlRegistry,
         global: u32,
         version: u32,
         qh: &QueueHandle<State>,
-    ) {
-        let proxy: WlOutput = registry.bind(global, version.min(OUTPUT_NAME_SINCE), qh, global);
+    ) where
+        State: Dispatch<WlOutput, OutputGlobal> + Dispatch<ZxdgOutputV1, OutputGlobal> + 'static,
+    {
+        let data = OutputGlobal(global);
+        let proxy: WlOutput = registry.bind(global, version.min(OUTPUT_NAME_SINCE), qh, data);
         let xdg = self
             .manager
             .as_ref()
-            .map(|manager| manager.get_xdg_output(&proxy, qh, global));
+            .map(|manager| manager.get_xdg_output(&proxy, qh, data));
         self.by_global.insert(
             global,
             Output {
@@ -130,26 +169,28 @@ impl Outputs {
     }
 
     /// Binds the xdg-output manager and describes every output with it.
-    pub(super) fn add_manager(
+    pub fn add_manager<State>(
         &mut self,
         registry: &WlRegistry,
         global: u32,
         version: u32,
         qh: &QueueHandle<State>,
-    ) {
+    ) where
+        State: Dispatch<ZxdgOutputManagerV1, ()> + Dispatch<ZxdgOutputV1, OutputGlobal> + 'static,
+    {
         if self.manager.is_some() {
             return;
         }
         let manager: ZxdgOutputManagerV1 =
             registry.bind(global, version.min(XDG_DONE_REPLACED_SINCE), qh, ());
         for (&global, output) in &mut self.by_global {
-            output.xdg = Some(manager.get_xdg_output(&output.proxy, qh, global));
+            output.xdg = Some(manager.get_xdg_output(&output.proxy, qh, OutputGlobal(global)));
         }
         self.manager = Some(manager);
     }
 
     /// Releases the output with registry name `global`; whether it was one.
-    pub(super) fn remove(&mut self, global: u32) -> bool {
+    pub fn remove(&mut self, global: u32) -> bool {
         let Some(output) = self.by_global.remove(&global) else {
             return false;
         };
@@ -163,12 +204,14 @@ impl Outputs {
     }
 
     /// The registry name of a bound output.
-    pub(super) fn global_of(output: &WlOutput) -> Option<u32> {
-        output.data::<u32>().copied()
+    #[must_use]
+    pub fn global_of(output: &WlOutput) -> Option<u32> {
+        output.data::<OutputGlobal>().map(|global| global.0)
     }
 
     /// The names of the outputs among `globals` that have one.
-    pub(super) fn names(&self, globals: &BTreeSet<u32>) -> BTreeSet<String> {
+    #[must_use]
+    pub fn names(&self, globals: &BTreeSet<u32>) -> BTreeSet<String> {
         globals
             .iter()
             .filter_map(|global| self.by_global.get(global)?.name.clone())
@@ -176,7 +219,7 @@ impl Outputs {
     }
 
     /// Each named output's logical rectangle.
-    pub(super) fn layout(&self) -> impl Iterator<Item = (&str, Rect)> {
+    pub fn layout(&self) -> impl Iterator<Item = (&str, Rect)> {
         self.by_global
             .values()
             .filter_map(|output| Some((output.name.as_deref()?, output.logical?)))
@@ -187,16 +230,19 @@ impl Outputs {
     }
 }
 
-impl Dispatch<WlOutput, u32> for State {
+impl<State> Dispatch<WlOutput, OutputGlobal, State> for Outputs
+where
+    State: Dispatch<WlOutput, OutputGlobal> + OutputsHandler,
+{
     fn event(
-        state: &mut Self,
+        state: &mut State,
         proxy: &WlOutput,
         event: wl_output::Event,
-        &global: &u32,
+        &OutputGlobal(global): &OutputGlobal,
         _: &Connection,
-        _: &QueueHandle<Self>,
+        _: &QueueHandle<State>,
     ) {
-        let Some(output) = state.outputs.get_mut(global) else {
+        let Some(output) = state.outputs().get_mut(global) else {
             return;
         };
         let changed = match event {
@@ -213,16 +259,19 @@ impl Dispatch<WlOutput, u32> for State {
     }
 }
 
-impl Dispatch<ZxdgOutputV1, u32> for State {
+impl<State> Dispatch<ZxdgOutputV1, OutputGlobal, State> for Outputs
+where
+    State: Dispatch<ZxdgOutputV1, OutputGlobal> + OutputsHandler,
+{
     fn event(
-        state: &mut Self,
+        state: &mut State,
         xdg: &ZxdgOutputV1,
         event: zxdg_output_v1::Event,
-        &global: &u32,
+        &OutputGlobal(global): &OutputGlobal,
         _: &Connection,
-        _: &QueueHandle<Self>,
+        _: &QueueHandle<State>,
     ) {
-        let Some(output) = state.outputs.get_mut(global) else {
+        let Some(output) = state.outputs().get_mut(global) else {
             return;
         };
         // Where neither `done` is sent, each event applies at once.
@@ -251,14 +300,17 @@ impl Dispatch<ZxdgOutputV1, u32> for State {
     }
 }
 
-impl Dispatch<ZxdgOutputManagerV1, ()> for State {
+impl<State> Dispatch<ZxdgOutputManagerV1, (), State> for Outputs
+where
+    State: Dispatch<ZxdgOutputManagerV1, ()>,
+{
     fn event(
-        _: &mut Self,
+        _: &mut State,
         _: &ZxdgOutputManagerV1,
         _: zxdg_output_manager_v1::Event,
         (): &(),
         _: &Connection,
-        _: &QueueHandle<Self>,
+        _: &QueueHandle<State>,
     ) {
     }
 }

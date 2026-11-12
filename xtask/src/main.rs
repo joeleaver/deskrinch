@@ -44,17 +44,31 @@ enum Task {
         file_length::MAX_LINES,
     ))]
     FileLength,
-    /// Run the window-management compositor tests in nested, headless
+    /// Run the workspace's compositor tests in nested, headless
     /// compositors.
     ///
-    /// Each compositor runs in an isolated session of its own, the one
-    /// `cargo xtask session` describes, so nothing reaches the real desktop
-    /// session. Needs `dbus-daemon`, and `kwin_wayland`, `sway` and `labwc`
-    /// for those compositors.
+    /// The test binaries are those of the suites table
+    /// (`xtask/src/compositor_tests/suites.rs`), each with the compositors
+    /// and the passes it runs in: a pass is one isolated session per
+    /// compositor (the one `cargo xtask session` describes) with its outputs
+    /// set up a given way, at scale 1, at scale 2, turned or flipped. Under
+    /// KWin each binary is granted what it uses by a desktop file. Nothing
+    /// reaches the real desktop session. Needs `dbus-daemon`, and
+    /// `kwin_wayland` (with `kscreen-doctor`), `sway` and `labwc` for those
+    /// compositors.
     CompositorTests {
         /// The compositors to run in; all of them when none is given.
         #[arg(value_enum)]
         compositors: Vec<session::Compositor>,
+        /// The renderers the suites that draw run with: `software`; `gpu`
+        /// (failing where the machine has no GPU); or `all`, software and,
+        /// where the machine has a GPU, the GPU. Under sway and labwc the
+        /// GPU pass runs in a session of its own whose compositor renders on
+        /// the GPU too (wlroots' pixman renderer, which every other session
+        /// has, offers nothing the GPU renderer can present on). The run
+        /// says which it chose, and why.
+        #[arg(long, value_enum, default_value = "all")]
+        renderer: compositor_tests::renderers::Choice,
     },
     /// Run a command in an isolated, nested, headless compositor session.
     #[command(long_about = run_in_session::long_about())]
@@ -72,6 +86,14 @@ enum Task {
         /// mode over the scale).
         #[arg(long, default_value = "1", value_name = "SCALE")]
         scale: session::Scale,
+        /// The outputs' transform from the start, as `wl_output` names it
+        /// (rotations counter-clockwise): normal, 90, 180, 270, flipped,
+        /// flipped-90, flipped-180 or flipped-270. sway gets it in its
+        /// configuration, labwc through wlr-output-management and KWin
+        /// through `kscreen-doctor`, as the scale; the session fails (70) if
+        /// an output then reports another.
+        #[arg(long, default_value = "normal", value_name = "TRANSFORM")]
+        transform: session::OutputTransform,
         /// Keep the session's directory afterwards (its compositor log, and
         /// whatever the command wrote to `$DESKRINCH_SESSION_DIR`).
         #[arg(long)]
@@ -80,6 +102,14 @@ enum Task {
         /// otherwise), such as `KDE` or `sway`.
         #[arg(long, value_name = "NAME")]
         current_desktop: Option<OsString>,
+        /// What the compositor renders with: `software` (wlroots' pixman
+        /// renderer for sway and labwc), or `gpu` (wlroots' GLES2 renderer on
+        /// the GPU's render node, which a client presenting through Vulkan
+        /// needs). KWin composites with OpenGL either way. `gpu` fails (70)
+        /// where the machine has no GPU, and when the compositor does not say
+        /// it renders on it.
+        #[arg(long, value_enum, default_value = "software")]
+        compositor_renderer: session::CompositorRenderer,
         /// The compositor to run.
         #[arg(value_enum)]
         compositor: session::Compositor,
@@ -104,6 +134,11 @@ enum Task {
         /// environment decides).
         #[arg(long, value_enum)]
         renderer: Option<measure::Renderer>,
+        /// Fail (exit 1), naming what did, unless every run presented with
+        /// this renderer, as rinch's own log lines say: a check that a
+        /// silent fallback, or a change in rinch's wording, is noticed.
+        #[arg(long, value_enum)]
+        expect_renderer: Option<measure::Expected>,
         /// The GPU driver's shader cache at each start.
         #[arg(long, value_enum, default_value = "cold")]
         shader_cache: measure::ShaderCache,
@@ -126,6 +161,19 @@ enum Task {
         /// `DIR/run-N/`, for `callgrind_annotate`.
         #[arg(long, value_name = "DIR", requires = "instructions")]
         profiles: Option<PathBuf>,
+        /// Measure showing instead of starting: the program starts hidden, and
+        /// each show is run as the program with these arguments (`show`), from
+        /// the command to the first frame after it.
+        #[arg(long, value_name = "ARGS", requires = "dismiss")]
+        summon: Option<String>,
+        /// With `--summon`: the program's arguments that hide it again
+        /// (`hide`), after each show.
+        #[arg(long, value_name = "ARGS", requires = "summon")]
+        dismiss: Option<String>,
+        /// With `--summon`: how many shows each run measures; the first is
+        /// the cold one.
+        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=20))]
+        shows: u32,
         /// The program to measure.
         program: OsString,
         /// Its arguments.
@@ -159,24 +207,32 @@ impl Task {
         match self {
             Self::FileLength => file_length::run(root),
             Self::CiPackages { packages } => ci_packages::run(&packages),
-            Self::CompositorTests { compositors } => compositor_tests::run(root, &compositors),
+            Self::CompositorTests {
+                compositors,
+                renderer,
+            } => compositor_tests::run(root, &compositors, renderer),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Measure {
                 compositor,
                 runs,
                 renderer,
+                expect_renderer,
                 shader_cache,
                 settle,
                 idle,
                 first_frame_timeout,
                 instructions,
                 profiles,
+                summon,
+                dismiss,
+                shows,
                 program,
                 args,
             } => measure::run(&measure::Request {
                 compositor,
                 runs,
                 renderer,
+                expect_renderer,
                 shader_cache,
                 settle: Duration::from_secs(settle),
                 idle: Duration::from_secs(idle),
@@ -187,19 +243,28 @@ impl Task {
                 profiles,
                 program,
                 args,
+                summons: summon
+                    .zip(dismiss)
+                    .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
             }),
             Self::Session {
                 outputs,
                 scale,
+                transform,
                 keep,
                 current_desktop,
+                compositor_renderer,
                 compositor,
                 program,
                 args,
             } => run_in_session::run(&run_in_session::Request {
                 compositor,
-                outputs,
-                scale,
+                compositor_renderer,
+                outputs: session::Outputs {
+                    count: outputs,
+                    scale,
+                    transform,
+                },
                 keep,
                 current_desktop,
                 program,

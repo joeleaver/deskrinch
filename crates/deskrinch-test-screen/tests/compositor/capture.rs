@@ -36,23 +36,32 @@ fn a_window_is_captured_pixel_for_pixel_on_its_own_output() {
     let outputs = screen.outputs();
     let (shown, other) = (&outputs[1], &outputs[0]);
     let client = TestClient::connect().unwrap();
+    // The output's mode, upright: turned for a session whose outputs are.
+    let turned = client.output_info(shown).unwrap().transform.swaps_axes();
+    let upright = if turned { (720, 1280) } else { (1280, 720) };
     let window = fullscreen(&client, shown, QUADRANTS);
     // Fullscreen at the output's logical size: its mode over its scale.
-    let logical = (1280 / window.scale, 720 / window.scale);
+    let logical = (upright.0 / window.scale, upright.1 / window.scale);
     assert_eq!(window.size, logical);
     assert_eq!(
         window.window.drawn(),
         Some((logical.0.cast_signed(), logical.1.cast_signed()))
     );
+    // Physical pixels, whatever the scale, and upright: the window's top-left
+    // quarter is the image's top left, whatever the transform.
     let image = capture_showing(&mut screen, shown, &window);
-    // Physical pixels, whatever the scale: the output's mode.
-    assert_eq!((image.width(), image.height()), (1280, 720));
+    assert_eq!((image.width(), image.height()), upright);
 
     // The other output, captured by its own name, shows none of it.
     let elsewhere = screen.capture(other).unwrap();
-    assert_eq!((elsewhere.width(), elsewhere.height()), (1280, 720));
-    let painted = [(0, 0), (1279, 0), (0, 719), (1279, 719)]
-        .map(|corner| QUADRANTS.color_at(corner, (1280, 720)));
+    assert_eq!((elsewhere.width(), elsewhere.height()), upright);
+    let painted = [
+        (0, 0),
+        (upright.0 - 1, 0),
+        (0, upright.1 - 1),
+        (upright.0 - 1, upright.1 - 1),
+    ]
+    .map(|corner| QUADRANTS.color_at(corner, upright));
     assert!(
         elsewhere
             .pixels()

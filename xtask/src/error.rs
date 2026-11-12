@@ -148,6 +148,12 @@ pub(crate) enum Error {
         /// What it printed.
         log: String,
     },
+    /// A session was to render on the GPU, and the machine has none.
+    #[error("the compositor was to render on the GPU, but this machine has none: {nodes}")]
+    NoGpu {
+        /// The machine's render nodes, as `RenderNodes` lists them.
+        nodes: String,
+    },
     /// The nested compositor's outputs could not be set up.
     #[error("could not {what} under {compositor}; its log:\n{log}")]
     OutputSetup {
@@ -160,14 +166,14 @@ pub(crate) enum Error {
         /// What it printed.
         log: String,
     },
-    /// The nested compositor's outputs do not have the scale asked for.
-    #[error("{compositor} did not take scale {asked}: {outputs}; its log:\n{log}")]
-    WrongScale {
+    /// The nested compositor's outputs are not as asked.
+    #[error("{compositor} did not take {asked}: {outputs}; its log:\n{log}")]
+    WrongOutputs {
         /// The compositor.
         compositor: &'static str,
-        /// The scale asked for.
+        /// The outputs asked for.
         asked: String,
-        /// The outputs at another scale, and theirs.
+        /// The outputs not as asked, and how they are.
         outputs: String,
         /// What it printed.
         log: String,
@@ -234,6 +240,36 @@ pub(crate) enum Error {
     /// `callgrind_control` could not get a dump.
     #[error("callgrind_control could not dump the profile ({status})")]
     CallgrindControl {
+        /// How it exited.
+        status: ExitStatus,
+    },
+    /// With `--summon`, the program drew a frame before it was summoned.
+    #[error(
+        "{program} presented a frame before it was summoned: with --summon it must start \
+         hidden; its last output:\n{output}"
+    )]
+    ShownBeforeSummon {
+        /// The program.
+        program: String,
+        /// Its last lines of output.
+        output: String,
+    },
+    /// With `--summon`, the program did not settle after starting or after
+    /// a show or hide.
+    #[error("{program} did not settle within {} s; its last output:\n{output}", waited.as_secs())]
+    NeverSettled {
+        /// The program.
+        program: String,
+        /// How long it was given.
+        waited: std::time::Duration,
+        /// Its last lines of output.
+        output: String,
+    },
+    /// The command that summons or dismisses the program failed.
+    #[error("`{command}` failed ({status})")]
+    SummonFailed {
+        /// The command, as run.
+        command: String,
         /// How it exited.
         status: ExitStatus,
     },

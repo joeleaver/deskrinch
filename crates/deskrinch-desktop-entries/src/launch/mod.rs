@@ -4,6 +4,9 @@ mod activate;
 mod bus;
 mod scope;
 mod spawn;
+mod terminal;
+
+pub use terminal::{XDG_TERMINAL_EXEC, default_terminal};
 
 use std::ffi::OsString;
 use std::process::{Command, Stdio};

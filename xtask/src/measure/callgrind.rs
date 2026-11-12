@@ -14,11 +14,11 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::output::Watch;
 use super::probe::{self, Timing};
 use super::report::{Run, Unit};
 use crate::error::Error;
 use crate::session::interrupt;
+use deskrinch_test_component::Watch;
 
 /// The Valgrind arguments: Callgrind, instruction counts only, one count
 /// for all threads, written to `out` (dumps go to `out.1`, `out.2`, ...).
@@ -112,13 +112,20 @@ fn run_child(
     }
     run.note("load average at the first frame", load);
     run.note("renderer", watch.renderer());
+    run.presented = watch.presented();
     Ok(run)
 }
 
 /// Asks Callgrind in process `pid` to write a dump named `label`.
 fn dump(control: &dyn Fn() -> Command, pid: &str, label: &str) -> Result<(), Error> {
+    self::control(control, &["--dump", label, pid])
+}
+
+/// Runs `callgrind_control` (a session client) with `args`: `--dump LABEL
+/// PID` writes a dump, `--zero PID` zeroes the counts.
+pub(crate) fn control(control: &dyn Fn() -> Command, args: &[&str]) -> Result<(), Error> {
     let status = control()
-        .args(["--dump", label, pid])
+        .args(args)
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -135,7 +142,7 @@ fn dump(control: &dyn Fn() -> Command, pid: &str, label: &str) -> Result<(), Err
 
 /// The instruction total of dump `n` of the profile at `out`. Callgrind
 /// writes a dump's file when it is asked for it, so the file is waited for.
-fn totals(out: &Path, n: u32) -> Result<u64, Error> {
+pub(crate) fn totals(out: &Path, n: u32) -> Result<u64, Error> {
     let path = dump_path(out, n);
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {

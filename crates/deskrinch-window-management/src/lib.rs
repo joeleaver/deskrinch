@@ -39,9 +39,16 @@
 //!
 //! # Threads
 //!
-//! No async runtime is needed. The crate opens a Wayland connection of its
-//! own, separate from any UI toolkit's, and dispatches it on a thread it
-//! owns. The subscriber runs on that thread (and, for the windows already
+//! No async runtime is needed. [`connect`] opens a Wayland connection of
+//! its own, separate from any UI toolkit's; [`connect_with`] uses a
+//! [`Client`]'s connection instead, which other crates
+//! (`deskrinch-workspaces`) may share, so that a component using both holds
+//! one connection beside its toolkit's. Either way the crate dispatches an
+//! event queue of its own on a thread it owns. A shared connection is
+//! shared in full: a protocol error raised by any of its users, or the
+//! compositor going away, ends every stream on it ([`Event::Ended`]).
+//!
+//! The subscriber runs on the dispatch thread (and, for the windows already
 //! open, on the thread calling [`connect`] before it returns), so a UI
 //! forwards events into its own loop. The [`WindowManager`] handle may be
 //! used from any thread.
@@ -89,8 +96,9 @@ mod model;
 mod window;
 
 pub use capabilities::{Action, Actions, Capabilities, Protocol};
+pub use deskrinch_wayland_client::Client;
 pub use error::{ActionError, ConnectError, EndReason};
-pub use manager::{WindowManagement, WindowManager, connect};
+pub use manager::{WindowManagement, WindowManager, connect, connect_with};
 pub use window::{Event, Window, WindowId, WindowState};
 
 /// The restricted global this crate needs from KWin: the name a KWin grant

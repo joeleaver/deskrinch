@@ -14,8 +14,12 @@ deskrinch-bus.workspace = true
 ctrlc.workspace = true
 deskrinch-kwin-access.workspace = true
 deskrinch-test-client.workspace = true
+deskrinch-test-component.workspace = true
 deskrinch-test-dbus.workspace = true
+# The interface its compositor tests are granted under KWin.
+deskrinch-test-input.workspace = true
 deskrinch-test-screen.workspace = true
+deskrinch-test-wayland.workspace = true
 deskrinch-window-management.workspace = true
 rustix = { workspace = true, features = ["param", "process"] }
 serde_json.workspace = true

@@ -8,9 +8,56 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[[bin]]
+name = "deskrinch-launcher"
+path = "src/main.rs"
+
+[features]
+# rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input):
+# `cargo run -p deskrinch-launcher --features debug`. Off in a normal build.
+debug = ["rinch/debug"]
+
 [dependencies]
+clap.workspace = true
+# The installed applications and their icons, followed.
+deskrinch-applications.workspace = true
+deskrinch-bus.workspace = true
+deskrinch-component.workspace = true
 # The installed applications, their search ranking and their launch.
 deskrinch-desktop-entries.workspace = true
+# A click on a result: a press and a release on it.
+deskrinch-gestures.workspace = true
+# The icon theme's index and search path, which the results' icons come
+# from.
+deskrinch-icons.workspace = true
+# `[general]`: the terminal applications run in.
+deskrinch-settings.workspace = true
+deskrinch-theme.workspace = true
+deskrinch-xdg.workspace = true
+# `gpu` adds the GPU renderer beside the software one rinch always has on
+# the desktop; which one draws is chosen at run time. `theme`: the theme
+# variables the launcher is styled with (the look is `deskrinch-theme`'s).
+rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
+thiserror.workspace = true
+# What the process says it is doing, through `deskrinch-component`'s report.
+tracing.workspace = true
+# zbus's own runtime (`default-rt`) drives the connection on a helper thread,
+# so nothing here needs an async runtime; `service` serves the interface.
+zbus = { workspace = true, features = ["default-rt", "service"] }
+
+[dev-dependencies]
+# The compositor tests refuse to run outside a nested session.
+deskrinch-test-client.workspace = true
+# The compositor tests start the launcher and read its frames.
+deskrinch-test-component.workspace = true
+deskrinch-test-dbus.workspace = true
+# The compositor tests type into the launcher, and look at what it draws.
+deskrinch-test-input.workspace = true
+deskrinch-test-screen.workspace = true
+# The process tests end the launcher a client started, by its pid.
+rustix = { workspace = true, features = ["process"] }
+# The screen tests' applications and configuration.
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -12,11 +12,13 @@ use wayland_client::protocol::wl_buffer::WlBuffer;
 use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_shm;
 use wayland_client::protocol::wl_surface::WlSurface;
-use wayland_client::{Connection, Dispatch, QueueHandle};
+use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
+use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::ZxdgToplevelDecorationV1;
 use wayland_protocols::xdg::shell::client::xdg_surface::{self, XdgSurface};
 use wayland_protocols::xdg::shell::client::xdg_toplevel::{self, XdgToplevel};
 
 use crate::client::Client;
+use crate::seat::Windows;
 use crate::{Error, PATIENCE, Paint, lock};
 
 /// The size a window draws when the compositor leaves it the choice.
@@ -36,6 +38,19 @@ pub(crate) struct Status {
     close_requested: bool,
     /// Why a buffer could not be made, if one could not.
     failure: Option<ShmError>,
+    /// What it heard of the keyboard and the pointer.
+    pub(crate) input: Heard,
+}
+
+/// What a window heard of the seat.
+#[derive(Debug, Default)]
+pub(crate) struct Heard {
+    /// Whether it has the keyboard focus.
+    pub(crate) keyboard: bool,
+    /// The keys pressed while it had the focus, by evdev code, in order.
+    pub(crate) keys: Vec<u32>,
+    /// The pointer's events while it was over the window, in order.
+    pub(crate) pointer: Vec<crate::PointerEvent>,
 }
 
 /// One window, shared by the test and the client's thread.
@@ -54,23 +69,30 @@ pub(crate) struct Shared {
 pub struct TestWindow {
     connection: Connection,
     outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
+    windows: Windows,
     toplevel: XdgToplevel,
+    /// Its `xdg-decoration` object, where the compositor offers one.
+    decoration: Option<ZxdgToplevelDecorationV1>,
     xdg_surface: XdgSurface,
-    shared: Arc<Shared>,
+    pub(crate) shared: Arc<Shared>,
 }
 
 impl TestWindow {
     pub(crate) fn new(
         connection: Connection,
         outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
+        windows: Windows,
         toplevel: XdgToplevel,
+        decoration: Option<ZxdgToplevelDecorationV1>,
         xdg_surface: XdgSurface,
         shared: Arc<Shared>,
     ) -> Self {
         Self {
             connection,
             outputs,
+            windows,
             toplevel,
+            decoration,
             xdg_surface,
             shared,
         }
@@ -168,6 +190,64 @@ impl TestWindow {
         })
     }
 
+    /// Whether it has the keyboard focus.
+    #[must_use]
+    pub fn has_keyboard(&self) -> bool {
+        lock(&self.shared.status).input.keyboard
+    }
+
+    /// Waits until it has the keyboard focus.
+    ///
+    /// # Errors
+    ///
+    /// When it does not get it within [`PATIENCE`].
+    pub fn wait_keyboard(&self) -> Result<(), Error> {
+        self.wait_input("the keyboard focus", |status| status.input.keyboard)
+    }
+
+    /// Waits until the key with evdev code `key` has been pressed while it
+    /// had the keyboard focus.
+    ///
+    /// # Errors
+    ///
+    /// When it is not pressed within [`PATIENCE`].
+    pub fn wait_key(&self, key: u32) -> Result<(), Error> {
+        self.wait_input("a key press", |status| status.input.keys.contains(&key))
+    }
+
+    /// The keys pressed while it had the keyboard focus, by evdev code, in
+    /// order.
+    #[must_use]
+    pub fn keys(&self) -> Vec<u32> {
+        lock(&self.shared.status).input.keys.clone()
+    }
+
+    pub(crate) fn wait_input(
+        &self,
+        what: &str,
+        done: impl Fn(&Status) -> bool,
+    ) -> Result<(), Error> {
+        let deadline = Instant::now() + PATIENCE;
+        let mut status = lock(&self.shared.status);
+        loop {
+            if done(&status) {
+                return Ok(());
+            }
+            let left = deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(Error::NotReceived {
+                    title: self.shared.title.clone(),
+                    what: what.to_owned(),
+                });
+            }
+            status = self
+                .shared
+                .changed
+                .wait_timeout(status, left)
+                .map_or_else(|poisoned| poisoned.into_inner().0, |(status, _)| status);
+        }
+    }
+
     fn wait(
         &self,
         what: &str,
@@ -206,6 +286,11 @@ impl TestWindow {
 
 impl Drop for TestWindow {
     fn drop(&mut self) {
+        lock(&self.windows).remove(&self.shared.surface.id());
+        // Before its toplevel, as the protocol asks.
+        if let Some(decoration) = &self.decoration {
+            decoration.destroy();
+        }
         self.toplevel.destroy();
         self.xdg_surface.destroy();
         self.shared.surface.destroy();

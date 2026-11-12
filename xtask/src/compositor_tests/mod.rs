@@ -1,12 +1,18 @@
 //! `cargo xtask compositor-tests`: runs the crates' compositor tests inside
 //! nested, headless compositors.
 //!
-//! The suites ([`suites::SUITES`]) are the window-management crate's
-//! (windows listed and acted on) and `deskrinch-test-screen`'s (outputs
-//! captured). For each compositor it builds the test binaries, starts an
-//! isolated [`Session`] at scale 1 and runs every suite meant for that
-//! compositor, one binary after another; then a second session at scale 2
-//! for the suites that check scaling.
+//! The suites are [`suites::SUITES`]: each test binary, the compositors it
+//! runs under and the passes it runs in. It builds the binaries, then for
+//! each compositor and each [`suites::Pass`] (outputs at scale 1, at scale
+//! 2, turned a quarter, flipped and turned) starts an isolated [`Session`]
+//! and runs the suites meant for both, one binary after another.
+//!
+//! Every session's compositor renders in software (sway and labwc on
+//! pixman), except one more per compositor and pass where rinch's GPU
+//! renderer is tested under sway or labwc: that session's compositor renders
+//! on the GPU, the only kind a GPU client can present on there
+//! ([`CompositorRenderer::for_client`]), and it runs only the rendering
+//! suites' GPU pass.
 //!
 //! Under KWin each binary that needs a restricted interface is granted it
 //! the way an installed deskrinch is: one desktop file per binary, in the
@@ -17,27 +23,37 @@
 //! run last.
 
 mod build;
+pub(crate) mod renderers;
 mod suites;
 
 use std::path::{Path, PathBuf};
 
 use deskrinch_kwin_access::DesktopEntry;
+use deskrinch_test_component::{RENDERER_VARIABLE, Renderer};
 
 use self::build::Target;
-use self::suites::{SUITES, Suite};
+use self::suites::{Pass, SUITES, Suite};
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, Scale, Session};
+use crate::session::{Compositor, CompositorRenderer, Session};
 
-/// How many outputs the sessions have, side by side: the window-management
-/// tests move windows between two, and the screen tests tell them apart.
-const OUTPUTS: u32 = 2;
-
-/// The scale of the second session, for the suites that check scaling.
-const SCALED: Scale = Scale::TWO;
-
-/// Runs the tests in each of `compositors` (all of them when empty).
-pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Error> {
+/// Runs the tests in each of `compositors` (all of them when empty), the
+/// suites that render once per renderer `renderers` asks for.
+pub(crate) fn run(
+    root: &Path,
+    compositors: &[Compositor],
+    renderers: renderers::Choice,
+) -> Result<Outcome, Error> {
+    let plan = match renderers::Plan::for_machine(renderers) {
+        Ok((plan, said)) => {
+            println!("compositor-tests: {said}");
+            plan
+        }
+        Err(why) => {
+            eprintln!("compositor-tests: {why}");
+            return Ok(Outcome::Failed);
+        }
+    };
     let compositors = if compositors.is_empty() {
         &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc][..]
     } else {
@@ -60,10 +76,26 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
     let binaries: Vec<PathBuf> = SUITES.iter().map(binary).collect();
     let mut failed = Vec::new();
     for &compositor in compositors {
-        for scale in [Scale::ONE, SCALED] {
-            println!("compositor-tests: {} at scale {scale}", compositor.name());
-            if !run_in(compositor, scale, &binaries)? {
-                failed.push(format!("{} at scale {scale}", compositor.name()));
+        for pass in Pass::ALL {
+            for rendering in [CompositorRenderer::Software, CompositorRenderer::Gpu] {
+                let runs = runs(compositor, rendering, pass, &plan);
+                if runs.is_empty() {
+                    continue;
+                }
+                let session = format!(
+                    "{} with {}{}",
+                    compositor.name(),
+                    pass.outputs(),
+                    match (compositor, rendering) {
+                        (Compositor::Sway | Compositor::Labwc, CompositorRenderer::Gpu) =>
+                            ", rendering on the GPU",
+                        _ => "",
+                    }
+                );
+                println!("compositor-tests: {session}");
+                if !run_in(compositor, rendering, pass, &runs, &binaries)? {
+                    failed.push(session);
+                }
             }
         }
     }
@@ -76,30 +108,80 @@ pub(crate) fn run(root: &Path, compositors: &[Compositor]) -> Result<Outcome, Er
     }
 }
 
-/// Runs the suites meant for `compositor` at `scale` in one fresh session;
-/// `binaries` are [`SUITES`]' binaries. Returns whether they passed; on
-/// failure, prints the compositor's log.
-fn run_in(compositor: Compositor, scale: Scale, binaries: &[PathBuf]) -> Result<bool, Error> {
-    let session = Session::start(
-        compositor,
-        OUTPUTS,
-        scale,
-        None,
-        |data_home| match compositor {
-            Compositor::Kwin => grant_all(binaries, data_home),
-            Compositor::Sway | Compositor::Labwc => Ok(()),
-        },
-    )?;
-    let mut passed = true;
-    for (suite, binary) in SUITES.iter().zip(binaries) {
-        if !suite.compositors.contains(&compositor) || (!scale.is_one() && !suite.scaled) {
+/// One suite's run in a session: [`SUITES`]' index, and the renderer of a
+/// rendering suite (`None` for one that does not render).
+type Run = (usize, Option<Renderer>);
+
+/// What runs under `compositor` in `pass` in its session that renders with
+/// `rendering`: the suites that do not render, in the software session
+/// only; each rendering suite's renderers whose session that is.
+fn runs(
+    compositor: Compositor,
+    rendering: CompositorRenderer,
+    pass: Pass,
+    plan: &renderers::Plan,
+) -> Vec<Run> {
+    let mut runs = Vec::new();
+    for (index, suite) in SUITES.iter().enumerate() {
+        if !suite.compositors.contains(&compositor) || !suite.passes.contains(&pass) {
             continue;
         }
+        if !suite.renders {
+            if rendering == CompositorRenderer::Software {
+                runs.push((index, None));
+            }
+            continue;
+        }
+        for renderer in plan.renderers() {
+            let gpu_client = renderer == Renderer::Gpu;
+            if CompositorRenderer::for_client(compositor, gpu_client) == rendering {
+                runs.push((index, Some(renderer)));
+            }
+        }
+    }
+    runs
+}
+
+/// Runs `runs` under `compositor` rendering with `rendering`, with `pass`'s
+/// outputs, in one fresh session; `binaries` are [`SUITES`]' binaries.
+/// Returns whether they passed; on failure, prints the compositor's log.
+fn run_in(
+    compositor: Compositor,
+    rendering: CompositorRenderer,
+    pass: Pass,
+    runs: &[Run],
+    binaries: &[PathBuf],
+) -> Result<bool, Error> {
+    let session =
+        Session::start(
+            compositor,
+            rendering,
+            pass.outputs(),
+            None,
+            |data_home| match compositor {
+                Compositor::Kwin => grant_all(binaries, data_home),
+                Compositor::Sway | Compositor::Labwc => Ok(()),
+            },
+        )?;
+    let mut passed = true;
+    for &(index, renderer) in runs {
+        let (suite, binary) = (&SUITES[index], &binaries[index]);
+        let Some(renderer) = renderer else {
+            println!(
+                "compositor-tests: {} {}",
+                suite.target.package, suite.target.test
+            );
+            passed &= session.run_tests(binary, suite.filter, &[])?;
+            continue;
+        };
         println!(
-            "compositor-tests: {} {}",
-            suite.target.package, suite.target.test
+            "compositor-tests: {} {} with the {} renderer",
+            suite.target.package,
+            suite.target.test,
+            renderer.env()
         );
-        passed &= session.run_tests(binary, suite.filter)?;
+        let env = [(RENDERER_VARIABLE, renderer.env())];
+        passed &= session.run_tests(binary, suite.filter, &env)?;
     }
     if !passed {
         eprintln!(

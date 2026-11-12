@@ -16,12 +16,15 @@
 //!   specification's precedence and `Hidden` rules applied and each entry's
 //!   [`Visibility`] (`NoDisplay`, `OnlyShowIn`/`NotShowIn`, `TryExec`, and
 //!   whether the program `Exec` runs is installed).
+//! - [`entry_for_app_id`] finds the application a window belongs to, by the
+//!   application id the window carries.
 //! - [`search()`] ranks entries against a query; the ranking is specified
 //!   in [`search`'s module](mod@crate::search).
 //! - [`launch`] runs an entry: `Exec` expanded by [`exec::expand`], in a
 //!   terminal when `Terminal=true`, or by D-Bus activation when
 //!   `DBusActivatable=true`. Policy such as the terminal emulator comes in a
-//!   [`LaunchContext`].
+//!   [`LaunchContext`]; [`default_terminal`] is `xdg-terminal-exec` when it
+//!   is installed, for a caller whose user named none.
 //! - A [`Watcher`] reports entries added, changed and removed as the data
 //!   directories change.
 //!
@@ -49,6 +52,7 @@
 //!
 //! [Desktop Entry Specification]: https://specifications.freedesktop.org/desktop-entry/latest/
 
+mod app_id;
 mod catalog;
 mod deviation;
 mod entry;
@@ -62,6 +66,7 @@ mod scan;
 pub mod search;
 mod watch;
 
+pub use app_id::entry_for_app_id;
 pub use catalog::{Catalog, CatalogEntry, Visibility};
 pub use deskrinch_keyfile::{
     Deviation as KeyFileDeviation, Locale, Localized, LocalizedList, LocalizedString, SyntaxError,
@@ -74,6 +79,8 @@ pub use env::Environment;
 pub use error::{BoxedError, ExecError, LaunchError, ParseError, Problem, ProblemKind, ScanError};
 pub use exec::Target;
 pub use icon::Icon;
-pub use launch::{DirectReason, LaunchContext, Launched, Placement, launch};
+pub use launch::{
+    DirectReason, LaunchContext, Launched, Placement, XDG_TERMINAL_EXEC, default_terminal, launch,
+};
 pub use search::{Coverage, Match, MatchField, MatchKind, search};
 pub use watch::{Event, Watcher};
