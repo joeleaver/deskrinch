@@ -25,8 +25,11 @@
 //!   in, and refuses to go on outside one.
 //! - [`configure_output`] changes an output's scale or transform, under a
 //!   compositor that offers `wlr-output-management` (not KWin).
-//! - [`set_output_enabled`] turns an output off or on, under any of the
-//!   three: its `wl_output` global goes, and comes back.
+//! - [`set_output_enabled`] turns an output off or on, and [`change_output`]
+//!   changes its scale or transform, under any of the three: through
+//!   `wlr-output-management` under sway and labwc, and KDE's
+//!   `kscreen-doctor` under KWin ([`kscreen_settings`] gives a session its
+//!   arguments, for running it itself).
 //!
 //! What windows the tests look at and act on (the window-management
 //! crate's), and what windows they photograph (`deskrinch-test-screen`'s),
@@ -38,6 +41,7 @@ mod client;
 mod compositor;
 mod enabling;
 mod keyboard;
+mod kscreen;
 mod output_info;
 mod outputs;
 mod paint;
@@ -51,7 +55,8 @@ use std::time::Duration;
 
 pub use client::TestClient;
 pub use compositor::Compositor;
-pub use enabling::set_output_enabled;
+pub use enabling::{change_output, set_output_enabled};
+pub use kscreen::{KSCREEN_DOCTOR, kscreen_settings};
 pub use output_info::OutputInfo;
 pub use outputs::{OutputChange, OutputSettings, configure_every_output, configure_output};
 pub use paint::Paint;

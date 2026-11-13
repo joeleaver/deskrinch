@@ -203,6 +203,13 @@ impl Outputs {
         true
     }
 
+    /// Whether the output with registry name `global` is bound: one whose
+    /// global has gone is not.
+    #[must_use]
+    pub fn contains(&self, global: u32) -> bool {
+        self.by_global.contains_key(&global)
+    }
+
     /// The registry name of a bound output.
     #[must_use]
     pub fn global_of(output: &WlOutput) -> Option<u32> {

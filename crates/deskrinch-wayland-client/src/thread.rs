@@ -167,9 +167,10 @@ enum Next {
 /// state is never dispatched again. A setup or a detached state's drop that
 /// panics ends the connection.
 ///
-/// Before a setup, the registry events read so far go to the states
-/// already attached: the new state's setup lists the globals as they are
-/// then, and hears of those read from then on.
+/// Before a setup, everything read so far is dispatched to the states
+/// already attached, the registry's events included: the new state's
+/// setup lists the globals as they are then, and hears of those read from
+/// then on.
 fn take_controls(
     connection: &Connection,
     registry: &mut Registry,
@@ -179,7 +180,7 @@ fn take_controls(
     while let Ok(control) = controls.try_recv() {
         match control {
             Control::Attach(job) => {
-                if let Some(cause) = forward_globals(registry, attached) {
+                if let Some(cause) = dispatch_all(registry, attached) {
                     return Next::End(cause);
                 }
                 let globals = registry.globals();
@@ -233,12 +234,14 @@ fn forward_globals(registry: &mut Registry, attached: &mut [Attached]) -> Option
     None
 }
 
-/// Hands on the registry events, then dispatches every attached queue; why
+/// Dispatches every attached queue, then hands on the registry events; why
 /// the connection ends, if it does.
+///
+/// The registry's events come last: a global's removal is sent after the
+/// events its object was sent before it, and read with them or later, so a
+/// state hears those events before the removal. (An added global has no
+/// object yet, so nothing of it can be waiting.)
 fn dispatch_all(registry: &mut Registry, attached: &mut [Attached]) -> Option<EndCause> {
-    if let Some(cause) = forward_globals(registry, attached) {
-        return Some(cause);
-    }
     for attachment in attached.iter_mut() {
         match panic::catch_unwind(AssertUnwindSafe(|| attachment.live.dispatch())) {
             Ok(Ok(_)) => {}
@@ -246,7 +249,7 @@ fn dispatch_all(registry: &mut Registry, attached: &mut [Attached]) -> Option<En
             Err(_) => return Some(EndCause::HandlerPanicked),
         }
     }
-    None
+    forward_globals(registry, attached)
 }
 
 /// Ends every attached state once, and drops them all.

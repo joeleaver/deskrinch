@@ -3,10 +3,13 @@
 //! `wlr-output-management-unstable-v1` (sway, labwc and other wlroots
 //! compositors).
 //!
-//! KWin is not covered: its own protocol, `kde_output_management_v2`, needs
-//! `kde_output_device_v2`, and KWin 6.6 sends that interface's modes an event
-//! (`flags`, since version 19) to clients bound at older versions, which the
-//! Rust bindings (`wayland-protocols-plasma` 0.3.12) cannot read.
+//! KWin is not covered here: its own protocol, `kde_output_management_v2`,
+//! needs `kde_output_device_v2`, and KWin 6.6 sends that interface's modes
+//! an event (`flags`, since version 19) to clients bound at older versions,
+//! which the Rust bindings (`wayland-protocols-plasma` 0.3.12) cannot read.
+//! Under KWin, [`change_output`](crate::change_output) and
+//! [`set_output_enabled`](crate::set_output_enabled) go through
+//! `kscreen-doctor` instead.
 
 use std::os::unix::net::UnixStream;
 use std::path::Path;

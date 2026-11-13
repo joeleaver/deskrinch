@@ -12,6 +12,22 @@ use wayland_client::{Connection, Dispatch, DispatchError, EventQueue, QueueHandl
 ///
 /// Both do nothing unless the state says otherwise: a state that binds
 /// nothing later has nothing to do here.
+///
+/// # Order
+///
+/// The registry is on a queue of the client's own, not the state's, so its
+/// events and those of the state's objects are dispatched apart. The
+/// client's thread dispatches every state's queue first and the registry's
+/// events after, in every round: whatever an object was sent before its
+/// global's removal, and read by then, reaches the state before
+/// [`global_removed`](Self::global_removed).
+///
+/// An object's events can still come after its global's removal: a
+/// compositor may send them after the removal, as the protocol allows, and
+/// a state may hold an object of a global it has already forgotten. So a
+/// handler ignores an event for an object it no longer tracks: no panic,
+/// and nothing brought back (an output a window entered is not listed
+/// again once its global is gone).
 pub trait Globals: Sized {
     /// `global` appeared. A state binds it from `registry` onto its own queue
     /// (`qh`) if it wants it.

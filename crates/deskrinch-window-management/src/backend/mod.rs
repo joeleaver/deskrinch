@@ -181,11 +181,15 @@ impl State {
     }
 
     /// A window entered (`entered`) or left an output, as part of a batch of
-    /// changes its protocol commits later.
+    /// changes its protocol commits later. Entering an output whose global
+    /// has gone is ignored: it is not listed again.
     fn output_entered(&mut self, id: WindowId, output: &WlOutput, entered: bool) {
         let Some(global) = Outputs::global_of(output) else {
             return;
         };
+        if entered && !self.outputs.contains(global) {
+            return;
+        }
         let placement = self
             .placements
             .entry(id)
