@@ -29,6 +29,7 @@
 //! composites in software, as on a machine without one.
 
 mod args;
+mod bounded;
 mod build;
 pub(crate) mod renderers;
 mod repeat;
@@ -38,6 +39,7 @@ mod suites;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Duration;
 
 use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_component::{RENDERER_VARIABLE, Renderer};
@@ -54,7 +56,9 @@ pub(crate) use self::args::Args;
 /// Runs the tests as `args` asks.
 pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     match (args.repeat, &args.into) {
-        (Some(times), Some(into)) => repeat::run(args, times, into),
+        (Some(times), Some(into)) => {
+            repeat::run(args, times, into, Duration::from_secs(args.run_timeout))
+        }
         _ => run_once(root, args),
     }
 }

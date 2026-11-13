@@ -48,6 +48,14 @@ pub(crate) struct Args {
     /// and empty if not.
     #[arg(long, value_name = "DIR", requires = "repeat")]
     pub(crate) into: Option<PathBuf>,
+    /// How long each repeated run may take, in seconds: an hour by default,
+    /// far beyond a whole run's own length. A run that overruns it is
+    /// interrupted (as Ctrl-C does, so that it ends its sessions), killed if
+    /// it has not ended two minutes later, noted in its file and counted as
+    /// failed; the repeat goes on.
+    #[arg(long, value_name = "SECONDS", default_value_t = 3600, requires = "repeat",
+          value_parser = clap::value_parser!(u64).range(1..))]
+    pub(crate) run_timeout: u64,
 }
 
 impl Args {
@@ -112,11 +120,14 @@ mod tests {
             "20",
             "--into",
             "/tmp/runs",
+            "--run-timeout",
+            "900",
             "kwin",
             "labwc",
         ])
         .unwrap();
         assert_eq!(asked.repeat, Some(20));
+        assert_eq!(asked.run_timeout, 900);
         let once = asked.once();
         assert_eq!(once[0], SUBCOMMAND);
         let strings: Vec<&str> = once[1..].iter().map(|arg| arg.to_str().unwrap()).collect();
@@ -126,6 +137,7 @@ mod tests {
             Args {
                 repeat: None,
                 into: None,
+                run_timeout: 3600,
                 ..asked
             }
         );
@@ -143,5 +155,9 @@ mod tests {
         assert!(parse(&["--repeat", "3"]).is_err());
         assert!(parse(&["--into", "/tmp/runs"]).is_err());
         assert!(parse(&["--repeat", "0", "--into", "/tmp/runs"]).is_err());
+        assert!(parse(&["--run-timeout", "60"]).is_err());
+        let runs = ["--repeat", "2", "--into", "/tmp/runs"];
+        assert_eq!(parse(&runs).unwrap().run_timeout, 3600, "an hour");
+        assert!(parse(&[&runs[..], &["--run-timeout", "0"]].concat()).is_err());
     }
 }
