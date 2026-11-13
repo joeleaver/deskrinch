@@ -248,20 +248,25 @@ fn idle(
 /// How many thread groups the idle window's note names.
 const WAKE_UP_GROUPS: usize = 4;
 
-/// The idle window's wake-ups by thread, for a run's notes: the
-/// [`WAKE_UP_GROUPS`] groups that woke most (`groups`, the most first, from
-/// [`procfs::wake_ups_by_group`]), each with its count and, for a pool, its
-/// threads, and how many threads the process had. A note, not a metric, so
-/// that a run that stands out says which thread woke in that run.
+/// The idle window's wake-ups by thread, for a run's notes: of the groups
+/// that woke at all, the [`WAKE_UP_GROUPS`] that woke most (`groups`, the
+/// most first, from [`procfs::wake_ups_by_group`]), each with its count and,
+/// for a pool, its threads, or `none`; and how many threads the process
+/// had. A note, not a metric, so that a run that stands out says which
+/// thread woke in that run.
 fn wake_ups_note(groups: &[(String, u64, u32)], threads: usize) -> String {
     let named: Vec<String> = groups
         .iter()
+        .filter(|(_, wake_ups, _)| *wake_ups > 0)
         .take(WAKE_UP_GROUPS)
         .map(|(group, wake_ups, count)| match count {
             1 => format!("{group} {wake_ups}"),
             _ => format!("{group} ({count} threads) {wake_ups}"),
         })
         .collect();
+    if named.is_empty() {
+        return format!("none (of {threads} threads)");
+    }
     format!("{} (of {threads} threads)", named.join(", "))
 }
 
@@ -335,16 +340,23 @@ mod tests {
     #[test]
     fn the_note_names_the_threads_that_woke_most() {
         let groups = [
-            ("Vello shader in".to_owned(), 640, 1),
-            ("llvmpipe-N".to_owned(), 30, 4),
-            ("panel".to_owned(), 4, 1),
-            ("clock".to_owned(), 2, 1),
-            ("zruntime".to_owned(), 1, 1),
+            ("a".to_owned(), 50, 1),
+            ("pool-N".to_owned(), 40, 3),
+            ("b".to_owned(), 30, 1),
+            ("c".to_owned(), 20, 1),
+            ("d".to_owned(), 10, 1),
+            ("idle".to_owned(), 0, 1),
         ];
         assert_eq!(
-            wake_ups_note(&groups, 11),
-            "Vello shader in 640, llvmpipe-N (4 threads) 30, panel 4, clock 2 (of 11 threads)"
+            wake_ups_note(&groups, 8),
+            "a 50, pool-N (3 threads) 40, b 30, c 20 (of 8 threads)"
         );
-        assert_eq!(wake_ups_note(&[], 0), " (of 0 threads)");
+    }
+
+    #[test]
+    fn a_window_without_wake_ups_says_none() {
+        let groups = [("a".to_owned(), 0, 1), ("b".to_owned(), 0, 1)];
+        assert_eq!(wake_ups_note(&groups, 2), "none (of 2 threads)");
+        assert_eq!(wake_ups_note(&[], 0), "none (of 0 threads)");
     }
 }
