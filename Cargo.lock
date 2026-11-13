@@ -1215,7 +1215,6 @@ dependencies = [
  "deskrinch-xdg",
  "image",
  "rinch",
- "serde_json",
  "tempfile",
  "tracing",
 ]
