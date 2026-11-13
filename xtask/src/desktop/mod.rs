@@ -16,6 +16,7 @@
 
 mod build;
 mod ending;
+mod grant;
 mod guard;
 mod profile;
 mod window;
@@ -256,7 +257,12 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         // The owner's desktop keeps F12 and labwc's own workspaces.
         workspace_tests_fixture: false,
     };
-    let mut session = Session::start_with(&options, |_| Ok(()))?;
+    // Under KWin, each component is granted the restricted interfaces it
+    // uses before the compositor starts.
+    let mut session = Session::start_with(&options, |data_home| match args.compositor {
+        Compositor::Kwin => grant::install(&binaries, data_home),
+        Compositor::Sway | Compositor::Labwc => Ok(()),
+    })?;
     if args.keep {
         session.keep();
     }

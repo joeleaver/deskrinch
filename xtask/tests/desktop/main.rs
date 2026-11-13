@@ -26,7 +26,7 @@ mod desktop {
 
     use super::support::{
         PATIENCE, TestProfile, desktop_command, environment, files, key, modifier_key,
-        outer_windows, start, until,
+        outer_windows, start, start_logging, until,
     };
 
     #[test]
@@ -45,6 +45,24 @@ mod desktop {
         }
         let status = desktop.wait();
         assert!(status.success(), "{status}; it said:\n{}", desktop.said());
+        desktop.wait_for_root_gone();
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+    fn the_panel_follows_the_windows_in_the_desktop() {
+        // Under KWin only what the shell grants the panel lets it see the
+        // window list; sway and labwc restrict none.
+        let mut desktop = start_logging("deskrinch_panel=info");
+        until(
+            || desktop.said().contains("following the windows through"),
+            "the panel to follow the windows",
+        );
+        let said = desktop.said();
+        assert!(!said.contains("the taskbar shows none"), "{said}");
+        desktop.signal(Signal::TERM);
+        let status = desktop.wait();
+        assert_eq!(status.code(), Some(130), "it said:\n{}", desktop.said());
         desktop.wait_for_root_gone();
     }
 

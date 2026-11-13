@@ -38,6 +38,7 @@ deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-shell = { path = "crates/deskrinch-shell" }
 deskrinch-start-record = { path = "crates/deskrinch-start-record" }
 deskrinch-status-notifier = { path = "crates/deskrinch-status-notifier" }
+deskrinch-taskbar = { path = "crates/deskrinch-taskbar" }
 deskrinch-test-client = { path = "crates/deskrinch-test-client" }
 deskrinch-test-component = { path = "crates/deskrinch-test-component" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }

@@ -1030,16 +1030,25 @@ name = "deskrinch-panel"
 version = "0.1.0"
 dependencies = [
  "deskrinch-appearance",
+ "deskrinch-applications",
  "deskrinch-clock",
  "deskrinch-component",
+ "deskrinch-desktop-entries",
+ "deskrinch-icons",
  "deskrinch-settings",
+ "deskrinch-shell",
+ "deskrinch-taskbar",
  "deskrinch-test-client",
  "deskrinch-test-component",
+ "deskrinch-test-input",
  "deskrinch-test-screen",
  "deskrinch-theme",
+ "deskrinch-window-management",
  "deskrinch-xdg",
  "rinch",
+ "tempfile",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]
@@ -1083,6 +1092,14 @@ dependencies = [
  "serde",
  "thiserror 2.0.21",
  "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-taskbar"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-gestures",
+ "deskrinch-window-management",
 ]
 
 [[package]]

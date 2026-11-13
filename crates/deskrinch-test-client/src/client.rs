@@ -168,6 +168,16 @@ impl TestClient {
         })
     }
 
+    /// Whether the connection is still dispatched: false once the
+    /// compositor closed it or it failed, when the client's windows are
+    /// gone with it.
+    #[must_use]
+    pub fn is_connected(&self) -> bool {
+        self.thread
+            .as_ref()
+            .is_some_and(|thread| !thread.is_finished())
+    }
+
     /// Whether the compositor offered this client a global of `interface`
     /// when it connected.
     #[must_use]
@@ -275,6 +285,7 @@ impl TestClient {
             paint,
             status: Mutex::new(Status::default()),
             changed: Condvar::new(),
+            decoration: Mutex::new(None),
         });
         lock(&self.windows).insert(surface.id(), Arc::clone(&shared));
         let xdg_surface = self
@@ -286,6 +297,7 @@ impl TestClient {
             decoration.set_mode(zxdg_toplevel_decoration_v1::Mode::ClientSide);
             decoration
         });
+        *lock(&shared.decoration) = decoration;
         toplevel.set_title(title.to_owned());
         toplevel.set_app_id(app_id.to_owned());
         toplevel.set_parent(parent);
@@ -300,7 +312,6 @@ impl TestClient {
             Arc::clone(&self.outputs),
             Arc::clone(&self.windows),
             toplevel,
-            decoration,
             xdg_surface,
             shared,
         );

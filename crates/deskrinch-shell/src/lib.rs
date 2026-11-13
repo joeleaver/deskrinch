@@ -1,9 +1,11 @@
 //! What deskrinch's shell consists of, in one place: its components, in the
-//! order they start and what each one's being ready means
-//! ([`COMPONENTS`]), and the shell's own key bindings ([`LAUNCHER_CHORD`]).
+//! order they start, what each one's being ready means and what each must be
+//! granted ([`COMPONENTS`]), and the shell's own key bindings
+//! ([`LAUNCHER_CHORD`]).
 //!
 //! `cargo xtask desktop` starts the shell from this, in a nested compositor
-//! in a window; the real login session will start it from this too. This
+//! in a window, and grants each component its restricted interfaces first;
+//! the real login session will start it, and grant them, from this too. This
 //! crate is data only: how a component is built and started, and how a
 //! compositor is told about a key binding, are each starter's own.
 //!
@@ -28,6 +30,11 @@ pub struct Component {
     pub args: &'static [&'static str],
     /// When the next component may start.
     pub ready: Ready,
+    /// The restricted Wayland interfaces it uses, by their protocol names:
+    /// what a compositor that offers them only to the programs it grants
+    /// them must grant it (KWin, through the program's installed desktop
+    /// file). Every starter grants them before it starts the component.
+    pub wayland_grants: &'static [&'static str],
 }
 
 /// What a component's being ready means.
@@ -39,23 +46,30 @@ pub enum Ready {
     Started,
 }
 
-/// The shell's components, in the order they start.
-///
-/// The launcher comes first, hidden: it owns its name on the session bus,
-/// through which a key binding (or anything else) summons it. The panel
-/// follows.
-pub const COMPONENTS: &[Component] = &[
-    Component {
-        package: "deskrinch-launcher",
-        args: &[],
-        ready: Ready::BusName("org.deskrinch.Launcher"),
-    },
-    Component {
-        package: "deskrinch-panel",
-        args: &[],
-        ready: Ready::Started,
-    },
-];
+/// The launcher: hidden at first, it owns its name on the session bus,
+/// through which a key binding (or anything else) summons it. It uses
+/// nothing restricted.
+pub const LAUNCHER: Component = Component {
+    package: "deskrinch-launcher",
+    args: &[],
+    ready: Ready::BusName("org.deskrinch.Launcher"),
+    wayland_grants: &[],
+};
+
+/// The panel. Its taskbar follows the window list: under KWin through
+/// `org_kde_plasma_window_management`, which KWin offers only to the
+/// programs it grants it (the wlroots compositors' window-list protocol is
+/// not restricted).
+pub const PANEL: Component = Component {
+    package: "deskrinch-panel",
+    args: &[],
+    ready: Ready::Started,
+    wayland_grants: &["org_kde_plasma_window_management"],
+};
+
+/// The shell's components, in the order they start: the launcher, then the
+/// panel.
+pub const COMPONENTS: &[Component] = &[LAUNCHER, PANEL];
 
 /// A modifier of a key binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -133,6 +147,17 @@ mod tests {
         modifiers.dedup();
         assert_eq!(modifiers.len(), LAUNCHER_CHORD.modifiers.len());
         assert_ne!(modifiers, []);
+    }
+
+    #[test]
+    fn each_grant_is_named_once() {
+        for component in COMPONENTS {
+            let mut grants = component.wayland_grants.to_vec();
+            grants.sort_unstable();
+            grants.dedup();
+            assert_eq!(grants.len(), component.wayland_grants.len());
+            assert!(grants.iter().all(|grant| !grant.is_empty()));
+        }
     }
 
     #[test]

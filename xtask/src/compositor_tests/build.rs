@@ -39,10 +39,35 @@ pub(super) struct Target {
     pub(super) backend: Backend,
 }
 
+/// A binary of a package, by its `[[bin]]` name: a program a suite's tests
+/// start (the panel), which `cargo test` builds with them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct Bin {
+    /// The package.
+    pub(super) package: &'static str,
+    /// The `[[bin]]` name.
+    pub(super) bin: &'static str,
+}
+
+/// The executables of the builds: the test targets' and the programs',
+/// each in the order asked.
+#[derive(Debug)]
+pub(super) struct Built {
+    pub(super) tests: Vec<PathBuf>,
+    pub(super) programs: Vec<PathBuf>,
+}
+
 /// Builds `targets`, one `cargo test --no-run` per backend, and returns
-/// their binaries, in the same order.
-pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<PathBuf>, Error> {
+/// their binaries, and those of `programs` (their packages' own binaries,
+/// which the same builds make), in the same order. A program is where the
+/// last build that made it put it: a later build replaces it there.
+pub(super) fn test_binaries(
+    root: &Path,
+    targets: &[Target],
+    programs: &[Bin],
+) -> Result<Built, Error> {
     let mut binaries: Vec<Option<PathBuf>> = vec![None; targets.len()];
+    let mut found: Vec<Option<PathBuf>> = vec![None; programs.len()];
     for backend in [Backend::Rust, Backend::System] {
         let built: Vec<(usize, Target)> = targets
             .iter()
@@ -62,8 +87,28 @@ pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<PathB
                 },
             )?);
         }
+        for (program, at) in programs.iter().zip(&mut found) {
+            if let Some(path) =
+                cargo_messages::executable(&messages, program.package, program.bin, Kind::Bin)
+            {
+                *at = Some(path);
+            }
+        }
     }
-    Ok(binaries.into_iter().flatten().collect())
+    let programs = programs
+        .iter()
+        .zip(found)
+        .map(|(program, path)| {
+            path.ok_or(Error::MissingTestBinary {
+                package: program.package,
+                name: program.bin,
+            })
+        })
+        .collect::<Result<_, _>>()?;
+    Ok(Built {
+        tests: binaries.into_iter().flatten().collect(),
+        programs,
+    })
 }
 
 /// Builds `targets` with `backend` in one `cargo test --no-run`; Cargo's

@@ -1,6 +1,6 @@
 [package]
 name = "deskrinch-panel"
-description = "The desktop panel: a bar along the bottom of the output that windows keep clear of, with the clock."
+description = "The desktop panel: a bar along the bottom of the output that windows keep clear of, with the taskbar and the clock."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -21,10 +21,20 @@ debug = ["rinch/debug"]
 
 [dependencies]
 deskrinch-appearance.workspace = true
+# The installed applications and the icon theme, for the taskbar's icons.
+deskrinch-applications.workspace = true
 deskrinch-clock.workspace = true
 deskrinch-component.workspace = true
+# The user's locales, and the applications' entries.
+deskrinch-desktop-entries.workspace = true
+# The icon theme's index and search path.
+deskrinch-icons.workspace = true
 deskrinch-settings.workspace = true
+# The taskbar's model.
+deskrinch-taskbar.workspace = true
 deskrinch-theme.workspace = true
+# The compositor's windows, for the taskbar.
+deskrinch-window-management.workspace = true
 deskrinch-xdg.workspace = true
 # `gpu` adds the GPU renderer beside the software one rinch always has on
 # the desktop; which one draws is chosen at run time (see the crate docs).
@@ -32,11 +42,16 @@ deskrinch-xdg.workspace = true
 # `deskrinch-theme`'s).
 rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 thiserror.workspace = true
+# What the taskbar logs, through `deskrinch-component`'s reporting.
+tracing.workspace = true
 
 [dev-dependencies]
+deskrinch-shell.workspace = true
 deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true
+deskrinch-test-input.workspace = true
 deskrinch-test-screen.workspace = true
+tempfile.workspace = true
 
 # The compositor tests run inside nested compositors that
 # `cargo xtask compositor-tests` starts; they are ignored by a plain

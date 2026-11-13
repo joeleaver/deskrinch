@@ -1,13 +1,29 @@
 //! `deskrinch-panel`: the desktop panel, a bar along an edge of the output
-//! that windows keep clear of, with the clock at its right end.
+//! that windows keep clear of, with the taskbar and, at its end, the clock.
 //!
 //! - The window is a `wlr-layer-shell` surface (see [`surface`]): the full
 //!   width of the output, along its bottom or top edge, reserving its
 //!   height. rinch makes it one through `WindowProps::wayland_layer`; on a
 //!   compositor without the layer shell (GNOME) rinch falls back to an
 //!   ordinary window, with a warning.
-//! - The content is the [`bar`]: left, centre and right regions holding
-//!   [`widgets`].
+//! - The content is the [`bar`]: the taskbar, taking the room the other
+//!   [`widgets`] leave, and the end region with the clock.
+//!
+//! # The taskbar
+//!
+//! A button for each open window, in the order they opened, with its
+//! application's icon and its title cut to fit; the rules are
+//! `deskrinch-taskbar`'s, and the widget is [`widgets`]' `taskbar`. The
+//! windows come from `deskrinch-window-management`, over a Wayland
+//! connection of its own: the wlroots protocol, or KWin's, which KWin
+//! offers only to a program it has granted it to by an installed desktop
+//! file (`deskrinch-kwin-access`). Without a window list (not granted, or
+//! a compositor that offers none) the taskbar is empty, and says why once
+//! in the log; so it does when the compositor stops reporting windows. The
+//! window list and the installed applications are read on threads of their
+//! own, off the first frame's path: the taskbar is empty until the
+//! compositor has answered, and its icons follow when the applications are
+//! scanned.
 //!
 //! # Settings
 //!
@@ -15,8 +31,8 @@
 //! keys, values and defaults are documented in `deskrinch-settings`
 //! (`deskrinch_settings::panel`), the reference for the configuration file.
 //! The panel follows the file while it runs (`deskrinch-component`'s
-//! `Configuration` and `LiveSettings`): a change moves or resizes the window, or restarts the
-//! clock, without a restart of the panel. Mistakes are reported with their
+//! `Configuration` and `LiveSettings`): a change moves or resizes the
+//! window, or restarts the clock, without a restart of the panel. Mistakes are reported with their
 //! file, line and column, and leave the last good settings in place.
 //!
 //! # Look
@@ -58,7 +74,10 @@ mod surface;
 mod widgets;
 
 use deskrinch_appearance::Bus;
+use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::{Configuration, report};
+use deskrinch_desktop_entries::Environment;
+use deskrinch_icons::SearchPath;
 use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
@@ -67,12 +86,21 @@ use rinch::prelude::*;
 fn main() {
     // Before the configuration is read, so that its diagnostics are shown.
     report::init();
-    let configuration = Configuration::start(&BaseDirs::from_process());
+    let base_dirs = BaseDirs::from_process();
+    let configuration = Configuration::start(&base_dirs);
     let live = configuration.follow::<PanelSettings>();
     let theme = Theme::start(&configuration, Bus::Session);
     let window = surface::window_props(surface::Placement::of(&live.initial));
     let first_theme = theme.initial();
-    App::new(move |scope| panel::panel(scope, live, theme))
+    let env = Environment::from_process();
+    let parts = panel::Parts {
+        live,
+        theme,
+        installed: Installed::start(&env),
+        icons: Icons::start(SearchPath::new(&base_dirs)),
+        locales: env.locales,
+    };
+    App::new(move |scope| panel::panel(scope, parts))
         .window_props(window)
         .theme(first_theme)
         .run();

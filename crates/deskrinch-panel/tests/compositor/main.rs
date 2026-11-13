@@ -7,8 +7,9 @@
 //! every output is captured before it starts, and afterwards exactly one
 //! output differs, there in a band of the configured height along the
 //! configured edge and nowhere else; a maximised test window stops at that
-//! band; and an edit of the settings file moves and resizes the running
-//! panel, a rejected one leaving it where it was. Each test starts its own
+//! band; the taskbar lists the windows, and its buttons' clicks act on
+//! them (`taskbar_clicks`); and an edit of the settings file moves and
+//! resizes the running panel, a rejected one leaving it where it was. Each test starts its own
 //! panel, checks that the run's renderer is what presented it, and ends it.
 
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
@@ -18,5 +19,9 @@ mod live;
 mod placement;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod taskbar;
+#[cfg(test)]
+mod taskbar_clicks;
 #[cfg(test)]
 mod zone;

@@ -209,6 +209,74 @@ mod measure {
 
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_window_opened_for_the_idle_window_is_named_and_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = format!(
+            "{}echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600",
+            record(dir.path(), false)
+        );
+        let output = measure(&["--window", "org.deskrinch.MeasuredWindow"], &script);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        for section in [
+            "window: a window with app id org.deskrinch.MeasuredWindow opened at the idle \
+             window's start",
+            "wake-ups in the idle window (voluntary switches)",
+            "frames in the idle window",
+        ] {
+            assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
+        }
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_window_gone_before_the_idle_window_ends_fails_the_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let compositor = match compositor().as_str() {
+            "kwin" => "kwin_wayland",
+            other => other,
+        }
+        .to_owned();
+        // After its first frame the stand-in ends its own session's
+        // compositor (the session's processes share one group), so the
+        // window's connection ends inside the idle window.
+        let script = format!(
+            "{}echo '[PERF] frame 1: style 0.10ms' >&2; sleep 1; \
+             kill $(pgrep -g $(ps -o pgid= $$ | tr -d ' ') -x {compositor}); exec sleep 600",
+            record(dir.path(), false)
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .args([
+                "measure",
+                "--compositor",
+                &self::compositor(),
+                "--runs",
+                "1",
+            ])
+            .args(["--settle", "0", "--idle", "4"])
+            .args(["--window", "org.deskrinch.MeasuredWindow"])
+            .args(["sh", "-c", &script])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stdout}\n{stderr}");
+        assert!(
+            stderr.contains("was gone by the end of the idle window"),
+            "{stderr}"
+        );
+        assert!(
+            !stdout.contains("idle CPU per minute"),
+            "a report was printed for a run without its window:\n{stdout}"
+        );
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn the_state_is_seeded_before_the_program_starts() {
         let dir = tempfile::tempdir().unwrap();
         let seed = dir.path().join("seed");

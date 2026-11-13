@@ -2,7 +2,7 @@
 
 use deskrinch_test_wayland::Transform;
 
-use super::build::{Backend, Target};
+use super::build::{Backend, Bin, Target};
 use crate::session::{Compositor, Outputs, Scale};
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
@@ -73,12 +73,23 @@ pub(super) struct Grant {
     pub(super) dbus: &'static [&'static str],
 }
 
+/// A program a suite's tests start, and what KWin grants it: one desktop
+/// file for its binary, as for a test binary.
+#[derive(Debug)]
+pub(super) struct Program {
+    pub(super) bin: Bin,
+    pub(super) grant: Grant,
+}
+
 /// A test binary and how it runs.
 #[derive(Debug)]
 pub(super) struct Suite {
     pub(super) target: Target,
     /// What KWin grants it; nothing for a binary that checks a refusal.
     pub(super) grant: Option<Grant>,
+    /// The programs its tests start that KWin must grant something (the
+    /// panel, for its taskbar's window list).
+    pub(super) programs: &'static [Program],
     /// The compositors it runs under: what it tests exists only there.
     pub(super) compositors: &'static [Compositor],
     /// The sessions it runs in, by how their outputs are.
@@ -119,6 +130,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &["--skip", SESSION_END],
     },
     Suite {
@@ -131,6 +143,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: KWIN,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -148,6 +161,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: &Pass::ALL,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -161,6 +175,7 @@ pub(super) const SUITES: [Suite; 17] = [
         // It rotates an output itself.
         passes: &[Pass::Plain, Pass::Scaled],
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -173,6 +188,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: KWIN,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     // The input devices, typing into test windows and pointing at them:
@@ -193,6 +209,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: &Pass::ALL,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     // The launcher, its real binary: its process, and keys typed into it
@@ -212,6 +229,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: PLAIN,
         renders: true,
+        programs: &[],
         filter: &[],
     },
     // The panel's real binary, checked by the screen: it captures under
@@ -226,12 +244,31 @@ pub(super) const SUITES: [Suite; 17] = [
         grant: Some(Grant {
             id: "org.deskrinch.PanelTests",
             name: "deskrinch panel tests",
-            wayland: &[],
+            // The taskbar's tests click its buttons, and see what the clicks
+            // did to the windows.
+            wayland: &[
+                deskrinch_test_input::KWIN_FAKE_INPUT_INTERFACE,
+                deskrinch_window_management::KWIN_INTERFACE,
+            ],
             dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
         }),
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
+        // The panel's taskbar follows the window list: the panel binary is
+        // granted what the shell grants it (`deskrinch-shell`).
+        programs: &[Program {
+            bin: Bin {
+                package: deskrinch_shell::PANEL.package,
+                bin: deskrinch_shell::PANEL.package,
+            },
+            grant: Grant {
+                id: "org.deskrinch.PanelUnderTest",
+                name: "deskrinch panel under test",
+                wayland: deskrinch_shell::PANEL.wayland_grants,
+                dbus: &[],
+            },
+        }],
         filter: &[],
     },
     // The workspaces. KWin offers its virtual-desktop protocol ungranted, so
@@ -293,6 +330,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     // `cargo xtask desktop`, nested: its window opens in this session, which
@@ -316,6 +354,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     // The two suites that exercise the shared connection, again on
@@ -333,6 +372,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -350,6 +390,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &["--skip", SESSION_END],
     },
     // The workspaces' shared-connection tests on libwayland too: they share
@@ -382,6 +423,7 @@ pub(super) const SUITES: [Suite; 17] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[SESSION_END],
     },
 ];

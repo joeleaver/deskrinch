@@ -127,10 +127,37 @@ pub(crate) fn thread_group(name: &str) -> String {
 pub(crate) fn runtime_by_group<'a>(
     threads: impl IntoIterator<Item = &'a ThreadSample>,
 ) -> Vec<(String, u64, u32)> {
+    by_group(
+        threads
+            .into_iter()
+            .map(|thread| (thread.name.as_str(), thread.runtime_ns)),
+    )
+}
+
+/// The wake-ups (voluntary switches) between `before` and `after`, both by
+/// thread id, added up by [`thread_group`]: `(group, wake-ups, threads)`,
+/// the most first. A thread that started in between counts from zero; one
+/// that ended in between is not seen.
+pub(crate) fn wake_ups_by_group(
+    before: &BTreeMap<u32, ThreadSample>,
+    after: &BTreeMap<u32, ThreadSample>,
+) -> Vec<(String, u64, u32)> {
+    by_group(after.iter().map(|(tid, now)| {
+        let was = before.get(tid).map_or(0, |then| then.voluntary_switches);
+        (
+            now.name.as_str(),
+            now.voluntary_switches.saturating_sub(was),
+        )
+    }))
+}
+
+/// `(name, amount)` pairs added up by [`thread_group`]: `(group, total,
+/// threads)`, the largest first, then by name.
+fn by_group<'a>(threads: impl IntoIterator<Item = (&'a str, u64)>) -> Vec<(String, u64, u32)> {
     let mut groups: BTreeMap<String, (u64, u32)> = BTreeMap::new();
-    for thread in threads {
-        let entry = groups.entry(thread_group(&thread.name)).or_default();
-        entry.0 += thread.runtime_ns;
+    for (name, amount) in threads {
+        let entry = groups.entry(thread_group(name)).or_default();
+        entry.0 += amount;
         entry.1 += 1;
     }
     let mut groups: Vec<_> = groups
@@ -178,6 +205,36 @@ mod tests {
         assert_eq!(thread_group("deskrin:disk$3"), "deskrin:disk$N");
         assert_eq!(thread_group("clock"), "clock");
         assert_eq!(thread_group("42"), "42", "a name that is only digits stays");
+    }
+
+    #[test]
+    fn wake_ups_are_each_thread_s_own_since_before() {
+        let thread = |name: &str, voluntary_switches| ThreadSample {
+            name: name.to_owned(),
+            runtime_ns: 0,
+            voluntary_switches,
+            involuntary_switches: 0,
+        };
+        let before = BTreeMap::from([
+            (1, thread("panel", 100)),
+            (2, thread("worker-1", 10)),
+            (3, thread("gone", 5)),
+        ]);
+        let after = BTreeMap::from([
+            (1, thread("panel", 104)),
+            (2, thread("worker-1", 640)),
+            // Started inside the window: from zero.
+            (4, thread("worker-2", 20)),
+            (5, thread("clock", 0)),
+        ]);
+        assert_eq!(
+            wake_ups_by_group(&before, &after),
+            [
+                ("worker-N".to_owned(), 650, 2),
+                ("panel".to_owned(), 4, 1),
+                ("clock".to_owned(), 0, 1),
+            ]
+        );
     }
 
     #[test]
