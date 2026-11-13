@@ -38,15 +38,18 @@ pub(crate) fn wallpaper(
     // The picture's path, as the settings name it under this home.
     let path = Memo::new(move || {
         let settings = settings.get();
-        let image = settings.image.as_ref()?;
-        let path = image.expand(home.as_deref());
-        if path.is_none() {
+        settings.image.as_ref()?.expand(home.as_deref())
+    });
+    // A picture named under `~/` with no home to put it under.
+    Effect::new(move || {
+        if let Some(image) = settings.get().image
+            && path.get().is_none()
+        {
             tracing::warn!(
                 "wallpaper: cannot show {}: there is no home directory; showing the colour alone",
                 image.as_written()
             );
         }
-        path
     });
     let mut follower = Follower::default();
     Effect::new(move || follower.follow(path.get().as_deref()));

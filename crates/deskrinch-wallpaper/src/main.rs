@@ -54,10 +54,13 @@
 //!
 //! # Rendering
 //!
-//! rinch's software renderer (tiny-skia), whatever the machine has: a
-//! wallpaper draws once per output and then sits still, and the GPU
-//! renderer's device and its buffers would cost more memory than the one
-//! frame saves. The user overrides that with rinch's `RINCH_RENDERER`
+//! rinch's software renderer (tiny-skia) is asked for, pending the
+//! measurement that is to choose the default (rinch issue 2657: rinch does
+//! not yet count the frames of an app's non-main windows, which is all a
+//! wallpaper has). The hypothesis it is to settle: a wallpaper draws once
+//! per output and then sits still, so the GPU renderer's device and buffers
+//! may cost more memory than the one frame saves. Nothing has measured
+//! that yet. The user overrides the choice with rinch's `RINCH_RENDERER`
 //! environment variable (`gpu`, `software`, `auto`).
 
 mod picture;

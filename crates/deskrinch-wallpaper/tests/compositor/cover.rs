@@ -95,6 +95,25 @@ fn a_picture_is_fitted_to_every_output() {
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn a_picture_whose_name_a_url_would_change_is_shown() {
+    in_nested_session();
+    let dir = tempfile::tempdir().unwrap();
+    // A space, a fragment, an escape and a letter a URL would encode.
+    let picture = dir.path().join("a b#c%41é.png");
+    write_picture(&picture);
+    write_settings(&format!(
+        "[wallpaper]\ncolor = \"{}\"\nimage = \"{}\"\nfit = \"stretch\"\n",
+        written(BLUE),
+        picture.display()
+    ));
+    let _wallpaper = Wallpaper::start();
+    for name in &deskrinch_test_screen::Screen::connect().unwrap().outputs() {
+        wait_output(name, |image| wrong_fit(image, false));
+    }
+}
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn a_picture_that_cannot_be_shown_leaves_the_colour_and_says_so() {
     in_nested_session();
     let dir = tempfile::tempdir().unwrap();

@@ -19,9 +19,10 @@
 //!   the output without one; around it with `contain` and `center`; under
 //!   a transparent one).
 //! - `image`: the picture: an absolute path, or one starting `~/` for the
-//!   home directory. PNG, JPEG, GIF and WebP. One that is missing or cannot
-//!   be read or decoded leaves the colour alone, and the wallpaper says so,
-//!   naming the path it looked at.
+//!   home directory. PNG, JPEG, GIF and WebP; an animated GIF or WebP shows
+//!   its first frame, still. One that is missing or cannot be read or
+//!   decoded leaves the colour alone, and the wallpaper says so, naming the
+//!   path it looked at.
 //! - `fit`: how the image meets an output whose shape is not its own:
 //!   - `cover`: scaled to fill the output, cropped to it, centred;
 //!   - `contain`: scaled to fit inside the output whole, centred, with the
