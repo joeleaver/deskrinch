@@ -25,6 +25,11 @@
 //!   in, and refuses to go on outside one.
 //! - [`configure_output`] changes an output's scale or transform, under a
 //!   compositor that offers `wlr-output-management` (not KWin).
+//! - [`set_output_enabled`] turns an output off or on, and [`change_output`]
+//!   changes its scale or transform, under any of the three: through
+//!   `wlr-output-management` under sway and labwc, and KDE's
+//!   `kscreen-doctor` under KWin ([`kscreen_settings`] gives a session its
+//!   arguments, for running it itself).
 //!
 //! What windows the tests look at and act on (the window-management
 //! crate's), and what windows they photograph (`deskrinch-test-screen`'s),
@@ -34,7 +39,9 @@
 
 mod client;
 mod compositor;
+mod enabling;
 mod keyboard;
+mod kscreen;
 mod output_info;
 mod outputs;
 mod paint;
@@ -48,6 +55,8 @@ use std::time::Duration;
 
 pub use client::TestClient;
 pub use compositor::Compositor;
+pub use enabling::{change_output, set_output_enabled};
+pub use kscreen::{KSCREEN_DOCTOR, kscreen_settings};
 pub use output_info::OutputInfo;
 pub use outputs::{OutputChange, OutputSettings, configure_every_output, configure_output};
 pub use paint::Paint;
@@ -120,6 +129,15 @@ pub enum Error {
     /// one; see [`configure_output`]).
     #[error("the compositor does not offer zwlr_output_manager_v1")]
     NoOutputManagement,
+    /// A program could not be run.
+    #[error("could not run {program}")]
+    Spawn {
+        /// The program.
+        program: &'static str,
+        /// Why.
+        #[source]
+        source: std::io::Error,
+    },
     /// The compositor refused an output change.
     #[error("the compositor refused to change {name}: {reason}")]
     OutputRefused {

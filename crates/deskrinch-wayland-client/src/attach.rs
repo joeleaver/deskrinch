@@ -6,20 +6,17 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
 
 use wayland_client::backend::WaylandError;
-use wayland_client::globals::{GlobalError, GlobalList, GlobalListContents, registry_queue_init};
-use wayland_client::protocol::wl_registry::WlRegistry;
-use wayland_client::{Connection, Dispatch, DispatchError, EventQueue, QueueHandle};
+use wayland_client::globals::GlobalList;
+use wayland_client::{Connection, DispatchError, EventQueue, QueueHandle};
 
 use crate::client::Client;
 use crate::ended::Ended;
+use crate::globals::Globals;
 use crate::thread::{Attached, Control, Queue};
 
 /// Why a state could not be attached.
 #[derive(Debug, thiserror::Error)]
 pub enum AttachError<E> {
-    /// The compositor's globals could not be listed.
-    #[error("could not list the compositor's globals")]
-    Globals(#[source] GlobalError),
     /// The crate's own setup failed.
     #[error("the setup failed")]
     Setup(#[source] E),
@@ -53,9 +50,9 @@ impl Detached {
     }
 }
 
-/// What a crate's setup has, on the client's thread: the globals, its
-/// queue's handle, and exchanges with the compositor to load its first
-/// state.
+/// What a crate's setup has, on the client's thread: the globals, from the
+/// connection's one registry; its queue's handle; and exchanges with the
+/// compositor to load its first state.
 #[derive(Debug)]
 pub struct Setup<'a, State> {
     globals: &'a GlobalList,
@@ -64,8 +61,13 @@ pub struct Setup<'a, State> {
 }
 
 impl<State: 'static> Setup<'_, State> {
-    /// The compositor's globals, as listed at setup; later ones arrive as
-    /// `wl_registry` events on the state.
+    /// The compositor's globals, from the connection's one registry: those
+    /// there when the setup began, and any its exchanges bring. What comes
+    /// and goes after the setup began reaches the state through
+    /// [`Globals`] too. Binding from it ([`GlobalList::bind`], or its
+    /// [`registry`](GlobalList::registry) with the state's queue's
+    /// [`handle`](Self::handle)) puts the bound object on the state's own
+    /// queue.
     #[must_use]
     pub fn globals(&self) -> &GlobalList {
         self.globals
@@ -163,7 +165,7 @@ impl Drop for Attachment {
 
 impl Client {
     /// Attaches a state to the connection: on the client's thread, a new
-    /// queue and its registry are made, `setup` builds the state from the
+    /// queue is made, `setup` builds the state from the connection's
     /// globals (binding what it needs, and exchanging with the compositor
     /// through [`Setup::roundtrip`] to load its first state), and the queue
     /// is dispatched into the state from then on. Returns once that is done,
@@ -175,7 +177,6 @@ impl Client {
     /// # Errors
     ///
     /// [`AttachError::Setup`] with the setup's own error,
-    /// [`AttachError::Globals`] when the globals cannot be listed,
     /// [`AttachError::Ended`] when the connection has ended, and
     /// [`AttachError::OnClientThread`] when called from a handler.
     pub fn attach<State, Out, E>(
@@ -183,7 +184,7 @@ impl Client {
         setup: impl FnOnce(&mut Setup<'_, State>) -> Result<(State, Out), E> + Send + 'static,
     ) -> Result<(Attachment, Out), AttachError<E>>
     where
-        State: Ended + Dispatch<WlRegistry, GlobalListContents> + Send + 'static,
+        State: Ended + Globals + Send + 'static,
         Out: Send + 'static,
         E: Send + 'static,
     {
@@ -196,12 +197,12 @@ impl Client {
         let (answer, answered) = mpsc::sync_channel(1);
         let job_detached = detached.clone();
         shared.send(Control::Attach(Box::new(
-            move |connection: Option<&Connection>| {
-                let Some(connection) = connection else {
+            move |connection: Option<(&Connection, &GlobalList)>| {
+                let Some((connection, globals)) = connection else {
                     drop(answer.send(Err(AttachError::Ended)));
                     return None;
                 };
-                match set_up(connection, job_detached, setup) {
+                match set_up(connection, globals, job_detached, setup) {
                     Ok((queue, state, out)) => {
                         drop(answer.send(Ok(out)));
                         Some(Attached {
@@ -228,19 +229,19 @@ impl Client {
     }
 }
 
-/// Lists the globals on a new queue and runs `setup` on it.
+/// Runs `setup` on a new queue, with the connection's globals.
 fn set_up<State, Out, E>(
     connection: &Connection,
+    globals: &GlobalList,
     detached: Detached,
     setup: impl FnOnce(&mut Setup<'_, State>) -> Result<(State, Out), E>,
 ) -> Result<(EventQueue<State>, State, Out), AttachError<E>>
 where
-    State: Dispatch<WlRegistry, GlobalListContents> + 'static,
+    State: 'static,
 {
-    let (globals, mut queue) =
-        registry_queue_init::<State>(connection).map_err(AttachError::Globals)?;
+    let mut queue = connection.new_event_queue();
     let (state, out) = setup(&mut Setup {
-        globals: &globals,
+        globals,
         queue: &mut queue,
         detached,
     })

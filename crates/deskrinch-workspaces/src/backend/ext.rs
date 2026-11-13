@@ -226,7 +226,8 @@ impl Dispatch<ExtWorkspaceManagerV1, ()> for State {
 }
 
 /// The group `proxy` came onto (`entered`) or left `output`, in the open
-/// batch.
+/// batch. Coming onto an output whose global has gone is ignored: it is not
+/// listed again.
 fn output_moved(
     state: &mut State,
     proxy: &ExtWorkspaceGroupHandleV1,
@@ -236,6 +237,9 @@ fn output_moved(
     let Some(global) = Outputs::global_of(output) else {
         return;
     };
+    if entered && !state.outputs.contains(global) {
+        return;
+    }
     if let Some(tracking) = tracking(&mut state.backend) {
         tracking.output_moved(&proxy.id(), global, entered);
     }

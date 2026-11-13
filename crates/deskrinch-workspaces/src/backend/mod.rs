@@ -13,13 +13,13 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use deskrinch_wayland_client::{
-    AttachError, Attachment, Client, Detached, EndCause, Ended, OutputGlobal, Outputs,
+    AttachError, Attachment, Client, Detached, EndCause, Ended, Globals, OutputGlobal, Outputs,
     OutputsHandler, Setup, names_available,
 };
-use wayland_client::globals::{GlobalList, GlobalListContents};
+use wayland_client::globals::{Global, GlobalList};
 use wayland_client::protocol::wl_output::WlOutput;
-use wayland_client::protocol::wl_registry::{self, WlRegistry};
-use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
+use wayland_client::protocol::wl_registry::WlRegistry;
+use wayland_client::{Proxy, QueueHandle};
 use wayland_protocols::ext::workspace::v1::client::ext_workspace_handle_v1::ExtWorkspaceHandleV1;
 use wayland_protocols::ext::workspace::v1::client::ext_workspace_manager_v1::ExtWorkspaceManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
@@ -164,7 +164,7 @@ impl State {
     }
 
     /// Binds the outputs the backends name groups' outputs from.
-    fn global_added(
+    fn bind_global(
         &mut self,
         registry: &WlRegistry,
         name: u32,
@@ -180,7 +180,7 @@ impl State {
     }
 
     /// A global went away; if an output, the groups' outputs follow.
-    fn global_removed(&mut self, name: u32) {
+    fn forget_global(&mut self, name: u32) {
         if self.outputs.remove(name) {
             OutputsHandler::outputs_changed(self);
         }
@@ -243,7 +243,6 @@ pub(crate) fn connect(client: &Client, subscriber: Subscriber) -> Result<Connect
         .attach(move |setup| set_up(setup, subscriber))
         .map_err(|error| match error {
             AttachError::Setup(error) => error,
-            AttachError::Globals(error) => ConnectError::Globals(error),
             AttachError::OnClientThread => ConnectError::OnClientThread,
             AttachError::Ended => ConnectError::ConnectionEnded,
         })?;
@@ -278,7 +277,7 @@ fn set_up(
         .iter()
         .partition(|global| global.interface == ZxdgOutputManagerV1::interface().name);
     for global in managers.into_iter().chain(others) {
-        state.global_added(
+        state.bind_global(
             &registry,
             global.name,
             &global.interface,
@@ -326,23 +325,12 @@ fn bind_backend(
     }
 }
 
-impl Dispatch<WlRegistry, GlobalListContents> for State {
-    fn event(
-        state: &mut Self,
-        registry: &WlRegistry,
-        event: wl_registry::Event,
-        _: &GlobalListContents,
-        _: &Connection,
-        qh: &QueueHandle<Self>,
-    ) {
-        match event {
-            wl_registry::Event::Global {
-                name,
-                interface,
-                version,
-            } => state.global_added(registry, name, &interface, version, qh),
-            wl_registry::Event::GlobalRemove { name } => state.global_removed(name),
-            _ => {}
-        }
+impl Globals for State {
+    fn global_added(&mut self, registry: &WlRegistry, global: &Global, qh: &QueueHandle<Self>) {
+        self.bind_global(registry, global.name, &global.interface, global.version, qh);
+    }
+
+    fn global_removed(&mut self, name: u32) {
+        self.forget_global(name);
     }
 }
