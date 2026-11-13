@@ -9,9 +9,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle, ThreadId};
 
 use rustix::event::{EventfdFlags, eventfd};
+use wayland_client::globals::GlobalError;
 use wayland_client::protocol::wl_display::WlDisplay;
 use wayland_client::{ConnectError, Connection};
 
+use crate::globals::Registry;
 use crate::thread::{self as client_thread, Control};
 
 /// The client thread's name, as `/proc` shows it.
@@ -24,6 +26,9 @@ pub enum ClientError {
     /// `WAYLAND_SOCKET`).
     #[error("could not connect to the Wayland compositor")]
     Connect(#[from] ConnectError),
+    /// The compositor's globals could not be listed.
+    #[error("could not list the compositor's globals")]
+    Globals(#[source] GlobalError),
     /// The client's thread, or what wakes it, could not be made.
     #[error("could not start the client's thread")]
     Thread(#[source] io::Error),
@@ -34,7 +39,9 @@ pub enum ClientError {
 ///
 /// Each crate attaches a state to it ([`Client::attach`]); the client's
 /// thread is the connection's only reader, and dispatches every attached
-/// state's queue. Cloning it clones the handle, not the connection. The
+/// state's queue. The client owns the connection's one `wl_registry`: every
+/// state binds from it, onto its own queue, and hears of the globals that
+/// come and go through [`Globals`](crate::Globals). Cloning it clones the handle, not the connection. The
 /// connection and its thread end when the last clone and the last
 /// [`Attachment`](crate::Attachment) are gone; everything on the connection
 /// shares its fate (see [`EndCause`](crate::EndCause)).
@@ -67,12 +74,15 @@ impl Client {
     }
 
     /// A client on an existing connection, which nothing else may read: its
-    /// thread is the only reader.
+    /// thread is the only reader. The connection's one `wl_registry` is made
+    /// here, and the globals listed, before the thread starts.
     ///
     /// # Errors
     ///
-    /// When the client's thread cannot be started.
+    /// When the globals cannot be listed, or the client's thread cannot be
+    /// started.
     pub fn from_connection(connection: Connection) -> Result<Self, ClientError> {
+        let registry = Registry::new(&connection).map_err(ClientError::Globals)?;
         let wake = eventfd(0, EventfdFlags::CLOEXEC | EventfdFlags::NONBLOCK)
             .map_err(|error| ClientError::Thread(error.into()))?;
         let thread_wake = wake.try_clone().map_err(ClientError::Thread)?;
@@ -80,7 +90,9 @@ impl Client {
         let thread_connection = connection.clone();
         let thread = thread::Builder::new()
             .name(THREAD_NAME.to_owned())
-            .spawn(move || client_thread::run(&thread_connection, &received, &thread_wake))
+            .spawn(move || {
+                client_thread::run(&thread_connection, registry, &received, &thread_wake);
+            })
             .map_err(ClientError::Thread)?;
         let thread_id = thread.thread().id();
         Ok(Self {

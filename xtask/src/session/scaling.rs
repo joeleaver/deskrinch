@@ -3,7 +3,9 @@
 
 use std::ffi::OsStr;
 
-use deskrinch_test_client::{OutputChange, OutputInfo, TestClient, configure_every_output};
+use deskrinch_test_client::{
+    KSCREEN_DOCTOR, OutputChange, OutputInfo, TestClient, configure_every_output, kscreen_settings,
+};
 
 use super::{Outputs, Session};
 use crate::error::Error;
@@ -23,9 +25,6 @@ pub(crate) enum Scaling {
     /// Rust here).
     KscreenDoctor,
 }
-
-/// KDE's command-line tool for output settings.
-const KSCREEN_DOCTOR: &str = "kscreen-doctor";
 
 impl Session {
     /// Puts every output at `outputs`' scale and transform, where the
@@ -66,15 +65,11 @@ impl Session {
     /// session like any other (its environment, its process group).
     fn set_up_through_kscreen_doctor(&self, outputs: Outputs) -> Result<(), Error> {
         let names = self.connect_client()?.output_names();
-        let settings = names.iter().flat_map(|name| {
-            [
-                format!("output.{name}.scale.{}", outputs.scale),
-                format!(
-                    "output.{name}.rotation.{}",
-                    outputs.transform.kscreen_name()
-                ),
-            ]
-        });
+        let change = OutputChange {
+            scale: Some(outputs.scale.get()),
+            transform: Some(outputs.transform.get()),
+        };
+        let settings = names.iter().flat_map(|name| kscreen_settings(name, change));
         let output = self
             .client(OsStr::new(KSCREEN_DOCTOR))
             // Qt 5 picks X11 by default, and there is no X server here;
