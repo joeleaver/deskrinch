@@ -149,23 +149,63 @@ fn apply(layout: &[OutputState]) -> Result<(), Error> {
     }
 }
 
-/// Makes the outputs `layout` and waits until the compositor reports it.
-fn apply_and_wait(layout: &[OutputState]) -> Result<(), Error> {
+/// Makes the outputs `layout` and waits until the compositor reports what
+/// `reached` takes, saying what still differs from `layout` if it does not
+/// within [`PATIENCE`].
+fn apply_and_wait(
+    layout: &[OutputState],
+    reached: impl Fn(&[OutputState]) -> bool,
+) -> Result<(), Error> {
     apply(layout)?;
     let deadline = Instant::now() + PATIENCE;
     loop {
         let now = outputs()?;
-        let Some(differences) = layout_differences(layout, &now) else {
+        if reached(&now) {
             return Ok(());
-        };
+        }
         if Instant::now() >= deadline {
             return Err(Error::LayoutNotReached {
-                differences,
+                differences: layout_differences(layout, &now)
+                    .unwrap_or_else(|| "the outputs are as asked, but not as waited for".into()),
                 patience: PATIENCE,
             });
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
     }
+}
+
+/// Whether the output named `name` in `layout` is as `wanted` says, by
+/// what a change sets: on or off and, when on, its scale and transform.
+/// The others' positions are the compositor's to change meanwhile: KWin
+/// moves the second output to (0,0) while the first is off, and labwc lays
+/// outputs out side by side again when one turns.
+fn shows(layout: &[OutputState], name: &str, wanted: &OutputState) -> bool {
+    layout.iter().any(|output| {
+        output.name == name
+            && output.enabled == wanted.enabled
+            && (!wanted.enabled
+                || ((output.scale - wanted.scale).abs() < 1e-6
+                    && output.transform == wanted.transform))
+    })
+}
+
+/// Makes the output named `name` what `change` makes of it, the others
+/// stated as they are, and returns the guard that puts `before` back once
+/// the compositor reports the change.
+fn change_with(
+    name: &str,
+    change: impl Fn(&OutputState) -> OutputState,
+) -> Result<RestoreOutputs, Error> {
+    let before = outputs()?;
+    let target = with(&before, name, change)?;
+    let wanted = target
+        .iter()
+        .find(|output| output.name == name)
+        .cloned()
+        .ok_or_else(|| Error::UnknownOutput(name.to_owned()))?;
+    let guard = RestoreOutputs::new(before);
+    apply_and_wait(&target, |now| shows(now, name, &wanted))?;
+    Ok(guard)
 }
 
 /// The layout `before` with the output `name` replaced by what `change`
@@ -191,8 +231,10 @@ fn with(
 }
 
 /// Turns the output named `name` of the nested compositor off, every other
-/// output staying as it is, and returns once the compositor reports it, with
-/// the guard that puts the whole layout back.
+/// output stated as it is, and returns once the compositor reports it off,
+/// with the guard that puts the whole layout back. The compositor may move
+/// the others meanwhile (KWin moves the second output to (0,0) while the
+/// first is off).
 ///
 /// # Errors
 ///
@@ -203,19 +245,17 @@ fn with(
 ///
 /// Outside a nested session, as [`Compositor::current`].
 pub fn turn_output_off(name: &str) -> Result<RestoreOutputs, Error> {
-    let before = outputs()?;
-    let target = with(&before, name, |output| OutputState {
+    change_with(name, |output| OutputState {
         enabled: false,
         ..output.clone()
-    })?;
-    let guard = RestoreOutputs::new(before);
-    apply_and_wait(&target)?;
-    Ok(guard)
+    })
 }
 
 /// Changes the scale or transform of the output named `name` of the nested
-/// compositor, every other output staying as it is, and returns once the
-/// compositor reports it, with the guard that puts the whole layout back.
+/// compositor, every other output stated as it is, and returns once the
+/// compositor reports the change, with the guard that puts the whole layout
+/// back. The compositor may move the others meanwhile (labwc lays outputs
+/// out side by side again when one turns).
 ///
 /// # Errors
 ///
@@ -225,11 +265,7 @@ pub fn turn_output_off(name: &str) -> Result<RestoreOutputs, Error> {
 ///
 /// Outside a nested session, as [`Compositor::current`].
 pub fn change_output(name: &str, change: OutputChange) -> Result<RestoreOutputs, Error> {
-    let before = outputs()?;
-    let target = with(&before, name, |output| output.changed(change))?;
-    let guard = RestoreOutputs::new(before);
-    apply_and_wait(&target)?;
-    Ok(guard)
+    change_with(name, |output| output.changed(change))
 }
 
 /// The session's outputs as they were before a change, put back by
@@ -270,7 +306,8 @@ impl RestoreOutputs {
     /// [`PATIENCE`].
     pub fn restore(mut self) -> Result<(), Error> {
         self.restored = true;
-        apply_and_wait(&self.before)
+        let before = self.before.clone();
+        apply_and_wait(&before, |now| layout_differences(&before, now).is_none())
     }
 }
 
@@ -279,7 +316,9 @@ impl Drop for RestoreOutputs {
         if self.restored {
             return;
         }
-        if let Err(error) = apply_and_wait(&self.before) {
+        let before = &self.before;
+        if let Err(error) = apply_and_wait(before, |now| layout_differences(before, now).is_none())
+        {
             if std::thread::panicking() {
                 eprintln!("could not put the session's outputs back: {error}");
             } else {
@@ -369,6 +408,31 @@ mod tests {
         assert_eq!(turned.position, before.position);
         assert_eq!(turned.mode, before.mode);
         assert!((turned.scale - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_change_is_seen_on_its_output_whatever_the_others_do() {
+        let wanted = OutputState {
+            transform: Transform::Rotated90,
+            ..output("B", 1280)
+        };
+        // labwc lays B out again after A; KWin moves it to (0,0).
+        let moved = [
+            output("A", 0),
+            OutputState {
+                position: (720, 0),
+                ..wanted.clone()
+            },
+        ];
+        assert!(shows(&moved, "B", &wanted));
+        assert!(!shows(&[output("A", 0), output("B", 1280)], "B", &wanted));
+        let off = OutputState {
+            enabled: false,
+            ..output("A", 0)
+        };
+        assert!(shows(&[off.clone(), output("B", 0)], "A", &off));
+        assert!(!shows(&[output("A", 0)], "A", &off));
+        assert!(!shows(&[output("A", 0)], "C", &off));
     }
 
     #[test]
