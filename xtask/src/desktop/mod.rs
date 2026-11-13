@@ -30,7 +30,7 @@ use std::time::{Duration, Instant};
 use deskrinch_shell::{COMPONENTS, LAUNCHER_CHORD, LAUNCHER_TOGGLE, Ready};
 use deskrinch_test_component::{RINCH_RENDERER_VARIABLE, Renderer as Rinch};
 
-use self::ending::run_until_ended;
+use self::ending::{Followed, follow, run_until_ended};
 use self::profile::Profile;
 use crate::Outcome;
 use crate::error::Error;
@@ -269,7 +269,29 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     // By now the compositor has rendered its first frames, with the
     // components in them: a KWin that could not says so in its log.
     session.check_presents()?;
-    let program = match args.command.split_first() {
+    let outcome = run_started(&mut session, &components, &args.command);
+    let ended = session.end();
+    drop(profile);
+    let outcome = outcome?;
+    ended?;
+    interrupt::check()?;
+    Ok(outcome)
+}
+
+/// Runs the started desktop of `session`, its shell's `components` running,
+/// until it ends: follows its window, then starts `command` (if any) and
+/// says it is ready, so that once it has said so its window closing is
+/// noticed. A compositor gone before its window is followed ends it there.
+fn run_started(
+    session: &mut Session,
+    components: &[(&'static str, ClientId)],
+    command: &[OsString],
+) -> Result<Outcome, Error> {
+    let window = match follow(session)? {
+        Followed::Window(window) => window,
+        Followed::Ended(outcome) => return Ok(outcome),
+    };
+    let program = match command.split_first() {
         Some((program, rest)) => {
             let mut command = session.client(program);
             command.args(rest);
@@ -281,13 +303,7 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         "desktop: ready; {} summons the launcher, closing the window ends the desktop",
         chord_name()
     );
-    let outcome = run_until_ended(&mut session, &components, program);
-    let ended = session.end();
-    drop(profile);
-    let outcome = outcome?;
-    ended?;
-    interrupt::check()?;
-    Ok(outcome)
+    run_until_ended(session, window, components, program)
 }
 
 /// What the nested `compositor` renders with: what was `asked`, or by
