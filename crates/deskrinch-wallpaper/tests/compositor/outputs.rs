@@ -1,6 +1,6 @@
 //! Outputs that change while the wallpaper runs.
 
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::time::{Duration, Instant};
 
 use deskrinch_test_client::{Compositor, OutputChange, TestClient, configure_output};
@@ -8,7 +8,7 @@ use deskrinch_test_screen::Screen;
 use deskrinch_test_wayland::Transform;
 
 use crate::support::{
-    BLUE, PATIENCE, Wallpaper, first_other, in_nested_session, wait_covered, wait_output,
+    BLUE, PATIENCE, Wallpaper, in_nested_session, wait_covered,
     write_settings, written,
 };
 
@@ -93,60 +93,5 @@ fn an_output_turned_while_it_runs_is_covered_at_its_new_shape() {
         assert!(Instant::now() < deadline, "{name} did not turn");
         std::thread::sleep(Duration::from_millis(200));
     }
-    wait_covered(BLUE);
-}
-
-/// The output names sway lists now.
-fn sway_outputs() -> Vec<String> {
-    let output = Command::new("swaymsg")
-        .args(["-t", "get_outputs", "-r"])
-        .output()
-        .unwrap();
-    assert!(output.status.success(), "swaymsg: {output:?}");
-    let listed: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
-    listed
-        .as_array()
-        .unwrap()
-        .iter()
-        .filter_map(|output| output["name"].as_str().map(ToOwned::to_owned))
-        .collect()
-}
-
-/// Runs `swaymsg` with `args`.
-fn swaymsg(args: &[&str]) {
-    let status = Command::new("swaymsg")
-        .args(args)
-        .stdout(Stdio::null())
-        .status()
-        .unwrap();
-    assert!(status.success(), "swaymsg {args:?}: {status}");
-}
-
-#[test]
-#[ignore = "needs a compositor: cargo xtask compositor-tests"]
-fn under_sway_an_output_added_gets_it_and_one_removed_loses_it() {
-    if in_nested_session() != Compositor::Sway {
-        // Only sway adds and removes outputs of a running test session.
-        return;
-    }
-    write_settings(&format!("[wallpaper]\ncolor = \"{}\"\n", written(BLUE)));
-    let mut wallpaper = Wallpaper::start();
-    wait_covered(BLUE);
-    let before = sway_outputs();
-    swaymsg(&["create_output"]);
-    let added = sway_outputs()
-        .into_iter()
-        .find(|name| !before.contains(name))
-        .expect("an output added");
-    wait_output(&added, |image| {
-        first_other(image, BLUE).map(|at| format!("the new output is not all wallpaper: {at:?}"))
-    });
-    swaymsg(&["output", &added, "unplug"]);
-    let deadline = Instant::now() + PATIENCE;
-    while sway_outputs().contains(&added) {
-        assert!(Instant::now() < deadline, "{added} was not removed");
-        std::thread::sleep(Duration::from_millis(200));
-    }
-    assert!(wallpaper.running(), "the wallpaper ended with an output");
     wait_covered(BLUE);
 }

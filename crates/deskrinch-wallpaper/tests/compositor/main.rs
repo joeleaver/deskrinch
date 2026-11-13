@@ -11,8 +11,9 @@
 //!   says; a picture that cannot be shown leaves the colour and is
 //!   reported with its path.
 //! - [`layers`]: a window is above the wallpaper, and so is the panel.
-//! - [`outputs`]: an output changed while the wallpaper runs (its scale)
-//!   is covered at its new size, under every compositor; under sway, an
+//! - [`outputs`]: an output turned while the wallpaper runs is covered at
+//!   its new shape, under every compositor.
+//! - [`sway_only`], which the suites table runs under sway alone: an
 //!   output added gets a wallpaper and one removed loses it, the others
 //!   staying covered.
 //!
@@ -31,3 +32,5 @@ mod layers;
 mod outputs;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod sway_only;
