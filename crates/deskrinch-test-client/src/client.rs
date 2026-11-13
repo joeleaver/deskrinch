@@ -33,6 +33,7 @@ use crate::keyboard::Keyboard;
 use crate::output_info::OutputInfo;
 use crate::pointer::Pointer;
 use crate::seat::Windows;
+use crate::synced::Synced;
 use crate::window::{Shared, Status, TestWindow};
 use crate::{Error, PATIENCE, Paint, lock, waited};
 
@@ -209,21 +210,24 @@ impl TestClient {
         self.output_info(name).map(|info| info.scale)
     }
 
-    /// Opens a transparent window and returns once it has drawn its first
-    /// buffer.
+    /// Opens a transparent window and returns once it is mapped: it has
+    /// drawn its first buffer, and the compositor has processed it (so a
+    /// client listing windows on another connection, connecting after this
+    /// returns, sees it).
     ///
     /// # Errors
     ///
-    /// When the compositor does not configure it within
-    /// [`PATIENCE`](crate::PATIENCE), or the connection fails.
+    /// When the compositor does not configure it, or does not answer after
+    /// its first buffer, within [`PATIENCE`](crate::PATIENCE), or the
+    /// connection fails.
     pub fn open(&self, title: &str, app_id: &str) -> Result<TestWindow, Error> {
         self.open_window(title, app_id, None, Paint::Transparent, None)
     }
 
     /// Opens a window that fills itself with `paint`, fullscreen on the
     /// output named `fullscreen` if one is given (from its first configure,
-    /// so it is never drawn at another size first), and returns once it has
-    /// drawn its first buffer.
+    /// so it is never drawn at another size first), and returns once it is
+    /// mapped, as [`open`](Self::open) does.
     ///
     /// # Errors
     ///
@@ -312,6 +316,17 @@ impl TestClient {
             shared,
         );
         window.wait_drawn("its first buffer", |_| true)?;
+        // The first buffer is committed, but perhaps not yet processed:
+        // until the compositor has, the window is not mapped, and a client
+        // that lists windows (a taskbar, `deskrinch-window-management`) on
+        // another connection may not see it. The compositor answers a sync
+        // only after everything sent before it.
+        let synced = Arc::new(Synced::default());
+        self.connection
+            .display()
+            .sync(&self.queue, Arc::clone(&synced));
+        self.connection.flush().map_err(Error::Send)?;
+        synced.wait("mapping the window")?;
         Ok(window)
     }
 }

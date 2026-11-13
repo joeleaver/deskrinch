@@ -11,6 +11,7 @@ const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
 const PANEL: &str = "deskrinch-panel";
 const WAYLAND_CLIENT: &str = "deskrinch-wayland-client";
+const XTASK: &str = "xtask";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
@@ -105,7 +106,7 @@ pub(super) struct Suite {
 pub(super) const SESSION_END: &str = "session_end::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 12] = [
+pub(super) const SUITES: [Suite; 13] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -270,6 +271,30 @@ pub(super) const SUITES: [Suite; 12] = [
             backend: Backend::Rust,
         },
         grant: None,
+        compositors: ALL,
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &[],
+    },
+    // `cargo xtask desktop`, nested: its window opens in this session, which
+    // the binary closes through window management and types the launcher's
+    // chord into.
+    Suite {
+        target: Target {
+            package: XTASK,
+            test: "desktop",
+            backend: Backend::Rust,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.DesktopTests",
+            name: "deskrinch desktop tests",
+            wayland: &[
+                deskrinch_window_management::KWIN_INTERFACE,
+                deskrinch_test_input::KWIN_FAKE_INPUT_INTERFACE,
+            ],
+            dbus: &[],
+        }),
         compositors: ALL,
         passes: PLAIN,
         renders: false,

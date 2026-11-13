@@ -270,6 +270,49 @@ are ignored by `cargo test`:
 DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test session -- --ignored
 ```
 
+### Trying the shell in a window
+
+`cargo xtask desktop` opens the shell in a window on the desktop you run it
+from: a nested compositor (KWin by default; `sway` or `labwc` as its
+argument) shows each of its outputs as a window, and the shell's components
+run inside it, the launcher hidden and then the panel. Ctrl+Alt+Space in the
+window summons the launcher.
+
+```sh
+cargo xtask desktop                     # KWin, a fresh home
+cargo xtask desktop sway --profile work # sway, keeping .work/desktop/work/
+cargo xtask desktop -- konsole          # and a terminal inside
+```
+
+The components are built first, optimised unless `--debug`; `--renderer`
+picks theirs. Only the nested compositor is given your display. Everything
+inside runs isolated as a session does (above): a fresh `HOME` and XDG
+directories under `/tmp/deskrinch-session-*`, a private bus without service
+activation, and none of your session's display or bus variables.
+`--profile NAME` keeps the home, configuration, data, cache and state in
+`.work/desktop/NAME/` from one run to the next instead; one desktop uses a
+profile at a time. It ends, with everything inside, when you close its
+windows, on Ctrl+C, or when the command after `--` exits. Should it be
+killed, the session's supervisor ends the session.
+
+It is yours to run from a terminal: it refuses when standard input or
+standard error is not a terminal, or in CI. Agents and tests run it only
+inside `cargo xtask session`, where its window opens in the headless session;
+`cargo xtask compositor-tests` runs its tests that way.
+
+What the nested desktop does not have:
+
+- Shortcuts of the desktop around it (Meta, and anything Plasma binds) never
+  reach the inner session.
+- Outputs are windows, not monitors: no real multi-monitor geometry, no
+  hotplug, and resizing a window resizes its output.
+- No lock screen, and no session restore.
+- No Xwayland inside, so X11-only applications don't start.
+- No desktop portal on the private bus, so file choosers may fall back to an
+  application's own, or be missing.
+- Applications start with an empty home (unless `--profile` keeps one) and
+  look freshly installed.
+
 ### Measuring what a component costs
 
 `cargo xtask measure` starts a rinch program (a shell component, a rinch

@@ -6,13 +6,15 @@
 //! renderer, on wgpu) has nothing to present on. On the GPU they render
 //! with wlroots' GLES2 renderer on the GPU's render node
 //! (`WLR_RENDER_DRM_DEVICE`): a render node only, which needs no KMS, no
-//! seat and no logind. KWin composites with OpenGL either way, on the DRM
-//! device its virtual backend finds; the choice changes nothing for it.
+//! seat and no logind. A headless KWin composites with OpenGL either way,
+//! on the DRM device its virtual backend finds; the choice changes nothing
+//! for it. A KWin in a window composites with OpenGL on the GPU, and with
+//! `QPainter` (`KWIN_COMPOSE=Q`) in software.
 
 use std::path::PathBuf;
 use std::process::Command;
 
-use super::{Compositor, RenderNodes, Session};
+use super::{Compositor, Display, RenderNodes, Session};
 use crate::error::Error;
 
 /// What the compositor renders with.
@@ -108,7 +110,43 @@ fn gpu_renderer(log: &str) -> Result<&str, String> {
     }
 }
 
+/// KWin's lines when it renders nothing into its output: in a window on a
+/// machine where its Wayland backend finds no device it can allocate
+/// buffers on (a GPU-less runner's vgem), it says so for every frame.
+const CANNOT_PRESENT: &[&str] = &[
+    "Rendering a layer failed",
+    "Failed to find a working output layer configuration",
+];
+
+/// Why a KWin that cannot present is no use.
+const PRESENTS_NOTHING: &str = "KWin renders nothing into its window: it found no buffers \
+     to render into; with `--compositor-renderer software` it composites with QPainter";
+
+/// The first line of KWin's `log` that says it cannot present, if any.
+fn cannot_present(log: &str) -> Option<&str> {
+    log.lines()
+        .find(|line| CANNOT_PRESENT.iter().any(|said| line.contains(said)))
+}
+
 impl Session {
+    /// Fails the session if KWin, its outputs in windows, has said it
+    /// cannot present: a window that would stay empty.
+    pub(crate) fn check_presents(&self) -> Result<(), Error> {
+        if self.compositor != Compositor::Kwin || self.display == Display::Headless {
+            return Ok(());
+        }
+        let log = self.log();
+        match cannot_present(&log) {
+            None => Ok(()),
+            Some(line) => Err(Error::CompositorUnfit {
+                compositor: self.compositor.name(),
+                why: PRESENTS_NOTHING,
+                line: line.to_owned(),
+                log: log.clone(),
+            }),
+        }
+    }
+
     /// Fails the session unless a wlroots compositor asked to render on the
     /// GPU says it does: it created its GLES2 renderer, on a GL that is not
     /// Mesa's software rasteriser.
@@ -134,6 +172,19 @@ mod tests {
     use std::ffi::OsStr;
 
     use super::*;
+
+    #[test]
+    fn kwin_saying_it_cannot_present_is_found() {
+        // As a nested KWin 6.6 logged it on a GPU-less CI runner.
+        let log = "Accepting client connections on sockets: QList(\"wayland-0\")\n\
+                   kwin_wayland_backend: Could not find a suitable render format\n\
+                   kwin_core: Rendering a layer failed!\n";
+        assert_eq!(
+            cannot_present(log),
+            Some("kwin_core: Rendering a layer failed!")
+        );
+        assert_eq!(cannot_present("Accepting client connections\n"), None);
+    }
 
     fn env(command: &Command, name: &str) -> Option<String> {
         command

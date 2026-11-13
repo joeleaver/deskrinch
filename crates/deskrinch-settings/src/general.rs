@@ -5,6 +5,7 @@
 //! color-scheme = "system"   # "system", "dark" or "light"
 //! icon-theme = "system"     # "system", or an icon theme's name
 //! # terminal = ["foot", "--"]  # unset: xdg-terminal-exec
+//! remember-starts = true
 //! ```
 //!
 //! Every key is optional; the values above are the defaults. A value of the
@@ -41,6 +42,15 @@
 //!   when that is installed. With neither, such an application does not
 //!   start, and the error says to set this ([`terminal`], [`NoTerminal`]).
 //!   There is no list of known terminals to guess from.
+//! - `remember-starts`: whether the shell keeps a record of the
+//!   applications the user starts (which, how often, how recently: the
+//!   `deskrinch-start-record` crate), in `$XDG_STATE_HOME/deskrinch/starts.toml`,
+//!   and shows the ones used most where it offers applications (the
+//!   launcher, with nothing typed). `false` means "do not remember what I
+//!   start": the record is deleted, at once if the shell runs and else when
+//!   it next starts, nothing is recorded, and nothing is shown from it.
+//!   `deskrinch-launcher forget-starts` deletes the record and leaves this
+//!   on.
 
 use std::fmt;
 
@@ -51,7 +61,7 @@ mod terminal;
 pub use terminal::{EmptyTerminal, NoTerminal, TerminalCommand, terminal};
 
 /// The `[general]` table.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, rename_all = "kebab-case")]
 pub struct GeneralSettings {
     /// `color-scheme`: whether the shell is dark or light.
@@ -61,6 +71,20 @@ pub struct GeneralSettings {
     /// `terminal`: the command line terminal applications run in; `None`:
     /// `xdg-terminal-exec`, when installed.
     pub terminal: Option<TerminalCommand>,
+    /// `remember-starts`: whether the record of the applications started is
+    /// kept and shown; on by default.
+    pub remember_starts: bool,
+}
+
+impl Default for GeneralSettings {
+    fn default() -> Self {
+        Self {
+            color_scheme: ColorSchemeSetting::default(),
+            icon_theme: IconThemeSetting::default(),
+            terminal: None,
+            remember_starts: true,
+        }
+    }
 }
 
 /// `icon-theme`: the icon theme the shell's icons come from.
@@ -223,6 +247,21 @@ mod tests {
             IconThemeSetting::try_from(String::new()),
             Err(EmptyIconTheme)
         );
+    }
+
+    #[test]
+    fn remembers_starts_unless_told_not_to() {
+        assert!(resolve("").settings.remember_starts);
+        let resolved = resolve("[general]\nremember-starts = false\n");
+        assert!(
+            resolved.diagnostics.is_empty(),
+            "{:?}",
+            resolved.diagnostics
+        );
+        assert!(!resolved.settings.remember_starts);
+        let wrong = resolve("[general]\nremember-starts = \"no\"\n");
+        assert!(wrong.settings.remember_starts, "a wrong value is not used");
+        assert_eq!(wrong.diagnostics.len(), 1, "{:?}", wrong.diagnostics);
     }
 
     #[test]

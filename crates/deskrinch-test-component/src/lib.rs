@@ -26,5 +26,5 @@ mod component;
 pub mod log;
 mod watch;
 
-pub use component::{Component, RENDERER_VARIABLE, Renderer};
+pub use component::{Component, HUNG_AFTER, RENDERER_VARIABLE, RINCH_RENDERER_VARIABLE, Renderer};
 pub use watch::{LAST_WORDS, Presented, Watch};

@@ -8,6 +8,8 @@
 //!   looking at the screen.
 //! - [`screen`]: keys typed into it, what it draws, and what it starts.
 //! - [`click`]: the pointer's clicks on its results.
+//! - [`frequent`]: the applications used most, on an empty query, and the
+//!   record of starts they come from.
 //!
 //! Every launcher a test starts is ended before the test returns, the one a
 //! client starts (in a process group of its own) included.
@@ -15,6 +17,8 @@
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
 mod click;
+#[cfg(test)]
+mod frequent;
 #[cfg(test)]
 mod process;
 #[cfg(test)]

@@ -1,13 +1,14 @@
-//! A nested, headless compositor session, isolated from the real one.
+//! A nested compositor session, isolated from the real one: headless, or
+//! with its outputs in windows on another compositor ([`Display`]).
 //!
 //! What a session is, which [`Session::client`] commands share:
 //!
-//! - The explicit environment of `deskrinch-test-dbus`'s
-//!   [`session::isolate`]: its own `HOME` and XDG directories, private
-//!   directories under a fresh `/tmp/deskrinch-session-*` root, the XDG
-//!   search paths at their defaults, and none of the real session's display,
-//!   bus or login-session variables ([`session::REAL_SESSION_VARIABLES`]);
-//!   `XDG_CURRENT_DESKTOP` only when the caller asks for one.
+//! - The explicit environment of `deskrinch-test-dbus`'s [`isolate`]: its
+//!   own `HOME` and XDG directories, private directories under a fresh
+//!   `/tmp/deskrinch-session-*` root, the XDG search paths at their
+//!   defaults, and none of the real session's display, bus or login-session
+//!   variables ([`REAL_SESSION_VARIABLES`]); `XDG_CURRENT_DESKTOP` only when
+//!   the caller asks for one.
 //! - A private D-Bus session bus ([`PrivateBus`]) with no service activation,
 //!   named in `DBUS_SESSION_BUS_ADDRESS` for the compositor and every client.
 //! - Ready when the compositor's Wayland socket is open and it owns the
@@ -28,8 +29,9 @@
 //!   the scale and logical size each output reports.
 //! - The compositor, headless, and every client in one process group of
 //!   their own, which is ended as a whole (`SIGTERM`, then `SIGKILL` after
-//!   [`SHUTDOWN`]) when the session ends, and also when xtask gets `SIGINT`,
-//!   `SIGTERM` or `SIGHUP` ([`interrupt`]).
+//!   [`ending::SHUTDOWN`], then waited for until it is gone, [`ending`])
+//!   when the session ends, and also when xtask gets `SIGINT`, `SIGTERM` or
+//!   `SIGHUP` ([`interrupt`]).
 //! - Afterwards, a check that nothing of the session runs any more: a
 //!   process that left the group is found by its environment, killed, and
 //!   reported as an error ([`leftovers`]).
@@ -40,9 +42,15 @@
 //!
 //! The isolation itself (directories, variables, the bus) is
 //! `deskrinch-test-dbus`'s, which the D-Bus tests use too.
+//!
+//! [`REAL_SESSION_VARIABLES`]: deskrinch_test_dbus::session::REAL_SESSION_VARIABLES
 
+mod bindings;
+mod clients;
 mod compositing;
 mod compositor;
+mod display;
+mod ending;
 pub(crate) mod interrupt;
 mod leftovers;
 mod outputs;
@@ -57,18 +65,20 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use deskrinch_test_dbus::PrivateBus;
-use deskrinch_test_dbus::session::{self, isolate};
-use rustix::process::{
-    Pid, Signal, kill_process, kill_process_group, test_kill_process, test_kill_process_group,
-};
+use deskrinch_test_dbus::session::isolate;
+use deskrinch_test_dbus::{NameError, PrivateBus};
+use rustix::process::Pid;
 use tempfile::TempDir;
 
+use self::ending::{end_group, kill_leftovers};
+
+pub(crate) use self::clients::ClientId;
 pub(crate) use self::compositor::Compositor;
+pub(crate) use self::display::{Binding, Display, Home, Options};
 pub(crate) use self::leftovers::Leftover;
 pub(crate) use self::outputs::Outputs;
 pub(crate) use self::render_nodes::RenderNodes;
@@ -76,7 +86,11 @@ pub(crate) use self::rendering::CompositorRenderer;
 pub(crate) use self::scale::Scale;
 pub(crate) use self::scaling::Scaling;
 use self::supervisor::Supervisor;
-pub(crate) use self::supervisor::{SUBCOMMAND as SUPERVISOR, run as supervise};
+#[cfg(test)]
+pub(crate) use self::supervisor::fake_root;
+pub(crate) use self::supervisor::{
+    SUBCOMMAND as SUPERVISOR, check as check_root, run as supervise, supervised,
+};
 pub(crate) use self::transform::OutputTransform;
 use crate::error::Error;
 
@@ -93,8 +107,6 @@ const ROOT_PREFIX: &str = "deskrinch-session-";
 
 /// How long a compositor has to open its socket.
 const STARTUP: Duration = Duration::from_secs(20);
-/// How long a session has to end after `SIGTERM` before it gets `SIGKILL`.
-const SHUTDOWN: Duration = Duration::from_secs(5);
 /// How often to look again while waiting.
 const POLL: Duration = Duration::from_millis(50);
 
@@ -103,11 +115,15 @@ const POLL: Duration = Duration::from_millis(50);
 pub(crate) struct Session {
     compositor: Compositor,
     renderer: CompositorRenderer,
+    display: Display,
     /// The session's root; `None` once it has been kept or removed.
     dir: Option<TempDir>,
     root: PathBuf,
     bus: PrivateBus,
     child: Child,
+    /// The clients started with [`spawn`](Self::spawn), reaped as the
+    /// session ends.
+    clients: Vec<Child>,
     group: Pid,
     socket: String,
     current_desktop: Option<OsString>,
@@ -120,8 +136,8 @@ pub(crate) struct Session {
 
 impl Session {
     /// Starts `compositor` rendering with `renderer`, with `outputs`, in a
-    /// new isolated session, after `prepare` has set up the session's data
-    /// directory (`XDG_DATA_HOME`).
+    /// new isolated, headless session ([`Options::headless`]), after
+    /// `prepare` has set up the session's data directory (`XDG_DATA_HOME`).
     pub(crate) fn start(
         compositor: Compositor,
         renderer: CompositorRenderer,
@@ -129,6 +145,25 @@ impl Session {
         current_desktop: Option<&OsStr>,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<Self, Error> {
+        let options = Options::headless(compositor, renderer, outputs, current_desktop);
+        Self::start_with(&options, prepare)
+    }
+
+    /// Starts a new isolated session as `options` say, after `prepare` has
+    /// set up the session's data directory (`XDG_DATA_HOME`).
+    pub(crate) fn start_with(
+        options: &Options<'_>,
+        prepare: impl FnOnce(&Path) -> Result<(), Error>,
+    ) -> Result<Self, Error> {
+        let Options {
+            compositor,
+            renderer,
+            outputs,
+            current_desktop,
+            ref display,
+            ref home,
+            bindings,
+        } = *options;
         interrupt::install()?;
         interrupt::check()?;
         let dir = tempfile::Builder::new()
@@ -139,7 +174,7 @@ impl Session {
                 source,
             })?;
         let root = dir.path().to_owned();
-        session::create_dirs(&root).map_err(|source| Error::Io {
+        home.create_dirs(&root).map_err(|source| Error::Io {
             what: "create the session's directories".into(),
             source,
         })?;
@@ -159,8 +194,9 @@ impl Session {
             source,
         })?;
 
-        let mut command = compositor.command(&root, outputs, renderer)?;
+        let mut command = compositor.command(&root, options)?;
         isolate(&mut command, &root);
+        compositor.show_on(&mut command, display);
         if let Some(desktop) = current_desktop {
             command.env(CURRENT_DESKTOP, desktop);
         }
@@ -182,10 +218,12 @@ impl Session {
         let mut session = Self {
             compositor,
             renderer,
+            display: display.clone(),
             dir: Some(dir),
             root,
             bus,
             child,
+            clients: Vec::new(),
             group,
             socket: String::new(),
             current_desktop: current_desktop.map(ToOwned::to_owned),
@@ -198,6 +236,7 @@ impl Session {
         told?;
         session.socket = session.wait_for_socket()?;
         session.wait_for_bus_names()?;
+        session.wait_for_bindings(bindings)?;
         session.check_wlroots_renderer()?;
         session.set_up_outputs(outputs)?;
         Ok(session)
@@ -215,71 +254,14 @@ impl Session {
         &self.root
     }
 
-    /// Runs a test binary's ignored tests in the session, one at a time,
-    /// with `filter` (libtest arguments) choosing which. Returns whether they
-    /// passed.
-    ///
-    /// The tests are told the compositor and the session's process group, so
-    /// that one can end the session underneath a connection.
-    pub(crate) fn run_tests(
-        &self,
-        binary: &Path,
-        filter: &[&str],
-        env: &[(&str, &str)],
-    ) -> Result<bool, Error> {
-        let mut command = self.outside_client(binary.as_os_str());
-        command
-            .args(["--ignored", "--test-threads=1"])
-            .args(filter)
-            .envs(env.iter().copied())
-            .env(
-                "DESKRINCH_TEST_SESSION_GROUP",
-                self.group.as_raw_nonzero().to_string(),
-            );
-        let status = command.status().map_err(|source| Error::Spawn {
-            program: binary.display().to_string(),
-            source,
-        })?;
-        interrupt::check()?;
-        Ok(status.success())
+    /// The session's process group: the compositor and its clients.
+    pub(crate) fn group(&self) -> Pid {
+        self.group
     }
 
-    /// A command that runs `program` as a client of the session: isolated
-    /// from the real session; pointed at this compositor
-    /// (`WAYLAND_DISPLAY`, and sway's `SWAYSOCK`) and at the session's bus
-    /// (`DBUS_SESSION_BUS_ADDRESS`); told the session's directory
-    /// (`DESKRINCH_SESSION_DIR`); with standard input closed; and in the
-    /// session's process group, so that whatever it leaves running ends with
-    /// the session.
-    ///
-    /// Standard input is closed because the session's group is not the
-    /// terminal's foreground group: a client reading the terminal would be
-    /// stopped (`SIGTTIN`) and hang the session.
-    pub(crate) fn client(&self, program: &OsStr) -> Command {
-        let mut command = self.outside_client(program);
-        command.process_group(self.group.as_raw_nonzero().get());
-        command
-    }
-
-    /// [`client`](Self::client) without joining the session's process
-    /// group: for a test runner whose tests end the session by signalling
-    /// that group, and must not end themselves with it. What it leaves
-    /// running is still found by the check for leftovers.
-    fn outside_client(&self, program: &OsStr) -> Command {
-        let mut command = Command::new(program);
-        isolate(&mut command, &self.root);
-        command
-            .env("WAYLAND_DISPLAY", &self.socket)
-            .env("DBUS_SESSION_BUS_ADDRESS", self.bus.address())
-            .env("DESKRINCH_SESSION_DIR", &self.root)
-            // The tests' guard against running in the real session reads it.
-            .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
-            .envs(self.compositor.client_env(&self.root.join("run")))
-            .stdin(Stdio::null());
-        if let Some(desktop) = &self.current_desktop {
-            command.env(CURRENT_DESKTOP, desktop);
-        }
-        command
+    /// How the compositor ended, once it has; `None` while it runs.
+    pub(crate) fn compositor_status(&mut self) -> Option<ExitStatus> {
+        self.child.try_wait().ok().flatten()
     }
 
     /// Whether the compositor is still running.
@@ -303,8 +285,11 @@ impl Session {
             return Ok(());
         }
         self.ended = true;
-        let child = &mut self.child;
-        let group_left = end_group(self.group, || drop(child.try_wait()));
+        let (child, clients) = (&mut self.child, &mut self.clients);
+        let group_left = end_group(self.group, || {
+            drop(child.try_wait());
+            clients::reap(clients);
+        });
         interrupt::forget(self.group);
         self.bus.stop();
         let mut leftovers = kill_leftovers(&self.root.join("run"));
@@ -385,55 +370,21 @@ impl Session {
                 })?;
             interrupt::check()?;
         }
-        if self.compositor.checks_opengl() {
+        if self.compositor.checks_opengl(&self.display) {
             self.check_kwin_compositing(STARTUP)?;
         }
         Ok(())
     }
-}
 
-/// Ends every process of the process group `group`: `SIGTERM`, then
-/// `SIGKILL` for what is left after [`SHUTDOWN`]. `reap` reaps the group's
-/// leader, when the caller is its parent, so that its zombie does not keep
-/// the group. Returns whether any of the group outlived even that.
-fn end_group(group: Pid, mut reap: impl FnMut()) -> bool {
-    // The group may already be gone; either way it is asked to end.
-    let _ = kill_process_group(group, Signal::TERM);
-    let deadline = Instant::now() + SHUTDOWN;
-    loop {
-        reap();
-        if test_kill_process_group(group).is_err() {
-            return false;
-        }
-        if Instant::now() >= deadline {
-            let _ = kill_process_group(group, Signal::KILL);
-            thread::sleep(POLL);
-            reap();
-            return test_kill_process_group(group).is_ok();
-        }
-        thread::sleep(POLL);
+    /// Waits up to `patience` until `name` is owned on the session's bus.
+    pub(crate) fn wait_for_name(&self, name: &str, patience: Duration) -> Result<(), NameError> {
+        self.bus.wait_for_name(name, patience)
     }
-}
 
-/// Kills every process that names `runtime` as its `XDG_RUNTIME_DIR` (the
-/// session's processes that left its group, [`leftovers`]), and returns
-/// them once they are gone, or after [`SHUTDOWN`].
-fn kill_leftovers(runtime: &Path) -> Vec<Leftover> {
-    let leftovers = leftovers::find(runtime);
-    for leftover in &leftovers {
-        // Already gone, or not ours to signal: either way not running on.
-        let _ = kill_process(leftover.pid, Signal::KILL);
+    /// The session's bus address.
+    pub(crate) fn bus_address(&self) -> &str {
+        self.bus.address()
     }
-    // `SIGKILL` takes effect asynchronously; return once they are gone.
-    let deadline = Instant::now() + SHUTDOWN;
-    while leftovers
-        .iter()
-        .any(|leftover| test_kill_process(leftover.pid).is_ok())
-        && Instant::now() < deadline
-    {
-        thread::sleep(POLL);
-    }
-    leftovers
 }
 
 impl Drop for Session {

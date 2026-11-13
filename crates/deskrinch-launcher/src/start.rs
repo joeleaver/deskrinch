@@ -13,17 +13,21 @@ use deskrinch_desktop_entries::{
 use deskrinch_settings::general::{NoTerminal, TerminalCommand, terminal};
 use rinch::prelude::{ActivationToken, ActivationTokenError};
 
+use crate::starts::Starts;
+
 /// The name the launched applications' systemd scopes are given.
 const SCOPE_LAUNCHER: &str = "deskrinch-launcher";
 
 /// Starts `entry` on a thread of its own, with `token` when there is one,
 /// and in the terminal `setting` names (or the default) when it runs in
-/// one. What goes wrong is reported.
+/// one; a start that succeeded is recorded in `starts`. What goes wrong is
+/// reported, and not recorded.
 pub(crate) fn start(
     entry: DesktopEntry,
     token: Result<ActivationToken, ActivationTokenError>,
     env: &Environment,
     setting: Option<TerminalCommand>,
+    starts: Starts,
 ) {
     let mut context = LaunchContext::new(env).with_scope_launcher(SCOPE_LAUNCHER);
     match token {
@@ -48,8 +52,9 @@ pub(crate) fn start(
                     return;
                 }
             };
-            if let Err(error) = launch(&entry, None, &[], &context) {
-                report::error(&what, &error);
+            match launch(&entry, None, &[], &context) {
+                Ok(_launched) => starts.record(entry.id),
+                Err(error) => report::error(&what, &error),
             }
         });
     if let Err(error) = spawned {

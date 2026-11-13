@@ -86,7 +86,9 @@ How it runs and ends:
     directory is the caller's.
   - The command joins the compositor's process group. When the command
     exits, or when this task gets SIGINT, SIGTERM or SIGHUP, the group is
-    sent SIGTERM, then SIGKILL after 5 s, and the bus is stopped. Then any
+    sent SIGTERM, then SIGKILL after 5 s, and is waited for until it is gone
+    (reported as a failure only if it is still there 60 s after the SIGKILL:
+    something stuck). The bus is stopped. Then any
     process still carrying the session's XDG_RUNTIME_DIR (one that left the
     group) is killed and reported as a failure, and the session's directory
     is kept.
@@ -183,7 +185,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
 
 /// The exit status to pass on for a command that ended with `status`: its
 /// own code, or 128 plus the signal that ended it, as a shell reports it.
-fn exit_code(status: ExitStatus) -> u8 {
+pub(crate) fn exit_code(status: ExitStatus) -> u8 {
     let code = status
         .code()
         .or_else(|| status.signal().map(|signal| 128 + signal))

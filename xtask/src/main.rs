@@ -4,8 +4,10 @@
 //! returning [`Outcome`]. Adding a task is a new module, one [`Task`] variant
 //! and one match arm in [`Task::run`]; existing tasks are not touched.
 
+mod cargo_messages;
 mod ci_packages;
 mod compositor_tests;
+mod desktop;
 mod error;
 mod file_length;
 mod git;
@@ -119,6 +121,10 @@ enum Task {
         #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
         args: Vec<OsString>,
     },
+    /// Open the shell in a window on the real desktop, in a nested
+    /// compositor, isolated like a session. For the owner, from a terminal.
+    #[command(long_about = desktop::LONG_ABOUT)]
+    Desktop(desktop::Args),
     /// Measure what a rinch program (a shell component) costs, in isolated
     /// sessions: CPU time to its first frame, memory, idle wake-ups and CPU
     /// per frame, or with `--instructions` instruction counts.
@@ -180,6 +186,11 @@ enum Task {
         /// by the end.
         #[arg(long, value_name = "APP_ID", conflicts_with = "summon")]
         window: Option<String>,
+        /// Each run's state directory (`XDG_STATE_HOME`) starts with a copy
+        /// of this directory's contents: state the program reads, such as
+        /// the record of starts the launcher shows (`deskrinch/starts.toml`).
+        #[arg(long, value_name = "DIR")]
+        state: Option<PathBuf>,
         /// The program to measure.
         program: OsString,
         /// Its arguments.
@@ -226,6 +237,7 @@ impl Task {
                 renderer,
             } => compositor_tests::run(root, &compositors, renderer),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
+            Self::Desktop(args) => desktop::run(root, &args),
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
             Self::Measure {
                 compositor,
@@ -242,6 +254,7 @@ impl Task {
                 dismiss,
                 shows,
                 window,
+                state,
                 program,
                 args,
             } => measure::run(&measure::Request {
@@ -257,6 +270,7 @@ impl Task {
                 ),
                 instructions,
                 profiles,
+                state,
                 program,
                 args,
                 summons: summon
@@ -304,7 +318,7 @@ enum Outcome {
 
 fn main() -> ExitCode {
     let cli = Cli::parse();
-    let runs_a_command = matches!(cli.task, Task::Session { .. });
+    let runs_a_command = matches!(cli.task, Task::Session { .. } | Task::Desktop(_));
     match cli.task.run(Path::new(WORKSPACE_ROOT)) {
         Ok(Outcome::Passed) => ExitCode::SUCCESS,
         Ok(Outcome::Failed) => ExitCode::FAILURE,
@@ -312,6 +326,10 @@ fn main() -> ExitCode {
         Err(Error::Interrupted) => {
             eprintln!("error: {}", Error::Interrupted);
             ExitCode::from(run_in_session::INTERRUPTED)
+        }
+        Err(Error::Desktop(refused @ desktop::DesktopError::NotInteractive)) => {
+            eprintln!("error: {refused}");
+            ExitCode::from(desktop::REFUSED)
         }
         Err(error) => {
             eprintln!("error: {error}");

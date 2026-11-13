@@ -38,6 +38,7 @@ mod renderer;
 mod report;
 mod show;
 mod smaps;
+mod state;
 mod system;
 mod window;
 
@@ -106,6 +107,11 @@ as totals. A run with it minus one without is the cost of a window
 appearing plus what a window held open costs over the window. A run fails
 if the window cannot be opened or is gone by the end.
 
+--state DIR starts each run's state directory (XDG_STATE_HOME) with a copy
+of DIR's contents, such as the launcher's record of starts
+(deskrinch/starts.toml); the report says the state was seeded, and from
+where. A DIR that is not a readable directory fails before any session.
+
 Needs valgrind and callgrind_control for --instructions.";
 
 /// The state of the GPU driver's shader cache at each start.
@@ -135,6 +141,8 @@ pub(crate) struct Request {
     /// Where to keep each run's Callgrind profile (`run-N/`), for
     /// `callgrind_annotate`; inside the session, and gone with it, if unset.
     pub(crate) profiles: Option<PathBuf>,
+    /// With `--state`: what each run's state directory starts with.
+    pub(crate) state: Option<PathBuf>,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
     /// With `--summon`: the program starts hidden, and each show is measured
@@ -156,6 +164,9 @@ impl Request {
 
 /// Runs the measurement and prints its report.
 pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
+    if let Some(state) = &request.state {
+        state::check(state)?;
+    }
     let program = request.program.to_string_lossy().into_owned();
     // A warm cache lives outside the sessions, for as long as this task.
     let cache_dir = (request.shader_cache == ShaderCache::Warm)
@@ -197,62 +208,62 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
         let run = in_session(request, |session| {
-            if request.instructions {
-                let dir = request.profiles.as_ref().map_or_else(
-                    || session.root().join("callgrind"),
-                    |dir| dir.join(format!("run-{index}")),
-                );
-                std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
-                    what: format!("create {}", dir.display()),
-                    source,
-                })?;
-                let out = dir.join("callgrind.out");
-                let mut command = session.client("valgrind".as_ref());
-                command
-                    .args(callgrind::valgrind_args(&out))
-                    .arg(&request.program);
-                environment(&mut command, request, cache);
-                command.args(&request.args);
-                let control = || session.client("callgrind_control".as_ref());
-                match &request.summons {
-                    Some(summons) => {
-                        let ask = |args: &[OsString]| asked(session, request, cache, args);
-                        show::measure_instructions(
-                            command, &control, &ask, &program, &out, timing, summons,
-                        )
-                    }
-                    None => callgrind::measure(
-                        command,
-                        control,
-                        &program,
-                        &out,
-                        timing,
-                        &Stimulus::of(session, request.window.as_deref()),
-                    ),
-                }
-            } else {
-                let command = client(session, request, cache);
-                match &request.summons {
-                    Some(summons) => {
-                        let ask = |args: &[OsString]| asked(session, request, cache, args);
-                        show::measure(command, &ask, &program, timing, summons)
-                    }
-                    None => probe::measure(
-                        command,
-                        &program,
-                        timing,
-                        &Stimulus::of(session, request.window.as_deref()),
-                    ),
-                }
-            }
+            measure_run(request, session, index, cache, &program, timing)
         })?;
         runs.push(run);
     }
     println!("{}", header(request));
+    if let Some(note) = state::note(request.state.as_deref()) {
+        println!("{note}");
+    }
     println!("{}", report::render(&program, &runs));
     match request.expect_renderer {
         Some(expected) => Ok(check_renderer(expected, &runs)),
         None => Ok(Outcome::Passed),
+    }
+}
+
+/// Measures run `index` of `program` in `session` as `request` asks: under
+/// Callgrind with `--instructions`, else from `/proc`; its shows with
+/// `--summon`, else its start and idle window.
+fn measure_run(
+    request: &Request,
+    session: &Session,
+    index: u32,
+    cache: Option<&Path>,
+    program: &str,
+    timing: probe::Timing,
+) -> Result<report::Run, Error> {
+    let ask = |args: &[OsString]| asked(session, request, cache, args);
+    let stimulus = || Stimulus::of(session, request.window.as_deref());
+    if !request.instructions {
+        let command = client(session, request, cache);
+        return match &request.summons {
+            Some(summons) => show::measure(command, &ask, program, timing, summons),
+            None => probe::measure(command, program, timing, &stimulus()),
+        };
+    }
+    let dir = request.profiles.as_ref().map_or_else(
+        || session.root().join("callgrind"),
+        |dir| dir.join(format!("run-{index}")),
+    );
+    std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
+        what: format!("create {}", dir.display()),
+        source,
+    })?;
+    let out = dir.join("callgrind.out");
+    let mut command = session.client("valgrind".as_ref());
+    command
+        .args(callgrind::valgrind_args(&out))
+        .arg(&request.program);
+    environment(&mut command, request, cache);
+    command.args(&request.args);
+    let control = || session.client("callgrind_control".as_ref());
+    match &request.summons {
+        Some(summons) => {
+            show::measure_instructions(command, &control, &ask, program, &out, timing, summons)
+        }
+        None => callgrind::measure(command, control, program, &out, timing, &stimulus()),
     }
 }
 
@@ -269,7 +280,11 @@ fn in_session<T>(
         None,
         |_| Ok(()),
     )?;
-    let result = measure(&session);
+    let result = match &request.state {
+        Some(state) => state::seed(state, &session.root().join("state")),
+        None => Ok(()),
+    }
+    .and_then(|()| measure(&session));
     let ended = session.end();
     let value = result?;
     ended?;

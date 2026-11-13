@@ -1,22 +1,24 @@
 //! KWin's `org.kde.KWin.ScreenShot2` on the session bus: for KWin, which
 //! offers neither Wayland capture protocol.
 //!
-//! `CaptureScreen` takes the output's name, options and the write end of a
-//! pipe, answers with the image's description (size, stride, a `QImage`
-//! format), and writes the raw pixels into the pipe. KWin answers only
-//! callers it has granted the interface to; see the `deskrinch-kwin-access`
-//! crate.
+//! `CaptureScreen` takes the output's name, options and a descriptor to
+//! write to, answers with the image's description (size, stride, a `QImage`
+//! format), then writes the raw pixels and closes the descriptor. The
+//! descriptor is a memory file's ([`sink`] says why not a pipe's). KWin
+//! answers only callers it has granted the interface to; see the
+//! `deskrinch-kwin-access` crate.
+
+mod sink;
 
 use std::collections::HashMap;
-use std::io::{self, Read as _};
-use std::os::fd::AsFd;
-use std::thread;
+use std::io;
 use std::time::Duration;
 
 use deskrinch_bus::Bus;
 use deskrinch_test_wayland::Deadline;
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use zbus::{Connection, Fd, OwnedVariant, Variant};
+
+use self::sink::Sink;
 
 use crate::Transform;
 use crate::buffer::{Buffer, Layout};
@@ -64,13 +66,16 @@ impl ScreenShot2 {
     /// without the cursor, by `deadline` (the call itself is bounded by the
     /// connection's timeout, at most the same).
     pub(crate) fn capture(&self, name: &str, deadline: Deadline) -> Result<Image, CaptureError> {
-        let (reader, writer) = io::pipe().map_err(|source| CaptureError::Io {
-            what: "make the screenshot pipe",
+        let mut sink = Sink::new().map_err(|source| CaptureError::Io {
+            what: "make the screenshot file",
             source,
         })?;
-        // KWin writes once it has answered; read alongside, so neither side
-        // waits on a full pipe.
-        let pixels = thread::spawn(move || read_until(&reader, deadline));
+        let Some(writer) = sink.writer() else {
+            return Err(CaptureError::Io {
+                what: "make the screenshot file",
+                source: io::Error::other("its write side is gone"),
+            });
+        };
         // KWin 6.6 leaves the caller's own windows out unless told not to:
         // a test that captures the windows it opened would see none.
         let options: HashMap<&str, Variant<'_>> = HashMap::from([
@@ -83,14 +88,11 @@ impl ScreenShot2 {
             PATH,
             Some(INTERFACE),
             "CaptureScreen",
-            &(name, options, Fd::from(writer.as_fd())),
+            &(name, options, Fd::from(writer)),
         ));
-        // KWin holds its own copy; the read ends when KWin closes it.
-        drop(writer);
-        let read = pixels.join().map_err(|_| CaptureError::Io {
-            what: "read the screenshot pipe",
-            source: io::Error::other("the reading thread panicked"),
-        })?;
+        // KWin holds its own copy, and writes after it has answered; the
+        // writing has ended when KWin closes its copy.
+        sink.close_writer();
         let timed_out = || CaptureError::TimedOut {
             output: name.to_owned(),
             patience: deadline.patience(),
@@ -99,12 +101,12 @@ impl ScreenShot2 {
             zbus::Error::InputOutput(io) if io.kind() == io::ErrorKind::TimedOut => timed_out(),
             _ => refusal(error, name),
         })?;
-        let bytes = read.map_err(|source| {
+        let bytes = sink.wait_written(deadline).map_err(|source| {
             if source.kind() == io::ErrorKind::TimedOut {
                 timed_out()
             } else {
                 CaptureError::Io {
-                    what: "read the screenshot pipe",
+                    what: "read the screenshot file",
                     source,
                 }
             }
@@ -123,35 +125,6 @@ impl ScreenShot2 {
             transform: Transform::Normal,
         }
         .to_image()
-    }
-}
-
-/// Reads `reader` to its end, or until `deadline` passes (an error of kind
-/// `TimedOut`).
-fn read_until(reader: &io::PipeReader, deadline: Deadline) -> io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    let mut chunk = vec![0; 1 << 16];
-    loop {
-        let left = deadline.left();
-        if left.is_zero() {
-            return Err(io::ErrorKind::TimedOut.into());
-        }
-        let timeout = Timespec::try_from(left).unwrap_or(Timespec {
-            tv_sec: i64::MAX,
-            tv_nsec: 0,
-        });
-        let mut fds = [PollFd::new(reader, PollFlags::IN)];
-        match poll(&mut fds, Some(&timeout)) {
-            Ok(0) | Err(rustix::io::Errno::INTR) => continue,
-            Ok(_) => {}
-            Err(errno) => return Err(errno.into()),
-        }
-        match (&*reader).read(&mut chunk) {
-            Ok(0) => return Ok(bytes),
-            Ok(read) => bytes.extend_from_slice(&chunk[..read]),
-            Err(error) if error.kind() == io::ErrorKind::Interrupted => {}
-            Err(error) => return Err(error),
-        }
     }
 }
 
@@ -234,29 +207,7 @@ fn qimage_layout(format: u32) -> Option<Layout> {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write as _;
-
     use super::*;
-
-    #[test]
-    fn a_pipe_nobody_closes_times_out() {
-        let (reader, _writer) = io::pipe().unwrap();
-        let error = read_until(&reader, Deadline::after(Duration::from_millis(200))).unwrap_err();
-        assert_eq!(error.kind(), io::ErrorKind::TimedOut);
-    }
-
-    #[test]
-    fn a_pipe_is_read_to_its_end() {
-        let (reader, mut writer) = io::pipe().unwrap();
-        let sent = vec![7; 200_000];
-        let written = thread::spawn({
-            let sent = sent.clone();
-            move || writer.write_all(&sent)
-        });
-        let bytes = read_until(&reader, Deadline::after(Duration::from_secs(600))).unwrap();
-        written.join().unwrap().unwrap();
-        assert_eq!(bytes, sent);
-    }
 
     fn answer(entries: &[(&str, Variant<'_>)]) -> HashMap<String, OwnedVariant> {
         entries

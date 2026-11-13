@@ -3,6 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
+use crate::cargo_messages::{self, Kind};
 use crate::error::Error;
 
 /// Which implementation of the Wayland client library a test binary is
@@ -87,7 +88,9 @@ pub(super) fn test_binaries(
             )?);
         }
         for (program, at) in programs.iter().zip(&mut found) {
-            if let Some(path) = executable(&messages, program.package, program.bin, "bin") {
+            if let Some(path) =
+                cargo_messages::executable(&messages, program.package, program.bin, Kind::Bin)
+            {
                 *at = Some(path);
             }
         }
@@ -144,38 +147,7 @@ fn build(
 
 /// The executable of `target` in Cargo's JSON messages.
 fn test_executable(messages: &str, target: Target) -> Option<PathBuf> {
-    executable(messages, target.package, target.test, "test")
-}
-
-/// The executable of `package`'s target `name` of `kind` (`test`, `bin`) in
-/// Cargo's JSON messages.
-fn executable(messages: &str, package: &str, name: &str, kind: &str) -> Option<PathBuf> {
-    messages
-        .lines()
-        .filter_map(|line| serde_json::from_str::<serde_json::Value>(line).ok())
-        .filter(|message| message["reason"] == "compiler-artifact")
-        .filter(|message| message["target"]["name"] == name)
-        .filter(|message| {
-            message["package_id"]
-                .as_str()
-                .is_some_and(|id| package_name(id) == Some(package))
-        })
-        .filter(|message| {
-            message["target"]["kind"]
-                .as_array()
-                .is_some_and(|kinds| kinds.iter().any(|each| each == kind))
-        })
-        .find_map(|message| message["executable"].as_str().map(PathBuf::from))
-}
-
-/// The package name in a Cargo package id: `path+file:///…/name#0.1.0`, or
-/// `path+file:///…/dir#name@0.1.0` when the directory is named otherwise.
-fn package_name(id: &str) -> Option<&str> {
-    let (location, fragment) = id.rsplit_once('#')?;
-    match fragment.split_once('@') {
-        Some((name, _)) => Some(name),
-        None => location.rsplit('/').next(),
-    }
+    cargo_messages::executable(messages, target.package, target.test, Kind::Test)
 }
 
 #[cfg(test)]
@@ -190,7 +162,6 @@ mod tests {
 not json
 {"reason":"compiler-artifact","package_id":"path+file:///w/crates/deskrinch-window-management#0.1.0","target":{"name":"kwin_not_granted","kind":["test"]},"executable":"/target/debug/deps/kwin_not_granted-4567"}
 {"reason":"compiler-artifact","package_id":"path+file:///w/crates/screen#deskrinch-test-screen@0.1.0","target":{"name":"compositor","kind":["test"]},"executable":"/target/debug/deps/compositor-89ab"}
-{"reason":"compiler-artifact","package_id":"path+file:///w/crates/deskrinch-panel#0.1.0","target":{"name":"deskrinch-panel","kind":["bin"]},"executable":"/target/debug/deskrinch-panel"}
 {"reason":"build-finished","success":true}"#;
 
     fn target(package: &'static str, test: &'static str) -> Target {
@@ -240,28 +211,5 @@ not json
             test_executable(MESSAGES, target(SCREEN, "kwin_not_granted")),
             None
         );
-    }
-
-    #[test]
-    fn finds_a_program_by_its_bin_name() {
-        assert_eq!(
-            executable(MESSAGES, "deskrinch-panel", "deskrinch-panel", "bin"),
-            Some(PathBuf::from("/target/debug/deskrinch-panel"))
-        );
-        assert_eq!(
-            executable(MESSAGES, "deskrinch-panel", "deskrinch-panel", "test"),
-            None,
-            "a bin is not a test"
-        );
-    }
-
-    #[test]
-    fn reads_package_ids() {
-        assert_eq!(package_name("path+file:///w/crates/a-b#0.1.0"), Some("a-b"));
-        assert_eq!(
-            package_name("path+file:///w/crates/dir#a-b@0.1.0"),
-            Some("a-b")
-        );
-        assert_eq!(package_name("no fragment"), None);
     }
 }
