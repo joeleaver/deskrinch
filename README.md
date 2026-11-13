@@ -71,7 +71,11 @@ runs it.
 `--repeat N --into DIR` runs the same thing N times, each in fresh sessions,
 each run's whole output in `DIR/run-NN.log` (`DIR` is made if missing, and
 must be empty). It says how each run went and, at the end, how many passed
-and failed and which files failed. It fails if any run did. To chase a
+and failed and which files failed. It fails if any run did. A run that
+takes longer than `--run-timeout SECONDS` (an hour by default) is interrupted
+so that it ends its sessions, killed if it has not ended two minutes later,
+and counted as failed, with a note at the end of its file; the repeat goes
+on. To chase a
 failure CI saw, run what CI runs, narrowed:
 
 ```sh
