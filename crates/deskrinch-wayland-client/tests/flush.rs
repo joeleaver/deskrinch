@@ -1,15 +1,9 @@
 //! A compositor slow to read is not a lost connection: the client's thread
 //! waits until the socket takes the rest. Against a stand-in compositor
-//! ([`fake`]) with no globals, which can stop reading.
+//! (`deskrinch_test_wayland::stand_in`) with no globals, which can stop reading.
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #![cfg(test)]
-
-#[expect(
-    dead_code,
-    reason = "each test binary uses its own part of the stand-in"
-)]
-mod fake;
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -20,7 +14,7 @@ use deskrinch_wayland_client::{Client, EndCause, Flushed, Globals, Lifecycle};
 use wayland_client::protocol::wl_callback::{self, WlCallback};
 use wayland_client::{Connection, Dispatch, QueueHandle};
 
-use fake::Fake;
+use deskrinch_test_wayland::stand_in::StandIn;
 
 /// How long anything here waits.
 const PATIENCE: Duration = Duration::from_secs(30);
@@ -64,7 +58,7 @@ impl Dispatch<WlCallback, ()> for Counter {
 
 #[test]
 fn a_full_socket_is_waited_out_not_taken_for_a_lost_connection() {
-    let (connection, fake) = Fake::start(&[]);
+    let (connection, stand_in) = StandIn::start(&[]).unwrap();
     let client = Client::from_connection(connection).unwrap();
     let answered = Arc::new(AtomicUsize::new(0));
     let ends = Arc::new(Mutex::new(Vec::new()));
@@ -77,7 +71,7 @@ fn a_full_socket_is_waited_out_not_taken_for_a_lost_connection() {
         .unwrap();
 
     // The compositor stops reading; requests go out until the socket is full.
-    fake.set_reading(false);
+    stand_in.set_reading(false);
     let mut sent = 0;
     let deadline = Instant::now() + PATIENCE;
     loop {
@@ -95,7 +89,7 @@ fn a_full_socket_is_waited_out_not_taken_for_a_lost_connection() {
     assert_eq!(*ends.lock().unwrap(), Vec::<String>::new());
 
     // The compositor reads again: every request arrives and is answered.
-    fake.set_reading(true);
+    stand_in.set_reading(true);
     let deadline = Instant::now() + PATIENCE;
     while answered.load(Ordering::Acquire) < sent {
         assert!(

@@ -1213,6 +1213,7 @@ name = "deskrinch-wayland-client"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
+ "deskrinch-test-wayland",
  "rustix",
  "thiserror 2.0.21",
  "wayland-client",
@@ -1225,6 +1226,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-client",
+ "deskrinch-test-wayland",
  "deskrinch-wayland-client",
  "rustix",
  "thiserror 2.0.21",
@@ -1243,6 +1245,7 @@ dependencies = [
  "deskrinch-test-client",
  "deskrinch-test-input",
  "deskrinch-test-screen",
+ "deskrinch-test-wayland",
  "deskrinch-untrusted",
  "deskrinch-wayland-client",
  "deskrinch-window-management",

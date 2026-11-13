@@ -1,6 +1,6 @@
 [package]
 name = "deskrinch-test-wayland"
-description = "What deskrinch's Wayland test-support crates share: colours, transforms, shm buffers, and waits with deadlines."
+description = "What deskrinch's Wayland test-support crates share: colours, transforms, shm buffers, waits with deadlines, and a stand-in compositor."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
