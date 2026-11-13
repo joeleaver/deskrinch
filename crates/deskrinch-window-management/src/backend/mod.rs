@@ -225,6 +225,15 @@ impl State {
         if !self.tracks(id) {
             return;
         }
+        // An `output_enter` names one of the client's `wl_output`s, of any
+        // state on the connection: one that another state bound before this
+        // one heard of the global is dropped here. That loses nothing: when
+        // this state binds its own `wl_output` for the output, the compositor
+        // sends the same existing handle an `output_enter` naming it. Seen
+        // under sway and labwc (`WAYLAND_DEBUG` traces of a second state
+        // binding its outputs beside a first, which already had a toplevel).
+        // KWin's windows report their geometry, not outputs: this does not
+        // arise there.
         if entered && !self.outputs.contains(global) {
             return;
         }
