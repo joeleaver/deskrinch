@@ -1,22 +1,24 @@
-//! Changing a nested session's outputs from a test: their scale and
-//! transform, and whether they are on, through
-//! `wlr-output-management-unstable-v1` (sway, labwc and other wlroots
-//! compositors).
+//! A nested session's outputs through `wlr-output-management-unstable-v1`
+//! (sway, labwc and other wlroots compositors): read, and set as a whole.
+//!
+//! Every configuration names every head, and states everything of each one
+//! it turns on (mode, position, scale, transform): the protocol leaves a
+//! property not set to the compositor, and sway puts an output turned on
+//! without a position at (0,0).
 //!
 //! KWin is not covered here: its own protocol, `kde_output_management_v2`,
 //! needs `kde_output_device_v2`, and KWin 6.6 sends that interface's modes
 //! an event (`flags`, since version 19) to clients bound at older versions,
 //! which the Rust bindings (`wayland-protocols-plasma` 0.3.12) cannot read.
-//! Under KWin, [`change_output`](crate::change_output) and
-//! [`set_output_enabled`](crate::set_output_enabled) go through
-//! `kscreen-doctor` instead.
+//! Under KWin the outputs are read and set with `kscreen-doctor` instead
+//! ([`crate::kscreen`]).
 
 use std::os::unix::net::UnixStream;
 use std::path::Path;
 
 use wayland_client::protocol::wl_output::Transform as WlTransform;
 use wayland_client::{
-    Connection, Dispatch, QueueHandle, WEnum, delegate_noop, event_created_child,
+    Connection, Dispatch, EventQueue, QueueHandle, WEnum, delegate_noop, event_created_child,
 };
 use wayland_protocols_wlr::output_management::v1::client::zwlr_output_configuration_head_v1::ZwlrOutputConfigurationHeadV1;
 use wayland_protocols_wlr::output_management::v1::client::zwlr_output_configuration_v1::{
@@ -28,25 +30,32 @@ use wayland_protocols_wlr::output_management::v1::client::zwlr_output_head_v1::{
 use wayland_protocols_wlr::output_management::v1::client::zwlr_output_manager_v1::{
     self, ZwlrOutputManagerV1,
 };
-use wayland_protocols_wlr::output_management::v1::client::zwlr_output_mode_v1::ZwlrOutputModeV1;
+use wayland_protocols_wlr::output_management::v1::client::zwlr_output_mode_v1::{
+    self, ZwlrOutputModeV1,
+};
 
 use deskrinch_test_wayland::{Deadline, Globals, Transform, dispatch_until};
 
+use crate::layout::{Mode, OutputState};
 use crate::{Error, PATIENCE, waited};
 
 /// One head (output) as the manager describes it.
 #[derive(Debug)]
 struct Head {
     proxy: ZwlrOutputHeadV1,
-    name: Option<String>,
-    enabled: bool,
-    settings: OutputSettings,
+    state: OutputState,
+    /// Its modes, as the compositor lists them.
+    modes: Vec<ZwlrOutputModeV1>,
+    /// Its current mode, described in [`State::modes`].
+    current: Option<ZwlrOutputModeV1>,
 }
 
 /// What the manager's events build up.
 #[derive(Debug, Default)]
 struct State {
     heads: Vec<Head>,
+    /// Every mode the compositor described, and what it is.
+    modes: Vec<(ZwlrOutputModeV1, Mode)>,
     /// The serial of the last complete description.
     serial: Option<u32>,
     /// `Ok` once applied, `Err` with the reason once not.
@@ -62,164 +71,197 @@ pub struct OutputChange {
     pub transform: Option<Transform>,
 }
 
-/// An output's scale and transform, as the compositor reports them.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct OutputSettings {
-    /// The scale.
-    pub scale: f64,
-    /// The transform.
-    pub transform: Transform,
+/// A connection to the manager, its heads described.
+struct Manager {
+    queue: EventQueue<State>,
+    state: State,
+    proxy: ZwlrOutputManagerV1,
+    deadline: Deadline,
 }
 
-impl From<OutputSettings> for OutputChange {
-    fn from(settings: OutputSettings) -> Self {
-        Self {
-            scale: Some(settings.scale),
-            transform: Some(settings.transform),
+impl Manager {
+    fn bind(connection: &Connection) -> Result<Self, Error> {
+        let deadline = Deadline::after(PATIENCE);
+        let mut queue = connection.new_event_queue();
+        let mut state = State::default();
+        let globals = Globals::list(connection, &mut queue, &mut state, deadline)
+            .map_err(|error| waited(error, "listing the globals"))?;
+        let proxy: ZwlrOutputManagerV1 = globals
+            .bind(&queue.handle(), 1..=4, ())
+            .map_err(|_| Error::NoOutputManagement)?;
+        dispatch_until(&mut queue, &mut state, deadline, |state| {
+            state.serial.is_some()
+        })
+        .map_err(|error| waited(error, "learning the outputs"))?;
+        Ok(Self {
+            queue,
+            state,
+            proxy,
+            deadline,
+        })
+    }
+
+    fn layout(&self) -> Vec<OutputState> {
+        self.state
+            .heads
+            .iter()
+            .map(|head| {
+                let mode = head.current.as_ref().and_then(|current| {
+                    self.state
+                        .modes
+                        .iter()
+                        .find(|(mode, _)| mode == current)
+                        .map(|(_, described)| *described)
+                });
+                OutputState {
+                    mode: mode.unwrap_or(head.state.mode),
+                    ..head.state.clone()
+                }
+            })
+            .collect()
+    }
+
+    /// Makes the outputs `layout`: every head named, each one on stated in
+    /// full. A head `layout` does not name is stated as it is.
+    fn apply(mut self, layout: &[OutputState]) -> Result<(), Error> {
+        let qh = self.queue.handle();
+        for output in layout {
+            if !self.state.heads.iter().any(|h| h.state.name == output.name) {
+                return Err(Error::UnknownOutput(output.name.clone()));
+            }
         }
+        let refused = |reason: String| Error::OutputRefused {
+            name: "the outputs".to_owned(),
+            reason,
+        };
+        let serial = self.state.serial.unwrap_or_default();
+        let configuration = self.proxy.create_configuration(serial, &qh, ());
+        for head in &self.state.heads {
+            let target = layout
+                .iter()
+                .find(|output| output.name == head.state.name)
+                .unwrap_or(&head.state);
+            if !target.enabled {
+                configuration.disable_head(&head.proxy);
+                continue;
+            }
+            let settings = configuration.enable_head(&head.proxy, &qh, ());
+            let listed = head.modes.iter().find(|proxy| {
+                self.state
+                    .modes
+                    .iter()
+                    .any(|(mode, described)| mode == *proxy && *described == target.mode)
+            });
+            match listed {
+                Some(mode) => settings.set_mode(mode),
+                None => settings.set_custom_mode(
+                    signed(target.mode.width),
+                    signed(target.mode.height),
+                    signed(target.mode.refresh_mhz),
+                ),
+            }
+            settings.set_position(target.position.0, target.position.1);
+            settings.set_scale(target.scale);
+            let transform = WlTransform::try_from(target.transform.to_wayland())
+                .map_err(|()| refused(format!("transform {:?}", target.transform)))?;
+            settings.set_transform(transform);
+        }
+        configuration.apply();
+        let applied = dispatch_until(&mut self.queue, &mut self.state, self.deadline, |state| {
+            state.outcome.is_some()
+        })
+        .map_err(|error| waited(error, "changing the outputs"));
+        configuration.destroy();
+        self.proxy.stop();
+        applied?;
+        self.state
+            .outcome
+            .take()
+            .unwrap_or_else(|| Err("no answer".into()))
+            .map_err(refused)
     }
 }
 
+/// `value` as the protocol's `int`, saturating (no output is that large).
+fn signed(value: u32) -> i32 {
+    i32::try_from(value).unwrap_or(i32::MAX)
+}
+
+/// The outputs of the compositor `WAYLAND_DISPLAY` names.
+pub(crate) fn layout_of_env() -> Result<Vec<OutputState>, Error> {
+    let connection = Connection::connect_to_env().map_err(Error::Connect)?;
+    Ok(Manager::bind(&connection)?.layout())
+}
+
+/// Makes the outputs of the compositor `WAYLAND_DISPLAY` names `layout`,
+/// and returns once it has applied it.
+pub(crate) fn apply_to_env(layout: &[OutputState]) -> Result<(), Error> {
+    let connection = Connection::connect_to_env().map_err(Error::Connect)?;
+    Manager::bind(&connection)?.apply(layout)
+}
+
+/// A connection to the compositor listening on the Wayland socket at
+/// `socket`.
+fn connect_at(socket: &Path) -> Result<Connection, Error> {
+    let stream = UnixStream::connect(socket).map_err(|source| Error::Socket {
+        path: socket.to_owned(),
+        source,
+    })?;
+    Connection::from_socket(stream).map_err(Error::Connect)
+}
+
+/// The outputs of the wlroots compositor listening on the Wayland socket at
+/// `socket`, as it reports them: for a session's runner, which is not one
+/// of its clients.
+///
+/// # Errors
+///
+/// When the compositor does not offer `zwlr_output_manager_v1`
+/// ([`Error::NoOutputManagement`]), or the connection fails.
+pub fn wlroots_outputs_at(socket: &Path) -> Result<Vec<OutputState>, Error> {
+    Ok(Manager::bind(&connect_at(socket)?)?.layout())
+}
+
 /// Changes the output named `name` of the compositor `WAYLAND_DISPLAY`
-/// names, and returns once the compositor has applied the change, with the
-/// output's settings from before it (to put back). Every other output keeps
-/// its state. Clients learn of the change a moment later, through their own
-/// `wl_output` events.
+/// names, every other output stated as it is, and returns once the
+/// compositor has applied the change, with the output's state from before
+/// it. Clients learn of the change a moment later, through their own
+/// `wl_output` events. A test changes an output with
+/// [`change_output`](crate::change_output), which puts it back.
 ///
 /// # Errors
 ///
 /// When the compositor does not offer `zwlr_output_manager_v1`
 /// ([`Error::NoOutputManagement`]), has no output so named, refuses the
 /// change, or the connection fails.
-pub fn configure_output(name: &str, change: OutputChange) -> Result<OutputSettings, Error> {
+pub fn configure_output(name: &str, change: OutputChange) -> Result<OutputState, Error> {
     let connection = Connection::connect_to_env().map_err(Error::Connect)?;
-    let before = configure(&connection, Some(name), Apply::Change(change))?;
-    before
+    let manager = Manager::bind(&connection)?;
+    let before = manager
+        .layout()
         .into_iter()
-        .next()
-        .ok_or_else(|| Error::UnknownOutput(name.to_owned()))
+        .find(|output| output.name == name && output.enabled)
+        .ok_or_else(|| Error::UnknownOutput(name.to_owned()))?;
+    manager.apply(&[before.changed(change)])?;
+    Ok(before)
 }
 
-/// Applies `change` to every output of the compositor listening on the
-/// Wayland socket at `socket`, and returns once it has applied it: how a
-/// nested session sets its outputs up before its first client connects.
+/// Applies `change` to every output that is on, of the compositor
+/// listening on the Wayland socket at `socket`, each stated in full, and
+/// returns once it has applied it: how a nested session sets its outputs up
+/// before its first client connects.
 ///
 /// # Errors
 ///
 /// As [`configure_output`].
 pub fn configure_every_output(socket: &Path, change: OutputChange) -> Result<(), Error> {
-    let stream = UnixStream::connect(socket).map_err(|source| Error::Socket {
-        path: socket.to_owned(),
-        source,
-    })?;
-    let connection = Connection::from_socket(stream).map_err(Error::Connect)?;
-    configure(&connection, None, Apply::Change(change)).map(drop)
-}
-
-/// Turns the output named `name` of the compositor `WAYLAND_DISPLAY` names
-/// on or off, and returns once the compositor has done it.
-///
-/// # Errors
-///
-/// As [`configure_output`].
-pub(crate) fn set_enabled(name: &str, enabled: bool) -> Result<(), Error> {
-    let connection = Connection::connect_to_env().map_err(Error::Connect)?;
-    let changed = configure(&connection, Some(name), Apply::Enable(enabled))?;
-    if changed.is_empty() {
-        return Err(Error::UnknownOutput(name.to_owned()));
-    }
-    Ok(())
-}
-
-/// What a configuration does to the heads it is for.
-#[derive(Debug, Clone, Copy)]
-enum Apply {
-    /// Changes their settings; they stay on.
-    Change(OutputChange),
-    /// Turns them on or off.
-    Enable(bool),
-}
-
-/// Applies `apply` to the head named `which`, or to every head for `None`,
-/// and returns the settings the heads it was for had before. Only a head
-/// that is on can be changed; turning one on finds it off too.
-fn configure(
-    connection: &Connection,
-    which: Option<&str>,
-    apply: Apply,
-) -> Result<Vec<OutputSettings>, Error> {
-    let deadline = Deadline::after(PATIENCE);
-    let mut queue = connection.new_event_queue();
-    let mut state = State::default();
-    let globals = Globals::list(connection, &mut queue, &mut state, deadline)
-        .map_err(|error| waited(error, "listing the globals"))?;
-    let qh = queue.handle();
-    let manager: ZwlrOutputManagerV1 = globals
-        .bind(&qh, 1..=4, ())
-        .map_err(|_| Error::NoOutputManagement)?;
-    dispatch_until(&mut queue, &mut state, deadline, |state| {
-        state.serial.is_some()
-    })
-    .map_err(|error| waited(error, "learning the outputs"))?;
-    let described = which.unwrap_or("every output");
-    let refused = |reason: String| Error::OutputRefused {
-        name: described.to_owned(),
-        reason,
-    };
-    let chosen = |head: &Head| {
-        (head.enabled || matches!(apply, Apply::Enable(true)))
-            && (which.is_none() || head.name.as_deref() == which)
-    };
-    if let Some(name) = which
-        && !state.heads.iter().any(chosen)
-    {
-        return Err(Error::UnknownOutput(name.to_owned()));
-    }
-    let serial = state.serial.unwrap_or_default();
-    let configuration = manager.create_configuration(serial, &qh, ());
-    let mut before = Vec::new();
-    // A configuration names every head.
-    for head in &state.heads {
-        let enabled = match apply {
-            Apply::Enable(enabled) if chosen(head) => enabled,
-            _ => head.enabled,
-        };
-        if !enabled {
-            configuration.disable_head(&head.proxy);
-            if chosen(head) {
-                before.push(head.settings);
-            }
-            continue;
-        }
-        let settings = configuration.enable_head(&head.proxy, &qh, ());
-        if chosen(head) {
-            before.push(head.settings);
-            if let Apply::Change(change) = apply {
-                if let Some(scale) = change.scale {
-                    settings.set_scale(scale);
-                }
-                if let Some(transform) = change.transform {
-                    let transform = WlTransform::try_from(transform.to_wayland())
-                        .map_err(|()| refused(format!("transform {transform:?}")))?;
-                    settings.set_transform(transform);
-                }
-            }
-        }
-    }
-    configuration.apply();
-    let applied = dispatch_until(&mut queue, &mut state, deadline, |state| {
-        state.outcome.is_some()
-    })
-    .map_err(|error| waited(error, "changing an output"));
-    configuration.destroy();
-    manager.stop();
-    applied?;
-    state
-        .outcome
-        .take()
-        .unwrap_or_else(|| Err("no answer".into()))
-        .map_err(refused)?;
-    Ok(before)
+    let manager = Manager::bind(&connect_at(socket)?)?;
+    let target: Vec<OutputState> = manager
+        .layout()
+        .iter()
+        .map(|output| output.changed(change))
+        .collect();
+    manager.apply(&target)
 }
 
 impl Dispatch<ZwlrOutputManagerV1, ()> for State {
@@ -234,12 +276,20 @@ impl Dispatch<ZwlrOutputManagerV1, ()> for State {
         match event {
             zwlr_output_manager_v1::Event::Head { head } => state.heads.push(Head {
                 proxy: head,
-                name: None,
-                enabled: false,
-                settings: OutputSettings {
+                state: OutputState {
+                    name: String::new(),
+                    enabled: false,
+                    position: (0, 0),
+                    mode: Mode {
+                        width: 0,
+                        height: 0,
+                        refresh_mhz: 0,
+                    },
                     scale: 1.0,
                     transform: Transform::Normal,
                 },
+                modes: Vec::new(),
+                current: None,
             }),
             zwlr_output_manager_v1::Event::Done { serial } => state.serial = Some(serial),
             _ => {}
@@ -263,16 +313,30 @@ impl Dispatch<ZwlrOutputHeadV1, ()> for State {
         let Some(head) = state.heads.iter_mut().find(|head| head.proxy == *proxy) else {
             return;
         };
+        let output = &mut head.state;
         match event {
-            zwlr_output_head_v1::Event::Name { name } => head.name = Some(name),
-            zwlr_output_head_v1::Event::Enabled { enabled } => head.enabled = enabled != 0,
-            zwlr_output_head_v1::Event::Scale { scale } => head.settings.scale = scale,
+            zwlr_output_head_v1::Event::Name { name } => output.name = name,
+            zwlr_output_head_v1::Event::Enabled { enabled } => output.enabled = enabled != 0,
+            zwlr_output_head_v1::Event::Position { x, y } => output.position = (x, y),
+            zwlr_output_head_v1::Event::CurrentMode { mode } => head.current = Some(mode),
+            zwlr_output_head_v1::Event::Scale { scale } => output.scale = scale,
             zwlr_output_head_v1::Event::Transform { transform } => {
                 let value = match transform {
                     WEnum::Value(transform) => transform.into(),
                     WEnum::Unknown(value) => value,
                 };
-                head.settings.transform = Transform::from_wayland(value).unwrap_or_default();
+                output.transform = Transform::from_wayland(value).unwrap_or_default();
+            }
+            zwlr_output_head_v1::Event::Mode { mode } => {
+                head.modes.push(mode.clone());
+                state.modes.push((
+                    mode,
+                    Mode {
+                        width: 0,
+                        height: 0,
+                        refresh_mhz: 0,
+                    },
+                ));
             }
             zwlr_output_head_v1::Event::Finished => {
                 state.heads.retain(|head| head.proxy != *proxy);
@@ -284,6 +348,31 @@ impl Dispatch<ZwlrOutputHeadV1, ()> for State {
     event_created_child!(State, ZwlrOutputHeadV1, [
         zwlr_output_head_v1::EVT_MODE_OPCODE => (ZwlrOutputModeV1, ()),
     ]);
+}
+
+impl Dispatch<ZwlrOutputModeV1, ()> for State {
+    fn event(
+        state: &mut Self,
+        proxy: &ZwlrOutputModeV1,
+        event: zwlr_output_mode_v1::Event,
+        (): &(),
+        _: &Connection,
+        _: &QueueHandle<Self>,
+    ) {
+        let Some((_, mode)) = state.modes.iter_mut().find(|(mode, _)| mode == proxy) else {
+            return;
+        };
+        match event {
+            zwlr_output_mode_v1::Event::Size { width, height } => {
+                mode.width = width.try_into().unwrap_or_default();
+                mode.height = height.try_into().unwrap_or_default();
+            }
+            zwlr_output_mode_v1::Event::Refresh { refresh } => {
+                mode.refresh_mhz = refresh.try_into().unwrap_or_default();
+            }
+            _ => {}
+        }
+    }
 }
 
 impl Dispatch<ZwlrOutputConfigurationV1, ()> for State {
@@ -308,5 +397,4 @@ impl Dispatch<ZwlrOutputConfigurationV1, ()> for State {
     }
 }
 
-delegate_noop!(State: ignore ZwlrOutputModeV1);
 delegate_noop!(State: ZwlrOutputConfigurationHeadV1);
