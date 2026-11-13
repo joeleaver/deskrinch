@@ -9,8 +9,8 @@ use deskrinch_test_component::{Component, Renderer};
 use deskrinch_test_screen::Screen;
 
 use crate::support::{
-    BLUE, ORANGE, PATIENCE, Wallpaper, about, first_other, in_nested_session, wait_covered,
-    wait_output, write_settings, written,
+    BLUE, ORANGE, PATIENCE, Wallpaper, about, first_other, first_other_within, in_nested_session,
+    wait_covered, wait_output, write_settings, written,
 };
 
 #[test]
@@ -31,8 +31,14 @@ fn a_window_is_above_it() {
             Some(covered),
         )
         .unwrap();
+    // The window draws at buffer scale 1, so on an output at a higher scale
+    // the compositor enlarges it, filtering as it does: the pixels within
+    // `scale` of its edges are left out (labwc blends them with the
+    // wallpaper below at scale 2).
+    let scale = u32::try_from(client.output_scale(covered).unwrap()).unwrap();
     wait_output(covered, |image| {
-        first_other(image, ORANGE).map(|at| format!("the window is not over all of it: {at:?}"))
+        first_other_within(image, ORANGE, scale)
+            .map(|at| format!("the window is not over all of it: {at:?}"))
     });
     wait_output(bare, |image| {
         first_other(image, BLUE).map(|at| format!("the wallpaper is not all of it: {at:?}"))

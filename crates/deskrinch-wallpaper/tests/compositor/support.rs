@@ -123,11 +123,22 @@ pub(crate) fn about(pixel: Rgba, color: Rgba) -> bool {
 
 /// The first pixel of `image` that is not `color`, if any, with where it is.
 pub(crate) fn first_other(image: &Image, color: Rgba) -> Option<(u32, u32, Rgba)> {
-    (0..image.height()).find_map(|y| {
-        let row = image.row(y).unwrap();
-        row.iter()
-            .position(|&pixel| !about(pixel, color))
-            .map(|x| (u32::try_from(x).unwrap(), y, row[x]))
+    first_other_within(image, color, 0)
+}
+
+/// [`first_other`], leaving out the pixels within `margin` of the image's
+/// edges.
+pub(crate) fn first_other_within(
+    image: &Image,
+    color: Rgba,
+    margin: u32,
+) -> Option<(u32, u32, Rgba)> {
+    let (width, height) = (image.width(), image.height());
+    (margin..height.saturating_sub(margin)).find_map(|y| {
+        (margin..width.saturating_sub(margin)).find_map(|x| {
+            let pixel = image.pixel(x, y).unwrap();
+            (!about(pixel, color)).then_some((x, y, pixel))
+        })
     })
 }
 
