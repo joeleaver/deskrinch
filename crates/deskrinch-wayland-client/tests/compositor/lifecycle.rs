@@ -4,36 +4,28 @@ use std::sync::{Arc, Mutex};
 
 use deskrinch_wayland_client::{AttachError, Client};
 
-use crate::support::{
-    OnDone, Probe, attach, bounded, client_threads, eventually, nested, thread_alive,
-};
+use crate::support::{OnDone, Probe, attach, bounded, eventually, nested, thread_alive};
 
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_thread_ends_with_the_last_handle() {
     nested();
-    // This client's own thread, by its id: another client's thread (an
-    // earlier test's, say) being born or ending meanwhile changes nothing
-    // here.
-    let before = client_threads();
     let client = Client::connect().unwrap();
-    // The thread names itself once it runs.
-    let ours = Mutex::new(None);
-    eventually("the client's thread named", || {
-        let new: Vec<u32> = client_threads().difference(&before).copied().collect();
-        if let [id] = new.as_slice() {
-            *ours.lock().unwrap() = Some(*id);
-        }
-        new.len() == 1
-    });
-    let ours = ours.into_inner().unwrap().unwrap();
     let attached = attach(&client);
-    // The client handle goes first: the attachment keeps the thread.
+    // This client's own thread, by the id its setup took there: no other
+    // client's thread can be mistaken for it.
+    let ours = attached.record.lock().unwrap().thread.expect("setup ran");
+    // The client handle goes first: the attachment keeps the thread. A
+    // live thread is always listed.
     drop(client);
     assert!(thread_alive(ours), "the attachment keeps the thread");
     bounded("detaching the last state", move || drop(attached));
-    // The last handle's drop joins the thread: it is gone at once.
-    assert!(!thread_alive(ours), "the thread outlived its last handle");
+    // The last handle's drop joins the thread, but a joined thread may still
+    // be listed for a moment: the kernel wakes the joiner when the thread
+    // releases its memory, and takes it out of the task list only later, as
+    // it finishes exiting. That the drop joins is the client's own business;
+    // this sees the thread gone.
+    eventually("the client's thread gone", || !thread_alive(ours));
 }
 
 #[test]
