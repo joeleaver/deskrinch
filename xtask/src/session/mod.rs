@@ -53,6 +53,7 @@ mod display;
 mod ending;
 mod gpu;
 pub(crate) mod interrupt;
+mod layout;
 mod leftovers;
 mod outputs;
 mod render_nodes;
