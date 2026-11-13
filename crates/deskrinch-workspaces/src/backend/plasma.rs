@@ -6,6 +6,27 @@
 //! adds the `request_move_virtual_desktop` request (reordering desktops),
 //! not needed for following and switching. Whoever needs it looks there,
 //! with bindings that carry it.
+//!
+//! # Where KWin ends a batch
+//!
+//! As KWin 6.6.6 sends them (a `WAYLAND_DEBUG` trace of the nested session):
+//!
+//! - A switch, asked for by `request_activate` on the desktop switched to
+//!   or made by KWin itself (its D-Bus `current`): `deactivated` on the desktop left, `activated` on the one
+//!   switched to, then the manager's `done`. The two desktops' events are
+//!   staged; the manager's `done` delivers them as one batch.
+//! - A desktop created: the manager's `desktop_created` and its `done`.
+//!   Once the client asks for the desktop with `get_virtual_desktop`, the
+//!   desktop sends its `desktop_id`, `name` (and `activated` if it is the
+//!   current one), then its own `done`. The desktop is not delivered until
+//!   that `done`, which delivers it.
+//! - A desktop removed (by KWin): `removed` on the desktop, the manager's
+//!   `desktop_removed`, then the manager's `done`. Either of the first two
+//!   stages the removal; the manager's `done` delivers it.
+//!
+//! So the manager's `done` ends every batch but a new desktop's
+//! description, which the desktop's own `done` ends. Nothing incidental
+//! (an output's event, say) is needed to deliver a batch.
 
 use std::collections::HashMap;
 
@@ -223,9 +244,10 @@ impl Dispatch<OrgKdePlasmaVirtualDesktop, WorkspaceId> for State {
                 commit(state);
                 return;
             }
+            // Staged: the manager's `done` that follows ends the batch, with
+            // whatever else the removal changed.
             org_kde_plasma_virtual_desktop::Event::Removed => {
                 forget(state, id);
-                commit(state);
                 return;
             }
             _ => return,
