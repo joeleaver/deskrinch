@@ -15,6 +15,12 @@ impl State {
     /// group handle destroyed, and the ext manager told to `stop`; KWin's
     /// objects, which have no destructor, are only forgotten.
     pub(super) fn release_all(&mut self) {
+        // Once only: a second release must not take a lingering state for a
+        // released one (everything is already let go of, so it would look
+        // like nothing remains).
+        if matches!(self.backend, Backend::Released(_)) {
+            return;
+        }
         let mut remaining = Remaining::default();
         if !self.outputs.release() {
             remaining.linger();
@@ -44,7 +50,11 @@ impl State {
             }
             // The manager and its desktops have no destructor.
             Backend::Plasma(_) => remaining.linger(),
-            Backend::Released(_) => return,
+            // Not reached past the guard above; kept as it was if it were.
+            Backend::Released(earlier) => {
+                self.backend = Backend::Released(earlier);
+                return;
+            }
         }
         self.backend = Backend::Released(remaining);
     }
@@ -52,5 +62,40 @@ impl State {
     /// Whether nothing the state bound can reach it any more.
     pub(super) fn released_all(&self) -> bool {
         matches!(&self.backend, Backend::Released(remaining) if remaining.is_empty())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Arc;
+
+    use deskrinch_wayland_client::{Detached, Outputs};
+
+    use super::*;
+
+    /// A state released already, still holding something without a
+    /// destructor.
+    fn lingering() -> State {
+        let mut remaining = Remaining::default();
+        remaining.linger();
+        let backend = Backend::Released(remaining);
+        State {
+            shared: Arc::default(),
+            subscriber: Box::new(|_| {}),
+            detached: Detached::default(),
+            outputs: Outputs::default(),
+            backend,
+        }
+    }
+
+    #[test]
+    fn a_second_release_leaves_a_lingering_state_unreleased() {
+        let mut state = lingering();
+        assert!(!state.released_all());
+        state.release_all();
+        assert!(
+            !state.released_all(),
+            "still lingering after a second release"
+        );
     }
 }
