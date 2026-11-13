@@ -11,7 +11,7 @@
 //!   set by what is mapped ([`smaps`]), and GPU memory, which is not in the
 //!   resident set ([`gpu`]).
 //! - **Idle**: over a window, CPU time, wake-ups and preemptions per second,
-//!   frames, and CPU per frame.
+//!   frames, and CPU per frame; each run notes which threads woke most.
 //! - The renderer that presented: rinch's software renderer, or the GPU
 //!   renderer on the adapter wgpu chose, flagged when that is a software
 //!   driver.
@@ -69,7 +69,8 @@ Each run starts the program as the only client of a fresh nested compositor
     program's binary, the heap); and GPU memory from the DRM fdinfo, which is
     not in Rss;
   - over an idle window: CPU time per minute, wake-ups and preemptions per
-    second, frames, and CPU per frame;
+    second, frames, and CPU per frame; and, in each run's notes, the
+    threads that woke most in it, by name;
   - the renderer that presented: rinch's software renderer, or the GPU
     renderer on the adapter wgpu chose, marked when that is a software
     Vulkan driver.

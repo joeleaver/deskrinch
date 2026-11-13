@@ -226,6 +226,10 @@ fn idle(
             delta(|t| t.voluntary_switches),
         );
     }
+    run.note(
+        "idle wake-ups by thread",
+        wake_ups_note(&procfs::wake_ups_by_group(&before, &after), after.len()),
+    );
     run.push(
         "preemptions per second",
         Unit::Milli,
@@ -239,6 +243,26 @@ fn idle(
         );
     }
     Ok(())
+}
+
+/// How many thread groups the idle window's note names.
+const WAKE_UP_GROUPS: usize = 4;
+
+/// The idle window's wake-ups by thread, for a run's notes: the
+/// [`WAKE_UP_GROUPS`] groups that woke most (`groups`, the most first, from
+/// [`procfs::wake_ups_by_group`]), each with its count and, for a pool, its
+/// threads, and how many threads the process had. A note, not a metric, so
+/// that a run that stands out says which thread woke in that run.
+fn wake_ups_note(groups: &[(String, u64, u32)], threads: usize) -> String {
+    let named: Vec<String> = groups
+        .iter()
+        .take(WAKE_UP_GROUPS)
+        .map(|(group, wake_ups, count)| match count {
+            1 => format!("{group} {wake_ups}"),
+            _ => format!("{group} ({count} threads) {wake_ups}"),
+        })
+        .collect();
+    format!("{} (of {threads} threads)", named.join(", "))
 }
 
 /// The process now, or why it could not be read.
@@ -302,4 +326,25 @@ fn nanos(duration: Duration) -> u64 {
 
 fn len(n: usize) -> u64 {
     u64::try_from(n).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_note_names_the_threads_that_woke_most() {
+        let groups = [
+            ("Vello shader in".to_owned(), 640, 1),
+            ("llvmpipe-N".to_owned(), 30, 4),
+            ("panel".to_owned(), 4, 1),
+            ("clock".to_owned(), 2, 1),
+            ("zruntime".to_owned(), 1, 1),
+        ];
+        assert_eq!(
+            wake_ups_note(&groups, 11),
+            "Vello shader in 640, llvmpipe-N (4 threads) 30, panel 4, clock 2 (of 11 threads)"
+        );
+        assert_eq!(wake_ups_note(&[], 0), " (of 0 threads)");
+    }
 }
