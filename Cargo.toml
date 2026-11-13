@@ -51,6 +51,7 @@ deskrinch-timer = { path = "crates/deskrinch-timer" }
 deskrinch-untrusted = { path = "crates/deskrinch-untrusted" }
 deskrinch-watch = { path = "crates/deskrinch-watch" }
 deskrinch-wayland-client = { path = "crates/deskrinch-wayland-client" }
+deskrinch-workspaces = { path = "crates/deskrinch-workspaces" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
 futures-core = "0.3.34"
