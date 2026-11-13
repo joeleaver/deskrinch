@@ -158,11 +158,7 @@ fn take_controls(
                 }
                 let globals = registry.globals();
                 match panic::catch_unwind(AssertUnwindSafe(|| job(Some((connection, globals))))) {
-                    Ok(Some((new, answer))) => {
-                        // Counted before `attach` returns.
-                        states.attach(new);
-                        answer();
-                    }
+                    Ok(Some((new, answer))) => states.attach(new, answer),
                     Ok(None) => {}
                     // A setup's handler panicked (its waiter has heard the
                     // end already: the answer was dropped unsent).

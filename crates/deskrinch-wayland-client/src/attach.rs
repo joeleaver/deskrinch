@@ -174,7 +174,8 @@ impl Client {
     /// globals (binding what it needs, and exchanging with the compositor
     /// through [`Setup::roundtrip`] to load its first state), and the queue
     /// is dispatched into the state from then on. Returns once that is done,
-    /// with what `setup` returned beside the state.
+    /// with what `setup` returned beside the state; the state is counted
+    /// attached by then ([`Client::states`]).
     ///
     /// The wait has no time limit: it ends when the setup has run, or when
     /// the connection ends.

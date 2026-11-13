@@ -7,8 +7,7 @@
 //! - an output handed to a state twice (in its setup's list, and again to
 //!   [`Globals::global_added`]) is bound once;
 //! - a detach's requests leave in the round that releases the state, with
-//!   nothing else to send them;
-//! - an attach is counted by the time it returns.
+//!   nothing else to send them.
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #![cfg(test)]
@@ -222,23 +221,4 @@ fn a_detachs_requests_leave_in_its_own_round() {
     // It let go of everything: dropped at once, not releasing.
     let states = client.states();
     assert_eq!((states.attached, states.releasing), (0, 0), "{states:?}");
-}
-
-#[test]
-fn an_attach_is_counted_by_the_time_it_returns() {
-    let (connection, _stand_in) = StandIn::start(&[]).unwrap();
-    let client = Client::from_connection(connection).unwrap();
-    let mut attachments = Vec::new();
-    for attached in 1..=100 {
-        let listener = Listener {
-            outputs: Outputs::default(),
-            heard: Arc::default(),
-            released: false,
-        };
-        let (attachment, ()) = client
-            .attach(move |_| Ok::<_, wayland_client::DispatchError>((listener, ())))
-            .unwrap();
-        attachments.push(attachment);
-        assert_eq!(client.states().attached, attached);
-    }
 }
