@@ -8,12 +8,12 @@ use std::time::{Duration, Instant};
 
 use deskrinch_test_client::Compositor;
 use deskrinch_wayland_client::{
-    Attachment, Client, Detached, EndCause, Ended, OutputGlobal, Outputs, OutputsHandler,
+    Attachment, Client, Detached, EndCause, Ended, Globals, OutputGlobal, Outputs, OutputsHandler,
 };
-use wayland_client::globals::GlobalListContents;
+use wayland_client::globals::Global;
 use wayland_client::protocol::wl_callback::{self, WlCallback};
 use wayland_client::protocol::wl_output::WlOutput;
-use wayland_client::protocol::wl_registry::{self, WlRegistry};
+use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::ZxdgOutputV1;
@@ -28,11 +28,17 @@ pub(crate) fn nested() {
 }
 
 /// What a test learns from its state: the id of the thread its setup ran
-/// on (the client's), the outputs it saw named at setup, and how it ended.
+/// on (the client's), the outputs it saw at setup (their names, and their
+/// `wl_output` globals), the globals that came and went after it, and how
+/// it ended.
 #[derive(Debug, Default)]
 pub(crate) struct Record {
     pub(crate) thread: Option<u32>,
     pub(crate) outputs: usize,
+    pub(crate) output_names: Vec<String>,
+    pub(crate) output_globals: Vec<u32>,
+    pub(crate) globals_added: Vec<(u32, String)>,
+    pub(crate) globals_removed: Vec<u32>,
     pub(crate) ends: Vec<String>,
 }
 
@@ -67,6 +73,18 @@ impl Ended for Probe {
     }
 }
 
+impl Globals for Probe {
+    fn global_added(&mut self, _: &WlRegistry, global: &Global, _: &QueueHandle<Self>) {
+        self.record()
+            .globals_added
+            .push((global.name, global.interface.clone()));
+    }
+
+    fn global_removed(&mut self, name: u32) {
+        self.record().globals_removed.push(name);
+    }
+}
+
 impl OutputsHandler for Probe {
     fn outputs(&mut self) -> &mut Outputs {
         &mut self.outputs
@@ -78,18 +96,6 @@ impl OutputsHandler for Probe {
 wayland_client::delegate_dispatch!(Probe: [WlOutput: OutputGlobal] => Outputs);
 wayland_client::delegate_dispatch!(Probe: [ZxdgOutputV1: OutputGlobal] => Outputs);
 wayland_client::delegate_dispatch!(Probe: [ZxdgOutputManagerV1: ()] => Outputs);
-
-impl Dispatch<WlRegistry, GlobalListContents> for Probe {
-    fn event(
-        _: &mut Self,
-        _: &WlRegistry,
-        _: wl_registry::Event,
-        _: &GlobalListContents,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-    }
-}
 
 impl Dispatch<WlCallback, OnDone> for Probe {
     fn event(
@@ -148,9 +154,15 @@ pub(crate) fn attach(client: &Client) -> Attached {
                 }
                 setup.roundtrip(&mut probe)?;
                 setup.roundtrip(&mut probe)?;
-                let outputs = probe.outputs.all_names().len();
+                let names = probe.outputs.all_names();
                 let mut record = probe.record();
-                record.outputs = outputs;
+                record.outputs = names.len();
+                record.output_names = names.into_iter().collect();
+                record.output_globals = globals
+                    .iter()
+                    .filter(|global| global.interface == WlOutput::interface().name)
+                    .map(|global| global.name)
+                    .collect();
                 // Setup runs on the client's thread.
                 record.thread = Some(
                     rustix::thread::gettid()
