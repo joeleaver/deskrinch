@@ -27,10 +27,11 @@ pub(crate) fn nested() {
     let _compositor = Compositor::current();
 }
 
-/// What a test learns from its state: the outputs it saw named at setup,
-/// and how it ended.
+/// What a test learns from its state: the id of the thread its setup ran
+/// on (the client's), the outputs it saw named at setup, and how it ended.
 #[derive(Debug, Default)]
 pub(crate) struct Record {
+    pub(crate) thread: Option<u32>,
     pub(crate) outputs: usize,
     pub(crate) ends: Vec<String>,
 }
@@ -148,7 +149,16 @@ pub(crate) fn attach(client: &Client) -> Attached {
                 setup.roundtrip(&mut probe)?;
                 setup.roundtrip(&mut probe)?;
                 let outputs = probe.outputs.all_names().len();
-                probe.record.lock().unwrap().outputs = outputs;
+                let mut record = probe.record();
+                record.outputs = outputs;
+                // Setup runs on the client's thread.
+                record.thread = Some(
+                    rustix::thread::gettid()
+                        .as_raw_nonzero()
+                        .get()
+                        .unsigned_abs(),
+                );
+                drop(record);
                 assert!(!probe.detached.is_set());
                 Ok::<_, wayland_client::DispatchError>((probe, handle))
             })
@@ -186,14 +196,8 @@ pub(crate) fn eventually(what: &str, check: impl Fn() -> bool) {
     }
 }
 
-/// How many of this process's threads are a client's.
-pub(crate) fn client_threads() -> usize {
-    std::fs::read_dir("/proc/self/task")
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|task| {
-            std::fs::read_to_string(task.path().join("comm"))
-                .is_ok_and(|name| name.trim() == "deskrinch-wl")
-        })
-        .count()
+/// Whether the thread with id `id` is still listed in this process's
+/// `/proc/self/task`.
+pub(crate) fn thread_alive(id: u32) -> bool {
+    std::path::Path::new(&format!("/proc/self/task/{id}")).exists()
 }
