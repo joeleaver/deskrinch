@@ -11,6 +11,7 @@ mod desktop;
 mod error;
 mod file_length;
 mod git;
+mod grant;
 mod measure;
 mod run_in_session;
 mod session;
@@ -186,6 +187,12 @@ enum Task {
         /// by the end.
         #[arg(long, value_name = "APP_ID", conflicts_with = "summon")]
         window: Option<String>,
+        /// The shell component the program is (its package, such as
+        /// deskrinch-panel), when its file name is not the package's: under
+        /// KWin it is granted what deskrinch-shell grants that component. A
+        /// program named as a component's package is granted without it.
+        #[arg(long, value_name = "PACKAGE")]
+        component: Option<String>,
         /// Measure a program that logged errors, with the lines in each
         /// run's notes, instead of failing the run.
         #[arg(long)]
@@ -258,6 +265,7 @@ impl Task {
                 dismiss,
                 shows,
                 window,
+                component,
                 allow_errors,
                 state,
                 program,
@@ -282,6 +290,7 @@ impl Task {
                     .zip(dismiss)
                     .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
                 window,
+                component,
                 allow_errors,
             }),
             Self::Session {

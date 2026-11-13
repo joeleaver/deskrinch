@@ -32,6 +32,7 @@
 
 mod callgrind;
 mod gpu;
+mod granting;
 mod output;
 mod probe;
 mod procfs;
@@ -51,6 +52,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use self::granting::Granting;
 use self::renderer::check_renderer;
 use self::window::Stimulus;
 use crate::Outcome;
@@ -109,6 +111,11 @@ as totals. A run with it minus one without is the cost of a window
 appearing plus what a window held open costs over the window. A run fails
 if the window cannot be opened or is gone by the end.
 
+Under KWin a program that is one of the shell's components (by its file
+name, or as --component PACKAGE names it) is granted what deskrinch-shell
+grants that component, as the desktop grants it; anything else is granted
+nothing. Each run's notes say what was granted.
+
 Each run keeps the program's whole output in a file its notes name. A run
 whose program logged an error fails, printing the lines: a program that
 says it is broken is not measured. --allow-errors measures it anyway, with
@@ -161,6 +168,10 @@ pub(crate) struct Request {
     /// `--allow-errors`: measure a program that logged errors, with the
     /// lines in the run's notes, instead of failing the run.
     pub(crate) allow_errors: bool,
+    /// With `--component`: the shell component the program is, when its
+    /// file name is not that package's (a copied binary); under KWin it is
+    /// granted what `deskrinch-shell` grants that component.
+    pub(crate) component: Option<String>,
 }
 
 impl Request {
@@ -178,6 +189,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         state::check(state)?;
     }
     let program = request.program.to_string_lossy().into_owned();
+    let granting = Granting::of(request)?;
     // A warm cache lives outside the sessions, for as long as this task.
     let cache_dir = (request.shader_cache == ShaderCache::Warm)
         .then(|| {
@@ -198,7 +210,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
             settle: Duration::ZERO,
             idle: Duration::ZERO,
         };
-        in_session(request, |session| {
+        in_session(request, granting.as_ref(), |session| {
             let command = client(session, request, Some(dir));
             match &request.summons {
                 Some(summons) => {
@@ -218,10 +230,11 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let mut runs = Vec::new();
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
-        let mut run = in_session(request, |session| {
+        let mut run = in_session(request, granting.as_ref(), |session| {
             measure_run(request, session, index, cache, &program, timing)
         })?;
         output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
+        run.note("granted", Granting::note(granting.as_ref()));
         runs.push(run);
     }
     println!("{}", header(request));
@@ -283,6 +296,7 @@ fn measure_run(
 /// the outcome.
 fn in_session<T>(
     request: &Request,
+    granting: Option<&Granting>,
     measure: impl FnOnce(&Session) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let session = Session::start(
@@ -290,7 +304,7 @@ fn in_session<T>(
         request.compositor_renderer(),
         Outputs::plain(1),
         None,
-        |_| Ok(()),
+        |data_home| granting.map_or(Ok(()), |granting| granting.install(data_home)),
     )?;
     let result = match &request.state {
         Some(state) => state::seed(state, &session.root().join("state")),
