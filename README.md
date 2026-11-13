@@ -45,8 +45,9 @@ the `libnotify-bin` package). They never touch the session bus.
 The appearance crate's tests run a stand-in settings portal on a private
 D-Bus daemon too, never the session's.
 
-The compositor tests (the window-management crate's, `deskrinch-test-screen`'s,
-`deskrinch-test-input`'s, the launcher's and the panel's) drive a real
+The compositor tests (the window-management and workspaces crates',
+`deskrinch-test-screen`'s, `deskrinch-test-input`'s, the launcher's and the
+panel's) drive a real
 compositor and are ignored by `cargo test`. This runs them in nested,
 headless KWin, sway and labwc sessions that touch nothing in your own (the
 isolated sessions `cargo xtask session` gives; it needs `dbus-daemon`,
@@ -205,6 +206,10 @@ What the command, and everything it starts, sees:
   composites with OpenGL either way.
 - Under sway, no borders or title bars on any window, so that a tiled or
   maximised window fills the area it is given.
+- Under labwc, four workspaces, switched without the on-screen popup, and
+  F12 bound to the next one (`deskrinch_test_input::Key::F12`, a key no test
+  types), with labwc's default bindings otherwise. KWin starts with one
+  virtual desktop; sway's workspaces come and go with their windows.
 - None of your `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `WAYLAND_SOCKET`,
   `SWAYSOCK`, `I3SOCK`, `DBUS_SESSION_BUS_ADDRESS`, `XDG_CURRENT_DESKTOP`, or
   the login session's `XDG_SESSION_ID`, `XDG_SESSION_CLASS`,

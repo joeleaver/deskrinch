@@ -79,15 +79,13 @@ pub(super) fn labwc(
     nodes: &RenderNodes,
 ) -> Result<Command, Error> {
     // A configuration directory of the session's own: labwc's defaults, no
-    // autostart, and the session's key bindings.
+    // autostart, four workspaces, and the session's key bindings.
     let config = root.join("labwc");
     session::create_private_dir(&config).map_err(|source| Error::Io {
         what: format!("create {}", config.display()),
         source,
     })?;
-    if !options.bindings.is_empty() {
-        write(&config.join("rc.xml"), &labwc_rc(options.bindings))?;
-    }
+    write(&config.join("rc.xml"), &labwc_rc(options.bindings))?;
     let mut command = Command::new("labwc");
     command
         .arg("--config-dir")
@@ -99,9 +97,14 @@ pub(super) fn labwc(
     Ok(command)
 }
 
-/// labwc's `rc.xml` with `bindings`, besides labwc's own default bindings.
-/// A binding's command is [plain](super::super::display::plain), so it
-/// needs no escaping in the attribute.
+/// labwc's `rc.xml`: four workspaces, switched without the on-screen popup
+/// (which the screen tests would see), F12 to the next one (wrapping: the
+/// compositor's own way to switch, which the workspace tests press through
+/// `deskrinch-test-input`; a function key, since no test types one and a
+/// binding takes its key from every window), and `bindings`, besides
+/// labwc's own default bindings. A binding's command is
+/// [plain](super::super::display::plain), so it needs no escaping in the
+/// attribute.
 fn labwc_rc(bindings: &[Binding]) -> String {
     let keybinds = bindings.iter().fold(String::new(), |mut lines, binding| {
         // Writing to a `String` cannot fail.
@@ -117,8 +120,10 @@ fn labwc_rc(bindings: &[Binding]) -> String {
     });
     format!(
         "<?xml version=\"1.0\"?>\n\
-         <labwc_config>\n  <keyboard>\n    <default />\n\
-         {keybinds}  </keyboard>\n</labwc_config>\n"
+         <labwc_config>\n  <desktops number=\"4\" popupTime=\"0\" />\n\
+         <keyboard>\n    <default />\n    <keybind key=\"F12\">\n      \
+         <action name=\"GoToDesktop\" to=\"right\" wrap=\"yes\" />\n    \
+         </keybind>\n{keybinds}  </keyboard>\n</labwc_config>\n"
     )
 }
 
@@ -219,6 +224,21 @@ mod tests {
             ),
             "{config}"
         );
+    }
+
+    #[test]
+    fn labwc_has_four_workspaces_and_f12_to_switch() {
+        let rc = labwc_rc(&[]);
+        assert!(
+            rc.contains("<desktops number=\"4\" popupTime=\"0\" />"),
+            "{rc}"
+        );
+        assert!(rc.contains("<keybind key=\"F12\">"), "{rc}");
+        assert!(
+            rc.contains("<action name=\"GoToDesktop\" to=\"right\" wrap=\"yes\" />"),
+            "{rc}"
+        );
+        assert!(rc.contains("<default />"), "{rc}");
     }
 
     #[test]
