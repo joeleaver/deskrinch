@@ -13,7 +13,7 @@ use crate::client::Client;
 use crate::globals::Globals;
 use crate::lifecycle::Lifecycle;
 use crate::states::{Attached, Queue};
-use crate::thread::Control;
+use crate::thread::{Answer, Control};
 
 /// Why a state could not be attached.
 #[derive(Debug, thiserror::Error)]
@@ -174,7 +174,8 @@ impl Client {
     /// globals (binding what it needs, and exchanging with the compositor
     /// through [`Setup::roundtrip`] to load its first state), and the queue
     /// is dispatched into the state from then on. Returns once that is done,
-    /// with what `setup` returned beside the state.
+    /// with what `setup` returned beside the state; the state is counted
+    /// attached by then ([`Client::states`]).
     ///
     /// The wait has no time limit: it ends when the setup has run, or when
     /// the connection ends.
@@ -209,11 +210,13 @@ impl Client {
                 };
                 match set_up(connection, globals, job_detached, setup) {
                     Ok((queue, state, out)) => {
-                        drop(answer.send(Ok(out)));
-                        Some(Attached {
+                        let attached = Attached {
                             id,
                             live: Box::new(Queue { queue, state }),
-                        })
+                        };
+                        // The waiter may be gone; nothing else to tell.
+                        let answered: Answer = Box::new(move || drop(answer.send(Ok(out))));
+                        Some((attached, answered))
                     }
                     Err(error) => {
                         drop(answer.send(Err(error)));

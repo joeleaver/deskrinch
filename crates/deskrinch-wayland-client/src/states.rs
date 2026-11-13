@@ -11,6 +11,7 @@ use wayland_client::{DispatchError, EventQueue};
 
 use crate::globals::{GlobalEvent, Globals, Registry};
 use crate::lifecycle::{EndCause, Lifecycle};
+use crate::thread::Answer;
 
 /// An attached state, with its queue, behind one type.
 pub(crate) struct Attached {
@@ -125,10 +126,12 @@ impl States {
         }
     }
 
-    /// Attaches `new`.
-    pub(crate) fn attach(&mut self, new: Attached) {
+    /// Attaches `new` and publishes the count, then tells its waiter with
+    /// `answer`: an attach is counted by the time it returns.
+    pub(crate) fn attach(&mut self, new: Attached, answer: Answer) {
         self.attached.push(new);
         self.count();
+        answer();
     }
 
     /// Detaches state `id`: it releases what it bound, and is dropped at
@@ -261,4 +264,53 @@ impl States {
 /// Drops a state; a drop that panics is a handler panicking.
 fn drop_state(state: Box<dyn Live>) -> Result<(), Panicked> {
     panic::catch_unwind(AssertUnwindSafe(|| drop(state))).map_err(|_| Panicked)
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::Mutex;
+
+    use super::*;
+
+    /// A state that does nothing.
+    struct Idle;
+
+    impl Live for Idle {
+        fn dispatch(&mut self) -> Result<usize, DispatchError> {
+            Ok(0)
+        }
+
+        fn global(&mut self, _: &WlRegistry, _: &GlobalEvent) {}
+
+        fn end(&mut self, _: EndCause) {}
+
+        fn release(&mut self) {}
+
+        fn released(&self) -> bool {
+            true
+        }
+    }
+
+    #[test]
+    fn an_attach_is_counted_before_its_waiter_is_answered() {
+        let counts = Arc::new(Counts::default());
+        let mut states = States::new(Arc::clone(&counts));
+        for id in 1..=3 {
+            let seen = Arc::new(Mutex::new(None));
+            let (answered, at_answer) = (Arc::clone(&seen), Arc::clone(&counts));
+            states.attach(
+                Attached {
+                    id,
+                    live: Box::new(Idle),
+                },
+                Box::new(move || *answered.lock().unwrap() = Some(at_answer.get().attached)),
+            );
+            let id = usize::try_from(id).unwrap();
+            assert_eq!(
+                *seen.lock().unwrap(),
+                Some(id),
+                "the count the waiter would read"
+            );
+        }
+    }
 }

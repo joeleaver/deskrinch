@@ -30,9 +30,14 @@ pub(crate) enum Control {
 
 /// An attachment's setup, run on the client's thread with the connection
 /// and its globals (or with `None` once the connection has ended, to
-/// refuse). It answers its waiter itself, and returns what to dispatch.
+/// refuse). A setup that fails, or a refusal, answers its waiter itself; one
+/// that succeeds returns what to dispatch and the answer, which the thread
+/// gives once the state is attached and counted.
 pub(crate) type Job =
-    Box<dyn FnOnce(Option<(&Connection, &GlobalList)>) -> Option<Attached> + Send>;
+    Box<dyn FnOnce(Option<(&Connection, &GlobalList)>) -> Option<(Attached, Answer)> + Send>;
+
+/// Tells an attach's waiter that its state is attached.
+pub(crate) type Answer = Box<dyn FnOnce() + Send>;
 
 /// The thread's body.
 ///
@@ -153,7 +158,7 @@ fn take_controls(
                 }
                 let globals = registry.globals();
                 match panic::catch_unwind(AssertUnwindSafe(|| job(Some((connection, globals))))) {
-                    Ok(Some(new)) => states.attach(new),
+                    Ok(Some((new, answer))) => states.attach(new, answer),
                     Ok(None) => {}
                     // A setup's handler panicked (its waiter has heard the
                     // end already: the answer was dropped unsent).
