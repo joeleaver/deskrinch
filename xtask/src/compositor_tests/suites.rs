@@ -102,12 +102,9 @@ const UNSUPPORTED: &str = "unsupported::";
 const KWIN_DESKTOPS: &str = "desktops::";
 /// The workspace tests that share a connection with window management.
 const SHARED: &str = "shared::";
-/// The wallpaper's tests that add and remove outputs, which only sway does
-/// in a running session.
-const WALLPAPER_SWAY_ONLY: &str = "sway_only::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 19] = [
+pub(super) const SUITES: [Suite; 18] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -241,8 +238,7 @@ pub(super) const SUITES: [Suite; 19] = [
     // The wallpaper's real binary, checked by the screen on every output; the
     // panel's binary, built in the same run, is started over it. Not in the
     // flipped pass, for the panel's reason: a full output of one colour is
-    // the same mirrored. Its outputs added and removed (`sway_only::`) only
-    // under sway, the one compositor that does so in a running session.
+    // the same mirrored.
     Suite {
         target: Target {
             package: WALLPAPER,
@@ -258,19 +254,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
-        filter: &["--skip", WALLPAPER_SWAY_ONLY],
-    },
-    Suite {
-        target: Target {
-            package: WALLPAPER,
-            test: "compositor",
-            backend: Backend::Rust,
-        },
-        grant: None,
-        compositors: &[Compositor::Sway],
-        passes: PLAIN,
-        renders: true,
-        filter: &[WALLPAPER_SWAY_ONLY],
+        filter: &[],
     },
     // The workspaces. KWin offers its virtual-desktop protocol ungranted, so
     // the grant lists only what the tests also use: window management on a

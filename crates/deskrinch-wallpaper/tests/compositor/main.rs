@@ -12,14 +12,13 @@
 //!   reported with its path.
 //! - [`layers`]: a window is above the wallpaper, and so is the panel.
 //! - [`outputs`]: an output turned while the wallpaper runs is covered at
-//!   its new shape, under every compositor.
-//! - [`sway_only`], which the suites table runs under sway alone: an
-//!   output added gets a wallpaper and one removed loses it, the others
-//!   staying covered.
+//!   its new shape; one turned off loses its wallpaper and, turned on
+//!   again, gets one anew, the others staying covered.
 //!
-//! Not covered here: adding or removing an output under labwc or KWin,
-//! which have no way to do so in a running test session that the session
-//! offers; that the wallpaper wakes up for nothing when idle, which
+//! Not covered here: a new output, never seen before, plugged in (the
+//! sessions' outputs are fixed at their start; one turned off and on
+//! comes back as a new `wl_output` global, which is what the wallpaper
+//! follows); that the wallpaper wakes up for nothing when idle, which
 //! `cargo xtask measure`'s idle window shows; and that it covers a strip a
 //! panel reserves, which the panel above it hides from the screen.
 
@@ -32,5 +31,3 @@ mod layers;
 mod outputs;
 #[cfg(test)]
 mod support;
-#[cfg(test)]
-mod sway_only;

@@ -30,14 +30,12 @@ rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 tracing.workspace = true
 
 [dev-dependencies]
-# The compositor tests: the session's outputs, turned; the wallpaper
-# started and watched; the screen captured.
+# The compositor tests: the session's outputs, turned, and turned off and
+# on; the wallpaper started and watched; the screen captured.
 deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true
 deskrinch-test-screen.workspace = true
 deskrinch-test-wayland.workspace = true
-# Reading sway's list of outputs.
-serde_json.workspace = true
 tempfile.workspace = true
 
 # The compositor tests run inside nested compositors that
