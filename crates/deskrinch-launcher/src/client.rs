@@ -1,5 +1,6 @@
 //! The other end of the launcher's interface: what `deskrinch-launcher
-//! toggle`, `show` and `hide` send to the running launcher.
+//! toggle`, `show`, `hide` and `forget-starts` send to the running
+//! launcher.
 
 use deskrinch_bus::Bus;
 use zbus::Connection;
@@ -15,6 +16,9 @@ pub enum Request {
     Show,
     /// Hide it.
     Hide,
+    /// Delete the record of the applications started, and answer once it
+    /// is deleted.
+    ForgetStarts,
 }
 
 impl Request {
@@ -23,6 +27,7 @@ impl Request {
             Self::Toggle => "Toggle",
             Self::Show => "Show",
             Self::Hide => "Hide",
+            Self::ForgetStarts => "ForgetStarts",
         }
     }
 }
@@ -32,7 +37,7 @@ impl Request {
 pub enum Answer {
     /// The launcher did it. For a toggle, whether it is now shown.
     Done {
-        /// Whether a toggle left it shown; `None` for a show or a hide.
+        /// Whether a toggle left it shown; `None` for any other request.
         shown: Option<bool>,
     },
     /// No launcher is running on the bus.

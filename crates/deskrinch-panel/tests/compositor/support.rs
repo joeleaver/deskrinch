@@ -74,7 +74,7 @@ impl Panel {
     pub(crate) fn start() -> Self {
         let renderer = Renderer::of_run();
         let component = Component::start(Command::new(PANEL), renderer).unwrap();
-        if let Err(why) = component.wait_presented_with(renderer, PATIENCE) {
+        if let Err(why) = component.wait_presented_with(renderer) {
             panic!("the panel: {why}");
         }
         Self { component }

@@ -1,10 +1,12 @@
 //! The launcher's model: the query, the ranked results and the selection,
 //! and what each input does to them.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
 use deskrinch_desktop_entries::{DesktopEntry, DesktopId, Icon, Locale, search};
 use deskrinch_gestures::Click;
+use deskrinch_start_record::Record;
 
 /// One result: an application to show and start.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -69,10 +71,15 @@ pub struct Model {
     /// Whether an application was started since the last [`clear`](Self::clear):
     /// one start per show.
     launched: bool,
+    /// The rows an empty query shows: the applications used most.
+    frequent: Vec<Row>,
 }
 
 /// How many results are drawn at once.
 pub const ROWS: usize = 8;
+
+/// How many of the applications used most an empty query shows.
+pub const FREQUENT: usize = 5;
 
 impl Model {
     /// An empty launcher: no query, no results.
@@ -106,8 +113,9 @@ impl Model {
     }
 
     /// Sets the query to `query` and searches `entries` (the applications
-    /// shown in menus) for it, in the user's `locales`. The first result is
-    /// selected.
+    /// shown in menus) for it, in the user's `locales`; an empty query's
+    /// results are the [frequent](Self::set_frequent) applications. The
+    /// first result is selected.
     pub fn set_query<'a>(
         &mut self,
         query: &str,
@@ -115,21 +123,41 @@ impl Model {
         locales: &[Locale],
     ) {
         query.clone_into(&mut self.query);
-        self.rows = rows(entries, &self.query, locales);
+        self.rows = if self.query.is_empty() {
+            self.frequent.clone()
+        } else {
+            rows(entries, &self.query, locales)
+        };
         self.selected = (!self.rows.is_empty()).then_some(0);
         self.first = 0;
     }
 
+    /// Sets the applications an empty query shows (from [`frequent`]). They
+    /// are shown from the next [`clear`](Self::clear), or the next time the
+    /// query is emptied: never in place of what is shown now.
+    pub fn set_frequent(&mut self, rows: Vec<Row>) {
+        self.frequent = rows;
+    }
+
     /// Searches `entries` again for the same query, when the applications
     /// changed. The selection stays on the same application if it is still
-    /// a result, and is the first result otherwise.
+    /// a result, and is the first result otherwise. With an empty query,
+    /// the frequent applications shown stay, less any no longer in
+    /// `entries`.
     pub fn refresh<'a>(
         &mut self,
         entries: impl IntoIterator<Item = &'a DesktopEntry>,
         locales: &[Locale],
     ) {
         let selected = self.selected_row().map(|row| row.id.clone());
-        self.rows = rows(entries, &self.query, locales);
+        self.rows = if self.query.is_empty() {
+            let installed: BTreeSet<&DesktopId> = entries.into_iter().map(|e| &e.id).collect();
+            let mut kept = std::mem::take(&mut self.rows);
+            kept.retain(|row| installed.contains(&row.id));
+            kept
+        } else {
+            rows(entries, &self.query, locales)
+        };
         let kept = selected.and_then(|id| self.rows.iter().position(|row| row.id == id));
         self.selected = kept.or((!self.rows.is_empty()).then_some(0));
         self.first = self.first.min(self.rows.len().saturating_sub(ROWS));
@@ -201,10 +229,35 @@ impl Model {
         }
     }
 
-    /// Empties the launcher (no query, no results), for when it hides.
+    /// Empties the launcher for when it hides: no query, and the frequent
+    /// applications as its results, the first selected.
     pub fn clear(&mut self) {
-        *self = Self::default();
+        let frequent = std::mem::take(&mut self.frequent);
+        *self = Self {
+            selected: (!frequent.is_empty()).then_some(0),
+            rows: frequent.clone(),
+            frequent,
+            ..Self::default()
+        };
     }
+}
+
+/// The [`FREQUENT`] applications of `entries` (those shown in menus) that
+/// `record` ranks best, as rows in the user's `locales`. One no longer
+/// installed, or no longer shown in menus, is passed over.
+#[must_use]
+pub fn frequent(record: &Record, entries: &[DesktopEntry], locales: &[Locale]) -> Vec<Row> {
+    if record.is_empty() {
+        return Vec::new();
+    }
+    let by_id: BTreeMap<&DesktopId, &DesktopEntry> =
+        entries.iter().map(|entry| (&entry.id, entry)).collect();
+    record
+        .top(FREQUENT, |id| by_id.contains_key(id))
+        .iter()
+        .filter_map(|id| by_id.get(id))
+        .map(|entry| row(entry, locales))
+        .collect()
 }
 
 /// The rows for `query`, best first.
@@ -215,18 +268,23 @@ fn rows<'a>(
 ) -> Vec<Row> {
     search(entries, query, locales)
         .into_iter()
-        .map(|found| Row {
-            id: found.entry.id.clone(),
-            name: found.entry.name.get(locales).clone(),
-            icon: found
-                .entry
-                .icon
-                .as_ref()
-                .map(|icon| icon.get(locales).clone()),
-        })
+        .map(|found| row(found.entry, locales))
         .collect()
+}
+
+/// The row of `entry`, in the user's `locales`.
+fn row(entry: &DesktopEntry, locales: &[Locale]) -> Row {
+    Row {
+        id: entry.id.clone(),
+        name: entry.name.get(locales).clone(),
+        icon: entry.icon.as_ref().map(|icon| icon.get(locales).clone()),
+    }
 }
 
 #[cfg(test)]
 #[path = "model_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "frequent_tests.rs"]
+mod frequent_tests;

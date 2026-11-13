@@ -6,7 +6,7 @@ use std::os::fd::AsFd;
 use std::time::Instant;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_wayland::{Deadline, Globals, roundtrip};
+use deskrinch_test_wayland::{Deadline, Globals, memory_file, roundtrip};
 use wayland_client::protocol::wl_seat::WlSeat;
 use wayland_client::{Connection, EventQueue, Proxy, delegate_noop};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
@@ -157,6 +157,53 @@ impl Input {
         self.settle()
     }
 
+    /// Presses `key` while holding `modifiers` (such as [`Key::LEFT_CTRL`]),
+    /// as a person types a chord: the modifiers pressed in order, the key
+    /// pressed and released, the modifiers released in the reverse order.
+    ///
+    /// KWin reads the modifiers' state from the keys themselves. wlroots'
+    /// virtual keyboard does not: it takes the state as the client sends it,
+    /// so it is sent after each modifier key, as a keyboard's own state
+    /// would change.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NotAModifier`] for a modifier that is not one, before
+    /// anything is sent; otherwise as [`press`](Self::press).
+    pub fn press_with(&mut self, modifiers: &[Key], key: Key) -> Result<(), Error> {
+        let masks = modifiers
+            .iter()
+            .map(|&modifier| {
+                modifier
+                    .modifier_mask()
+                    .ok_or(Error::NotAModifier(modifier))
+            })
+            .collect::<Result<Vec<u32>, _>>()?;
+        let mut held = 0;
+        for (&modifier, mask) in modifiers.iter().zip(&masks) {
+            self.send(modifier, PRESSED);
+            held |= mask;
+            self.send_modifiers(held);
+        }
+        self.send(key, PRESSED);
+        self.send(key, RELEASED);
+        for (&modifier, mask) in modifiers.iter().zip(&masks).rev() {
+            self.send(modifier, RELEASED);
+            held &= !mask;
+            self.send_modifiers(held);
+        }
+        self.settle()
+    }
+
+    /// Tells a wlroots compositor the modifiers held, by their masks in
+    /// the keymap; KWin needs nothing.
+    fn send_modifiers(&self, depressed: u32) {
+        match &self.backend {
+            Backend::Wlroots { keyboard, .. } => keyboard.modifiers(depressed, 0, 0, 0),
+            Backend::Kwin(_) => {}
+        }
+    }
+
     /// Types `text`, one key after another.
     ///
     /// # Errors
@@ -201,7 +248,7 @@ impl Input {
 
 /// The keymap in a file of its own, ended by a NUL as the protocol wants.
 fn keymap() -> std::io::Result<std::fs::File> {
-    let mut file = tempfile::tempfile()?;
+    let mut file = memory_file("deskrinch-keymap")?;
     file.write_all(KEYMAP.as_bytes())?;
     file.write_all(&[0])?;
     file.rewind()?;

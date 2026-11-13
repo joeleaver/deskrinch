@@ -185,7 +185,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
 
 /// The exit status to pass on for a command that ended with `status`: its
 /// own code, or 128 plus the signal that ended it, as a shell reports it.
-fn exit_code(status: ExitStatus) -> u8 {
+pub(crate) fn exit_code(status: ExitStatus) -> u8 {
     let code = status
         .code()
         .or_else(|| status.signal().map(|signal| 128 + signal))

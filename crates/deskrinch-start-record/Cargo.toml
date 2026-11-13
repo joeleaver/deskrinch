@@ -1,0 +1,26 @@
+[package]
+name = "deskrinch-start-record"
+description = "The shell's record of the applications the user starts (how often, how recently), ranked by decayed use and kept in the user's state directory."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Applications are named by their desktop entry ID, as everywhere else.
+deskrinch-desktop-entries.workspace = true
+# Where the user's state directory is.
+deskrinch-xdg.workspace = true
+serde = { workspace = true, features = ["derive"] }
+# The new file, written beside the old and renamed over it.
+tempfile.workspace = true
+thiserror.workspace = true
+# The file's format.
+toml = { workspace = true, features = ["std", "serde", "parse", "display"] }
+# What was found in a damaged file, when it is replaced.
+tracing.workspace = true
+
+[lints]
+workspace = true

@@ -44,6 +44,58 @@ impl Shown {
     /// applications and configuration (`config`, as `config.toml`), once it
     /// is on the screen.
     pub(crate) fn start(config: &str) -> Self {
+        Self::start_with(config, |_| {})
+    }
+
+    /// As [`start`](Self::start), with `prepare` given the test's
+    /// directory first (to write a record of starts in `state/`).
+    pub(crate) fn start_with(config: &str, prepare: impl FnOnce(&Path)) -> Self {
+        let mut shown = Self::prepare(config, prepare, &["--show"]);
+        shown.launcher.wait_presented();
+        shown.output = shown.find_output();
+        shown
+    }
+
+    /// The keyboard, then a launcher run hidden on the test's applications
+    /// and configuration, `prepare` given the test's directory first; once
+    /// it has loaded its record of starts, it is shown by
+    /// `deskrinch-launcher show`, as a key binding would, and this returns
+    /// once it is on the screen.
+    pub(crate) fn summon(config: &str, prepare: impl FnOnce(&Path)) -> Self {
+        let mut shown = Self::hidden(config, prepare);
+        shown.show_again();
+        shown
+    }
+
+    /// As [`summon`](Self::summon), left hidden once it has loaded its
+    /// record of starts.
+    pub(crate) fn hidden(config: &str, prepare: impl FnOnce(&Path)) -> Self {
+        let hidden = Self::prepare(config, prepare, &[]);
+        assert!(
+            eventually(|| hidden.launcher.said("record of starts")),
+            "the record of starts was not loaded\nthe launcher logged:\n{}",
+            hidden.launcher.log()
+        );
+        hidden
+    }
+
+    /// Shows the launcher again with `deskrinch-launcher show`, once it is
+    /// on the screen: the compositor places it anew.
+    pub(crate) fn show_again(&mut self) {
+        assert!(client(&["show"]).success());
+        self.launcher.wait_presented();
+        self.output = self.find_output();
+    }
+
+    /// The test's directory: its applications, configuration and state.
+    pub(crate) fn dir(&self) -> &Path {
+        self.dirs.path()
+    }
+
+    /// The keyboard, the screen, and a launcher run with `args` on the
+    /// test's applications and configuration, `prepare` given the test's
+    /// directory first.
+    fn prepare(config: &str, prepare: impl FnOnce(&Path), args: &[&str]) -> Self {
         in_nested_session();
         let input = Input::connect().unwrap();
         let screen = Screen::connect().unwrap();
@@ -73,17 +125,15 @@ impl Shown {
         let config = config.replace("{recorder}", &recorder.display().to_string());
         fs::create_dir_all(dirs.path().join("config/deskrinch")).unwrap();
         fs::write(dirs.path().join("config/deskrinch/config.toml"), config).unwrap();
-        let launcher = Launcher::spawn(in_dirs(launcher(&["--show"]), dirs.path()));
-        let mut shown = Self {
+        prepare(dirs.path());
+        let launcher = Launcher::spawn(in_dirs(launcher(args), dirs.path()));
+        Self {
             dirs,
             input,
             screen,
             output: String::new(),
             launcher,
-        };
-        shown.launcher.wait_presented();
-        shown.output = shown.find_output();
-        shown
+        }
     }
 
     /// The output the launcher is drawn on, once it is: the compositor
@@ -154,7 +204,9 @@ out="$(dirname "$0")/started/$$"
 const SYSTEM_DATA_DIRS: [&str; 2] = ["/usr/local/share", "/usr/share"];
 
 /// `command` with only the test's directories: its applications, its
-/// configuration, and a `PATH` with nothing on it (no `xdg-terminal-exec`).
+/// configuration, its state (the record of starts, in `state/`), and a
+/// `PATH` with nothing on it (no `xdg-terminal-exec`). What the launcher
+/// says of the record is logged (`RUST_LOG`), for the tests to wait on.
 /// The system's data directories are replaced by stand-ins that hold only
 /// their `vulkan` directory: the Vulkan loader finds its drivers there
 /// (`vulkan/icd.d`), which the GPU renderer needs, and the launcher finds
@@ -176,6 +228,8 @@ fn in_dirs(mut command: Command, dirs: &Path) -> Command {
         .env("XDG_DATA_DIRS", std::env::join_paths(data_dirs).unwrap())
         .env("XDG_CONFIG_HOME", dirs.join("config"))
         .env("XDG_CONFIG_DIRS", &none)
+        .env("XDG_STATE_HOME", dirs.join("state"))
+        .env("RUST_LOG", "warn,deskrinch_launcher=info")
         .env("PATH", &none);
     command
 }
@@ -194,7 +248,7 @@ pub(crate) fn at_centre(image: &Image) -> Option<(u32, u32)> {
 /// How many bands down the launcher's [`COLUMN`] are not its background:
 /// the query field (its border and inside), then the selected result's.
 /// None when the launcher is not drawn.
-fn bands(image: &Image) -> usize {
+pub(crate) fn bands(image: &Image) -> usize {
     let Some((x, y)) = at_centre(image) else {
         return 0;
     };

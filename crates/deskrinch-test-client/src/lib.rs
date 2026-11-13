@@ -40,6 +40,7 @@ mod outputs;
 mod paint;
 mod pointer;
 mod seat;
+mod synced;
 mod window;
 
 use std::sync::{Mutex, MutexGuard, PoisonError};

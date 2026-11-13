@@ -206,4 +206,50 @@ mod measure {
         assert!(stderr.contains("before it was summoned"), "{stderr}");
         assert_session_ended(dir.path());
     }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn the_state_is_seeded_before_the_program_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let seed = dir.path().join("seed");
+        fs::create_dir_all(seed.join("deskrinch")).unwrap();
+        let seeded = "version = 1\n[[start]]\nid = \"a.desktop\"\nscore = 2.0\nlast = 5\n";
+        fs::write(seed.join("deskrinch/starts.toml"), seeded).unwrap();
+        // The stand-in copies what it finds at its start, then draws.
+        let script = format!(
+            "{}cp \"$XDG_STATE_HOME/deskrinch/starts.toml\" {found}; \
+             echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600",
+            record(dir.path(), false),
+            found = dir.path().join("found").display()
+        );
+        let seed = seed.display().to_string();
+        let output = measure(&["--state", &seed], &script);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("found")).unwrap(),
+            seeded
+        );
+        let note = format!("state seeded from {seed}");
+        assert!(stdout.contains(&note), "no {note:?} in:\n{stdout}");
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_state_that_is_not_a_directory_fails_before_any_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file");
+        fs::write(&file, "").unwrap();
+        for state in [file, dir.path().join("missing")] {
+            let started = dir.path().join("started");
+            let script = format!("touch {}; exec sleep 600", started.display());
+            let output = measure(&["--state", &state.display().to_string()], &script);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(!output.status.success(), "{stderr}");
+            assert!(stderr.contains("read the state to seed"), "{stderr}");
+            assert!(!started.exists(), "the program was started");
+        }
+    }
 }

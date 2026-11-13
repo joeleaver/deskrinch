@@ -993,6 +993,8 @@ dependencies = [
  "deskrinch-gestures",
  "deskrinch-icons",
  "deskrinch-settings",
+ "deskrinch-shell",
+ "deskrinch-start-record",
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-dbus",
@@ -1046,6 +1048,23 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-config",
  "serde",
+]
+
+[[package]]
+name = "deskrinch-shell"
+version = "0.1.0"
+
+[[package]]
+name = "deskrinch-start-record"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-desktop-entries",
+ "deskrinch-xdg",
+ "serde",
+ "tempfile",
+ "thiserror 2.0.21",
+ "toml 1.2.1+spec-1.1.0",
+ "tracing",
 ]
 
 [[package]]
@@ -1104,7 +1123,6 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
  "deskrinch-test-wayland",
- "tempfile",
  "thiserror 2.0.21",
  "wayland-client",
  "wayland-protocols-misc",
@@ -1150,7 +1168,6 @@ name = "deskrinch-test-wayland"
 version = "0.1.0"
 dependencies = [
  "rustix",
- "tempfile",
  "thiserror 2.0.21",
  "wayland-client",
 ]
@@ -6320,6 +6337,7 @@ dependencies = [
  "ctrlc",
  "deskrinch-bus",
  "deskrinch-kwin-access",
+ "deskrinch-shell",
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-dbus",
@@ -6332,6 +6350,7 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
+ "wayland-client",
  "zbus 6.2.1",
 ]
 
