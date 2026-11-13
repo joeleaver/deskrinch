@@ -129,8 +129,9 @@ impl Client {
 
     /// How many states are attached and how many releasing, as the
     /// client's thread last left them, and how many events releasing states
-    /// have been handed (see [`StateCounts`]). A detach is counted by the
-    /// time its attachment's drop returns.
+    /// have been handed (see [`StateCounts`]). An attach is counted by the
+    /// time [`attach`](Self::attach) returns, and a detach by the time its
+    /// attachment's drop returns.
     #[must_use]
     pub fn states(&self) -> StateCounts {
         self.shared.counts.get()
