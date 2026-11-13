@@ -102,12 +102,7 @@ mod tests {
     use super::*;
     use jiff::SignedDuration;
 
-    /// How long [`wait_fired`] waits before calling the timer hung: no bound
-    /// on how late the machine runs the test.
-    const PATIENCE: Timespec = Timespec {
-        tv_sec: 120,
-        tv_nsec: 0,
-    };
+    use crate::test_patience::PATIENCE;
 
     /// Waits until the kernel says `timer` has fired, as the clock's worker
     /// does, within [`PATIENCE`].
@@ -116,11 +111,14 @@ mod tests {
             timer,
             rustix::event::PollFlags::IN,
         )];
+        let patience = Timespec {
+            tv_sec: PATIENCE.as_secs().try_into().unwrap(),
+            tv_nsec: 0,
+        };
         assert_eq!(
-            rustix::event::poll(&mut fds, Some(&PATIENCE)).unwrap(),
+            rustix::event::poll(&mut fds, Some(&patience)).unwrap(),
             1,
-            "the timer did not fire within {} s",
-            PATIENCE.tv_sec
+            "the timer did not fire within {PATIENCE:?}"
         );
     }
 

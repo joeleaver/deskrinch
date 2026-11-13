@@ -5,15 +5,22 @@
 //! clock the test controls. Here: the timer wakes at the boundary, the time
 //! zone file is watched, and the clock stops when dropped.
 //!
-//! These tests assert what the clock promises, and nothing about how soon
-//! the machine runs a woken thread: it never wakes before the boundary,
-//! each wake reports the time it is, and a change it watches for is
-//! reported. A wake the machine made late is reported as late (with the
-//! time it is, a later second when it is late by more than one), and
-//! the test says so on its output without failing. How late the clock
-//! wakes in practice is a measurement (`cargo xtask measure`), not an
-//! assertion. Every wait here has [`PATIENCE`], which only keeps a broken
-//! clock from hanging the run.
+//! The tests claim what the clock promises, on the times its ticks carry,
+//! not on when the test's thread happens to receive them: it never wakes
+//! before a boundary; each tick carries the time it is; a wake the machine
+//! made late shows the time it is (a later second when it is late by a
+//! second or more), which the test says on its output and does not fail
+//! on; a dropped clock's thread has ended when the drop returns. How late
+//! the clock wakes in practice is a measurement (`cargo xtask measure`),
+//! not an assertion. Every wait has [`PATIENCE`], which only keeps a
+//! broken clock from hanging the run.
+//!
+//! One speed bound stays, because the crate promises it:
+//! [`ZONE_CHANGE_SHOWN_WITHIN`].
+
+// The patience the timer's unit tests share.
+#[path = "../src/test_patience.rs"]
+mod test_patience;
 
 // Inside `cfg(test)`, where clippy allows the tests their `unwrap`s.
 #[cfg(test)]
@@ -21,20 +28,24 @@ mod real_clock {
     use std::fs;
     use std::os::unix::fs::symlink;
     use std::path::{Path, PathBuf};
-    use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+    use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
     use std::time::Duration;
 
-    use deskrinch_clock::jiff::{Timestamp, tz::TimeZone};
+    use deskrinch_clock::jiff::{SignedDuration, Timestamp, tz::TimeZone};
     use deskrinch_clock::{
         Cause, Clock, ClockError, Environment, Event, Precision, Tick, next_boundary,
     };
 
+    use crate::test_patience::PATIENCE;
+
     const ZONEINFO: &str = "/usr/share/zoneinfo";
 
-    /// How long a wait may take before the test calls the clock hung: far
-    /// beyond any boundary these tests wait for, and no bound on how late
-    /// the machine wakes a thread.
-    const PATIENCE: Duration = Duration::from_secs(120);
+    /// How soon after the time zone changes the clock shows it, by the
+    /// time its tick carries: the crate promises the right time within a
+    /// second of a time zone change (its documentation, "Waking at the
+    /// right time"), which it keeps by watching the zone with inotify
+    /// instead of waiting for the next boundary.
+    const ZONE_CHANGE_SHOWN_WITHIN: SignedDuration = SignedDuration::from_secs(1);
 
     fn env(localtime: &Path) -> Environment {
         Environment {
@@ -89,18 +100,6 @@ mod real_clock {
         fs::rename(&new, link).unwrap();
     }
 
-    /// Checks that `tick`, received at `received` after the clock last
-    /// reported `previous`, reports the time it is: after `previous`, and
-    /// not after it was received.
-    fn reports_the_time_it_is(tick: &Tick, previous: Timestamp, received: Timestamp) {
-        let now = tick.now.timestamp();
-        assert!(now > previous, "{now} is not after {previous}");
-        assert!(
-            now <= received,
-            "{now} is after it was received, {received}"
-        );
-    }
-
     #[test]
     fn starts_with_the_time_now_and_wakes_at_each_second() {
         let dir = tempfile::tempdir().unwrap();
@@ -114,25 +113,33 @@ mod real_clock {
         assert_eq!(first.now.time_zone().iana_name(), Some("Europe/Berlin"));
         let zone = first.now.time_zone().clone();
         let mut last = first.now.timestamp();
+        // The time it is: not before the clock started, nor after the tick
+        // was received.
         assert!(
             last >= before,
             "{last} is before the clock started, {before}"
         );
+        assert!(last <= Timestamp::now(), "{last} is in the future");
         for _ in 0..3 {
             let boundary = next_boundary(last, &zone, Precision::Seconds);
             let next = tick(&events);
             let received = Timestamp::now();
             assert_eq!(next.cause, Cause::Boundary);
-            reports_the_time_it_is(&next, last, received);
             let now = next.now.timestamp();
-            // Never early: at the boundary or after it.
+            // Never early: at the second it is for, or after it.
             assert!(now >= boundary, "woke at {now}, before {boundary}");
-            // The next second, unless the machine woke it late by more than
-            // one: then the time it is, a later second, which is said here.
+            // The time it is: not after the tick was received.
+            assert!(
+                now <= received,
+                "{now} is after it was received, {received}"
+            );
+            // The second it is for, unless the machine woke the clock a
+            // second or more late: then the time it is, a later second,
+            // said here and not failed on.
             if now >= next_boundary(boundary, &zone, Precision::Seconds) {
                 eprintln!(
-                    "the machine woke the clock {} late: it reported {now} for the second at \
-                     {boundary}",
+                    "the machine woke the clock {:#} late for the second at {boundary}: \
+                     it showed {now}",
                     now.duration_since(boundary)
                 );
             }
@@ -148,9 +155,10 @@ mod real_clock {
         let (_clock, events) = start(env(&localtime), Precision::Minutes);
         let first = tick(&events);
         let minute = next_boundary(first.now.timestamp(), &TimeZone::UTC, Precision::Minutes);
-        // Whatever arrives in the next two seconds (nothing, unless the
+        // Whatever comes in the next two seconds (nothing, unless the
         // minute turns meanwhile) is the minute's tick: a clock that woke
-        // at each second would report one before it.
+        // at each second would show a time before the minute. The two
+        // seconds are a window to look in, not a bound on the clock.
         match events.recv_timeout(Duration::from_secs(2)) {
             Err(RecvTimeoutError::Timeout) => {}
             Ok(Event::Tick(tick)) => {
@@ -166,7 +174,7 @@ mod real_clock {
     }
 
     #[test]
-    fn hears_a_time_zone_change() {
+    fn shows_a_time_zone_change_within_a_second() {
         let dir = tempfile::tempdir().unwrap();
         let localtime = dir.path().join("localtime");
         set_zone(&localtime, "Europe/Berlin");
@@ -174,10 +182,17 @@ mod real_clock {
         let first = tick(&events);
         assert_eq!(first.now.time_zone().iana_name(), Some("Europe/Berlin"));
 
+        let changed = Timestamp::now();
         set_zone(&localtime, "Asia/Tokyo");
         let tick = tick_of(&events, Cause::TimeZoneChanged);
         assert_eq!(tick.now.time_zone().iana_name(), Some("Asia/Tokyo"));
         assert_eq!(tick.now.offset().seconds(), 9 * 3600);
+        // By the time the tick carries: when the clock read it.
+        let shown = tick.now.timestamp().duration_since(changed);
+        assert!(
+            shown <= ZONE_CHANGE_SHOWN_WITHIN,
+            "showed the change {shown:#} after it, more than {ZONE_CHANGE_SHOWN_WITHIN:#}"
+        );
     }
 
     #[test]
@@ -200,19 +215,21 @@ mod real_clock {
     }
 
     #[test]
-    fn stops_when_dropped() {
+    fn a_drop_ends_the_clocks_thread() {
         let dir = tempfile::tempdir().unwrap();
         let (clock, events) = start(env(&dir.path().join("localtime")), Precision::Seconds);
         tick(&events);
+        // A drop stops the thread and joins it: once it returns, the thread
+        // and the subscriber it owned are gone. What it sent before is
+        // there to read, and then the channel is closed, with nothing to
+        // wait for.
         drop(clock);
-        // Dropping it ended its thread, and the subscriber with it: what it
-        // sent before is there to read, then nothing more ever comes.
         loop {
-            match events.recv_timeout(PATIENCE) {
+            match events.try_recv() {
                 Ok(Event::Tick(_)) => {}
                 Ok(other) => panic!("{other:?}"),
-                Err(RecvTimeoutError::Disconnected) => break,
-                Err(RecvTimeoutError::Timeout) => panic!("the clock ran on after it was dropped"),
+                Err(TryRecvError::Disconnected) => break,
+                Err(TryRecvError::Empty) => panic!("the clock's thread outlived the drop"),
             }
         }
     }
