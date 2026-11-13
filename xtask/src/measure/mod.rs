@@ -31,6 +31,7 @@
 //! which makes rinch write a line after every presented frame.
 
 mod callgrind;
+mod environment;
 mod gpu;
 mod granting;
 mod output;
@@ -44,6 +45,7 @@ mod state;
 mod system;
 mod window;
 
+pub(crate) use environment::parse_env;
 pub(crate) use renderer::{Expected, Renderer};
 pub(crate) use show::Summons;
 
@@ -52,7 +54,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use self::granting::Granting;
+use self::environment::{environment, environment_set};
+use self::granting::Grant;
 use self::renderer::check_renderer;
 use self::window::Stimulus;
 use crate::Outcome;
@@ -114,7 +117,11 @@ if the window cannot be opened or is gone by the end.
 Under KWin a program that is one of the shell's components (by its file
 name, or as --component PACKAGE names it) is granted what deskrinch-shell
 grants that component, as the desktop grants it; anything else is granted
-nothing. Each run's notes say what was granted.
+nothing. Each run's notes say what was granted, or why nothing.
+
+--env KEY=VALUE (repeatable) sets a variable in the measured program's own
+environment, such as MALLOC_ARENA_MAX=1, so that the program KWin sees and
+grants is the program; the header and each run's notes say what was set.
 
 Each run keeps the program's whole output in a file its notes name. A run
 whose program logged an error fails, printing the lines: a program that
@@ -172,6 +179,8 @@ pub(crate) struct Request {
     /// file name is not that package's (a copied binary); under KWin it is
     /// granted what `deskrinch-shell` grants that component.
     pub(crate) component: Option<String>,
+    /// With `--env`: variables set on the measured program, after its own.
+    pub(crate) env: Vec<(String, String)>,
 }
 
 impl Request {
@@ -181,6 +190,31 @@ impl Request {
     fn compositor_renderer(&self) -> CompositorRenderer {
         CompositorRenderer::for_client(self.compositor, self.renderer == Some(Renderer::Gpu))
     }
+
+    /// A request for `program` with every option at its default, for tests.
+    #[cfg(test)]
+    pub(crate) fn new(program: OsString) -> Self {
+        Self {
+            compositor: Compositor::Kwin,
+            runs: 1,
+            renderer: None,
+            expect_renderer: None,
+            shader_cache: ShaderCache::Cold,
+            settle: Duration::ZERO,
+            idle: Duration::ZERO,
+            first_frame_timeout: Duration::ZERO,
+            instructions: false,
+            profiles: None,
+            state: None,
+            program,
+            args: Vec::new(),
+            summons: None,
+            window: None,
+            allow_errors: false,
+            component: None,
+            env: Vec::new(),
+        }
+    }
 }
 
 /// Runs the measurement and prints its report.
@@ -189,7 +223,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         state::check(state)?;
     }
     let program = request.program.to_string_lossy().into_owned();
-    let granting = Granting::of(request)?;
+    let grant = Grant::of(request)?;
     // A warm cache lives outside the sessions, for as long as this task.
     let cache_dir = (request.shader_cache == ShaderCache::Warm)
         .then(|| {
@@ -210,7 +244,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
             settle: Duration::ZERO,
             idle: Duration::ZERO,
         };
-        in_session(request, granting.as_ref(), |session| {
+        in_session(request, &grant, |session| {
             let command = client(session, request, Some(dir));
             match &request.summons {
                 Some(summons) => {
@@ -230,11 +264,14 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let mut runs = Vec::new();
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
-        let mut run = in_session(request, granting.as_ref(), |session| {
+        let mut run = in_session(request, &grant, |session| {
             measure_run(request, session, index, cache, &program, timing)
         })?;
         output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
-        run.note("granted", Granting::note(granting.as_ref()));
+        run.note("granted", grant.note());
+        if let Some(set) = environment_set(request) {
+            run.note("environment set", set);
+        }
         runs.push(run);
     }
     println!("{}", header(request));
@@ -296,7 +333,7 @@ fn measure_run(
 /// the outcome.
 fn in_session<T>(
     request: &Request,
-    granting: Option<&Granting>,
+    grant: &Grant,
     measure: impl FnOnce(&Session) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let session = Session::start(
@@ -304,7 +341,7 @@ fn in_session<T>(
         request.compositor_renderer(),
         Outputs::plain(1),
         None,
-        |data_home| granting.map_or(Ok(()), |granting| granting.install(data_home)),
+        |data_home| grant.install(data_home),
     )?;
     let result = match &request.state {
         Some(state) => state::seed(state, &session.root().join("state")),
@@ -335,27 +372,6 @@ fn asked(session: &Session, request: &Request, cache: Option<&Path>, args: &[OsS
     command
 }
 
-/// The measured program's environment: rinch's frame lines, wgpu's
-/// adapter line, the renderer and the shader cache asked for.
-fn environment(command: &mut Command, request: &Request, cache: Option<&Path>) {
-    let callers_log = std::env::var("RUST_LOG").ok();
-    command
-        .env("RINCH_PERF", "1")
-        .env(
-            "RUST_LOG",
-            deskrinch_test_component::log::rust_log(callers_log.as_deref()),
-        )
-        .env("NO_COLOR", "1");
-    if let Some(renderer) = request.renderer {
-        command.env("RINCH_RENDERER", renderer.env());
-    }
-    match cache {
-        Some(dir) => command.env("MESA_SHADER_CACHE_DIR", dir),
-        // The session's own cache, empty: never one the caller set.
-        None => command.env_remove("MESA_SHADER_CACHE_DIR"),
-    };
-}
-
 /// What was measured, where and how.
 fn header(request: &Request) -> String {
     let args: Vec<String> = request
@@ -363,7 +379,7 @@ fn header(request: &Request) -> String {
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    format!(
+    let header = format!(
         "Measured: {} {}\n\
          Compositor: {} (nested, headless; {})\n\
          Renderer: {}; shader cache: {}; {}\n\
@@ -403,5 +419,9 @@ fn header(request: &Request) -> String {
             (None, false) => "settle and idle windows as asked",
         },
         system::describe(),
-    )
+    );
+    match environment_set(request) {
+        Some(set) => format!("{header}\nEnvironment set: {set}"),
+        None => header,
+    }
 }

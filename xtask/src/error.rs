@@ -272,6 +272,13 @@ pub(crate) enum Error {
         /// The program.
         program: String,
     },
+    /// Valgrind's Callgrind tool, which KWin is to grant under
+    /// `--instructions`, could not be found by starting it.
+    #[error("could not find Valgrind's Callgrind tool to grant it: {why}")]
+    CallgrindToolNotFound {
+        /// What happened instead.
+        why: String,
+    },
     /// `--component` named no component of the shell.
     #[error("{name} is not one of the shell's components ({known})")]
     UnknownComponent {

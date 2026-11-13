@@ -193,6 +193,11 @@ enum Task {
         /// program named as a component's package is granted without it.
         #[arg(long, value_name = "PACKAGE")]
         component: Option<String>,
+        /// Set KEY to VALUE in the measured program's environment, after
+        /// what measure sets itself (repeatable). The header and each run's
+        /// notes say what was set.
+        #[arg(long = "env", value_name = "KEY=VALUE", value_parser = measure::parse_env)]
+        env: Vec<(String, String)>,
         /// Measure a program that logged errors, with the lines in each
         /// run's notes, instead of failing the run.
         #[arg(long)]
@@ -267,6 +272,7 @@ impl Task {
                 window,
                 component,
                 allow_errors,
+                env,
                 state,
                 program,
                 args,
@@ -292,6 +298,7 @@ impl Task {
                 window,
                 component,
                 allow_errors,
+                env,
             }),
             Self::Session {
                 outputs,

@@ -325,6 +325,33 @@ mod measure {
         }
     }
 
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn the_environment_asked_for_reaches_the_program_and_is_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let found = dir.path().join("found");
+        let script = format!(
+            "{}echo \"$MEASURE_ASKED\" > {}; echo '[PERF] frame 1: style 0.10ms' >&2; \
+             exec sleep 600",
+            record(dir.path(), false),
+            found.display()
+        );
+        let output = measure(&["--env", "MEASURE_ASKED=a=b"], &script);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert_eq!(fs::read_to_string(&found).unwrap(), "a=b\n");
+        assert!(
+            stdout.contains("Environment set: MEASURE_ASKED=a=b"),
+            "{stdout}"
+        );
+        assert!(
+            stdout.contains("environment set: MEASURE_ASKED=a=b"),
+            "{stdout}"
+        );
+        assert_session_ended(dir.path());
+    }
+
     /// A stand-in that logs an error as a component does, then draws.
     fn logs_an_error(dir: &Path) -> String {
         format!(

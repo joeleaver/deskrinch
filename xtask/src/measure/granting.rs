@@ -2,8 +2,9 @@
 //! grants it, when it is one of the shell's components (by its file name,
 //! or as `--component` names it), installed through [`crate::grant`] into
 //! each session's data directory before the compositor starts; nothing
-//! otherwise. A measured panel is then the panel that ships, following the
-//! window list, rather than one whose taskbar gave up at its start.
+//! otherwise, for a reason each run's notes give. A measured panel is then
+//! the panel that ships, following the window list, rather than one whose
+//! taskbar gave up at its start.
 //!
 //! KWin grants by the executable it sees (`/proc/<pid>/exe`). Under
 //! `--instructions` that is not the program but Valgrind's Callgrind tool,
@@ -20,57 +21,88 @@ use super::Request;
 use crate::error::Error;
 use crate::session::Compositor;
 
-/// How long the Callgrind tool has to replace Valgrind's launcher.
-const TOOL_STARTS: Duration = Duration::from_secs(10);
+/// How long the Callgrind tool may take to replace Valgrind's launcher: a
+/// guard against a hang, not a time it is expected to take, even loaded.
+const TOOL_STARTS: Duration = Duration::from_secs(60);
 
-/// A grant to install in every session of a measurement.
-#[derive(Debug)]
-pub(crate) struct Granting {
-    component: &'static Component,
-    executable: PathBuf,
+/// What a measurement's program is granted, or why nothing.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Grant {
+    /// The component's grant, for this executable.
+    Granted {
+        component: &'static Component,
+        executable: PathBuf,
+    },
+    /// The compositor restricts nothing (sway, labwc).
+    Unrestricted(Compositor),
+    /// A component that uses nothing restricted.
+    NothingRestricted(&'static Component),
+    /// The program is none of the shell's components, by its file name,
+    /// and `--component` named none.
+    NotAComponent(String),
 }
 
-impl Granting {
-    /// What `request`'s program is granted: `None` under sway and labwc,
-    /// which restrict nothing, and for a program that is no component of
-    /// the shell, or one that uses nothing restricted.
-    pub(crate) fn of(request: &Request) -> Result<Option<Self>, Error> {
+impl Grant {
+    /// What `request`'s program is granted, or why nothing.
+    pub(crate) fn of(request: &Request) -> Result<Self, Error> {
         if request.compositor != Compositor::Kwin {
-            return Ok(None);
+            return Ok(Self::Unrestricted(request.compositor));
         }
         let program = Path::new(&request.program);
         let Some(component) = crate::grant::component(program, request.component.as_deref())?
         else {
-            return Ok(None);
+            return Ok(Self::NotAComponent(
+                program
+                    .file_name()
+                    .unwrap_or(program.as_os_str())
+                    .to_string_lossy()
+                    .into_owned(),
+            ));
         };
         if component.wayland_grants.is_empty() {
-            return Ok(None);
+            return Ok(Self::NothingRestricted(component));
         }
         let executable = if request.instructions {
             callgrind_tool()?
         } else {
             resolve(&request.program)?
         };
-        Ok(Some(Self {
+        Ok(Self::Granted {
             component,
             executable,
-        }))
+        })
     }
 
-    /// Installs the grant into a session's data directory `data_home`.
+    /// Installs the grant, if there is one, into a session's data directory
+    /// `data_home`.
     pub(crate) fn install(&self, data_home: &Path) -> Result<(), Error> {
-        crate::grant::install(self.component, &self.executable, data_home).map(drop)
+        match self {
+            Self::Granted {
+                component,
+                executable,
+            } => crate::grant::install(component, executable, data_home).map(drop),
+            _ => Ok(()),
+        }
     }
 
-    /// What a run's notes say was granted.
-    pub(crate) fn note(granting: Option<&Self>) -> String {
-        granting.map_or_else(
-            || {
-                "nothing (not one of the shell's components, uses nothing restricted, or not KWin)"
-                    .to_owned()
-            },
-            |granting| crate::grant::describe(granting.component, &granting.executable),
-        )
+    /// What a run's notes say was granted, or why nothing.
+    pub(crate) fn note(&self) -> String {
+        match self {
+            Self::Granted {
+                component,
+                executable,
+            } => crate::grant::describe(component, executable),
+            Self::Unrestricted(compositor) => {
+                format!("nothing: {} restricts nothing", compositor.name())
+            }
+            Self::NothingRestricted(component) => {
+                format!("nothing: {} uses nothing restricted", component.package)
+            }
+            Self::NotAComponent(name) => format!(
+                "NOTHING: {name} is not one of the shell's components by its file name; if it \
+                 is one, --component PACKAGE names it, and it is granted as the shell grants it"
+            ),
+        }
     }
 }
 
@@ -99,14 +131,15 @@ fn resolve(program: &OsStr) -> Result<PathBuf, Error> {
 
 /// The Callgrind tool's executable: Valgrind's launcher replaces itself
 /// with it, so it is what `/proc/<pid>/exe` names once a run has begun. A
-/// run of `sleep` under it, ended at once, shows where it is.
+/// run of `sleep` under it, ended at once, shows where it is. A probe that
+/// exits first (a missing tool, a broken install) fails at once.
 fn callgrind_tool() -> Result<PathBuf, Error> {
     let mut probe = Command::new("valgrind")
         .args([
             "--tool=callgrind",
             "--callgrind-out-file=/dev/null",
             "sleep",
-            "60",
+            "600",
         ])
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -123,10 +156,14 @@ fn callgrind_tool() -> Result<PathBuf, Error> {
         if let Some(path) = seen.filter(|path| is_callgrind_tool(path)) {
             break Ok(path);
         }
+        if let Ok(Some(status)) = probe.try_wait() {
+            break Err(Error::CallgrindToolNotFound {
+                why: format!("valgrind --tool=callgrind exited ({status}) before it ran"),
+            });
+        }
         if Instant::now() >= deadline {
-            break Err(Error::Io {
-                what: "find Valgrind's Callgrind tool".into(),
-                source: std::io::ErrorKind::TimedOut.into(),
+            break Err(Error::CallgrindToolNotFound {
+                why: format!("no Callgrind tool ran within {TOOL_STARTS:?}"),
             });
         }
         std::thread::sleep(Duration::from_millis(20));
@@ -145,7 +182,7 @@ fn is_callgrind_tool(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use deskrinch_shell::PANEL;
+    use deskrinch_shell::{LAUNCHER, PANEL};
 
     use super::*;
 
@@ -158,64 +195,55 @@ mod tests {
         assert!(!is_callgrind_tool(Path::new("/usr/bin/valgrind.bin")));
     }
 
-    #[test]
-    fn the_note_says_what_was_granted_and_to_what() {
-        let granting = Granting {
-            component: &PANEL,
-            executable: PathBuf::from("/tmp/measure/panel-after"),
-        };
-        assert!(Granting::note(Some(&granting)).starts_with("org_kde_plasma_window_management"));
-        assert!(Granting::note(None).starts_with("nothing"));
-    }
-
     fn request(program: &str, component: Option<&str>, compositor: Compositor) -> Request {
         Request {
             compositor,
-            runs: 1,
-            renderer: None,
-            expect_renderer: None,
-            shader_cache: super::super::ShaderCache::Cold,
-            settle: Duration::ZERO,
-            idle: Duration::ZERO,
-            first_frame_timeout: Duration::ZERO,
-            instructions: false,
-            profiles: None,
-            state: None,
-            program: program.into(),
-            args: Vec::new(),
-            summons: None,
-            window: None,
-            allow_errors: false,
             component: component.map(str::to_owned),
+            ..Request::new(program.into())
         }
     }
 
     #[test]
-    fn a_component_is_granted_under_kwin_and_nothing_else_is() {
+    fn a_component_is_granted_under_kwin_and_the_rest_say_why_not() {
         let sh = resolve(OsStr::new("sh")).unwrap();
         let sh = sh.to_str().unwrap();
-        let granted = Granting::of(&request(sh, Some("deskrinch-panel"), Compositor::Kwin))
-            .unwrap()
-            .expect("the panel is granted under KWin");
-        assert_eq!(granted.component, &PANEL);
-        assert_eq!(granted.executable, Path::new(sh));
-        let none = |program, component, compositor| {
-            Granting::of(&request(program, component, compositor))
-                .unwrap()
-                .is_none()
+        let grant = |program, component, compositor| {
+            Grant::of(&request(program, component, compositor)).unwrap()
         };
-        assert!(none(sh, None, Compositor::Kwin), "not a component");
-        assert!(
-            none(sh, Some("deskrinch-launcher"), Compositor::Kwin),
-            "nothing restricted"
+        assert_eq!(
+            grant(sh, Some("deskrinch-panel"), Compositor::Kwin),
+            Grant::Granted {
+                component: &PANEL,
+                executable: PathBuf::from(sh),
+            }
         );
-        assert!(
-            none(sh, Some("deskrinch-panel"), Compositor::Sway),
-            "sway restricts nothing"
+        // A copy of the panel, renamed: the case that cost a series.
+        let not_a_component = grant("/tmp/measure/panel-after", None, Compositor::Kwin);
+        assert_eq!(not_a_component, Grant::NotAComponent("panel-after".into()));
+        assert!(not_a_component.note().contains("--component PACKAGE"));
+        let launcher = grant(sh, Some("deskrinch-launcher"), Compositor::Kwin);
+        assert_eq!(launcher, Grant::NothingRestricted(&LAUNCHER));
+        assert_eq!(
+            launcher.note(),
+            "nothing: deskrinch-launcher uses nothing restricted"
         );
+        for compositor in [Compositor::Sway, Compositor::Labwc] {
+            let unrestricted = grant(sh, Some("deskrinch-panel"), compositor);
+            assert_eq!(unrestricted, Grant::Unrestricted(compositor));
+            assert!(unrestricted.note().ends_with("restricts nothing"));
+        }
+    }
+
+    #[test]
+    fn the_note_says_what_was_granted_and_to_what() {
+        let granted = Grant::Granted {
+            component: &PANEL,
+            executable: PathBuf::from("/tmp/measure/panel-after"),
+        };
         assert!(
-            none(sh, Some("deskrinch-panel"), Compositor::Labwc),
-            "labwc neither"
+            granted
+                .note()
+                .starts_with("org_kde_plasma_window_management to /tmp/measure/panel-after")
         );
     }
 
