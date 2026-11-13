@@ -308,6 +308,10 @@ What the nested desktop does not have:
   application's own, or be missing.
 - Applications start with an empty home (unless `--profile` keeps one) and
   look freshly installed.
+- On a machine without a GPU, the nested KWin composites in software
+  (QPainter), and then has none of its OpenGL effects: no Overview (nor its
+  hot corner), no grid, no window view. That is KWin's own limit; with a
+  GPU it has them all.
 
 ### Measuring what a component costs
 

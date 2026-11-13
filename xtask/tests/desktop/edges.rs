@@ -1,12 +1,16 @@
-//! KWin's screen edges and its Overview, in the desktop's KWin: the
-//! Overview opens by its shortcut, shows the windows, and closes again;
-//! then pushing the pointer into every corner and along every edge finds
-//! the Overview's hot corner (top-left) and nothing else, opens the
-//! Overview there, and leaves KWin and the shell running.
+//! KWin's screen edges and its Overview, in the desktop's KWin. Whatever
+//! KWin composites with, pushing the pointer into every corner and along
+//! every edge leaves KWin and the shell running. Then, as is true of each:
 //!
-//! Both wait until KWin has loaded the Overview, which it does after it has
-//! started: before then its shortcut does nothing, and a push into the
-//! corner only lights it (KWin's `screenedge` effect).
+//! - With OpenGL (a machine with a GPU, as the owner's): the Overview opens
+//!   by its shortcut, shows the windows, and closes again; the edges find
+//!   its hot corner (top-left) and nothing else, which opens it.
+//!   The checks wait until KWin has loaded the Overview, which it does
+//!   after it has started: before then its shortcut does nothing, and a
+//!   push into the corner only lights it (KWin's `screenedge` effect).
+//! - With `QPainter` (in software, on a machine without a GPU, as CI's
+//!   runners are): KWin has no Overview. It is not loaded, its shortcut does
+//!   nothing, and no edge or corner does anything.
 //!
 //! The pointer has to be the nested KWin's own, so the checks run inside
 //! the desktop: the outer test starts it on a profile of its own that
@@ -330,6 +334,46 @@ fn inside_the_desktop_edges_and_the_overview() {
             None,
         )
         .unwrap();
+    // KWin's Overview needs OpenGL: a KWin compositing with QPainter (in
+    // software, on a machine with no GPU, as CI's runners are) never loads
+    // it, and what is left to check there is that every edge and corner
+    // leaves KWin running.
+    let compositing = compositing_type();
+    record.note(&format!("compositing: {compositing}"));
+    if compositing != "OpenGL" {
+        let baseline = wait_effects("the window's opening to end", |now| {
+            now.iter().all(|e| e != "scale")
+        });
+        assert!(
+            !effect_loaded("overview"),
+            "the Overview loaded with {compositing}"
+        );
+        // Its shortcut does nothing (whether the shortcut daemon knows it or
+        // not, which is recorded).
+        let invoked = call(
+            "org.kde.kglobalaccel",
+            "/component/kwin",
+            "org.kde.kglobalaccel.Component",
+            "invokeShortcut",
+            "Overview",
+        );
+        std::thread::sleep(Duration::from_secs(2));
+        let after = active_effects();
+        record.note(&format!(
+            "the Overview's shortcut ({}): {after:?}",
+            invoked.map_or_else(|why| format!("refused: {why}"), |()| "invoked".into())
+        ));
+        assert!(after.iter().all(|e| e != "overview"), "{after:?}");
+        // No edge or corner does anything.
+        let started = sweep(&mut input, &output, size, &baseline, &record);
+        assert!(
+            started.iter().all(|(_, effects)| effects.is_empty()),
+            "{started:?}"
+        );
+        launcher_answers(&record);
+        return;
+    }
+
     // The Overview by its shortcut, showing the window, and closed again,
     // once KWin has loaded it.
     let deadline = Instant::now() + PATIENCE;
@@ -357,6 +401,33 @@ fn inside_the_desktop_edges_and_the_overview() {
     assert!(kwin_running(), "KWin is gone after the Overview");
     assert!(shown, "the Overview did not show the window");
     let baseline = active_effects();
+    let started = sweep(&mut input, &output, size, &baseline, &record);
+    // The Overview's hot corner is there and opens it (closed by Escape),
+    // and no other edge does anything. KWin's `screenedge` effect lights an
+    // edge reserved for an action as the pointer comes to it.
+    let doing = |effect: &str| -> Vec<&str> {
+        started
+            .iter()
+            .filter(|(_, effects)| effects.iter().any(|e| e == effect))
+            .map(|(place, _)| *place)
+            .collect()
+    };
+    assert_eq!(doing("screenedge"), ["top-left corner"], "{started:?}");
+    assert_eq!(doing("overview"), ["top-left corner"], "{started:?}");
+    launcher_answers(&record);
+}
+
+/// Pushes the pointer into every corner and along every edge of `output`
+/// (`size` logical pixels), checking after each that KWin still runs;
+/// what each started beyond `baseline`, by place, each ended again (an
+/// effect other than an edge's light by Escape).
+fn sweep(
+    input: &mut Input,
+    output: &str,
+    size: (f64, f64),
+    baseline: &[String],
+    record: &Record,
+) -> Vec<(&'static str, Vec<String>)> {
     let (right, bottom) = (size.0 - 1.0, size.1 - 1.0);
     let places = [
         ("top-left corner", (0.0, 0.0)),
@@ -368,34 +439,29 @@ fn inside_the_desktop_edges_and_the_overview() {
         ("bottom-left corner", (0.0, bottom)),
         ("left edge", (0.0, size.1 / 2.0)),
     ];
-    // Each place pushed, and what started: KWin's `screenedge` effect lights
-    // an edge reserved for an action as the pointer comes to it.
-    let (mut lit, mut opened) = (Vec::new(), Vec::new());
+    let mut found = Vec::new();
     for (place, point) in places {
-        push(&mut input, &output, point, size);
+        push(input, output, point, size);
         std::thread::sleep(Duration::from_secs(1));
         assert!(kwin_running(), "KWin is gone after the {place}");
-        let active = active_effects();
-        let started: Vec<_> = active.iter().filter(|e| !baseline.contains(e)).collect();
+        let started: Vec<String> = active_effects()
+            .into_iter()
+            .filter(|e| !baseline.contains(e))
+            .collect();
         record.note(&format!("{place}: {started:?}"));
-        if started.iter().any(|e| *e == "screenedge") {
-            lit.push(place);
-        }
-        if started.iter().any(|e| *e == "overview") {
-            opened.push(place);
-        }
-        if started.iter().any(|e| *e != "screenedge") {
+        if started.iter().any(|e| e != "screenedge") {
             input.press(Key::ESCAPE).unwrap();
         }
         wait_effects("what started to end", |now| {
             now.iter().all(|e| baseline.contains(e))
         });
+        found.push((place, started));
     }
-    // The Overview's hot corner is there and opens it (closed by Escape),
-    // and no other edge does anything.
-    assert_eq!(lit, ["top-left corner"]);
-    assert_eq!(opened, ["top-left corner"]);
-    // The shell still answers: the launcher toggles, both ways.
+    found
+}
+
+/// Checks that the shell still answers: the launcher toggles, both ways.
+fn launcher_answers(record: &Record) {
     for _ in 0..2 {
         call(
             "org.deskrinch.Launcher",
@@ -407,4 +473,32 @@ fn inside_the_desktop_edges_and_the_overview() {
         .unwrap();
     }
     record.note("the launcher still answers");
+}
+
+/// The compositing type KWin's support information names (`OpenGL`,
+/// `QPainter`).
+fn compositing_type() -> String {
+    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+    let info: String = zbus::block_on(async {
+        let connection = zbus::connection::Builder::address(address.as_str())
+            .build()
+            .await
+            .unwrap();
+        let reply = connection
+            .call_method(
+                Some("org.kde.KWin"),
+                "/KWin",
+                Some("org.kde.KWin"),
+                "supportInformation",
+                &(),
+            )
+            .await
+            .unwrap();
+        reply.body().deserialize().unwrap()
+    });
+    info.lines()
+        .find_map(|line| line.trim().strip_prefix("Compositing Type: "))
+        .unwrap_or("(none)")
+        .trim()
+        .to_owned()
 }
