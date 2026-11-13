@@ -13,6 +13,12 @@ use wayland_client::{Connection, Dispatch, DispatchError, EventQueue, QueueHandl
 /// Both do nothing unless the state says otherwise: a state that binds
 /// nothing later has nothing to do here.
 ///
+/// A global can reach a state twice: in its setup's list, when the setup
+/// reads the list after one of its exchanges brought the global, and then
+/// in [`global_added`](Self::global_added) as well. So binding a global
+/// must do nothing for one already bound, as
+/// [`Outputs::add`](crate::Outputs::add) does.
+///
 /// # Order
 ///
 /// The registry is on a queue of the client's own, not the state's, so its

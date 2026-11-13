@@ -140,7 +140,9 @@ pub struct Outputs {
 }
 
 impl Outputs {
-    /// Binds the output with registry name `global`.
+    /// Binds the output with registry name `global`; nothing for one it has
+    /// bound already, which a state may be handed twice (see
+    /// [`Globals`](crate::Globals)).
     pub fn add<State>(
         &mut self,
         registry: &WlRegistry,
@@ -150,6 +152,9 @@ impl Outputs {
     ) where
         State: Dispatch<WlOutput, OutputGlobal> + Dispatch<ZxdgOutputV1, OutputGlobal> + 'static,
     {
+        if self.by_global.contains_key(&global) {
+            return;
+        }
         let data = OutputGlobal(global);
         let proxy: WlOutput = registry.bind(global, version.min(OUTPUT_NAME_SINCE), qh, data);
         let xdg = self
@@ -168,7 +173,8 @@ impl Outputs {
         );
     }
 
-    /// Binds the xdg-output manager and describes every output with it.
+    /// Binds the xdg-output manager and describes every output with it;
+    /// nothing once it is bound.
     pub fn add_manager<State>(
         &mut self,
         registry: &WlRegistry,

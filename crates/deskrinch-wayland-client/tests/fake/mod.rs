@@ -57,8 +57,9 @@ pub(crate) fn message(object: u32, opcode: u16, args: &[Arg<'_>]) -> Vec<u8> {
 struct Seen {
     /// The client's `wl_registry`, once asked for.
     registry: Option<u32>,
-    /// Each global bound, by its name: the id the client gave it.
-    bound: HashMap<u32, u32>,
+    /// Each global bound, by its name: the ids the client gave it, one per
+    /// bind.
+    bound: HashMap<u32, Vec<u32>>,
 }
 
 /// The stand-in compositor, as a test drives it.
@@ -97,9 +98,15 @@ impl Fake {
         self.seen.lock().unwrap().registry
     }
 
-    /// The id the client gave the global named `name` when it bound it.
-    pub(crate) fn bound(&self, name: u32) -> Option<u32> {
-        self.seen.lock().unwrap().bound.get(&name).copied()
+    /// The ids the client gave the global named `name`, one per bind.
+    pub(crate) fn bound(&self, name: u32) -> Vec<u32> {
+        self.seen
+            .lock()
+            .unwrap()
+            .bound
+            .get(&name)
+            .cloned()
+            .unwrap_or_default()
     }
 
     /// Writes `bytes` to the client, in one write.
@@ -171,7 +178,12 @@ fn serve(
                     let length = word(12) as usize;
                     let after = 16 + length.next_multiple_of(4);
                     let new_id = word(after + 4);
-                    seen.lock().unwrap().bound.insert(name, new_id);
+                    seen.lock()
+                        .unwrap()
+                        .bound
+                        .entry(name)
+                        .or_default()
+                        .push(new_id);
                 }
                 _ => {}
             }

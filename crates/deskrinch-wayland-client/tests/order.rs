@@ -1,8 +1,11 @@
-//! The registry's events reach a state after its own queue's: an object's
-//! events sent before its global's removal are heard before the removal,
-//! even when they arrive together. Against a stand-in compositor
-//! ([`fake`]), which sends them in one write, as no real one can be made
-//! to on cue.
+//! A state and the client's registry, against a stand-in compositor
+//! ([`fake`]) that does on cue what no real one can be made to:
+//!
+//! - the registry's events reach a state after its own queue's: an
+//!   object's events sent before its global's removal are heard before the
+//!   removal, even when they arrive together, in one write;
+//! - an output handed to a state twice (in its setup's list, and again to
+//!   [`Globals::global_added`]) is bound once.
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #![cfg(test)]
@@ -20,7 +23,10 @@ use std::time::{Duration, Instant};
 use deskrinch_wayland_client::{
     Client, EndCause, Ended, Globals, OutputGlobal, Outputs, OutputsHandler,
 };
+use wayland_client::QueueHandle;
+use wayland_client::globals::Global;
 use wayland_client::protocol::wl_output::WlOutput;
+use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::ZxdgOutputV1;
 
@@ -54,6 +60,12 @@ impl Ended for Listener {
 }
 
 impl Globals for Listener {
+    fn global_added(&mut self, registry: &WlRegistry, global: &Global, qh: &QueueHandle<Self>) {
+        if global.interface == "wl_output" {
+            self.outputs.add(registry, global.name, global.version, qh);
+        }
+    }
+
     fn global_removed(&mut self, name: u32) {
         if self.outputs.remove(name) {
             self.hear(format!("removed {name}"));
@@ -94,7 +106,9 @@ fn an_objects_events_come_before_its_globals_removal() {
             Ok::<_, wayland_client::DispatchError>((listener, ()))
         })
         .unwrap();
-    let output = fake.bound(OUTPUT).expect("the output bound at setup");
+    let [output] = fake.bound(OUTPUT)[..] else {
+        panic!("the output bound once at setup: {:?}", fake.bound(OUTPUT));
+    };
     let registry = fake.registry().expect("the client's registry");
 
     // The output's name and `done`, then the global's removal, in one write.
@@ -121,5 +135,35 @@ fn an_objects_events_come_before_its_globals_removal() {
         *heard.lock().unwrap(),
         ["named FAKE-1".to_owned(), format!("removed {OUTPUT}")]
     );
+    drop(attachment);
+}
+
+#[test]
+fn an_output_handed_over_twice_is_bound_once() {
+    let (connection, fake) = Fake::start(&[(OUTPUT, "wl_output", 4)]);
+    let client = Client::from_connection(connection).unwrap();
+    let listener = Listener {
+        outputs: Outputs::default(),
+        heard: Arc::default(),
+    };
+    let (attachment, ()) = client
+        .attach(move |setup| {
+            let mut listener = listener;
+            let registry = setup.globals().registry().clone();
+            let qh = setup.handle();
+            // From the setup's list, then as the client's thread would hand
+            // it over had it arrived during the setup's exchanges.
+            let global = Global {
+                name: OUTPUT,
+                interface: "wl_output".to_owned(),
+                version: 4,
+            };
+            listener.outputs.add(&registry, OUTPUT, 4, &qh);
+            listener.global_added(&registry, &global, &qh);
+            setup.roundtrip(&mut listener)?;
+            Ok::<_, wayland_client::DispatchError>((listener, ()))
+        })
+        .unwrap();
+    assert_eq!(fake.bound(OUTPUT).len(), 1, "{:?}", fake.bound(OUTPUT));
     drop(attachment);
 }
