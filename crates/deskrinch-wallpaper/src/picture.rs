@@ -164,12 +164,19 @@ mod tests {
             let (scheme, rest) = source.split_once(':').unwrap();
             assert_eq!(scheme, SCHEME);
             assert!(
-                rest.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
+                rest.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)),
                 "{source}"
             );
             assert_eq!(path_of(&source), Some(path));
         }
-        for wrong in ["wallpaper:", "wallpaper:abc", "wallpaper:zz", "other:2f", "2f"] {
+        for wrong in [
+            "wallpaper:",
+            "wallpaper:abc",
+            "wallpaper:zz",
+            "other:2f",
+            "2f",
+        ] {
             assert_eq!(path_of(wrong), None, "{wrong}");
         }
     }

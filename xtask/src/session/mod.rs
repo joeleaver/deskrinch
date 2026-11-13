@@ -163,6 +163,8 @@ impl Session {
             ref display,
             ref home,
             bindings,
+            // labwc reads it from `options`.
+            workspace_tests_fixture: _,
         } = *options;
         interrupt::install()?;
         interrupt::check()?;

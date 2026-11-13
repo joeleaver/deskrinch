@@ -8,8 +8,7 @@ use deskrinch_test_screen::Screen;
 use deskrinch_test_wayland::Transform;
 
 use crate::support::{
-    BLUE, PATIENCE, Wallpaper, in_nested_session, wait_covered,
-    write_settings, written,
+    BLUE, PATIENCE, Wallpaper, in_nested_session, wait_covered, write_settings, written,
 };
 
 /// Turns the output `name` to `transform`, as the session's compositor

@@ -9,7 +9,7 @@ use deskrinch_shell::{Chord, Key, Modifier};
 use deskrinch_test_dbus::session;
 
 use super::super::RenderNodes;
-use super::super::display::{Binding, Display, Options};
+use super::super::display::{Display, Options};
 use super::super::rendering::Wlroots;
 use super::write;
 use crate::error::Error;
@@ -79,14 +79,15 @@ pub(super) fn labwc(
     nodes: &RenderNodes,
 ) -> Result<Command, Error> {
     // A configuration directory of the session's own: labwc's defaults, no
-    // autostart, and the session's key bindings.
+    // autostart, the session's key bindings, and the workspace tests'
+    // fixture if asked for.
     let config = root.join("labwc");
     session::create_private_dir(&config).map_err(|source| Error::Io {
         what: format!("create {}", config.display()),
         source,
     })?;
-    if !options.bindings.is_empty() {
-        write(&config.join("rc.xml"), &labwc_rc(options.bindings))?;
+    if let Some(rc) = labwc_rc(options) {
+        write(&config.join("rc.xml"), &rc)?;
     }
     let mut command = Command::new("labwc");
     command
@@ -99,27 +100,53 @@ pub(super) fn labwc(
     Ok(command)
 }
 
-/// labwc's `rc.xml` with `bindings`, besides labwc's own default bindings.
+/// labwc's `rc.xml` for `options`, if they ask for anything besides
+/// labwc's defaults: the session's bindings, beside labwc's own default
+/// bindings, and the workspace tests' fixture if asked for.
+///
+/// The fixture is four workspaces, switched without the on-screen popup
+/// (which the screen tests would see), and F12 to the next one, wrapping:
+/// the compositor's own way to switch, which the workspace tests press
+/// through `deskrinch-test-input`. A function key, since no test types one
+/// and a binding takes its key from every window.
+///
 /// A binding's command is [plain](super::super::display::plain), so it
 /// needs no escaping in the attribute.
-fn labwc_rc(bindings: &[Binding]) -> String {
-    let keybinds = bindings.iter().fold(String::new(), |mut lines, binding| {
-        // Writing to a `String` cannot fail.
-        let _ = write!(
-            lines,
-            "    <keybind key=\"{}\">\n      \
-             <action name=\"Execute\" command=\"{}\" />\n    \
+fn labwc_rc(options: &Options<'_>) -> Option<String> {
+    let fixture = options.workspace_tests_fixture;
+    if options.bindings.is_empty() && !fixture {
+        return None;
+    }
+    let (desktops, switch) = if fixture {
+        (
+            "  <desktops number=\"4\" popupTime=\"0\" />\n",
+            "    <keybind key=\"F12\">\n      \
+             <action name=\"GoToDesktop\" to=\"right\" wrap=\"yes\" />\n    \
              </keybind>\n",
-            labwc_chord(binding.chord),
-            binding.command
-        );
-        lines
-    });
-    format!(
+        )
+    } else {
+        ("", "")
+    };
+    let keybinds = options
+        .bindings
+        .iter()
+        .fold(String::new(), |mut lines, binding| {
+            // Writing to a `String` cannot fail.
+            let _ = write!(
+                lines,
+                "    <keybind key=\"{}\">\n      \
+                 <action name=\"Execute\" command=\"{}\" />\n    \
+                 </keybind>\n",
+                labwc_chord(binding.chord),
+                binding.command
+            );
+            lines
+        });
+    Some(format!(
         "<?xml version=\"1.0\"?>\n\
-         <labwc_config>\n  <keyboard>\n    <default />\n\
-         {keybinds}  </keyboard>\n</labwc_config>\n"
-    )
+         <labwc_config>\n{desktops}  <keyboard>\n    <default />\n\
+         {switch}{keybinds}  </keyboard>\n</labwc_config>\n"
+    ))
 }
 
 /// `chord` as labwc names it: `C-A-space`.
@@ -167,6 +194,7 @@ fn backend(command: &mut Command, options: &Options<'_>, renderer: &Wlroots) {
 mod tests {
     use deskrinch_shell::LAUNCHER_CHORD;
 
+    use super::super::super::display::Binding;
     use super::super::super::{CompositorRenderer, Outputs};
     use super::super::Compositor;
     use super::*;
@@ -221,17 +249,53 @@ mod tests {
         );
     }
 
+    /// What the owner's desktop runs: no fixture.
+    fn desktop(bindings: &[Binding]) -> Options<'_> {
+        Options {
+            workspace_tests_fixture: false,
+            ..options(bindings)
+        }
+    }
+
     #[test]
-    fn labwc_keeps_its_own_bindings_beside_the_sessions() {
-        let rc = labwc_rc(&[binding()]);
-        assert!(rc.contains("<default />"), "{rc}");
-        assert!(rc.contains("<keybind key=\"C-A-space\">"), "{rc}");
+    fn a_test_sessions_labwc_has_four_workspaces_and_f12_to_switch() {
+        let rc = labwc_rc(&options(&[])).expect("the fixture is configured");
         assert!(
-            rc.contains(
-                "<action name=\"Execute\" command=\"/target/release/deskrinch-launcher toggle\" />"
-            ),
+            rc.contains("<desktops number=\"4\" popupTime=\"0\" />"),
             "{rc}"
         );
+        assert!(rc.contains("<keybind key=\"F12\">"), "{rc}");
+        assert!(
+            rc.contains("<action name=\"GoToDesktop\" to=\"right\" wrap=\"yes\" />"),
+            "{rc}"
+        );
+        assert!(rc.contains("<default />"), "{rc}");
+    }
+
+    #[test]
+    fn the_desktops_labwc_keeps_f12_and_its_own_workspaces() {
+        assert_eq!(labwc_rc(&desktop(&[])), None, "labwc's defaults alone");
+        let bound = [binding()];
+        let rc = labwc_rc(&desktop(&bound)).expect("the bindings are configured");
+        assert!(!rc.contains("desktops"), "{rc}");
+        assert!(!rc.contains("F12"), "{rc}");
+        assert!(rc.contains("<keybind key=\"C-A-space\">"), "{rc}");
+    }
+
+    #[test]
+    fn labwc_keeps_its_own_bindings_beside_the_sessions() {
+        let bound = [binding()];
+        for options in [options(&bound), desktop(&bound)] {
+            let rc = labwc_rc(&options).unwrap();
+            assert!(rc.contains("<default />"), "{rc}");
+            assert!(rc.contains("<keybind key=\"C-A-space\">"), "{rc}");
+            assert!(
+                rc.contains(
+                    "<action name=\"Execute\" command=\"/target/release/deskrinch-launcher toggle\" />"
+                ),
+                "{rc}"
+            );
+        }
     }
 
     #[test]

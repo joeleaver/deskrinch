@@ -1256,6 +1256,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-workspaces"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.2",
+ "deskrinch-bus",
+ "deskrinch-test-client",
+ "deskrinch-test-input",
+ "deskrinch-test-screen",
+ "deskrinch-untrusted",
+ "deskrinch-wayland-client",
+ "deskrinch-window-management",
+ "thiserror 2.0.21",
+ "wayland-client",
+ "wayland-protocols",
+ "wayland-protocols-plasma",
+ "zbus 6.2.1",
+]
+
+[[package]]
 name = "deskrinch-xdg"
 version = "0.1.0"
 
