@@ -32,6 +32,7 @@
 
 mod callgrind;
 mod gpu;
+mod output;
 mod probe;
 mod procfs;
 mod renderer;
@@ -108,6 +109,11 @@ as totals. A run with it minus one without is the cost of a window
 appearing plus what a window held open costs over the window. A run fails
 if the window cannot be opened or is gone by the end.
 
+Each run keeps the program's whole output in a file its notes name. A run
+whose program logged an error fails, printing the lines: a program that
+says it is broken is not measured. --allow-errors measures it anyway, with
+the lines in the notes.
+
 --state DIR starts each run's state directory (XDG_STATE_HOME) with a copy
 of DIR's contents, such as the launcher's record of starts
 (deskrinch/starts.toml); the report says the state was seeded, and from
@@ -152,6 +158,9 @@ pub(crate) struct Request {
     /// With `--window`: the app id of a window opened at the idle window's
     /// start and kept open to its end.
     pub(crate) window: Option<String>,
+    /// `--allow-errors`: measure a program that logged errors, with the
+    /// lines in the run's notes, instead of failing the run.
+    pub(crate) allow_errors: bool,
 }
 
 impl Request {
@@ -205,12 +214,14 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         settle: request.settle,
         idle: request.idle,
     };
+    let kept = output::Kept::new()?;
     let mut runs = Vec::new();
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
-        let run = in_session(request, |session| {
+        let mut run = in_session(request, |session| {
             measure_run(request, session, index, cache, &program, timing)
         })?;
+        output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
         runs.push(run);
     }
     println!("{}", header(request));

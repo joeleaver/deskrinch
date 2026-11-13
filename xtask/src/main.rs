@@ -186,6 +186,10 @@ enum Task {
         /// by the end.
         #[arg(long, value_name = "APP_ID", conflicts_with = "summon")]
         window: Option<String>,
+        /// Measure a program that logged errors, with the lines in each
+        /// run's notes, instead of failing the run.
+        #[arg(long)]
+        allow_errors: bool,
         /// Each run's state directory (`XDG_STATE_HOME`) starts with a copy
         /// of this directory's contents: state the program reads, such as
         /// the record of starts the launcher shows (`deskrinch/starts.toml`).
@@ -254,6 +258,7 @@ impl Task {
                 dismiss,
                 shows,
                 window,
+                allow_errors,
                 state,
                 program,
                 args,
@@ -277,6 +282,7 @@ impl Task {
                     .zip(dismiss)
                     .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
                 window,
+                allow_errors,
             }),
             Self::Session {
                 outputs,

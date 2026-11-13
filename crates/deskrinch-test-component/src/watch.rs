@@ -260,6 +260,12 @@ impl Watch {
             .join("\n")
     }
 
+    /// Every line written so far, without ANSI codes, oldest first.
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        self.lock().lines.clone()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Seen> {
         self.seen.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -288,6 +294,9 @@ mod tests {
         assert_eq!(watch.adapter().map(|a| a.driver), Some("radv".to_owned()));
         assert!(!watch.presents_with_software());
         assert!(watch.tail().contains("[PERF] frame 2: b"));
+        let lines = watch.lines();
+        assert_eq!(lines.len(), 4, "{lines:?}");
+        assert!(lines.contains(&"starting".to_owned()));
     }
 
     #[test]

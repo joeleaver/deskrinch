@@ -107,6 +107,9 @@ mod measure {
             "wall time to first frame",
             "load average at the first frame",
             "renderer: software (no GPU adapter logged)",
+            // Each run's notes.
+            "idle wake-ups by thread: ",
+            "the program's output: ",
         ] {
             assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
         }
@@ -319,5 +322,49 @@ mod measure {
             assert!(stderr.contains("read the state to seed"), "{stderr}");
             assert!(!started.exists(), "the program was started");
         }
+    }
+
+    /// A stand-in that logs an error as a component does, then draws.
+    fn logs_an_error(dir: &Path) -> String {
+        format!(
+            "{}echo '2026-11-13T21:18:32Z ERROR deskrinch_component::report: the taskbar shows \
+             none' >&2; echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600",
+            record(dir, false)
+        )
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_program_that_logged_an_error_is_not_measured() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = measure(&[], &logs_an_error(dir.path()));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stdout}\n{stderr}");
+        assert!(stderr.contains("logged 1 error(s)"), "{stderr}");
+        assert!(stderr.contains("the taskbar shows none"), "{stderr}");
+        assert!(stderr.contains("--allow-errors"), "{stderr}");
+        assert!(
+            !stdout.contains("idle CPU per minute"),
+            "a report was printed for it:\n{stdout}"
+        );
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn allowed_errors_are_measured_and_noted() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = measure(&["--allow-errors"], &logs_an_error(dir.path()));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("idle CPU per minute"), "{stdout}");
+        assert!(
+            stdout.contains("errors the program logged (1): "),
+            "{stdout}"
+        );
+        assert!(stdout.contains("the taskbar shows none"), "{stdout}");
+        assert_session_ended(dir.path());
     }
 }

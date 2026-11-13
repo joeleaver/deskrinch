@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process};
 
+use super::output;
 use super::procfs::{self, ProcessSample, ThreadSample};
 use super::report::{Run, Unit, per_minute, per_second_milli};
 use super::window::{self, Stimulus};
@@ -53,7 +54,7 @@ pub(crate) fn measure(
     watch.follow_child(&mut child);
     let result = measure_child(&mut child, &watch, program, start, timing, stimulus);
     stop(&mut child);
-    result
+    output::with_output(result, &watch)
 }
 
 fn measure_child(

@@ -272,6 +272,23 @@ pub(crate) enum Error {
         /// The program.
         program: String,
     },
+    /// The measured program logged at error level: a program that says it
+    /// is broken is not measured (unless `--allow-errors`).
+    #[error(
+        "{program} logged {count} error(s), so the run is not a measurement (its output is in \
+         {}; --allow-errors measures it anyway):\n{lines}",
+        log.display()
+    )]
+    MeasuredLoggedErrors {
+        /// The program.
+        program: String,
+        /// How many error lines.
+        count: usize,
+        /// The error lines.
+        lines: String,
+        /// The file with all its output.
+        log: PathBuf,
+    },
     /// `--window`'s window could not be opened: no run is reported without
     /// it.
     #[error("the window with app id {app_id} could not be opened at the idle window's start")]
