@@ -55,10 +55,17 @@ pub(super) fn command(
     // No `--xwayland`: KWin then starts neither Xwayland nor the `kcminit`
     // that comes with it, which aborts and dumps core when its X server goes
     // away while it is still starting.
+    //
+    // Not `--no-kactivities`, which must not come back: KWin 6.6 started
+    // with it crashes (SIGSEGV, in the effect's QML) as soon as its
+    // Overview or grid opens, which its top-left corner does when the
+    // pointer is pushed into it. Without it KWin finds no activity manager
+    // on the session's bus (none is activated there) and does without, at
+    // no cost to its start-up, and its effects work.
     let mut command = Command::new("kwin_wayland");
     command
         .args(["--socket", KWIN_SOCKET])
-        .args(["--no-lockscreen", "--no-kactivities"])
+        .arg("--no-lockscreen")
         .arg(format!("--output-count={}", options.outputs.count))
         .arg(format!("--width={}", OUTPUT_SIZE.0))
         .arg(format!("--height={}", OUTPUT_SIZE.1));
@@ -190,6 +197,32 @@ mod tests {
         let window = Display::Window("/run/user/1000/wayland-0".into());
         assert_eq!(compose(window), Some("Q".into()));
         assert_eq!(compose(Display::Headless), None);
+    }
+
+    #[test]
+    fn activities_are_never_turned_off() {
+        use super::super::super::{Compositor, Outputs};
+
+        for display in [
+            Display::Headless,
+            Display::Window("/run/user/1000/wayland-0".into()),
+        ] {
+            let root = tempfile::tempdir_in("/tmp").unwrap();
+            let options = Options {
+                display,
+                ..Options::headless(
+                    Compositor::Kwin,
+                    CompositorRenderer::Software,
+                    Outputs::plain(1),
+                    None,
+                )
+            };
+            let command = command(root.path(), &options, &RenderNodes::of_machine()).unwrap();
+            assert!(
+                command.get_args().all(|arg| arg != "--no-kactivities"),
+                "{command:?}"
+            );
+        }
     }
 
     #[test]
