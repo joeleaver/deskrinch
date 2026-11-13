@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use deskrinch_shell::Chord;
 use deskrinch_test_dbus::session::{self, SESSION_DIRS};
 
-use super::{Compositor, CompositorRenderer, Outputs};
+use super::{Compositor, CompositorRenderer, Gpu, Outputs};
 use crate::error::Error;
 
 /// Where the compositor shows its outputs.
@@ -150,6 +150,9 @@ pub(crate) struct Options<'a> {
     /// tests make their desktops themselves, and sway has no workspaces to
     /// configure, so it changes nothing there.
     pub(crate) workspace_tests_fixture: bool,
+    /// Whether the session's clients may use the machine's GPU; they are
+    /// told ([`Gpu`]).
+    pub(crate) gpu: Gpu,
 }
 
 impl<'a> Options<'a> {
@@ -171,6 +174,7 @@ impl<'a> Options<'a> {
             home: Home::Fresh,
             bindings: &[],
             workspace_tests_fixture: true,
+            gpu: Gpu::Machine,
         }
     }
 }

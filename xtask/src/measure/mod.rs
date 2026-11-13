@@ -49,7 +49,7 @@ use std::time::Duration;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, CompositorRenderer, Outputs, RenderNodes, Session};
+use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, RenderNodes, Session};
 
 /// `cargo xtask measure --help`: what is measured, and how.
 pub(crate) const LONG_ABOUT: &str = "\
@@ -342,6 +342,8 @@ fn in_session<T>(
         request.compositor_renderer(),
         Outputs::plain(request.outputs),
         None,
+        // The program measured chooses its renderer as asked.
+        Gpu::Machine,
         |_| Ok(()),
     )?;
     let result = match &request.state {

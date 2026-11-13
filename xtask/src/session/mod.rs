@@ -51,6 +51,7 @@ mod compositing;
 mod compositor;
 mod display;
 mod ending;
+mod gpu;
 pub(crate) mod interrupt;
 mod leftovers;
 mod outputs;
@@ -79,6 +80,7 @@ use self::ending::{end_group, kill_leftovers};
 pub(crate) use self::clients::ClientId;
 pub(crate) use self::compositor::Compositor;
 pub(crate) use self::display::{Binding, Display, Home, Options};
+pub(crate) use self::gpu::{Gpu, VARIABLE as GPU_VARIABLE};
 pub(crate) use self::leftovers::Leftover;
 pub(crate) use self::outputs::Outputs;
 pub(crate) use self::render_nodes::RenderNodes;
@@ -127,6 +129,8 @@ pub(crate) struct Session {
     group: Pid,
     socket: String,
     current_desktop: Option<OsString>,
+    /// Whether its clients may use the machine's GPU; they are told.
+    gpu: Gpu,
     keep: bool,
     ended: bool,
     /// Ends the session should xtask die without ending it; released once
@@ -136,16 +140,21 @@ pub(crate) struct Session {
 
 impl Session {
     /// Starts `compositor` rendering with `renderer`, with `outputs`, in a
-    /// new isolated, headless session ([`Options::headless`]), after
-    /// `prepare` has set up the session's data directory (`XDG_DATA_HOME`).
+    /// new isolated, headless session ([`Options::headless`]) whose clients
+    /// may use the GPU as `gpu` says, after `prepare` has set up the
+    /// session's data directory (`XDG_DATA_HOME`).
     pub(crate) fn start(
         compositor: Compositor,
         renderer: CompositorRenderer,
         outputs: Outputs,
         current_desktop: Option<&OsStr>,
+        gpu: Gpu,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<Self, Error> {
-        let options = Options::headless(compositor, renderer, outputs, current_desktop);
+        let options = Options {
+            gpu,
+            ..Options::headless(compositor, renderer, outputs, current_desktop)
+        };
         Self::start_with(&options, prepare)
     }
 
@@ -163,6 +172,7 @@ impl Session {
             ref display,
             ref home,
             bindings,
+            gpu,
             // labwc reads it from `options`.
             workspace_tests_fixture: _,
         } = *options;
@@ -229,6 +239,7 @@ impl Session {
             group,
             socket: String::new(),
             current_desktop: current_desktop.map(ToOwned::to_owned),
+            gpu,
             keep: false,
             ended: false,
             supervisor: Some(supervisor),

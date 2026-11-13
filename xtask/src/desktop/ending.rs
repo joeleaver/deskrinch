@@ -46,10 +46,20 @@ pub(super) fn follow(session: &mut Session) -> Result<Followed, Error> {
     };
     let compositor = wait_for_compositor(session);
     let ended = unfollowed(error, interrupt::interrupted(), compositor);
-    if let Ok(Outcome::Failed) = ended {
+    if is_failure(&ended) {
         report_failure(session, compositor);
     }
     ended.map(Followed::Ended)
+}
+
+/// Whether an ending is the compositor's failure, whose log is to be
+/// shown: a failed outcome, or an error other than an interrupt (the
+/// follower's own, while the compositor runs on).
+fn is_failure(ended: &Result<Outcome, Error>) -> bool {
+    match ended {
+        Ok(outcome) => *outcome == Outcome::Failed,
+        Err(error) => !matches!(error, Error::Interrupted),
+    }
 }
 
 /// Runs until the window closes, the command exits or xtask is
@@ -85,7 +95,7 @@ pub(super) fn run_until_ended(
                     .then(|| wait_for_compositor(session))
                     .flatten();
                 let ended = outcome(Ending::Window(seen), interrupt::interrupted(), compositor);
-                if let Ok(Outcome::Failed) = ended {
+                if is_failure(&ended) {
                     report_failure(session, compositor);
                 }
                 return ended;
@@ -249,6 +259,17 @@ mod tests {
                 "{compositor:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_failure_shows_the_compositors_log_and_an_interrupt_does_not() {
+        let decide = |interrupted, compositor| unfollowed(watch_error(), interrupted, compositor);
+        // The follower failing while the compositor runs on shows its log,
+        // as a watch losing a compositor that runs on does.
+        assert!(is_failure(&decide(false, None)));
+        assert!(is_failure(&decide(false, Some(killed(11)))));
+        assert!(!is_failure(&decide(false, Some(exited(0)))));
+        assert!(!is_failure(&decide(true, None)));
     }
 
     /// Follows a stand-in compositor at a socket in a new directory that is

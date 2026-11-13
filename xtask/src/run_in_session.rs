@@ -15,7 +15,7 @@ use deskrinch_test_dbus::session;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, CompositorRenderer, Outputs, Session, interrupt};
+use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, Session, interrupt};
 
 /// `cargo xtask session --help`: what the session is, exactly. The lists of
 /// variables come from `deskrinch-test-dbus`, which sets them.
@@ -57,6 +57,10 @@ The environment the command and everything it starts see:
     activation off: nothing (portals, secret service, notification daemons)
     is started on demand. The compositor uses the same bus.
   - XDG_CURRENT_DESKTOP only when --current-desktop sets it.
+  - DESKRINCH_SESSION_GPU=none only with --no-gpu (compositor-tests sets it
+    with --renderer software): the run uses no GPU, so what decides by the
+    machine's GPU (cargo xtask desktop's nested compositor) decides as on a
+    machine without one. xtask sets it; it is not for a user to set.
   - Under KWin, not CI, for KWin itself: its virtual backend takes CI to
     mean KWin's own CI and then looks only at /dev/dri/card1.
 {removed}
@@ -140,6 +144,8 @@ pub(crate) struct Request {
     pub(crate) outputs: Outputs,
     pub(crate) keep: bool,
     pub(crate) current_desktop: Option<OsString>,
+    /// Whether the session's programs may use the machine's GPU.
+    pub(crate) gpu: Gpu,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
 }
@@ -152,6 +158,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         request.compositor_renderer,
         request.outputs,
         request.current_desktop.as_deref(),
+        request.gpu,
         |_| Ok(()),
     )?;
     if request.keep {
