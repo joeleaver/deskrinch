@@ -186,8 +186,9 @@ pub(crate) fn eventually(what: &str, check: impl Fn() -> bool) {
     }
 }
 
-/// How many of this process's threads are a client's.
-pub(crate) fn client_threads() -> usize {
+/// The ids of this process's threads that are a client's (named
+/// `deskrinch-wl`), as `/proc/self/task` lists them now.
+pub(crate) fn client_threads() -> std::collections::BTreeSet<u32> {
     std::fs::read_dir("/proc/self/task")
         .unwrap()
         .filter_map(Result::ok)
@@ -195,5 +196,11 @@ pub(crate) fn client_threads() -> usize {
             std::fs::read_to_string(task.path().join("comm"))
                 .is_ok_and(|name| name.trim() == "deskrinch-wl")
         })
-        .count()
+        .filter_map(|task| task.file_name().to_str()?.parse().ok())
+        .collect()
+}
+
+/// Whether the thread with id `id` is still in this process.
+pub(crate) fn thread_alive(id: u32) -> bool {
+    std::path::Path::new(&format!("/proc/self/task/{id}")).exists()
 }

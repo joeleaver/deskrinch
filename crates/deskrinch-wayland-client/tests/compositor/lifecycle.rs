@@ -4,24 +4,36 @@ use std::sync::{Arc, Mutex};
 
 use deskrinch_wayland_client::{AttachError, Client};
 
-use crate::support::{OnDone, Probe, attach, bounded, client_threads, eventually, nested};
+use crate::support::{
+    OnDone, Probe, attach, bounded, client_threads, eventually, nested, thread_alive,
+};
 
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_thread_ends_with_the_last_handle() {
     nested();
+    // This client's own thread, by its id: another client's thread (an
+    // earlier test's, say) being born or ending meanwhile changes nothing
+    // here.
     let before = client_threads();
     let client = Client::connect().unwrap();
     // The thread names itself once it runs.
+    let ours = Mutex::new(None);
     eventually("the client's thread named", || {
-        client_threads() == before + 1
+        let new: Vec<u32> = client_threads().difference(&before).copied().collect();
+        if let [id] = new.as_slice() {
+            *ours.lock().unwrap() = Some(*id);
+        }
+        new.len() == 1
     });
+    let ours = ours.into_inner().unwrap().unwrap();
     let attached = attach(&client);
     // The client handle goes first: the attachment keeps the thread.
     drop(client);
-    assert_eq!(client_threads(), before + 1);
+    assert!(thread_alive(ours), "the attachment keeps the thread");
     bounded("detaching the last state", move || drop(attached));
-    eventually("the client's thread gone", || client_threads() == before);
+    // The last handle's drop joins the thread: it is gone at once.
+    assert!(!thread_alive(ours), "the thread outlived its last handle");
 }
 
 #[test]
