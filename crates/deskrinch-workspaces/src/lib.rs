@@ -75,6 +75,19 @@
 //! everything else on the connection. The [`WorkspaceManager`] handle may
 //! be used from any thread.
 //!
+//! # Dropping the handle
+//!
+//! Dropping the [`WorkspaceManager`] tells the compositor to stop. Under
+//! `ext_workspace_v1` every workspace and group handle is destroyed and the
+//! manager stopped; the state is dropped once the compositor has
+//! `finished` with it. KWin's virtual-desktop objects have no destructor,
+//! so under KWin the state, on a connection shared through
+//! [`connect_with`], is kept and its events thrown away for as long as the
+//! connection lasts: every detach leaves that residue, on both sides,
+//! until the connection closes. A component that would connect and drop
+//! repeatedly keeps one manager, or uses [`connect`], whose connection
+//! closes with the handle.
+//!
 //! # Example
 //!
 //! ```no_run
@@ -116,7 +129,7 @@ mod model;
 mod workspace;
 
 pub use capabilities::{Action, Actions, Capabilities, Protocol};
-pub use deskrinch_wayland_client::Client;
+pub use deskrinch_wayland_client::{Client, StateCounts};
 pub use error::{ActionError, ConnectError, EndReason};
 pub use manager::{WorkspaceManager, Workspaces, connect, connect_with};
 pub use workspace::{Event, Group, GroupId, Workspace, WorkspaceId, WorkspaceState};

@@ -10,9 +10,10 @@ use wayland_client::globals::GlobalList;
 use wayland_client::{Connection, DispatchError, EventQueue, QueueHandle};
 
 use crate::client::Client;
-use crate::ended::Ended;
 use crate::globals::Globals;
-use crate::thread::{Attached, Control, Queue};
+use crate::lifecycle::Lifecycle;
+use crate::states::{Attached, Queue};
+use crate::thread::Control;
 
 /// Why a state could not be attached.
 #[derive(Debug, thiserror::Error)]
@@ -102,12 +103,16 @@ impl<State: 'static> Setup<'_, State> {
 /// A state attached to a [`Client`]: dispatched on the client's thread
 /// until this is dropped.
 ///
-/// Dropping it returns once the client's thread will run none of the
-/// state's handlers again. Dropped on the client's thread itself (from
+/// Dropping it detaches the state: its [`Detached`] flag is set at once, so
+/// its subscriber hears nothing more, and the client's thread calls its
+/// [`Lifecycle::release`], whose requests leave in that same round. The
+/// drop returns once the state has released. The thread then keeps
+/// dispatching it, its events consumed and dropped, until
+/// [`Lifecycle::released`] says nothing can reach it, and drops it then
+/// (see [`Client::states`]). Dropped on the client's thread itself (from
 /// inside a handler), it does not wait, which would never end: the state is
-/// dropped as soon as the thread is done with the batch of events it is
-/// dispatching, and its [`Detached`] flag is set at once, so its subscriber
-/// hears nothing more.
+/// released as soon as the thread is done with the batch of events it is
+/// dispatching.
 #[derive(Debug)]
 pub struct Attachment {
     client: Client,
@@ -157,8 +162,8 @@ impl Drop for Attachment {
         }
         let (acknowledge, acknowledged) = mpsc::sync_channel(1);
         shared.send(Control::Detach(self.id, Some(acknowledge)));
-        // Answered once the state is dropped, or refused when the thread
-        // has ended: either way it runs no handler of the state again.
+        // Answered once the state has released, or refused when the thread
+        // has ended: either way its subscriber hears nothing more.
         let _ = acknowledged.recv();
     }
 }
@@ -184,7 +189,7 @@ impl Client {
         setup: impl FnOnce(&mut Setup<'_, State>) -> Result<(State, Out), E> + Send + 'static,
     ) -> Result<(Attachment, Out), AttachError<E>>
     where
-        State: Ended + Globals + Send + 'static,
+        State: Lifecycle + Globals + Send + 'static,
         Out: Send + 'static,
         E: Send + 'static,
     {

@@ -18,6 +18,8 @@ wayland-protocols-plasma = { workspace = true, features = ["client"] }
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
 
 [dev-dependencies]
+# The stand-in compositor, for what no real one does on cue.
+deskrinch-test-wayland.workspace = true
 deskrinch-test-client.workspace = true
 rustix = { workspace = true, features = ["net", "process"] }
 
