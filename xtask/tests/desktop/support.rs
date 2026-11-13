@@ -69,9 +69,23 @@ pub(crate) fn compositor_name(compositor: Compositor) -> &'static str {
 
 /// Starts a desktop and waits until it says it is ready.
 pub(crate) fn start(options: &[&str], command: &[&str]) -> Desktop {
+    launch(options, command, None)
+}
+
+/// [`start`]s a desktop without options or a command whose components log
+/// as `filter` (`RUST_LOG`) says, onto the desktop's standard error.
+pub(crate) fn start_logging(filter: &str) -> Desktop {
+    launch(&[], &[], Some(filter))
+}
+
+fn launch(options: &[&str], command: &[&str], log: Option<&str>) -> Desktop {
     let dir = tempfile::tempdir().unwrap();
     let stderr = dir.path().join("stderr");
-    let mut child = desktop_command(options, command, &stderr).spawn().unwrap();
+    let mut xtask = desktop_command(options, command, &stderr);
+    if let Some(filter) = log {
+        xtask.env("RUST_LOG", filter);
+    }
+    let mut child = xtask.spawn().unwrap();
     let lines = lines(child.stdout.take().unwrap());
     let (mut root, mut bus) = (None, None);
     let deadline = Instant::now() + READY;

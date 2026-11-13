@@ -1036,6 +1036,7 @@ dependencies = [
  "deskrinch-desktop-entries",
  "deskrinch-icons",
  "deskrinch-settings",
+ "deskrinch-shell",
  "deskrinch-taskbar",
  "deskrinch-test-client",
  "deskrinch-test-component",
@@ -1047,6 +1048,7 @@ dependencies = [
  "rinch",
  "tempfile",
  "thiserror 2.0.21",
+ "tracing",
 ]
 
 [[package]]

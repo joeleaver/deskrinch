@@ -247,16 +247,17 @@ pub(super) const SUITES: [Suite; 13] = [
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
-        // The panel's taskbar follows the window list.
+        // The panel's taskbar follows the window list: the panel binary is
+        // granted what the shell grants it (`deskrinch-shell`).
         programs: &[Program {
             bin: Bin {
-                package: PANEL,
-                bin: "deskrinch-panel",
+                package: deskrinch_shell::PANEL.package,
+                bin: deskrinch_shell::PANEL.package,
             },
             grant: Grant {
                 id: "org.deskrinch.PanelUnderTest",
                 name: "deskrinch panel under test",
-                wayland: &[deskrinch_window_management::KWIN_INTERFACE],
+                wayland: deskrinch_shell::PANEL.wayland_grants,
                 dbus: &[],
             },
         }],

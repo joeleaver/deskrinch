@@ -112,7 +112,9 @@ fn follow(
     });
     match connected {
         Ok(connected) => {
-            lock(model).connected(connected.capabilities().actions);
+            let capabilities = connected.capabilities();
+            tracing::info!("following the windows through {:?}", capabilities.protocol);
+            lock(model).connected(capabilities.actions);
             *lock(manager) = Some(connected);
         }
         Err(error) => {

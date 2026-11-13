@@ -42,8 +42,11 @@ deskrinch-xdg.workspace = true
 # `deskrinch-theme`'s).
 rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 thiserror.workspace = true
+# What the taskbar logs, through `deskrinch-component`'s reporting.
+tracing.workspace = true
 
 [dev-dependencies]
+deskrinch-shell.workspace = true
 deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true
 deskrinch-test-input.workspace = true
