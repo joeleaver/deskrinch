@@ -5,7 +5,9 @@
 //!   object's events sent before its global's removal are heard before the
 //!   removal, even when they arrive together, in one write;
 //! - an output handed to a state twice (in its setup's list, and again to
-//!   [`Globals::global_added`]) is bound once.
+//!   [`Globals::global_added`]) is bound once;
+//! - a detach's requests leave in the round that releases the state, with
+//!   nothing else to send them.
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #![cfg(test)]
@@ -178,4 +180,43 @@ fn an_output_handed_over_twice_is_bound_once() {
         .unwrap();
     assert_eq!(fake.bound(OUTPUT).len(), 1, "{:?}", fake.bound(OUTPUT));
     drop(attachment);
+}
+
+/// `wl_output.release`.
+const OUTPUT_RELEASE: u32 = 0;
+
+#[test]
+fn a_detachs_requests_leave_in_its_own_round() {
+    let (connection, fake) = Fake::start(&[(OUTPUT, "wl_output", 4)]);
+    let client = Client::from_connection(connection).unwrap();
+    let listener = Listener {
+        outputs: Outputs::default(),
+        heard: Arc::default(),
+        released: false,
+    };
+    let (attachment, ()) = client
+        .attach(move |setup| {
+            let mut listener = listener;
+            let registry = setup.globals().registry().clone();
+            listener.outputs.add(&registry, OUTPUT, 4, &setup.handle());
+            setup.roundtrip(&mut listener)?;
+            Ok::<_, wayland_client::DispatchError>((listener, ()))
+        })
+        .unwrap();
+    let [output] = fake.bound(OUTPUT)[..] else {
+        panic!("the output bound once: {:?}", fake.bound(OUTPUT));
+    };
+    assert_eq!(fake.requests_to(output), Vec::<u32>::new());
+    // Nothing is sent after this: only the detach's own round can flush
+    // the output's release.
+    drop(attachment);
+    let deadline = Instant::now() + PATIENCE;
+    while fake.requests_to(output).is_empty() {
+        assert!(Instant::now() < deadline, "the output's release never left");
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert_eq!(fake.requests_to(output), [OUTPUT_RELEASE]);
+    // It let go of everything: dropped at once, not releasing.
+    let states = client.states();
+    assert_eq!((states.attached, states.releasing), (0, 0), "{states:?}");
 }

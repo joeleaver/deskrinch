@@ -4,7 +4,8 @@
 //!
 //! It answers `wl_display.sync`, lists its globals on
 //! `wl_display.get_registry`, notes the id each `wl_registry.bind` gives a
-//! global, and ignores every other request. A test writes events of its own
+//! global, notes every request it reads by its object and opcode, and
+//! answers nothing else. A test writes events of its own
 //! through [`Fake::send`].
 
 use std::collections::HashMap;
@@ -60,6 +61,8 @@ struct Seen {
     /// Each global bound, by its name: the ids the client gave it, one per
     /// bind.
     bound: HashMap<u32, Vec<u32>>,
+    /// Every request read: its object, and its opcode.
+    requests: Vec<(u32, u32)>,
 }
 
 /// The stand-in compositor, as a test drives it.
@@ -109,6 +112,18 @@ impl Fake {
             .unwrap_or_default()
     }
 
+    /// The opcodes of the requests read so far on `object`, in order.
+    pub(crate) fn requests_to(&self, object: u32) -> Vec<u32> {
+        self.seen
+            .lock()
+            .unwrap()
+            .requests
+            .iter()
+            .filter(|&&(to, _)| to == object)
+            .map(|&(_, opcode)| opcode)
+            .collect()
+    }
+
     /// Writes `bytes` to the client, in one write.
     pub(crate) fn send(&self, bytes: Vec<u8>) {
         self.outbox.send(bytes).unwrap();
@@ -151,7 +166,11 @@ fn serve(
             if pending.len() < size {
                 break;
             }
-            let registry = seen.lock().unwrap().registry;
+            let registry = {
+                let mut seen = seen.lock().unwrap();
+                seen.requests.push((object, opcode));
+                seen.registry
+            };
             let mut answer = Vec::new();
             match (object, opcode) {
                 // wl_display.sync(new callback): done, then the id is free.

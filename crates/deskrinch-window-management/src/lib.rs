@@ -110,7 +110,7 @@ mod model;
 mod window;
 
 pub use capabilities::{Action, Actions, Capabilities, Protocol};
-pub use deskrinch_wayland_client::Client;
+pub use deskrinch_wayland_client::{Client, StateCounts};
 pub use error::{ActionError, ConnectError, EndReason};
 pub use manager::{WindowManagement, WindowManager, connect, connect_with};
 pub use window::{Event, Window, WindowId, WindowState};
