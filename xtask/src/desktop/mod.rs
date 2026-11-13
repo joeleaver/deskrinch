@@ -35,8 +35,8 @@ use self::profile::Profile;
 use crate::Outcome;
 use crate::error::Error;
 use crate::session::{
-    Binding, ClientId, Compositor, CompositorRenderer, Display, Home, Options, OutputTransform,
-    Outputs, RenderNodes, Scale, Session, interrupt,
+    Binding, ClientId, Compositor, CompositorRenderer, Display, GPU_VARIABLE, Gpu, Home, Options,
+    OutputTransform, Outputs, RenderNodes, Scale, Session, interrupt,
 };
 
 /// The exit status when the command refuses to run here (`EX_NOPERM`).
@@ -99,7 +99,10 @@ pub(crate) struct Args {
     #[arg(long, value_name = "NAME")]
     current_desktop: Option<OsString>,
     /// What the nested compositor renders with. By default, software on a
-    /// machine without a GPU (KWin with `QPainter`); with one, KWin with
+    /// machine without a GPU (KWin with `QPainter`), or in a session that
+    /// uses none (`DESKRINCH_SESSION_GPU=none`, as `cargo xtask
+    /// compositor-tests --renderer software` and `cargo xtask session
+    /// --no-gpu` set it); with one, KWin with
     /// OpenGL, and sway and labwc on the GPU when the components may
     /// present on it (as they need it to), else in software.
     #[arg(long, value_enum)]
@@ -230,9 +233,16 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     )?;
     let bindings = [toggle];
     let nodes = RenderNodes::of_machine();
-    let has_gpu = nodes.has_gpu();
-    if !has_gpu && args.compositor_renderer.is_none() {
-        eprintln!("desktop: no GPU found ({nodes}): the nested compositor renders in software");
+    let gpu = Gpu::of_this_session();
+    if args.compositor_renderer.is_none() {
+        if gpu == Gpu::None {
+            eprintln!(
+                "desktop: the session uses no GPU ({GPU_VARIABLE}): the nested compositor \
+                 renders in software"
+            );
+        } else if !nodes.has_gpu() {
+            eprintln!("desktop: no GPU found ({nodes}): the nested compositor renders in software");
+        }
     }
     let options = Options {
         compositor: args.compositor,
@@ -240,7 +250,7 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
             args.compositor,
             args.compositor_renderer,
             args.renderer,
-            has_gpu,
+            gpu.has_gpu(nodes.has_gpu()),
         ),
         outputs: Outputs {
             count: args.outputs,
@@ -255,6 +265,8 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         bindings: &bindings,
         // The owner's desktop keeps F12 and labwc's own workspaces.
         workspace_tests_fixture: false,
+        // What this run may use, its own clients too.
+        gpu,
     };
     let mut session = Session::start_with(&options, |_| Ok(()))?;
     if args.keep {
@@ -307,7 +319,8 @@ fn run_started(
 }
 
 /// What the nested `compositor` renders with: what was `asked`, or by
-/// default software on a machine without a GPU; with one, the GPU for KWin
+/// default software without a GPU (`has_gpu`: the machine has none, or the
+/// session it runs in uses none, [`Gpu`]); with one, the GPU for KWin
 /// (OpenGL), and for sway and labwc when the components, rendering with
 /// `components`, may present on it (as rinch's GPU renderer needs).
 fn compositor_renderer(
@@ -446,6 +459,30 @@ mod tests {
         assert!(LONG_ABOUT.contains(&chord_name()));
         assert!(include_str!("../../../README.md").contains(&chord_name()));
         assert!(LONG_ABOUT.lines().all(|line| line.len() <= 80));
+    }
+
+    #[test]
+    fn a_session_that_uses_no_gpu_is_a_machine_without_one() {
+        use CompositorRenderer::{Gpu as OnGpu, Software};
+        let default = |session: Gpu, machine: bool| {
+            compositor_renderer(Compositor::Kwin, None, None, session.has_gpu(machine))
+        };
+        assert_eq!(default(Gpu::Machine, true), OnGpu);
+        assert_eq!(default(Gpu::Machine, false), Software);
+        assert_eq!(default(Gpu::None, true), Software, "CI's run, on a GPU");
+        assert_eq!(default(Gpu::None, false), Software);
+        // The explicit option wins either way.
+        for session in [Gpu::Machine, Gpu::None] {
+            for machine in [true, false] {
+                let has_gpu = session.has_gpu(machine);
+                for asked in [OnGpu, Software] {
+                    assert_eq!(
+                        compositor_renderer(Compositor::Kwin, Some(asked), None, has_gpu),
+                        asked
+                    );
+                }
+            }
+        }
     }
 
     #[test]

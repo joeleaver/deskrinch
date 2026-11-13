@@ -71,6 +71,15 @@ pub(crate) enum Error {
         /// The test target.
         name: &'static str,
     },
+    /// The compositor tests' suites or test asked for cannot run.
+    #[error(transparent)]
+    Selection(#[from] crate::compositor_tests::selection::SelectionError),
+    /// A repeat's directory already holds something.
+    #[error(
+        "{} is not empty: each repeat writes its runs' output to a directory of its own",
+        .0.display()
+    )]
+    RepeatIntoNotEmpty(PathBuf),
     /// A key binding's program is not an absolute path.
     #[error("a key binding must run an absolute path, not {}", .0.display())]
     BindingNotAbsolute(PathBuf),

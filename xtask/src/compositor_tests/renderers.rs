@@ -74,6 +74,13 @@ impl Plan {
         Self::new(choice, &RenderNodes::of_machine())
     }
 
+    /// Whether the run uses the machine's GPU: only when it tests rinch's
+    /// GPU renderer. Without it the run is a GPU-less machine's, and its
+    /// sessions tell their clients so.
+    pub(crate) fn uses_gpu(&self) -> bool {
+        self.gpu
+    }
+
     /// The renderers a rendering suite runs with.
     pub(crate) fn renderers(&self) -> Vec<Renderer> {
         let mut renderers = Vec::new();
@@ -109,5 +116,17 @@ mod tests {
         assert_eq!(plan.renderers(), [Renderer::Gpu]);
         let (plan, _) = Plan::new(Choice::Software, &gpu).unwrap();
         assert_eq!(plan.renderers(), [Renderer::Software]);
+    }
+
+    #[test]
+    fn a_run_uses_the_gpu_only_to_test_the_gpu_renderer() {
+        let gpu = RenderNodes {
+            nodes: vec![("renderD128".into(), Some("amdgpu".into()))],
+        };
+        let uses = |choice, nodes: &RenderNodes| Plan::new(choice, nodes).unwrap().0.uses_gpu();
+        assert!(!uses(Choice::Software, &gpu), "CI's run, on a GPU");
+        assert!(uses(Choice::All, &gpu));
+        assert!(uses(Choice::Gpu, &gpu));
+        assert!(!uses(Choice::All, &RenderNodes::default()));
     }
 }

@@ -39,6 +39,18 @@ pub(super) struct Target {
     pub(super) backend: Backend,
 }
 
+impl Target {
+    /// Its name, as the run prints it and `--suite` takes it: the package
+    /// and the test, and "on libwayland" when built with it.
+    pub(super) fn name(self) -> String {
+        let on = match self.backend {
+            Backend::Rust => "",
+            Backend::System => " on libwayland",
+        };
+        format!("{} {}{on}", self.package, self.test)
+    }
+}
+
 /// Builds `targets`, one `cargo test --no-run` per backend, and returns
 /// their binaries, in the same order.
 pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<PathBuf>, Error> {
