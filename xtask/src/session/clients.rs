@@ -49,7 +49,8 @@ impl Session {
     /// from the real session; pointed at this compositor
     /// (`WAYLAND_DISPLAY`, and sway's `SWAYSOCK`) and at the session's bus
     /// (`DBUS_SESSION_BUS_ADDRESS`); told the session's directory
-    /// (`DESKRINCH_SESSION_DIR`); with standard input closed; and in the
+    /// (`DESKRINCH_SESSION_DIR`), and whether the run uses no GPU
+    /// ([`Gpu`](super::Gpu)); with standard input closed; and in the
     /// session's process group, so that whatever it leaves running ends with
     /// the session.
     ///
@@ -77,6 +78,7 @@ impl Session {
             .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
             .envs(self.compositor.client_env(&self.root.join("run")))
             .stdin(Stdio::null());
+        self.gpu.tell(&mut command);
         if let Some(desktop) = &self.current_desktop {
             command.env(CURRENT_DESKTOP, desktop);
         }
