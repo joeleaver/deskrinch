@@ -11,6 +11,7 @@ const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
 const PANEL: &str = "deskrinch-panel";
 const WAYLAND_CLIENT: &str = "deskrinch-wayland-client";
+const WORKSPACES: &str = "deskrinch-workspaces";
 const XTASK: &str = "xtask";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
@@ -94,8 +95,15 @@ pub(super) struct Suite {
 /// runs last, on its own.
 pub(super) const SESSION_END: &str = "session_end::";
 
+/// The workspace tests that need a compositor with no workspace protocol
+/// (sway), and those that change KWin's desktops by KWin's own interface.
+const UNSUPPORTED: &str = "unsupported::";
+const KWIN_DESKTOPS: &str = "desktops::";
+/// The workspace tests that share a connection with window management.
+const SHARED: &str = "shared::";
+
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 13] = [
+pub(super) const SUITES: [Suite; 17] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -226,6 +234,53 @@ pub(super) const SUITES: [Suite; 13] = [
         renders: true,
         filter: &[],
     },
+    // The workspaces. KWin offers its virtual-desktop protocol ungranted, so
+    // the grant lists only what the tests also use: window management on a
+    // shared connection, and screenshots. labwc's workspaces are fixed by
+    // its configuration (four), so KWin's `desktops::` tests do not run
+    // there; sway offers no workspace protocol, which `unsupported::`
+    // checks, alone.
+    Suite {
+        target: Target {
+            package: WORKSPACES,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.WorkspacesTests",
+            name: "deskrinch workspaces tests",
+            wayland: &[deskrinch_window_management::KWIN_INTERFACE],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
+        compositors: KWIN,
+        passes: PLAIN,
+        renders: false,
+        filter: &["--skip", UNSUPPORTED],
+    },
+    Suite {
+        target: Target {
+            package: WORKSPACES,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: &[Compositor::Labwc],
+        passes: PLAIN,
+        renders: false,
+        filter: &["--skip", UNSUPPORTED, "--skip", KWIN_DESKTOPS],
+    },
+    Suite {
+        target: Target {
+            package: WORKSPACES,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: &[Compositor::Sway],
+        passes: PLAIN,
+        renders: false,
+        filter: &[UNSUPPORTED],
+    },
     // The shared connection's one thread: states attached and detached from
     // several threads at once, and how the thread and its states end.
     Suite {
@@ -296,6 +351,25 @@ pub(super) const SUITES: [Suite; 13] = [
         passes: PLAIN,
         renders: false,
         filter: &["--skip", SESSION_END],
+    },
+    // The workspaces' shared-connection tests on libwayland too: they share
+    // one connection with window management.
+    Suite {
+        target: Target {
+            package: WORKSPACES,
+            test: "compositor",
+            backend: Backend::System,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.WorkspacesTestsLibwayland",
+            name: "deskrinch workspaces tests on libwayland",
+            wayland: &[deskrinch_window_management::KWIN_INTERFACE],
+            dbus: &[],
+        }),
+        compositors: &[Compositor::Kwin, Compositor::Labwc],
+        passes: PLAIN,
+        renders: false,
+        filter: &[SHARED],
     },
     // Last: it ends the session.
     Suite {

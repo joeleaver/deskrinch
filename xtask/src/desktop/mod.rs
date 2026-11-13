@@ -253,6 +253,8 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
             Home::Profile(profile.dir().to_owned())
         }),
         bindings: &bindings,
+        // The owner's desktop keeps F12 and labwc's own workspaces.
+        workspace_tests_fixture: false,
     };
     let mut session = Session::start_with(&options, |_| Ok(()))?;
     if args.keep {
