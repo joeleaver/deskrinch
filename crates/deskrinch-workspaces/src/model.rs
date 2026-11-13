@@ -205,13 +205,7 @@ impl WorkspaceList {
     /// changed, workspaces that appeared or changed (in order), workspaces
     /// removed, then groups removed.
     pub(crate) fn commit(&mut self) -> Vec<Event> {
-        let mut events = Vec::new();
-        for group in self.groups.values_mut().filter(|group| !group.removed) {
-            if group.delivered.as_ref() != Some(&group.current) {
-                group.delivered = Some(group.current.clone());
-                events.push(Event::GroupChanged(group.current.clone()));
-            }
-        }
+        let mut events = self.changed_groups(true);
         for id in &self.order {
             let Some(entry) = self.entries.get_mut(id) else {
                 continue;
@@ -252,6 +246,33 @@ impl WorkspaceList {
                 && group.delivered.is_some()
             {
                 events.push(Event::GroupRemoved(id));
+            }
+        }
+        events
+    }
+
+    /// Delivers the groups already delivered whose outputs changed since,
+    /// alone: what an output's name or going away changes between the
+    /// protocol's batches. Every staged workspace change and removal, and
+    /// every group not yet delivered or whose removal is staged, waits for
+    /// the next [`commit`](Self::commit).
+    pub(crate) fn commit_groups(&mut self) -> Vec<Event> {
+        self.changed_groups(false)
+    }
+
+    /// Marks delivered, and lists, the groups that differ from what was
+    /// delivered, among those not being removed; groups never delivered only
+    /// if `new` says so.
+    fn changed_groups(&mut self, new: bool) -> Vec<Event> {
+        let mut events = Vec::new();
+        for group in self.groups.values_mut().filter(|group| !group.removed) {
+            let changed = match &group.delivered {
+                Some(delivered) => *delivered != group.current,
+                None => new,
+            };
+            if changed {
+                group.delivered = Some(group.current.clone());
+                events.push(Event::GroupChanged(group.current.clone()));
             }
         }
         events
@@ -357,6 +378,42 @@ mod tests {
         );
         assert_eq!(list.get(workspace).unwrap().group, None);
         assert_eq!(list.groups(), []);
+    }
+
+    #[test]
+    fn an_outputs_only_delivery_leaves_the_batch_for_its_commit() {
+        let mut list = WorkspaceList::default();
+        let group = list.add_group().unwrap();
+        let workspace = list.add().unwrap();
+        list.stage_outputs(group, BTreeSet::from(["HEADLESS-1".to_owned()]));
+        list.stage(workspace, Change::Name("One".into()));
+        list.stage(workspace, Change::Group(Some(group)));
+        list.commit();
+        // A batch is open: a workspace changes and another appears, and a
+        // new group too, when an output is renamed.
+        list.stage(workspace, Change::Name("Renamed".into()));
+        list.stage(workspace, Change::Group(None));
+        let added = list.add().unwrap();
+        list.stage(added, Change::Name("Two".into()));
+        let new_group = list.add_group().unwrap();
+        list.stage_outputs(group, BTreeSet::from(["HEADLESS-9".to_owned()]));
+        let events = list.commit_groups();
+        assert_eq!(names(&events), ["group 1"], "the group alone");
+        assert!(
+            matches!(&events[0], Event::GroupChanged(changed) if changed.id == group),
+            "{events:?}"
+        );
+        assert_eq!(list.get(workspace).unwrap().name, "One");
+        assert_eq!(list.get(workspace).unwrap().group, Some(group));
+        assert_eq!(list.get(added), None);
+        assert!(list.commit_groups().is_empty(), "delivered once");
+        // The batch's end brings everything it staged.
+        assert_eq!(
+            names(&list.commit()),
+            ["group 0", "changed Renamed", "added Two"]
+        );
+        assert_eq!(list.get(workspace).unwrap().group, None);
+        assert!(list.groups().iter().any(|listed| listed.id == new_group));
     }
 
     #[test]

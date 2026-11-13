@@ -1,5 +1,5 @@
-//! Workspaces and window management on one shared connection, each on a
-//! queue and thread of its own.
+//! Workspaces and window management on one shared connection: each on a
+//! queue of its own, both dispatched by the client's one thread.
 
 use std::sync::mpsc;
 use std::time::Duration;

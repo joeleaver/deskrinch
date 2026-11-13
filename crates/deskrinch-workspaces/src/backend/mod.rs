@@ -45,7 +45,7 @@ enum Handle {
     Plasma(OrgKdePlasmaVirtualDesktop),
 }
 
-/// What the dispatch thread and the handle share.
+/// What the client's thread and the handle share.
 #[derive(Debug, Default)]
 pub(crate) struct Shared {
     inner: Mutex<Inner>,
@@ -105,7 +105,7 @@ impl Inner {
     }
 }
 
-/// What a backend keeps on the dispatch thread.
+/// What a backend keeps on the client's thread.
 #[derive(Debug)]
 enum Backend {
     Ext(ext::Tracking),
@@ -202,12 +202,25 @@ impl OutputsHandler for State {
         &mut self.outputs
     }
 
+    /// An output was named, renamed or went away: the groups' outputs are
+    /// delivered alone. The protocol's open batch, if any, waits for its
+    /// own end: a group's outputs and workspaces are never delivered half
+    /// way through a batch.
     fn outputs_changed(&mut self) {
-        match &self.backend {
-            Backend::Ext(tracking) => tracking.stage_outputs(&self.shared, &self.outputs),
-            Backend::Plasma(tracking) => tracking.stage_outputs(&self.shared, &self.outputs),
+        let events = {
+            let mut inner = self.shared.lock();
+            let list = &mut inner.list;
+            match &self.backend {
+                Backend::Ext(tracking) => {
+                    tracking.stage_outputs(list, |globals| self.outputs.names(globals));
+                }
+                Backend::Plasma(tracking) => tracking.stage_outputs(list, &self.outputs),
+            }
+            list.commit_groups()
+        };
+        for event in events {
+            self.deliver(event);
         }
-        self.commit();
     }
 }
 

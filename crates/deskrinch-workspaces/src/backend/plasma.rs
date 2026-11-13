@@ -22,7 +22,7 @@ use wayland_protocols_plasma::plasma_virtual_desktop::client::org_kde_plasma_vir
 use super::{Backend, Handle, Shared, State};
 use crate::capabilities::{Action, Actions, Capabilities, Protocol};
 use crate::error::ConnectError;
-use crate::model::Change;
+use crate::model::{Change, WorkspaceList};
 use crate::workspace::{GroupId, WorkspaceId, WorkspaceState};
 
 /// The manager's global.
@@ -78,7 +78,7 @@ pub(super) fn perform(desktop: &OrgKdePlasmaVirtualDesktop, action: Action) {
     }
 }
 
-/// The desktops' identities on the dispatch thread.
+/// The desktops' identities on the client's thread.
 #[derive(Debug)]
 pub(super) struct Tracking {
     manager: OrgKdePlasmaVirtualDesktopManagement,
@@ -92,9 +92,9 @@ pub(super) struct Tracking {
 
 impl Tracking {
     /// Stages the group's outputs: every output.
-    pub(super) fn stage_outputs(&self, shared: &Shared, outputs: &Outputs) {
+    pub(super) fn stage_outputs(&self, list: &mut WorkspaceList, outputs: &Outputs) {
         if let Some(group) = self.group {
-            shared.lock().list.stage_outputs(group, outputs.all_names());
+            list.stage_outputs(group, outputs.all_names());
         }
     }
 }
