@@ -1,6 +1,7 @@
 //! Changing a nested session's outputs from a test: their scale and
-//! transform, through `wlr-output-management-unstable-v1` (sway, labwc and
-//! other wlroots compositors).
+//! transform, and whether they are on, through
+//! `wlr-output-management-unstable-v1` (sway, labwc and other wlroots
+//! compositors).
 //!
 //! KWin is not covered: its own protocol, `kde_output_management_v2`, needs
 //! `kde_output_device_v2`, and KWin 6.6 sends that interface's modes an event
@@ -89,7 +90,7 @@ impl From<OutputSettings> for OutputChange {
 /// change, or the connection fails.
 pub fn configure_output(name: &str, change: OutputChange) -> Result<OutputSettings, Error> {
     let connection = Connection::connect_to_env().map_err(Error::Connect)?;
-    let before = configure(&connection, Some(name), change)?;
+    let before = configure(&connection, Some(name), Apply::Change(change))?;
     before
         .into_iter()
         .next()
@@ -109,15 +110,40 @@ pub fn configure_every_output(socket: &Path, change: OutputChange) -> Result<(),
         source,
     })?;
     let connection = Connection::from_socket(stream).map_err(Error::Connect)?;
-    configure(&connection, None, change).map(drop)
+    configure(&connection, None, Apply::Change(change)).map(drop)
 }
 
-/// Applies `change` to the head named `which`, or to every head for `None`,
-/// and returns the settings the changed heads had before.
+/// Turns the output named `name` of the compositor `WAYLAND_DISPLAY` names
+/// on or off, and returns once the compositor has done it.
+///
+/// # Errors
+///
+/// As [`configure_output`].
+pub(crate) fn set_enabled(name: &str, enabled: bool) -> Result<(), Error> {
+    let connection = Connection::connect_to_env().map_err(Error::Connect)?;
+    let changed = configure(&connection, Some(name), Apply::Enable(enabled))?;
+    if changed.is_empty() {
+        return Err(Error::UnknownOutput(name.to_owned()));
+    }
+    Ok(())
+}
+
+/// What a configuration does to the heads it is for.
+#[derive(Debug, Clone, Copy)]
+enum Apply {
+    /// Changes their settings; they stay on.
+    Change(OutputChange),
+    /// Turns them on or off.
+    Enable(bool),
+}
+
+/// Applies `apply` to the head named `which`, or to every head for `None`,
+/// and returns the settings the heads it was for had before. Only a head
+/// that is on can be changed; turning one on finds it off too.
 fn configure(
     connection: &Connection,
     which: Option<&str>,
-    change: OutputChange,
+    apply: Apply,
 ) -> Result<Vec<OutputSettings>, Error> {
     let deadline = Deadline::after(PATIENCE);
     let mut queue = connection.new_event_queue();
@@ -137,7 +163,10 @@ fn configure(
         name: described.to_owned(),
         reason,
     };
-    let chosen = |head: &Head| head.enabled && (which.is_none() || head.name.as_deref() == which);
+    let chosen = |head: &Head| {
+        (head.enabled || matches!(apply, Apply::Enable(true)))
+            && (which.is_none() || head.name.as_deref() == which)
+    };
     if let Some(name) = which
         && !state.heads.iter().any(chosen)
     {
@@ -148,20 +177,29 @@ fn configure(
     let mut before = Vec::new();
     // A configuration names every head.
     for head in &state.heads {
-        if !head.enabled {
+        let enabled = match apply {
+            Apply::Enable(enabled) if chosen(head) => enabled,
+            _ => head.enabled,
+        };
+        if !enabled {
             configuration.disable_head(&head.proxy);
+            if chosen(head) {
+                before.push(head.settings);
+            }
             continue;
         }
         let settings = configuration.enable_head(&head.proxy, &qh, ());
         if chosen(head) {
             before.push(head.settings);
-            if let Some(scale) = change.scale {
-                settings.set_scale(scale);
-            }
-            if let Some(transform) = change.transform {
-                let transform = WlTransform::try_from(transform.to_wayland())
-                    .map_err(|()| refused(format!("transform {transform:?}")))?;
-                settings.set_transform(transform);
+            if let Apply::Change(change) = apply {
+                if let Some(scale) = change.scale {
+                    settings.set_scale(scale);
+                }
+                if let Some(transform) = change.transform {
+                    let transform = WlTransform::try_from(transform.to_wayland())
+                        .map_err(|()| refused(format!("transform {transform:?}")))?;
+                    settings.set_transform(transform);
+                }
             }
         }
     }

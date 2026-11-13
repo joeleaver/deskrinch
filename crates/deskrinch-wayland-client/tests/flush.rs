@@ -13,10 +13,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use deskrinch_wayland_client::{Client, EndCause, Ended, Flushed};
-use wayland_client::globals::GlobalListContents;
+use deskrinch_wayland_client::{Client, EndCause, Ended, Flushed, Globals};
 use wayland_client::protocol::wl_callback::{self, WlCallback};
-use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::{Connection, Dispatch, QueueHandle};
 
 /// How long anything here waits.
@@ -80,17 +78,7 @@ impl Ended for Counter {
     }
 }
 
-impl Dispatch<WlRegistry, GlobalListContents> for Counter {
-    fn event(
-        _: &mut Self,
-        _: &WlRegistry,
-        _: wl_registry::Event,
-        _: &GlobalListContents,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-    }
-}
+impl Globals for Counter {}
 
 impl Dispatch<WlCallback, ()> for Counter {
     fn event(

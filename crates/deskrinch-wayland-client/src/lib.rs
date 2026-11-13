@@ -12,6 +12,9 @@
 //! - [`Attachment`] keeps a state attached; dropping it detaches the state.
 //! - [`Ended`] is how an attached state hears that the connection ended,
 //!   once, with its [`EndCause`].
+//! - [`Globals`] is how it hears of the globals that appear and go after
+//!   its setup: the client owns the connection's one `wl_registry`, and
+//!   every state binds from it onto its own queue.
 //! - [`Outputs`] binds `wl_output` and `zxdg_output_v1` into a crate's own
 //!   state ([`OutputsHandler`]) and tracks each output's name and logical
 //!   rectangle.
@@ -81,10 +84,12 @@
 mod attach;
 mod client;
 mod ended;
+mod globals;
 mod outputs;
 mod thread;
 
 pub use attach::{AttachError, Attachment, Detached, Flushed, Setup};
 pub use client::{Client, ClientError};
 pub use ended::{EndCause, Ended};
+pub use globals::Globals;
 pub use outputs::{OutputGlobal, Outputs, OutputsHandler, Rect, layout_available, names_available};

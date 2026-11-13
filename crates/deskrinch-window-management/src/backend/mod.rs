@@ -14,12 +14,12 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use deskrinch_wayland_client::{
-    AttachError, Attachment, Client, Detached, EndCause, Ended, OutputGlobal, Outputs,
+    AttachError, Attachment, Client, Detached, EndCause, Ended, Globals, OutputGlobal, Outputs,
     OutputsHandler, Setup, layout_available, names_available,
 };
-use wayland_client::globals::{GlobalList, GlobalListContents};
+use wayland_client::globals::{Global, GlobalList};
 use wayland_client::protocol::wl_output::WlOutput;
-use wayland_client::protocol::wl_registry::{self, WlRegistry};
+use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::protocol::wl_seat::{self, WlSeat};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols_plasma::plasma_window_management::client::org_kde_plasma_window::OrgKdePlasmaWindow;
@@ -241,7 +241,7 @@ impl State {
 
     /// Binds the globals both backends use: every output (with its xdg-output
     /// description), and one seat.
-    fn global_added(
+    fn bind_global(
         &mut self,
         registry: &WlRegistry,
         name: u32,
@@ -262,7 +262,7 @@ impl State {
     }
 
     /// A global went away; if an output, windows leave it.
-    fn global_removed(&mut self, name: u32) {
+    fn forget_global(&mut self, name: u32) {
         if self.outputs.remove(name) {
             for placement in self.placements.values_mut() {
                 if let Placement::Outputs(globals) = placement {
@@ -313,7 +313,6 @@ pub(crate) fn connect(client: &Client, subscriber: Subscriber) -> Result<Connect
         .attach(move |setup| set_up(setup, subscriber))
         .map_err(|error| match error {
             AttachError::Setup(error) => error,
-            AttachError::Globals(error) => ConnectError::Globals(error),
             AttachError::OnClientThread => ConnectError::OnClientThread,
             AttachError::Ended => ConnectError::ConnectionEnded,
         })?;
@@ -346,7 +345,7 @@ fn set_up(
         .iter()
         .partition(|global| global.interface == ZxdgOutputManagerV1::interface().name);
     for global in managers.into_iter().chain(others) {
-        state.global_added(
+        state.bind_global(
             &registry,
             global.name,
             &global.interface,
@@ -402,30 +401,19 @@ fn bind_backend(
 
 /// Whether the globals are KWin's: it offers `org_kde_kwin_*` globals to
 /// every client, while withholding window management from most.
-fn looks_like_kwin(globals: &[wayland_client::globals::Global]) -> bool {
+fn looks_like_kwin(globals: &[Global]) -> bool {
     globals
         .iter()
         .any(|global| global.interface.starts_with("org_kde_kwin_"))
 }
 
-impl Dispatch<WlRegistry, GlobalListContents> for State {
-    fn event(
-        state: &mut Self,
-        registry: &WlRegistry,
-        event: wl_registry::Event,
-        _: &GlobalListContents,
-        _: &Connection,
-        qh: &QueueHandle<Self>,
-    ) {
-        match event {
-            wl_registry::Event::Global {
-                name,
-                interface,
-                version,
-            } => state.global_added(registry, name, &interface, version, qh),
-            wl_registry::Event::GlobalRemove { name } => state.global_removed(name),
-            _ => {}
-        }
+impl Globals for State {
+    fn global_added(&mut self, registry: &WlRegistry, global: &Global, qh: &QueueHandle<Self>) {
+        self.bind_global(registry, global.name, &global.interface, global.version, qh);
+    }
+
+    fn global_removed(&mut self, name: u32) {
+        self.forget_global(name);
     }
 }
 

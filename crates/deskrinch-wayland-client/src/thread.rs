@@ -9,9 +9,12 @@ use std::sync::mpsc::{Receiver, SyncSender};
 
 use rustix::event::{PollFd, PollFlags, poll};
 use wayland_client::backend::WaylandError;
+use wayland_client::globals::GlobalList;
+use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::{Connection, DispatchError, EventQueue};
 
 use crate::ended::{EndCause, Ended};
+use crate::globals::{GlobalEvent, Globals, Registry};
 
 /// What other threads ask of the client's thread.
 pub(crate) enum Control {
@@ -25,9 +28,10 @@ pub(crate) enum Control {
 }
 
 /// An attachment's setup, run on the client's thread with the connection
-/// (or with `None` once the connection has ended, to refuse). It answers
-/// its waiter itself, and returns what to dispatch.
-pub(crate) type Job = Box<dyn FnOnce(Option<&Connection>) -> Option<Attached> + Send>;
+/// and its globals (or with `None` once the connection has ended, to
+/// refuse). It answers its waiter itself, and returns what to dispatch.
+pub(crate) type Job =
+    Box<dyn FnOnce(Option<(&Connection, &GlobalList)>) -> Option<Attached> + Send>;
 
 /// An attached state, with its queue, behind one type.
 pub(crate) struct Attached {
@@ -39,6 +43,8 @@ pub(crate) struct Attached {
 pub(crate) trait Live: Send {
     /// Dispatches the events its queue holds.
     fn dispatch(&mut self) -> Result<usize, DispatchError>;
+    /// Hands it a registry event.
+    fn global(&mut self, registry: &WlRegistry, event: &GlobalEvent);
     /// Ends it, once.
     fn end(&mut self, cause: EndCause);
 }
@@ -49,9 +55,19 @@ pub(crate) struct Queue<State> {
     pub(crate) state: State,
 }
 
-impl<State: Ended + Send + 'static> Live for Queue<State> {
+impl<State: Ended + Globals + Send + 'static> Live for Queue<State> {
     fn dispatch(&mut self) -> Result<usize, DispatchError> {
         self.queue.dispatch_pending(&mut self.state)
+    }
+
+    fn global(&mut self, registry: &WlRegistry, event: &GlobalEvent) {
+        match event {
+            GlobalEvent::Added(global) => {
+                self.state
+                    .global_added(registry, global, &self.queue.handle());
+            }
+            GlobalEvent::Removed(name) => self.state.global_removed(*name),
+        }
     }
 
     fn end(&mut self, cause: EndCause) {
@@ -60,16 +76,21 @@ impl<State: Ended + Send + 'static> Live for Queue<State> {
 }
 
 /// The thread's body.
-pub(crate) fn run(connection: &Connection, controls: &Receiver<Control>, wake: &OwnedFd) {
+pub(crate) fn run(
+    connection: &Connection,
+    mut registry: Registry,
+    controls: &Receiver<Control>,
+    wake: &OwnedFd,
+) {
     let mut attached: Vec<Attached> = Vec::new();
     let cause = loop {
-        match take_controls(connection, controls, &mut attached) {
+        match take_controls(connection, &mut registry, controls, &mut attached) {
             Next::Go => {}
             Next::End(cause) => break cause,
             // The last handle is gone, and with it every attachment.
             Next::Stop => return,
         }
-        if let Some(cause) = dispatch_all(&mut attached) {
+        if let Some(cause) = dispatch_all(&mut registry, &mut attached) {
             break cause;
         }
         // Whether requests are left unsent: the socket would not take them,
@@ -145,15 +166,24 @@ enum Next {
 /// Carries out what other threads asked, first in every round: a detached
 /// state is never dispatched again. A setup or a detached state's drop that
 /// panics ends the connection.
+///
+/// Before a setup, the registry events read so far go to the states
+/// already attached: the new state's setup lists the globals as they are
+/// then, and hears of those read from then on.
 fn take_controls(
     connection: &Connection,
+    registry: &mut Registry,
     controls: &Receiver<Control>,
     attached: &mut Vec<Attached>,
 ) -> Next {
     while let Ok(control) = controls.try_recv() {
         match control {
             Control::Attach(job) => {
-                match panic::catch_unwind(AssertUnwindSafe(|| job(Some(connection)))) {
+                if let Some(cause) = forward_globals(registry, attached) {
+                    return Next::End(cause);
+                }
+                let globals = registry.globals();
+                match panic::catch_unwind(AssertUnwindSafe(|| job(Some((connection, globals))))) {
                     Ok(Some(new)) => attached.push(new),
                     Ok(None) => {}
                     // A setup's handler panicked (its waiter has heard the
@@ -182,8 +212,33 @@ fn take_controls(
     Next::Go
 }
 
-/// Dispatches every attached queue; why the connection ends, if it does.
-fn dispatch_all(attached: &mut [Attached]) -> Option<EndCause> {
+/// Hands the registry events read so far to every attached state, in
+/// order; why the connection ends, if it does.
+fn forward_globals(registry: &mut Registry, attached: &mut [Attached]) -> Option<EndCause> {
+    let events = match registry.take() {
+        Ok(events) => events,
+        Err(error) => return Some(EndCause::ConnectionLost(Arc::new(error))),
+    };
+    let wl_registry = registry.globals().registry();
+    for event in &events {
+        for attachment in attached.iter_mut() {
+            let handed = panic::catch_unwind(AssertUnwindSafe(|| {
+                attachment.live.global(wl_registry, event);
+            }));
+            if handed.is_err() {
+                return Some(EndCause::HandlerPanicked);
+            }
+        }
+    }
+    None
+}
+
+/// Hands on the registry events, then dispatches every attached queue; why
+/// the connection ends, if it does.
+fn dispatch_all(registry: &mut Registry, attached: &mut [Attached]) -> Option<EndCause> {
+    if let Some(cause) = forward_globals(registry, attached) {
+        return Some(cause);
+    }
     for attachment in attached.iter_mut() {
         match panic::catch_unwind(AssertUnwindSafe(|| attachment.live.dispatch())) {
             Ok(Ok(_)) => {}

@@ -25,6 +25,8 @@
 //!   in, and refuses to go on outside one.
 //! - [`configure_output`] changes an output's scale or transform, under a
 //!   compositor that offers `wlr-output-management` (not KWin).
+//! - [`set_output_enabled`] turns an output off or on, under any of the
+//!   three: its `wl_output` global goes, and comes back.
 //!
 //! What windows the tests look at and act on (the window-management
 //! crate's), and what windows they photograph (`deskrinch-test-screen`'s),
@@ -34,6 +36,7 @@
 
 mod client;
 mod compositor;
+mod enabling;
 mod keyboard;
 mod output_info;
 mod outputs;
@@ -48,6 +51,7 @@ use std::time::Duration;
 
 pub use client::TestClient;
 pub use compositor::Compositor;
+pub use enabling::set_output_enabled;
 pub use output_info::OutputInfo;
 pub use outputs::{OutputChange, OutputSettings, configure_every_output, configure_output};
 pub use paint::Paint;
@@ -120,6 +124,15 @@ pub enum Error {
     /// one; see [`configure_output`]).
     #[error("the compositor does not offer zwlr_output_manager_v1")]
     NoOutputManagement,
+    /// A program could not be run.
+    #[error("could not run {program}")]
+    Spawn {
+        /// The program.
+        program: &'static str,
+        /// Why.
+        #[source]
+        source: std::io::Error,
+    },
     /// The compositor refused an output change.
     #[error("the compositor refused to change {name}: {reason}")]
     OutputRefused {
