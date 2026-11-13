@@ -9,7 +9,7 @@ use deskrinch_shell::{Chord, Key, Modifier};
 use deskrinch_test_dbus::session;
 
 use super::super::RenderNodes;
-use super::super::display::{Binding, Display, Options};
+use super::super::display::{Display, Options};
 use super::super::rendering::Wlroots;
 use super::write;
 use crate::error::Error;
@@ -194,6 +194,7 @@ fn backend(command: &mut Command, options: &Options<'_>, renderer: &Wlroots) {
 mod tests {
     use deskrinch_shell::LAUNCHER_CHORD;
 
+    use super::super::super::display::Binding;
     use super::super::super::{CompositorRenderer, Outputs};
     use super::super::Compositor;
     use super::*;
