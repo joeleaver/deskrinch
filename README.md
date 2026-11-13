@@ -206,10 +206,13 @@ What the command, and everything it starts, sees:
   composites with OpenGL either way.
 - Under sway, no borders or title bars on any window, so that a tiled or
   maximised window fills the area it is given.
-- Under labwc, four workspaces, switched without the on-screen popup, and
-  F12 bound to the next one (`deskrinch_test_input::Key::F12`, a key no test
-  types), with labwc's default bindings otherwise. KWin starts with one
-  virtual desktop; sway's workspaces come and go with their windows.
+- Under labwc, the workspace tests' fixture: four workspaces, switched
+  without the on-screen popup, and F12 bound to the next one
+  (`deskrinch_test_input::Key::F12`, a key no test types), with labwc's
+  default bindings otherwise. It is the test sessions' labwc that has them:
+  `cargo xtask desktop` (below) keeps labwc's own workspaces and leaves F12
+  to its windows. KWin starts with one virtual desktop; sway's workspaces
+  come and go with their windows.
 - None of your `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `WAYLAND_SOCKET`,
   `SWAYSOCK`, `I3SOCK`, `DBUS_SESSION_BUS_ADDRESS`, `XDG_CURRENT_DESKTOP`, or
   the login session's `XDG_SESSION_ID`, `XDG_SESSION_CLASS`,
