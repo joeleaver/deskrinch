@@ -1,0 +1,50 @@
+[package]
+name = "deskrinch-wallpaper"
+description = "The desktop's wallpaper: a colour or a picture on the background layer of every output."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "deskrinch-wallpaper"
+path = "src/main.rs"
+
+[dependencies]
+deskrinch-appearance.workspace = true
+deskrinch-component.workspace = true
+deskrinch-settings.workspace = true
+deskrinch-theme.workspace = true
+deskrinch-watch.workspace = true
+deskrinch-xdg.workspace = true
+# Reading a picture's header, to say at once why one cannot be shown; rinch
+# decodes it, with the same crate and formats.
+image.workspace = true
+# `gpu` adds the GPU renderer beside the software one rinch always has on
+# the desktop; the wallpaper asks for software (see the crate docs).
+# `theme`: the look's variables.
+rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
+tracing.workspace = true
+
+[dev-dependencies]
+# The compositor tests: the session's outputs, turned; the wallpaper
+# started and watched; the screen captured.
+deskrinch-test-client.workspace = true
+deskrinch-test-component.workspace = true
+deskrinch-test-screen.workspace = true
+deskrinch-test-wayland.workspace = true
+# Reading sway's list of outputs.
+serde_json.workspace = true
+tempfile.workspace = true
+
+# The compositor tests run inside nested compositors that
+# `cargo xtask compositor-tests` starts; they are ignored by a plain
+# `cargo test`.
+[[test]]
+name = "compositor"
+path = "tests/compositor/main.rs"
+
+[lints]
+workspace = true

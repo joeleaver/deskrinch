@@ -61,6 +61,8 @@ icu_locale_core = "2.4.0"
 icu_normalizer = "2.4.0"
 icu_properties = "2.4.0"
 icu_provider = { version = "2.4.0", default-features = false }
+# The version and formats rinch decodes pictures with.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 jiff = { version = "0.2.42", default-features = false }
 jiff-icu = { version = "0.2.4", default-features = false }
 # A StatusNotifierItem implementation, only for the status-notifier host's

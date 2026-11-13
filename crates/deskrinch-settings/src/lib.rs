@@ -9,6 +9,7 @@
 //! |---|---|---|
 //! | `[general]` | every component | [`general`] |
 //! | `[panel]` | `deskrinch-panel` | [`panel`] |
+//! | `[wallpaper]` | `deskrinch-wallpaper` | [`wallpaper`] |
 //!
 //! Any other top-level table is reported as unknown (usually a misspelling),
 //! because [`section`] gives every component the [`KNOWN_TABLES`].
@@ -36,6 +37,7 @@
 
 pub mod general;
 pub mod panel;
+pub mod wallpaper;
 
 use deskrinch_config::{DefaultsError, Section, Settings};
 
@@ -76,6 +78,7 @@ macro_rules! tables {
 tables! {
     general::GeneralSettings => "general",
     panel::PanelSettings => "panel",
+    wallpaper::WallpaperSettings => "wallpaper",
 }
 
 /// The section for table `T`, which reports any top-level table that is
@@ -116,6 +119,7 @@ mod tests {
         }
         check::<general::GeneralSettings>();
         check::<panel::PanelSettings>();
+        check::<wallpaper::WallpaperSettings>();
     }
 
     #[test]

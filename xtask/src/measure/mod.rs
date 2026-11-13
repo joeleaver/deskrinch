@@ -203,6 +203,8 @@ pub(crate) enum ShaderCache {
 pub(crate) struct Request {
     pub(crate) compositor: Compositor,
     pub(crate) runs: u32,
+    /// How many outputs each run's session has.
+    pub(crate) outputs: u32,
     pub(crate) renderer: Option<Renderer>,
     /// With `--expect-renderer`: the renderer every run must have presented
     /// with, or the task fails naming what did.
@@ -338,7 +340,7 @@ fn in_session<T>(
     let session = Session::start(
         request.compositor,
         request.compositor_renderer(),
-        Outputs::plain(1),
+        Outputs::plain(request.outputs),
         None,
         |_| Ok(()),
     )?;
@@ -401,12 +403,13 @@ fn header(request: &Request) -> String {
         .collect();
     format!(
         "Measured: {} {}\n\
-         Compositor: {} (nested, headless; {})\n\
+         Compositor: {} (nested, headless, {} output(s); {})\n\
          Renderer: {}; shader cache: {}; {}\n\
          Machine: {}",
         request.program.to_string_lossy(),
         args.join(" "),
         request.compositor.name(),
+        request.outputs,
         match (request.compositor, request.compositor_renderer()) {
             (Compositor::Kwin, _) => "it composites with the GPU through EGL".to_owned(),
             (_, CompositorRenderer::Gpu) => format!(

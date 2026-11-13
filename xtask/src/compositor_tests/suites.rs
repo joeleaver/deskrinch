@@ -10,6 +10,7 @@ const SCREEN: &str = "deskrinch-test-screen";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
 const PANEL: &str = "deskrinch-panel";
+const WALLPAPER: &str = "deskrinch-wallpaper";
 const WAYLAND_CLIENT: &str = "deskrinch-wayland-client";
 const XTASK: &str = "xtask";
 
@@ -95,7 +96,7 @@ pub(super) struct Suite {
 pub(super) const SESSION_END: &str = "session_end::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 13] = [
+pub(super) const SUITES: [Suite; 14] = [
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -218,6 +219,27 @@ pub(super) const SUITES: [Suite; 13] = [
         grant: Some(Grant {
             id: "org.deskrinch.PanelTests",
             name: "deskrinch panel tests",
+            wayland: &[],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
+        compositors: ALL,
+        passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
+        renders: true,
+        filter: &[],
+    },
+    // The wallpaper's real binary, checked by the screen on every output; the
+    // panel's binary, built in the same run, is started over it. Not in the
+    // flipped pass, for the panel's reason: a full output of one colour is
+    // the same mirrored.
+    Suite {
+        target: Target {
+            package: WALLPAPER,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.WallpaperTests",
+            name: "deskrinch wallpaper tests",
             wayland: &[],
             dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
         }),
