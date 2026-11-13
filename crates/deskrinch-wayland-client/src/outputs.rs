@@ -209,6 +209,29 @@ impl Outputs {
         true
     }
 
+    /// Lets go of everything bound: each output's xdg-output destroyed, each
+    /// `wl_output` released, and the xdg-output manager destroyed, for a
+    /// state's [`Lifecycle::release`](crate::Lifecycle::release). Whether
+    /// nothing is left that can send events: a `wl_output` older than
+    /// version 3 has no `release` and stays.
+    pub fn release(&mut self) -> bool {
+        let mut gone = true;
+        for (_, output) in self.by_global.drain() {
+            if let Some(xdg) = output.xdg {
+                xdg.destroy();
+            }
+            if output.proxy.version() >= OUTPUT_RELEASE_SINCE {
+                output.proxy.release();
+            } else {
+                gone = false;
+            }
+        }
+        if let Some(manager) = self.manager.take() {
+            manager.destroy();
+        }
+        gone
+    }
+
     /// Whether the output with registry name `global` is bound: one whose
     /// global has gone is not.
     #[must_use]

@@ -54,6 +54,19 @@
 //! included (before [`connect`] returns), so a UI forwards events into its
 //! own loop. The [`WindowManager`] handle may be used from any thread.
 //!
+//! # Dropping the handle
+//!
+//! Dropping the [`WindowManager`] tells the compositor to stop: every
+//! window's handle is destroyed, the outputs and the seat released, and
+//! under wlroots' protocol the manager stopped; the state is dropped once
+//! the compositor has `finished` with it. KWin's window-management manager
+//! has no destructor and no `stop`, so under KWin the state, on a
+//! connection shared through [`connect_with`], is kept and its events
+//! thrown away for as long as the connection lasts: every detach leaves
+//! that residue, on both sides, until the connection closes. A component
+//! that would connect and drop repeatedly keeps one manager, or uses
+//! [`connect`], whose connection closes with the handle.
+//!
 //! # Example
 //!
 //! ```no_run

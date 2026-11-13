@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use deskrinch_wayland_client::{Client, EndCause, Ended, Flushed, Globals};
+use deskrinch_wayland_client::{Client, EndCause, Flushed, Globals, Lifecycle};
 use wayland_client::protocol::wl_callback::{self, WlCallback};
 use wayland_client::{Connection, Dispatch, QueueHandle};
 
@@ -34,9 +34,16 @@ struct Counter {
     ends: Arc<Mutex<Vec<String>>>,
 }
 
-impl Ended for Counter {
+impl Lifecycle for Counter {
     fn end(&mut self, cause: EndCause) {
         self.ends.lock().unwrap().push(format!("{cause:?}"));
+    }
+
+    // It binds nothing: its syncs' callbacks are gone once answered.
+    fn release(&mut self) {}
+
+    fn released(&self) -> bool {
+        true
     }
 }
 

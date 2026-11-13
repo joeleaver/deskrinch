@@ -8,14 +8,15 @@
 //! runs.
 
 mod plasma;
+mod released;
 mod wlr;
 
 use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use deskrinch_wayland_client::{
-    AttachError, Attachment, Client, Detached, EndCause, Ended, Globals, OutputGlobal, Outputs,
-    OutputsHandler, Setup, layout_available, names_available,
+    AttachError, Attachment, Client, Detached, EndCause, Globals, Lifecycle, OutputGlobal, Outputs,
+    OutputsHandler, Remaining, Setup, layout_available, names_available,
 };
 use wayland_client::globals::{Global, GlobalList};
 use wayland_client::protocol::wl_output::WlOutput;
@@ -24,6 +25,7 @@ use wayland_client::protocol::wl_seat::{self, WlSeat};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols_plasma::plasma_window_management::client::org_kde_plasma_window::OrgKdePlasmaWindow;
 use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_handle_v1::ZwlrForeignToplevelHandleV1;
+use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_manager_v1::ZwlrForeignToplevelManagerV1;
 
 use crate::capabilities::{Action, Capabilities, Protocol};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
@@ -37,8 +39,9 @@ use crate::window::{Event, WindowId};
 /// The globals a backend exists for, in order of preference.
 pub(crate) const SUPPORTED_GLOBALS: [&str; 2] = [wlr::GLOBAL, plasma::GLOBAL];
 
-/// Activation only names the seat; any version will do.
-const SEAT_VERSION: u32 = 1;
+/// Activation only names the seat, which any version does; bound up to the
+/// version that can release it.
+const SEAT_VERSION: u32 = released::SEAT_RELEASE_SINCE;
 
 /// What receives [`Event`]s.
 pub(crate) type Subscriber = Box<dyn Fn(Event) + Send>;
@@ -111,6 +114,19 @@ enum Placement {
     Geometry(Rect),
 }
 
+/// The manager a backend bound; once the handle is dropped, only what the
+/// released state still waits for.
+#[derive(Debug)]
+enum Backend {
+    /// None yet: the setup binds it after the outputs are named.
+    Unbound,
+    Wlr(ZwlrForeignToplevelManagerV1),
+    /// KWin's manager, kept by no one: it has neither a destructor nor a
+    /// `stop`, so nothing is ever sent on it.
+    Plasma,
+    Released(Remaining),
+}
+
 /// The state attached to the client's connection.
 pub(crate) struct State {
     shared: Arc<Shared>,
@@ -120,6 +136,7 @@ pub(crate) struct State {
     outputs: Outputs,
     /// Where each window is, for those whose protocol has said.
     placements: HashMap<WindowId, Placement>,
+    backend: Backend,
 }
 
 impl std::fmt::Debug for State {
@@ -128,6 +145,7 @@ impl std::fmt::Debug for State {
             .field("shared", &self.shared)
             .field("outputs", &self.outputs)
             .field("placements", &self.placements)
+            .field("backend", &self.backend)
             .finish_non_exhaustive()
     }
 }
@@ -148,11 +166,25 @@ impl State {
         }
     }
 
-    /// Starts tracking a window the protocol created.
+    /// Starts tracking a window the protocol created, unless the state is
+    /// released: then the window's handle is destroyed instead.
     fn track(&mut self, id: WindowId, handle: WindowHandle) {
+        if self.is_released() {
+            match handle {
+                WindowHandle::Wlr(toplevel) => toplevel.destroy(),
+                WindowHandle::Plasma(window) => window.destroy(),
+            }
+            return;
+        }
         let mut inner = self.shared.lock();
         inner.list.insert(id);
         inner.handles.insert(id, handle);
+    }
+
+    /// Whether window `id` is tracked: not one already untracked, nor any
+    /// once the state is released.
+    fn tracks(&self, id: WindowId) -> bool {
+        self.shared.lock().handles.contains_key(&id)
     }
 
     /// Stops tracking a window the protocol ended.
@@ -187,6 +219,9 @@ impl State {
         let Some(global) = Outputs::global_of(output) else {
             return;
         };
+        if !self.tracks(id) {
+            return;
+        }
         if entered && !self.outputs.contains(global) {
             return;
         }
@@ -211,6 +246,9 @@ impl State {
 
     /// A window's geometry changed; its outputs follow at once.
     fn moved(&mut self, id: WindowId, geometry: Rect) {
+        if !self.tracks(id) {
+            return;
+        }
         self.placements.insert(id, Placement::Geometry(geometry));
         let names = self.names_at(geometry);
         self.update(|inner| inner.list.apply_live(id, Change::Outputs(names)));
@@ -260,7 +298,7 @@ impl State {
         } else if interface == WlSeat::interface().name {
             let mut inner = self.shared.lock();
             if inner.seat.is_none() {
-                inner.seat = Some(registry.bind(name, SEAT_VERSION, qh, ()));
+                inner.seat = Some(registry.bind(name, version.min(SEAT_VERSION), qh, ()));
             }
         }
     }
@@ -278,13 +316,21 @@ impl State {
     }
 }
 
-impl Ended for State {
+impl Lifecycle for State {
     fn end(&mut self, cause: EndCause) {
         let reason = match cause {
             EndCause::ConnectionLost(error) => EndReason::ConnectionLost(error),
             EndCause::HandlerPanicked => EndReason::HandlerPanicked,
         };
         Self::end(self, reason);
+    }
+
+    fn release(&mut self) {
+        self.release_all();
+    }
+
+    fn released(&self) -> bool {
+        self.released_all()
     }
 }
 
@@ -342,6 +388,7 @@ fn set_up(
         detached: setup.detached(),
         outputs: Outputs::default(),
         placements: HashMap::new(),
+        backend: Backend::Unbound,
     };
     // The xdg-output manager first, so that each output is described as it
     // is bound.
@@ -364,7 +411,8 @@ fn set_up(
 
     let output_names = names_available(&list);
     let output_layout = layout_available(&list);
-    let (mut capabilities, roundtrips) = bind_backend(setup.globals(), &qh)?;
+    let (backend, mut capabilities, roundtrips) = bind_backend(setup.globals(), &qh)?;
+    state.backend = backend;
     capabilities.outputs = output_names
         && match capabilities.protocol {
             Protocol::WlrForeignToplevel => true,
@@ -379,23 +427,23 @@ fn set_up(
     Ok((state, (shared, capabilities)))
 }
 
-/// Binds the preferred backend `globals` offers. Returns its capabilities and
-/// how many exchanges load its initial list.
+/// Binds the preferred backend `globals` offers. Returns its manager, its
+/// capabilities and how many exchanges load its initial list.
 fn bind_backend(
     globals: &GlobalList,
     qh: &QueueHandle<State>,
-) -> Result<(Capabilities, usize), ConnectError> {
+) -> Result<(Backend, Capabilities, usize), ConnectError> {
     let offered = |interface: &str| {
         globals
             .contents()
             .with_list(|list| list.iter().any(|global| global.interface == interface))
     };
     if offered(wlr::GLOBAL) {
-        let (_manager, capabilities) = wlr::bind(globals, qh)?;
-        Ok((capabilities, wlr::INITIAL_ROUNDTRIPS))
+        let (manager, capabilities) = wlr::bind(globals, qh)?;
+        Ok((Backend::Wlr(manager), capabilities, wlr::INITIAL_ROUNDTRIPS))
     } else if offered(plasma::GLOBAL) {
         let (_manager, capabilities) = plasma::bind(globals, qh)?;
-        Ok((capabilities, plasma::INITIAL_ROUNDTRIPS))
+        Ok((Backend::Plasma, capabilities, plasma::INITIAL_ROUNDTRIPS))
     } else if globals.contents().with_list(looks_like_kwin) {
         Err(ConnectError::NotGranted)
     } else {

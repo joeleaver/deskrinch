@@ -21,7 +21,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use deskrinch_wayland_client::{
-    Client, EndCause, Ended, Globals, OutputGlobal, Outputs, OutputsHandler,
+    Client, EndCause, Globals, Lifecycle, OutputGlobal, Outputs, OutputsHandler,
 };
 use wayland_client::QueueHandle;
 use wayland_client::globals::Global;
@@ -45,6 +45,8 @@ const OUTPUT_NAME: u16 = 4;
 struct Listener {
     outputs: Outputs,
     heard: Arc<Mutex<Vec<String>>>,
+    /// Whether its release let go of everything.
+    released: bool,
 }
 
 impl Listener {
@@ -53,9 +55,17 @@ impl Listener {
     }
 }
 
-impl Ended for Listener {
+impl Lifecycle for Listener {
     fn end(&mut self, cause: EndCause) {
         self.hear(format!("ended {cause:?}"));
+    }
+
+    fn release(&mut self) {
+        self.released = self.outputs.release();
+    }
+
+    fn released(&self) -> bool {
+        self.released
     }
 }
 
@@ -96,6 +106,7 @@ fn an_objects_events_come_before_its_globals_removal() {
     let listener = Listener {
         outputs: Outputs::default(),
         heard: Arc::clone(&heard),
+        released: false,
     };
     let (attachment, ()) = client
         .attach(move |setup| {
@@ -145,6 +156,7 @@ fn an_output_handed_over_twice_is_bound_once() {
     let listener = Listener {
         outputs: Outputs::default(),
         heard: Arc::default(),
+        released: false,
     };
     let (attachment, ()) = client
         .attach(move |setup| {

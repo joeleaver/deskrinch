@@ -8,13 +8,14 @@
 
 mod ext;
 mod plasma;
+mod released;
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use deskrinch_wayland_client::{
-    AttachError, Attachment, Client, Detached, EndCause, Ended, Globals, OutputGlobal, Outputs,
-    OutputsHandler, Setup, names_available,
+    AttachError, Attachment, Client, Detached, EndCause, Globals, Lifecycle, OutputGlobal, Outputs,
+    OutputsHandler, Remaining, Setup, names_available,
 };
 use wayland_client::globals::{Global, GlobalList};
 use wayland_client::protocol::wl_output::WlOutput;
@@ -105,11 +106,13 @@ impl Inner {
     }
 }
 
-/// What a backend keeps on the client's thread.
+/// What a backend keeps on the client's thread; once the handle is dropped,
+/// only what the released state still waits for.
 #[derive(Debug)]
 enum Backend {
     Ext(ext::Tracking),
     Plasma(plasma::Tracking),
+    Released(Remaining),
 }
 
 /// The state attached to the client's connection.
@@ -187,13 +190,21 @@ impl State {
     }
 }
 
-impl Ended for State {
+impl Lifecycle for State {
     fn end(&mut self, cause: EndCause) {
         let reason = match cause {
             EndCause::ConnectionLost(error) => EndReason::ConnectionLost(error),
             EndCause::HandlerPanicked => EndReason::HandlerPanicked,
         };
         Self::end(self, reason);
+    }
+
+    fn release(&mut self) {
+        self.release_all();
+    }
+
+    fn released(&self) -> bool {
+        self.released_all()
     }
 }
 
@@ -215,6 +226,7 @@ impl OutputsHandler for State {
                     tracking.stage_outputs(list, |globals| self.outputs.names(globals));
                 }
                 Backend::Plasma(tracking) => tracking.stage_outputs(list, &self.outputs),
+                Backend::Released(_) => {}
             }
             list.commit_groups()
         };
