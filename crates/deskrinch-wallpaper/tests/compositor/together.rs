@@ -66,13 +66,14 @@ fn with_two_outputs_at_one_position_it_follows_its_settings_and_shows_them_apart
         ..OutputChange::default()
     };
     let together = change_output(&layout[1].name, onto).unwrap();
+    // One connection for the steps: moving an output keeps its `wl_output`.
+    let mut screen = Screen::connect().unwrap();
 
     // Which output the compositor still shows the wallpaper on: the one
     // that takes the first step's colour.
     write_settings(&settings(STEPS[0]));
     let names: Vec<String> = layout.iter().map(|output| output.name.clone()).collect();
     let shown = wait_for("an output to show the first step's colour", || {
-        let mut screen = Screen::connect().unwrap();
         names
             .iter()
             .find(|name| first_other(&screen.capture(name).unwrap(), STEPS[0]).is_none())
@@ -88,7 +89,7 @@ fn with_two_outputs_at_one_position_it_follows_its_settings_and_shows_them_apart
         write_settings(&settings(*color));
         let what = format!("step {step} of {}: {shown} to show {color:?}", STEPS.len());
         wait_for(&what, || {
-            let image = Screen::connect().unwrap().capture(&shown).unwrap();
+            let image = screen.capture(&shown).unwrap();
             first_other(&image, *color).map_or(Ok(()), |at| {
                 Err(Seen(format!(
                     "{shown} has {at:?}: the wallpaper's main thread stopped; its last lines:\n{}",

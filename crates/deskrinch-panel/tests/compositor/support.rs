@@ -89,7 +89,9 @@ impl Panel {
 
     /// Waits until the panel has said it is placed along `edge`, `height`
     /// high ([`deskrinch_panel::placed`], written by its main thread when it
-    /// applies the change); `Err` with its last lines when it does not.
+    /// applies the change); `Err` with its last lines when it does not. Any
+    /// line it has written counts, so a test that asks for a placement it
+    /// has had before is answered by the earlier line.
     pub(crate) fn wait_placed(&self, edge: Edge, height: u32) -> Result<(), String> {
         let edge = match edge {
             Edge::Top => deskrinch_settings::panel::Edge::Top,
