@@ -312,8 +312,24 @@ DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test session -- --i
 `cargo xtask desktop` opens the shell in a window on the desktop you run it
 from: a nested compositor (KWin by default; `sway` or `labwc` as its
 argument) shows each of its outputs as a window, and the shell's components
-run inside it, the launcher hidden and then the panel. Ctrl+Alt+Space in the
-window summons the launcher.
+run inside it: the wallpaper, the launcher (hidden), then the panel.
+Ctrl+Alt+Space in the window summons the launcher.
+
+The wallpaper is the look's background colour until `[wallpaper]` says
+otherwise. The desktop's home is its own, so a picture is named by its
+absolute path to a real file, not under `~/` (which is the desktop's empty
+home):
+
+```toml
+# in the desktop's configuration (with --profile NAME:
+# .work/desktop/NAME/config/deskrinch/config.toml)
+[wallpaper]
+image = "/home/you/Pictures/hills.jpg"
+fit = "cover"
+```
+
+A picture that cannot be shown leaves the colour, and the wallpaper says so
+on the terminal, naming the path it read.
 
 ```sh
 cargo xtask desktop                     # KWin, a fresh home

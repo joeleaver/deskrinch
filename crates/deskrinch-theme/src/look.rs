@@ -11,6 +11,11 @@ use rinch::prelude::ThemeProviderProps;
 
 use crate::scheme::Scheme;
 
+/// The desktop's background where the wallpaper is given no colour: the
+/// look's surface colour (`--rinch-color-default`), dark or light, set
+/// apart from the body colour the panel is drawn in.
+pub const DESKTOP_BACKGROUND: &str = "var(--rinch-color-default)";
+
 /// The theme properties of the shell's look in `scheme`.
 #[must_use]
 pub fn props(scheme: Scheme) -> ThemeProviderProps {

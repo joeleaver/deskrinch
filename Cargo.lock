@@ -1203,6 +1203,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-wallpaper"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-appearance",
+ "deskrinch-component",
+ "deskrinch-settings",
+ "deskrinch-test-client",
+ "deskrinch-test-component",
+ "deskrinch-test-screen",
+ "deskrinch-test-wayland",
+ "deskrinch-theme",
+ "deskrinch-watch",
+ "deskrinch-xdg",
+ "image",
+ "rinch",
+ "tempfile",
+ "tracing",
+]
+
+[[package]]
 name = "deskrinch-watch"
 version = "0.1.0"
 dependencies = [
