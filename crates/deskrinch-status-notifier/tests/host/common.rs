@@ -10,7 +10,7 @@ use std::time::Duration;
 use deskrinch_status_notifier::{
     Bus, Config, Event, Host, Item, ItemId, Limits, Menu, MenuFailure,
 };
-use deskrinch_test_wait::{Deadline, PATIENCE, QUIET, quiet_for, recv};
+use deskrinch_test_wait::{Deadline, PATIENCE, QUIET, gathered, quiet_for, recv};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::wire::OwnedVariant;
@@ -347,7 +347,7 @@ impl MenuMatches {
         }
         // A window: this gathers an open-ended set, which has no last
         // member to wait for.
-        while let Ok(call) = self.calls.recv_timeout(QUIET) {
+        for call in gathered("match rule calls", &self.calls, QUIET) {
             apply(&mut live, call);
         }
         live.clone()
@@ -386,9 +386,7 @@ impl ReadDestinations {
         }
         // A window: this gathers an open-ended set, which has no last
         // member to wait for.
-        while let Ok(destination) = self.0.recv_timeout(QUIET) {
-            seen.push(destination);
-        }
+        seen.extend(gathered("read destinations", &self.0, QUIET));
         seen
     }
 }
