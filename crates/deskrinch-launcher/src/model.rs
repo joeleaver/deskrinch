@@ -4,7 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::ops::Range;
 
-use deskrinch_desktop_entries::{DesktopEntry, DesktopId, Icon, Locale, search};
+use deskrinch_desktop_entries::{DesktopEntry, DesktopId, Icon, search};
 use deskrinch_gestures::Click;
 use deskrinch_start_record::Record;
 
@@ -113,20 +113,19 @@ impl Model {
     }
 
     /// Sets the query to `query` and searches `entries` (the applications
-    /// shown in menus) for it, in the user's `locales`; an empty query's
+    /// shown in menus) for it; an empty query's
     /// results are the [frequent](Self::set_frequent) applications. The
     /// first result is selected.
     pub fn set_query<'a>(
         &mut self,
         query: &str,
         entries: impl IntoIterator<Item = &'a DesktopEntry>,
-        locales: &[Locale],
     ) {
         query.clone_into(&mut self.query);
         self.rows = if self.query.is_empty() {
             self.frequent.clone()
         } else {
-            rows(entries, &self.query, locales)
+            rows(entries, &self.query)
         };
         self.selected = (!self.rows.is_empty()).then_some(0);
         self.first = 0;
@@ -144,11 +143,7 @@ impl Model {
     /// a result, and is the first result otherwise. With an empty query,
     /// the frequent applications shown stay, less any no longer in
     /// `entries`.
-    pub fn refresh<'a>(
-        &mut self,
-        entries: impl IntoIterator<Item = &'a DesktopEntry>,
-        locales: &[Locale],
-    ) {
+    pub fn refresh<'a>(&mut self, entries: impl IntoIterator<Item = &'a DesktopEntry>) {
         let selected = self.selected_row().map(|row| row.id.clone());
         self.rows = if self.query.is_empty() {
             let installed: BTreeSet<&DesktopId> = entries.into_iter().map(|e| &e.id).collect();
@@ -156,7 +151,7 @@ impl Model {
             kept.retain(|row| installed.contains(&row.id));
             kept
         } else {
-            rows(entries, &self.query, locales)
+            rows(entries, &self.query)
         };
         let kept = selected.and_then(|id| self.rows.iter().position(|row| row.id == id));
         self.selected = kept.or((!self.rows.is_empty()).then_some(0));
@@ -243,41 +238,42 @@ impl Model {
 }
 
 /// The [`FREQUENT`] applications of `entries` (those shown in menus) that
-/// `record` ranks best, as rows in the user's `locales`. One no longer
-/// installed, or no longer shown in menus, is passed over.
+/// `record` ranks best, as rows. One no longer installed, or no longer shown
+/// in menus, is passed over.
 #[must_use]
-pub fn frequent(record: &Record, entries: &[DesktopEntry], locales: &[Locale]) -> Vec<Row> {
+pub fn frequent<'a>(
+    record: &Record,
+    entries: impl IntoIterator<Item = &'a DesktopEntry>,
+) -> Vec<Row> {
     if record.is_empty() {
         return Vec::new();
     }
-    let by_id: BTreeMap<&DesktopId, &DesktopEntry> =
-        entries.iter().map(|entry| (&entry.id, entry)).collect();
+    let by_id: BTreeMap<&DesktopId, &DesktopEntry> = entries
+        .into_iter()
+        .map(|entry| (&entry.id, entry))
+        .collect();
     record
         .top(FREQUENT, |id| by_id.contains_key(id))
         .iter()
         .filter_map(|id| by_id.get(id))
-        .map(|entry| row(entry, locales))
+        .map(|entry| row(entry))
         .collect()
 }
 
 /// The rows for `query`, best first.
-fn rows<'a>(
-    entries: impl IntoIterator<Item = &'a DesktopEntry>,
-    query: &str,
-    locales: &[Locale],
-) -> Vec<Row> {
-    search(entries, query, locales)
+fn rows<'a>(entries: impl IntoIterator<Item = &'a DesktopEntry>, query: &str) -> Vec<Row> {
+    search(entries, query)
         .into_iter()
-        .map(|found| row(found.entry, locales))
+        .map(|found| row(found.entry))
         .collect()
 }
 
-/// The row of `entry`, in the user's `locales`.
-fn row(entry: &DesktopEntry, locales: &[Locale]) -> Row {
+/// The row of `entry`, by its name and icon as resolved for the session.
+fn row(entry: &DesktopEntry) -> Row {
     Row {
         id: entry.id.clone(),
-        name: entry.name.get(locales).clone(),
-        icon: entry.icon.as_ref().map(|icon| icon.get(locales).clone()),
+        name: entry.name.value.clone(),
+        icon: entry.icon.clone(),
     }
 }
 

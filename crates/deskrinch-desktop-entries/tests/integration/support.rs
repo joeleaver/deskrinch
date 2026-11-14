@@ -53,7 +53,7 @@ pub(crate) fn without_real_session(context: LaunchContext) -> LaunchContext {
 /// An application entry parsed from `text`.
 pub(crate) fn entry(dir: &Path, id: &str, text: &str) -> DesktopEntry {
     let path = write(dir, id, text);
-    DesktopEntry::parse(DesktopId::new(id).unwrap(), path, text).unwrap()
+    DesktopEntry::parse(DesktopId::new(id).unwrap(), path, text, &[]).unwrap()
 }
 
 /// The recorder: a shell script that writes what it was run with to
