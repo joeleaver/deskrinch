@@ -6,9 +6,9 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use super::*;
+use crate::builder::TableBuilder;
 use crate::candidates::names;
 use crate::index::Indexed;
-use crate::table::TableBuilder;
 use crate::theme::Theme;
 use crate::theme::tests::BIRCH;
 

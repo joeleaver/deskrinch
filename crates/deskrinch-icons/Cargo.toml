@@ -12,6 +12,8 @@ publish.workspace = true
 deskrinch-keyfile.workspace = true
 deskrinch-watch.workspace = true
 deskrinch-xdg.workspace = true
+# Interning names while an index is built, the names kept in one buffer.
+hashbrown.workspace = true
 # Listing a directory into one reused buffer (getdents), without an
 # allocation per entry, and lstat for an entry of unknown type.
 rustix = { workspace = true, features = ["fs"] }

@@ -41,7 +41,11 @@ impl Lister {
     ///
     /// When `dir` cannot be opened as a directory: an `io::Error` as
     /// `std::fs::read_dir` gives it (`NotFound` for a missing directory).
-    pub(crate) fn list(&mut self, dir: &Path, mut each: impl FnMut(&str, Format)) -> io::Result<()> {
+    pub(crate) fn list(
+        &mut self,
+        dir: &Path,
+        mut each: impl FnMut(&str, Format),
+    ) -> io::Result<()> {
         let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
         let fd = openat(CWD, dir, flags, Mode::empty())?;
         self.buffer.reserve_exact(BUFFER);

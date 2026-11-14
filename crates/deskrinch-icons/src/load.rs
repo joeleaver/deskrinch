@@ -8,11 +8,12 @@ use std::path::{Path, PathBuf};
 
 use deskrinch_xdg::BaseDirs;
 
+use crate::builder::TableBuilder;
 use crate::index::{Index, Indexed};
 use crate::listing::Lister;
 use crate::lookup::HICOLOR;
 use crate::problem::{Problem, ProblemKind};
-use crate::table::{NameTable, TableBuilder};
+use crate::table::NameTable;
 use crate::theme::Theme;
 
 /// Where unthemed icons are by the specification, after the base
@@ -302,3 +303,7 @@ fn gone(error: &io::Error) -> bool {
         io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
     )
 }
+
+#[cfg(test)]
+#[path = "load_reference_tests.rs"]
+mod reference_tests;

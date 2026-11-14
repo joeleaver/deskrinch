@@ -1,7 +1,7 @@
 //! The index's storage: for one theme (or for the icons outside any
 //! theme), every icon name once, in one sorted table, each owning a range
-//! of four-byte [`Location`]s. A lookup is a binary search; building one is
-//! a handful of allocations, however many files there are.
+//! of four-byte [`Location`]s. A lookup is a binary search. Tables are
+//! built by [`TableBuilder`](crate::builder::TableBuilder).
 
 use std::cmp::Ordering;
 
@@ -27,7 +27,7 @@ pub(crate) struct Location(u32);
 impl Location {
     /// The location, if `directory` and `base` are within
     /// [`MAX_DIRECTORIES`] and [`MAX_BASES`].
-    fn new(directory: usize, base: usize, format: Format) -> Result<Self, Limit> {
+    pub(crate) fn new(directory: usize, base: usize, format: Format) -> Result<Self, Limit> {
         let directory = u32::try_from(directory)
             .ok()
             .filter(|&d| (d as usize) < MAX_DIRECTORIES)
@@ -93,7 +93,7 @@ pub(crate) enum Limit {
 
 impl Limit {
     /// Every limit, for reporting each one passed once.
-    const ALL: [Self; 4] = [Self::Directories, Self::Bases, Self::Text, Self::Files];
+    pub(crate) const ALL: [Self; 4] = [Self::Directories, Self::Bases, Self::Text, Self::Files];
 
     /// What the limit counts, for [`crate::ProblemKind::TooLarge`].
     pub(crate) fn what(self) -> &'static str {
@@ -114,7 +114,7 @@ impl Limit {
         }
     }
 
-    fn bit(self) -> u8 {
+    pub(crate) fn bit(self) -> u8 {
         1 << self as u8
     }
 }
@@ -167,126 +167,23 @@ impl NameTable {
     pub(crate) fn names(&self) -> impl Iterator<Item = &str> {
         (0..self.ends.len()).map(|i| self.name(i))
     }
-}
 
-/// One file while a table is built: its name in the builder's text, and
-/// its location. Twelve bytes, whatever the name.
-#[derive(Debug, Clone, Copy)]
-struct Record {
-    start: u32,
-    len: u32,
-    at: Location,
-}
-
-/// Builds a [`NameTable`] from files given in any order: one buffer for
-/// every name given and one vector of records, sorted once at the end.
-#[derive(Debug)]
-pub(crate) struct TableBuilder {
-    text: String,
-    records: Vec<Record>,
-    /// The largest text and record count allowed: `u32::MAX`, or less in
-    /// tests.
-    capacity: usize,
-    /// The limits passed, one bit each.
-    passed: u8,
-}
-
-impl Default for TableBuilder {
-    fn default() -> Self {
-        Self::with_capacity(u32::MAX as usize)
-    }
-}
-
-impl TableBuilder {
-    fn with_capacity(capacity: usize) -> Self {
+    /// The table of `text` (the names, sorted by their bytes, concatenated),
+    /// `ends` (where each ends in `text`), `starts` (where each name's
+    /// locations start, and one more for the end) and `locations`: what
+    /// [`TableBuilder::finish`](crate::builder::TableBuilder::finish)
+    /// makes, its only maker.
+    pub(crate) fn from_parts(
+        text: Box<str>,
+        ends: Box<[u32]>,
+        starts: Box<[u32]>,
+        locations: Box<[Location]>,
+    ) -> Self {
         Self {
-            text: String::new(),
-            records: Vec::new(),
-            capacity,
-            passed: 0,
-        }
-    }
-
-    /// Adds the file `name` at `directory`, `base` and `format`; or, when
-    /// that passes a limit, notes the limit and leaves the file out.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the text and the records are checked against capacity, at most u32::MAX, first"
-    )]
-    pub(crate) fn push(&mut self, name: &str, directory: usize, base: usize, format: Format) {
-        let at = match Location::new(directory, base, format) {
-            Ok(at) => at,
-            Err(limit) => return self.pass(limit),
-        };
-        if self.records.len() >= self.capacity {
-            return self.pass(Limit::Files);
-        }
-        if self.text.len() + name.len() > self.capacity {
-            return self.pass(Limit::Text);
-        }
-        let record = Record {
-            start: self.text.len() as u32,
-            len: name.len() as u32,
-            at,
-        };
-        self.text.push_str(name);
-        self.records.push(record);
-    }
-
-    /// The limits passed so far, each once.
-    pub(crate) fn passed(&self) -> impl Iterator<Item = Limit> + use<> {
-        let passed = self.passed;
-        Limit::ALL
-            .into_iter()
-            .filter(move |limit| passed & limit.bit() != 0)
-    }
-
-    fn pass(&mut self, limit: Limit) {
-        self.passed |= limit.bit();
-    }
-
-    /// The table: names sorted by their bytes, each name's locations in
-    /// order. Its allocations are exactly its size.
-    #[expect(
-        clippy::cast_possible_truncation,
-        reason = "the table holds no more text or locations than the builder, at most u32::MAX of each"
-    )]
-    pub(crate) fn finish(mut self) -> NameTable {
-        // The one empty table, which allocates nothing and equals any other.
-        if self.records.is_empty() {
-            return NameTable::default();
-        }
-        let text = self.text;
-        let name = |record: &Record| &text.as_bytes()[record.start as usize..][..record.len as usize];
-        self.records
-            .sort_unstable_by(|a, b| name(a).cmp(name(b)).then(a.at.cmp(&b.at)));
-        let mut names = 0;
-        let mut bytes = 0;
-        for (i, record) in self.records.iter().enumerate() {
-            if i == 0 || name(&self.records[i - 1]) != name(record) {
-                names += 1;
-                bytes += record.len as usize;
-            }
-        }
-        let mut sorted = String::with_capacity(bytes);
-        let mut ends = Vec::with_capacity(names);
-        let mut starts = Vec::with_capacity(names + 1);
-        let mut locations = Vec::with_capacity(self.records.len());
-        for (i, record) in self.records.iter().enumerate() {
-            if i == 0 || name(&self.records[i - 1]) != name(record) {
-                let start = record.start as usize;
-                sorted.push_str(&text[start..start + record.len as usize]);
-                ends.push(sorted.len() as u32);
-                starts.push(locations.len() as u32);
-            }
-            locations.push(record.at);
-        }
-        starts.push(locations.len() as u32);
-        NameTable {
-            text: sorted.into_boxed_str(),
-            ends: ends.into_boxed_slice(),
-            starts: starts.into_boxed_slice(),
-            locations: locations.into_boxed_slice(),
+            text,
+            ends,
+            starts,
+            locations,
         }
     }
 }
