@@ -98,6 +98,8 @@ fn delivers_nothing_for_changes_that_leave_the_index_alone() {
     f.icon("b0", HICOLOR, "48", "notes.txt");
     f.theme("b1", "unrelated", &theme_text("", &["48:48:Fixed"]));
     f.icon("b0", HICOLOR, "unlisted", "x.png");
+    // A window: a re-index those writes wrongly caused would be read in the
+    // same settled pass as any later change, which would hide it.
     nothing(&events);
     // Had anything above been delivered, it would arrive before this, and
     // be the next report.
