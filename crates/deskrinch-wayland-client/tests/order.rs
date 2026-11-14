@@ -13,8 +13,6 @@
 #![cfg(test)]
 
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use deskrinch_wayland_client::{
     Client, EndCause, Globals, Lifecycle, OutputGlobal, Outputs, OutputsHandler,
@@ -26,7 +24,7 @@ use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::ZxdgOutputV1;
 
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::eventually;
 use deskrinch_test_wayland::stand_in::{Arg, StandIn, message};
 
 /// The output's global name, as the stand-in lists it.
@@ -126,20 +124,13 @@ fn an_objects_events_come_before_its_globals_removal() {
     burst.extend(message(registry, GLOBAL_REMOVE, &[Arg::Uint(OUTPUT)]));
     stand_in.send(burst);
 
-    let deadline = Instant::now() + PATIENCE;
-    while !heard
-        .lock()
-        .unwrap()
-        .iter()
-        .any(|what| what.starts_with("removed"))
-    {
-        assert!(
-            Instant::now() < deadline,
-            "heard {:?}",
-            heard.lock().unwrap()
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    eventually("the removal heard", || {
+        heard
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|what| what.starts_with("removed"))
+    });
     assert_eq!(
         *heard.lock().unwrap(),
         ["named FAKE-1".to_owned(), format!("removed {OUTPUT}")]
@@ -211,11 +202,9 @@ fn a_detachs_requests_leave_in_its_own_round() {
     // Nothing is sent after this: only the detach's own round can flush
     // the output's release.
     drop(attachment);
-    let deadline = Instant::now() + PATIENCE;
-    while stand_in.requests_to(output).is_empty() {
-        assert!(Instant::now() < deadline, "the output's release never left");
-        thread::sleep(Duration::from_millis(10));
-    }
+    eventually("the output's release sent", || {
+        !stand_in.requests_to(output).is_empty()
+    });
     assert_eq!(stand_in.requests_to(output), [OUTPUT_RELEASE]);
     // It let go of everything: dropped at once, not releasing.
     let states = client.states();

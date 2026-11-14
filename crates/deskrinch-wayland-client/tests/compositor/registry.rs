@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex};
 use deskrinch_test_client::set_output_enabled;
 use deskrinch_wayland_client::Client;
 
-use crate::support::{Record, attach, bounded, eventually, nested};
+use deskrinch_test_wait::eventually;
+
+use crate::support::{Record, attach, bounded, nested};
 
 /// Turns an output back on when dropped, whatever the test did meanwhile:
 /// the session's later tests expect both outputs.

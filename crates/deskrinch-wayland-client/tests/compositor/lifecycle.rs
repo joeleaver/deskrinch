@@ -4,7 +4,9 @@ use std::sync::{Arc, Mutex};
 
 use deskrinch_wayland_client::{AttachError, Client};
 
-use crate::support::{OnDone, Probe, attach, bounded, eventually, nested, thread_alive};
+use deskrinch_test_wait::eventually;
+
+use crate::support::{OnDone, Probe, attach, bounded, nested, thread_alive};
 
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]

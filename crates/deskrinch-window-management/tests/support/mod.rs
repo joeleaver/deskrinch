@@ -5,10 +5,9 @@ pub(crate) use deskrinch_test_client::Compositor;
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::sync::mpsc::{self, Receiver};
-use std::time::{Duration, Instant};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::{Deadline, waited_in_vain};
 use deskrinch_window_management::{
     Client, EndReason, Event, Protocol, Window, WindowId, WindowManager, connect, connect_with,
 };
@@ -113,7 +112,7 @@ impl Watcher {
     /// Waits until the list the events describe satisfies `check`, folding
     /// in events as they arrive.
     pub(crate) fn wait_until<T>(&self, what: &str, check: impl Fn(&[Window]) -> Option<T>) -> T {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         loop {
             if let Some(reason) = &*self.ended.borrow() {
                 panic!("waiting for {what}: the connection ended: {reason}");
@@ -122,10 +121,12 @@ impl Watcher {
             if let Some(found) = check(&windows) {
                 return found;
             }
-            let left = deadline.saturating_duration_since(Instant::now());
-            match self.events.recv_timeout(left) {
+            match self.events.recv_timeout(deadline.left()) {
                 Ok(event) => self.fold(event),
-                Err(error) => panic!("waiting for {what}: {error}; the list is {windows:#?}"),
+                Err(RecvTimeoutError::Timeout) => panic!("{}", waited_in_vain(what, &windows)),
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("waiting for {what}: the subscriber is gone; the list is {windows:#?}")
+                }
             }
         }
     }
@@ -154,15 +155,17 @@ impl Watcher {
 
     /// Waits for the connection to end, and returns why.
     pub(crate) fn wait_ended(&self, what: &str) -> EndReason {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         loop {
             if let Some(reason) = self.ended.borrow().clone() {
                 return reason;
             }
-            let left = deadline.saturating_duration_since(Instant::now());
-            match self.events.recv_timeout(left) {
+            match self.events.recv_timeout(deadline.left()) {
                 Ok(event) => self.fold(event),
-                Err(error) => panic!("waiting for {what}: {error}"),
+                Err(RecvTimeoutError::Timeout) => panic!("{}", waited_in_vain(what, &self.seen())),
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("waiting for {what}: the subscriber is gone")
+                }
             }
         }
     }

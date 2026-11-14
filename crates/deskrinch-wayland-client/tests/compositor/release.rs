@@ -4,7 +4,9 @@
 
 use deskrinch_wayland_client::{Client, StateCounts};
 
-use crate::support::{Attached, OnDone, attach, bounded, eventually, nested, thread_alive};
+use deskrinch_test_wait::eventually;
+
+use crate::support::{Attached, OnDone, attach, bounded, nested, thread_alive};
 
 /// `client`'s attached and releasing states.
 fn counts(client: &Client) -> (usize, usize) {

@@ -219,9 +219,9 @@ fn the_subscriber_may_call_back_into_the_handle() {
         .unwrap();
     handle_slot.set(service.handle()).unwrap();
     let n = Client::new(&bus).simple(0, "a", "", 0);
-    let first = rx.recv_timeout(crate::common::PATIENCE).unwrap();
+    let first = rx.recv_timeout(PATIENCE).unwrap();
     assert!(matches!(first, Event::Shown(_)));
-    let second = rx.recv_timeout(crate::common::PATIENCE).unwrap();
+    let second = rx.recv_timeout(PATIENCE).unwrap();
     assert_eq!(
         second,
         Event::Closed {

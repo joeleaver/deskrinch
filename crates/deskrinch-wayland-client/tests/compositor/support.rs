@@ -4,10 +4,9 @@
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
 
 use deskrinch_test_client::Compositor;
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::recv;
 use deskrinch_wayland_client::{
     Attachment, Client, Detached, EndCause, Globals, Lifecycle, OutputGlobal, Outputs,
     OutputsHandler, Remaining,
@@ -144,7 +143,7 @@ pub(crate) struct Attached {
 }
 
 /// Attaches a [`Probe`] to `client`, its outputs bound and named in two
-/// exchanges at setup; panics if that takes longer than [`PATIENCE`].
+/// exchanges at setup; panics if that takes longer than [`PATIENCE`](deskrinch_test_wait::PATIENCE).
 pub(crate) fn attach(client: &Client) -> Attached {
     let client = client.clone();
     bounded("attaching a probe", move || {
@@ -207,7 +206,8 @@ pub(crate) fn attach(client: &Client) -> Attached {
 }
 
 /// Runs `work` on a thread of its own and waits for it at most
-/// [`PATIENCE`]: a hang fails the test instead of blocking it.
+/// [`PATIENCE`](deskrinch_test_wait::PATIENCE): a hang fails the test instead of blocking it.
+#[track_caller]
 pub(crate) fn bounded<T: Send + 'static>(
     what: &str,
     work: impl FnOnce() -> T + Send + 'static,
@@ -217,18 +217,7 @@ pub(crate) fn bounded<T: Send + 'static>(
         // The receiver may have given up; nothing to tell then.
         drop(done.send(work()));
     });
-    finished
-        .recv_timeout(PATIENCE)
-        .unwrap_or_else(|error| panic!("{what}: {error} (a hang)"))
-}
-
-/// Waits until `check` holds, at most [`PATIENCE`].
-pub(crate) fn eventually(what: &str, check: impl Fn() -> bool) {
-    let deadline = Instant::now() + PATIENCE;
-    while !check() {
-        assert!(Instant::now() < deadline, "{what}: not within {PATIENCE:?}");
-        thread::sleep(Duration::from_millis(20));
-    }
+    recv(what, &finished)
 }
 
 /// Whether the thread with id `id` is still listed in this process's

@@ -3,30 +3,27 @@
 //! compositor, and one going away leaves the other working, and tells the
 //! compositor to stop.
 
-use std::thread;
-use std::time::{Duration, Instant};
-
 use deskrinch_test_client::TestClient;
 use deskrinch_window_management::{Client, StateCounts, WindowManagement};
 
 use crate::support::{Compositor, Watcher, unique_app_id};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::wait_for;
 
 /// Waits until `client`'s states are as `wanted`, ignoring the events
 /// discarded; panics with what they are otherwise.
+#[track_caller]
 fn wait_states(client: &Client, attached: usize, releasing: usize) -> StateCounts {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
-        let states = client.states();
-        if (states.attached, states.releasing) == (attached, releasing) {
-            return states;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "{attached} attached and {releasing} releasing wanted: {states:?}"
-        );
-        thread::sleep(Duration::from_millis(20));
-    }
+    wait_for(
+        &format!("{attached} attached and {releasing} releasing"),
+        || {
+            let states = client.states();
+            if (states.attached, states.releasing) == (attached, releasing) {
+                Ok(states)
+            } else {
+                Err(states)
+            }
+        },
+    )
 }
 
 #[test]

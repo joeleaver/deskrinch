@@ -4,11 +4,10 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::sync::mpsc::{self, Receiver};
-use std::time::{Duration, Instant};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 
 use deskrinch_bus::Bus;
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::{Deadline, waited_in_vain};
 use deskrinch_workspaces::{
     Action, Client, EndReason, Event, Workspace, WorkspaceId, WorkspaceManager, WorkspaceState,
     Workspaces, connect, connect_with,
@@ -68,7 +67,7 @@ impl Watcher {
 
     /// Waits until the workspaces the events describe satisfy `check`.
     pub(crate) fn wait_until<T>(&self, what: &str, check: impl Fn(&[Workspace]) -> Option<T>) -> T {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         loop {
             if let Some(reason) = &*self.ended.borrow() {
                 panic!("waiting for {what}: the connection ended: {reason}");
@@ -77,10 +76,12 @@ impl Watcher {
             if let Some(found) = check(&workspaces) {
                 return found;
             }
-            let left = deadline.saturating_duration_since(Instant::now());
-            match self.events.recv_timeout(left) {
+            match self.events.recv_timeout(deadline.left()) {
                 Ok(event) => self.fold(event),
-                Err(error) => panic!("waiting for {what}: {error}; seen {workspaces:#?}"),
+                Err(RecvTimeoutError::Timeout) => panic!("{}", waited_in_vain(what, &workspaces)),
+                Err(RecvTimeoutError::Disconnected) => {
+                    panic!("waiting for {what}: the subscriber is gone; seen {workspaces:#?}")
+                }
             }
         }
     }

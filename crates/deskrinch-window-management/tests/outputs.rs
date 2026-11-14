@@ -8,14 +8,11 @@
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
+use deskrinch_test_wait::wait_for;
 use deskrinch_test_wayland::stand_in::{Arg, SERVER_ID, StandIn, message};
 use deskrinch_window_management::{Client, Event, Window, connect_with};
 
-/// How long anything here waits.
-const PATIENCE: Duration = Duration::from_secs(30);
 /// The globals, as the stand-in lists them: the output, the manager, and
 /// the output again under a new name once it comes back.
 const OUTPUT: u32 = 1;
@@ -51,32 +48,28 @@ fn last_heard(heard: &Mutex<Vec<Event>>) -> Option<Window> {
 }
 
 /// Waits until the window is heard of on `outputs`.
+#[track_caller]
 fn wait_outputs(heard: &Mutex<Vec<Event>>, outputs: &[&str]) {
     let wanted: BTreeSet<String> = outputs.iter().map(|&name| name.to_owned()).collect();
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    wait_for(&format!("the window on {wanted:?}"), || {
         let last = last_heard(heard);
         if last.as_ref().is_some_and(|window| window.outputs == wanted) {
-            return;
+            Ok(())
+        } else {
+            Err(last)
         }
-        assert!(
-            Instant::now() < deadline,
-            "waited for the window on {wanted:?}; last heard {last:?}"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    });
 }
 
 /// The one id the client gave global `name`, once it has bound it.
+#[track_caller]
 fn bound(stand_in: &StandIn, name: u32) -> u32 {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
-        if let [id] = stand_in.bound(name)[..] {
-            return id;
+    wait_for(&format!("global {name} bound once"), || {
+        match stand_in.bound(name)[..] {
+            [id] => Ok(id),
+            ref ids => Err(ids.to_vec()),
         }
-        assert!(Instant::now() < deadline, "global {name} never bound once");
-        thread::sleep(Duration::from_millis(10));
-    }
+    })
 }
 
 /// An output's name, and its `done`.
