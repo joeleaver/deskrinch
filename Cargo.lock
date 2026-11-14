@@ -1236,6 +1236,7 @@ dependencies = [
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-screen",
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-theme",
  "deskrinch-watch",

@@ -3,15 +3,14 @@
 //! `deskrinch-test-client`'s, whose guard puts the session's whole layout
 //! back as it was, also when the test fails.
 
-use std::time::{Duration, Instant};
-
 use deskrinch_test_client::{OutputChange, TestClient, change_output, turn_output_off};
 use deskrinch_test_screen::Screen;
+use deskrinch_test_wait::{eventually, wait_for};
 use deskrinch_test_wayland::Transform;
 
 use crate::support::{
-    BLUE, PATIENCE, Wallpaper, first_other, in_nested_session, wait_covered, wait_output,
-    write_settings, written,
+    BLUE, Wallpaper, first_other, in_nested_session, wait_covered, wait_output, write_settings,
+    written,
 };
 
 /// The physical size of the output `name`, as captured.
@@ -45,18 +44,20 @@ fn an_output_turned_while_it_runs_is_covered_at_its_new_shape() {
         transform: Some(to),
     };
     let restore = change_output(&name, turned).unwrap();
-    let deadline = Instant::now() + PATIENCE;
-    while captured_size(&name) != (height, width) {
-        assert!(Instant::now() < deadline, "{name} did not turn");
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    wait_for(&format!("{name} turned"), || {
+        let size = captured_size(&name);
+        if size == (height, width) {
+            Ok(())
+        } else {
+            Err(size)
+        }
+    });
     wait_covered(BLUE);
     restore.restore().unwrap();
 }
 
 /// Waits until the screen lists `name` (`listed`) or does not.
 fn wait_listed(name: &str, listed: bool) {
-    let deadline = Instant::now() + PATIENCE;
     let is_listed = || {
         Screen::connect()
             .unwrap()
@@ -64,14 +65,11 @@ fn wait_listed(name: &str, listed: bool) {
             .iter()
             .any(|n| n == name)
     };
-    while is_listed() != listed {
-        assert!(
-            Instant::now() < deadline,
-            "{name} was not {} the outputs",
-            if listed { "back among" } else { "gone from" }
-        );
-        std::thread::sleep(Duration::from_millis(200));
-    }
+    let what = format!(
+        "{name} {} the outputs",
+        if listed { "back among" } else { "gone from" }
+    );
+    eventually(&what, || is_listed() == listed);
 }
 
 /// An output turned off takes its wallpaper with it, and turned on again
