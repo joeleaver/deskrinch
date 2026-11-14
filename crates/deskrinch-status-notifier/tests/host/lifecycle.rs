@@ -131,9 +131,6 @@ fn a_change_signal_reads_the_item_again() {
 
     // A signal that changes nothing reports nothing.
     item.signal("NewIcon");
-    // A window: what this could wrongly cause would come of a read, and
-    // the tracker's reads finish in no order it states, so no later event
-    // is sure to follow it.
     events.quiet();
 
     let mut attention = properties("B");
@@ -176,9 +173,6 @@ fn the_watcher_lists_and_announces_items_read_or_not() {
     );
     let listed: Vec<String> = watcher_property(&bus, "RegisteredStatusNotifierItems");
     assert_eq!(listed, std::slice::from_ref(&id));
-    // A window: what this could wrongly cause would come of a read, and
-    // the tracker's reads finish in no order it states, so no later event
-    // is sure to follow it.
     events.quiet();
 
     drop(item);
@@ -187,9 +181,6 @@ fn the_watcher_lists_and_announces_items_read_or_not() {
         ("StatusNotifierItemUnregistered".into(), Some(id))
     );
     // The caller never heard of it, so it hears nothing of it leaving.
-    // A window: the tracker takes owner changes, item signals and
-    // finished reads by turns, in no order it states, so no later event is
-    // sure to follow this one.
     events.quiet();
 }
 
@@ -212,9 +203,6 @@ fn the_item_list_announces_each_change_to_clients_that_cache_it() {
     assert_eq!(changes.next(), [second_id]);
     drop(second);
     assert_eq!(changes.next(), Vec::<String>::new());
-    // A window: the tracker takes owner changes, item signals and
-    // finished reads by turns, in no order it states, so no later event is
-    // sure to follow this one.
     events.quiet();
 }
 
@@ -230,9 +218,6 @@ fn registering_again_changes_nothing() {
     item.register(&item.unique_name()).unwrap();
     events.added();
     item.register(&item.unique_name()).unwrap();
-    // A window: what this could wrongly cause would come of a read, and
-    // the tracker's reads finish in no order it states, so no later event
-    // is sure to follow it.
     events.quiet();
 }
 
@@ -253,8 +238,5 @@ fn registering_a_service_nobody_owns_is_refused() {
         error_name(item.register(":1.9999")),
         "org.freedesktop.DBus.Error.ServiceUnknown"
     );
-    // A window: what this could wrongly cause would come of a read, and
-    // the tracker's reads finish in no order it states, so no later event
-    // is sure to follow it.
     events.quiet();
 }

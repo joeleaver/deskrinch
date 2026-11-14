@@ -109,12 +109,21 @@ impl Events {
         }
     }
 
+    /// That no event arrives for [`QUIET`]; see [`quiet_for`](Self::quiet_for).
     #[track_caller]
     pub(crate) fn quiet(&self) {
         self.quiet_for(QUIET);
     }
 
     /// That no event arrives for `time`.
+    ///
+    /// A window, not a sentinel: no later event of the host's is sure to
+    /// come after what a use of this watches for. Whatever the host could
+    /// wrongly report comes of a read, and the tracker's reads finish in no
+    /// order it states (they run in a `FuturesUnordered`); and the tracker
+    /// takes owner changes, item signals and finished reads by turns
+    /// (`poll_sources`), in no order it states either. A use with another
+    /// reason says so where it is.
     #[track_caller]
     pub(crate) fn quiet_for(&self, time: Duration) {
         quiet_for("no event", &self.0, time);

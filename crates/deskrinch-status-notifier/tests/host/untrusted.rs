@@ -58,9 +58,6 @@ fn an_oversized_reply_keeps_the_item_pending_until_a_later_read_fits() {
         Reply::Properties(properties(&"x".repeat(128 * 1024))),
     );
     item.register(&item.unique_name()).unwrap();
-    // A window: what this could wrongly cause would come of a read, and
-    // the tracker's reads finish in no order it states, so no later event
-    // is sure to follow it.
     events.quiet();
     assert_eq!(host.handle().items(), Vec::<Arc<Item>>::new());
 
@@ -165,8 +162,5 @@ fn registrations_that_name_neither_a_service_nor_a_path_are_refused() {
             "{bad:?}"
         );
     }
-    // A window: what this could wrongly cause would come of a read, and
-    // the tracker's reads finish in no order it states, so no later event
-    // is sure to follow it.
     events.quiet();
 }
