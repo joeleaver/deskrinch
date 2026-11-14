@@ -14,6 +14,10 @@
 //! - [`outputs`]: an output turned while the wallpaper runs is covered at
 //!   its new shape; one turned off loses its wallpaper and, turned on
 //!   again, gets one anew, the others staying covered.
+//! - [`together`]: with the two outputs at one position, where sway shows
+//!   the wallpaper of only one, the wallpaper follows four settings edits
+//!   in turn on the output shown, and both outputs show the last once
+//!   apart (rinch issue 2669).
 //!
 //! Not covered here: a new output, never seen before, plugged in (the
 //! sessions' outputs are fixed at their start; one turned off and on

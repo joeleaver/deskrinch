@@ -62,14 +62,6 @@
 //! the only adapter is a CPU one (a software Vulkan driver such as
 //! lavapipe). The user overrides that with rinch's `RINCH_RENDERER`
 //! environment variable (`gpu`, `software` or `cpu`, `auto`).
-//!
-//! A known issue: with the GPU renderer, rinch issue 2669 can stall the
-//! wallpaper, every output's window and all its event handling, under a
-//! compositor that stops showing one of its surfaces. It has been seen
-//! under sway with two outputs at one position, and labwc is exposed the
-//! same way; under KWin with a current Mesa it cannot happen, because the
-//! driver paces presents without frame callbacks there. Its fix is rinch
-//! PR 2674, and it reaches deskrinch with a later rinch pin.
 
 mod picture;
 mod role;
