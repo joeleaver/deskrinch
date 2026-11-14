@@ -12,6 +12,9 @@ publish.workspace = true
 deskrinch-keyfile.workspace = true
 deskrinch-watch.workspace = true
 deskrinch-xdg.workspace = true
+# Listing a directory into one reused buffer (getdents), without an
+# allocation per entry, and lstat for an entry of unknown type.
+rustix = { workspace = true, features = ["fs"] }
 thiserror.workspace = true
 
 [dev-dependencies]

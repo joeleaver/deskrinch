@@ -8,9 +8,11 @@ use std::path::{Path, PathBuf};
 
 use deskrinch_xdg::BaseDirs;
 
-use crate::index::{Format, Index, Indexed, Location};
+use crate::index::{Index, Indexed};
+use crate::listing::Lister;
 use crate::lookup::HICOLOR;
 use crate::problem::{Problem, ProblemKind};
+use crate::table::{NameTable, TableBuilder};
 use crate::theme::Theme;
 
 /// Where unthemed icons are by the specification, after the base
@@ -98,74 +100,79 @@ impl Index {
             theme: theme.to_owned(),
             consulted: Vec::new(),
             themes: HashMap::new(),
-            unthemed: HashMap::new(),
+            unthemed: NameTable::default(),
             problems: Vec::new(),
         };
-        index.consult(theme, listing);
-        index.consult(HICOLOR, listing);
+        let mut reader = Reader {
+            listing,
+            lister: Lister::new(),
+            path: PathBuf::new(),
+        };
+        index.consult(theme, &mut reader);
+        index.consult(HICOLOR, &mut reader);
         if listing == Listing::ThemesOnly {
             return index;
         }
         index.report_cycles();
+        let mut unthemed = TableBuilder::default();
         for base in 0..index.search_path.len() {
-            let dir = index.search_path[base].clone();
-            for (name, format) in index.list(theme, &dir) {
-                let at = Location {
-                    directory: 0,
-                    base,
-                    format,
-                };
-                index.unthemed.entry(name).or_default().push(at);
+            let dir = &index.search_path[base];
+            let listed = reader
+                .lister
+                .list(dir, |name, format| unthemed.push(name, 0, base, format));
+            if let Some((path, kind)) = unreadable(listed, dir) {
+                index.problem(theme, Some(path), kind);
             }
         }
-        for locations in index.unthemed.values_mut() {
-            locations.sort();
-        }
+        index.report_limits(theme, &unthemed);
+        index.unthemed = unthemed.finish();
         index
     }
 
     /// Loads `theme` and, depth first, its parents, each once.
-    fn consult(&mut self, theme: &str, listing: Listing) {
+    fn consult(&mut self, theme: &str, reader: &mut Reader) {
         if self.consulted.iter().any(|seen| seen == theme) {
             return;
         }
         self.consulted.push(theme.to_owned());
-        let Some(loaded) = self.load_theme(theme, listing) else {
+        let Some(loaded) = self.load_theme(theme, reader) else {
             return;
         };
         let parents = loaded.theme.inherits.clone();
         self.themes.insert(theme.to_owned(), loaded);
         for parent in parents {
-            self.consult(&parent, listing);
+            self.consult(&parent, reader);
         }
     }
 
-    fn load_theme(&mut self, name: &str, listing: Listing) -> Option<Indexed> {
+    fn load_theme(&mut self, name: &str, reader: &mut Reader) -> Option<Indexed> {
         if !valid_theme_name(name) {
             self.problem(name, None, ProblemKind::InvalidName);
             return None;
         }
         let theme = self.read_theme(name)?;
-        let mut icons: HashMap<String, Vec<Location>> = HashMap::new();
-        if listing == Listing::ThemesOnly {
+        if reader.listing == Listing::ThemesOnly {
+            let icons = NameTable::default();
             return Some(Indexed { theme, icons });
         }
+        let mut icons = TableBuilder::default();
         for (directory, dir) in theme.directories.iter().enumerate() {
             for base in 0..self.search_path.len() {
-                let path = self.search_path[base].join(name).join(&dir.path);
-                for (icon, format) in self.list(name, &path) {
-                    let at = Location {
-                        directory,
-                        base,
-                        format,
-                    };
-                    icons.entry(icon).or_default().push(at);
+                let path = &mut reader.path;
+                path.as_mut_os_string().clear();
+                path.push(&self.search_path[base]);
+                path.push(name);
+                path.push(&dir.path);
+                let listed = reader.lister.list(path, |icon, format| {
+                    icons.push(icon, directory, base, format);
+                });
+                if let Some((path, kind)) = unreadable(listed, &reader.path) {
+                    self.problem(name, Some(path), kind);
                 }
             }
         }
-        for locations in icons.values_mut() {
-            locations.sort();
-        }
+        self.report_limits(name, &icons);
+        let icons = icons.finish();
         Some(Indexed { theme, icons })
     }
 
@@ -193,33 +200,15 @@ impl Index {
         None
     }
 
-    /// The icons directly in `dir`: files, or links to files, named with
-    /// an icon format's extension. A directory that does not exist has
-    /// none.
-    ///
-    /// A link is listed without being followed: themes such as Breeze are
-    /// mostly links, and following each was most of what a build cost. So
-    /// a listed icon may be a broken link (or a link to a directory);
-    /// [`Index::find`] checks the one it answers with.
-    fn list(&mut self, theme: &str, dir: &Path) -> Vec<(String, Format)> {
-        let entries = match fs::read_dir(dir) {
-            Ok(entries) => entries,
-            Err(error) if gone(&error) => return Vec::new(),
-            Err(error) => {
-                self.problem(theme, Some(dir.into()), ProblemKind::unreadable(&error));
-                return Vec::new();
-            }
-        };
-        entries
-            .filter_map(Result::ok)
-            .filter_map(|entry| {
-                let file_name = entry.file_name();
-                let (stem, format) = Format::split(file_name.to_str()?)?;
-                let file_type = entry.file_type().ok()?;
-                let listed = file_type.is_file() || file_type.is_symlink();
-                listed.then(|| (stem.to_owned(), format))
-            })
-            .collect()
+    /// Reports each limit of the compact form that `table` passed, once.
+    fn report_limits(&mut self, theme: &str, table: &TableBuilder) {
+        for limit in table.passed() {
+            let kind = ProblemKind::TooLarge {
+                what: limit.what(),
+                limit: limit.limit(),
+            };
+            self.problem(theme, None, kind);
+        }
     }
 
     /// Reports each cycle in `Inherits` once, from the first theme on it.
@@ -265,6 +254,29 @@ impl Index {
             path,
             kind,
         });
+    }
+}
+
+/// What a build reads directories with: one listing buffer and one path,
+/// reused for every directory.
+#[derive(Debug)]
+struct Reader {
+    listing: Listing,
+    lister: Lister,
+    path: PathBuf,
+}
+
+/// What a listing of `dir` that failed says: nothing for a directory that
+/// is not there, which has no icons; else the problem. A link is listed
+/// without being followed (see [`crate::listing`]): themes such as Breeze
+/// are mostly links, and following each was most of what a build cost. So
+/// a listed icon may be a broken link (or a link to a directory);
+/// [`Index::find`] checks the one it answers with.
+fn unreadable(listed: io::Result<()>, dir: &Path) -> Option<(PathBuf, ProblemKind)> {
+    match listed {
+        Ok(()) => None,
+        Err(error) if gone(&error) => None,
+        Err(error) => Some((dir.to_owned(), ProblemKind::unreadable(&error))),
     }
 }
 

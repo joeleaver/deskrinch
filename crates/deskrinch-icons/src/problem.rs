@@ -84,6 +84,17 @@ pub enum ProblemKind {
         /// The themes on the cycle, from this one.
         cycle: Vec<String>,
     },
+    /// The theme has more of something than the index's compact form can
+    /// hold: more than 65,536 directories, or base directories past the
+    /// 16,384th, or more than `u32::MAX` files or bytes of icon names.
+    /// What is past the limit is left out of the index.
+    #[error("more {what} than the index holds ({limit}); those past it are left out")]
+    TooLarge {
+        /// What there are too many of.
+        what: &'static str,
+        /// How many the index holds.
+        limit: u64,
+    },
 }
 
 impl ProblemKind {
