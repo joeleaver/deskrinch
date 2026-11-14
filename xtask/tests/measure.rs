@@ -110,6 +110,7 @@ mod measure {
             // Each run's notes.
             "idle wake-ups by thread: ",
             "the program's output: ",
+            "granted: nothing",
         ] {
             assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
         }
