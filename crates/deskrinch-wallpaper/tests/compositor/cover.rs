@@ -27,9 +27,12 @@ fn covers_every_output_with_its_colour() {
 fn an_edit_of_the_settings_repaints_every_output() {
     in_nested_session();
     write_settings(&format!("[wallpaper]\ncolor = \"{}\"\n", written(BLUE)));
-    let _wallpaper = Wallpaper::start();
+    let wallpaper = Wallpaper::start();
     wait_covered(BLUE);
+    let mark = wallpaper.mark();
     write_settings(&format!("[wallpaper]\ncolor = \"{}\"\n", written(ORANGE)));
+    // Each output's window draws again, and shows the new colour.
+    wallpaper.wait_each_window_drew_since(&mark);
     wait_covered(ORANGE);
 }
 
