@@ -227,11 +227,15 @@ mod desktop {
         // The supervisor removed the session's links, not what they lead to:
         // every file is still there (a compositor may still rewrite its own
         // configuration as it ends), and what the command wrote is intact.
-        // The cache aside: what a program writes there it may rename or
-        // drop at any time (a shader cache's temporary file, renamed as the
-        // program was killed), and losing it loses nothing.
+        // The caches aside, `cache` and the home's `.cache`: what a program
+        // writes there it may rename or drop at any time (a shader cache's
+        // temporary file, renamed as the program was killed), and losing it
+        // loses nothing. KWin's Mesa writes its shader cache in the home's
+        // (KWin runs in secure mode for its file capability, where Mesa
+        // ignores `XDG_CACHE_HOME`; see `deskrinch_test_dbus::session`).
         let after = files(&profile.dir);
-        for path in before.keys().filter(|path| !path.starts_with("cache")) {
+        let cached = |path: &Path| path.starts_with("cache") || path.starts_with("home/.cache");
+        for path in before.keys().filter(|path| !cached(path)) {
             assert!(after.contains_key(path), "{} is gone", path.display());
         }
         assert_eq!(after[Path::new("home/mark")], b"kept\n");

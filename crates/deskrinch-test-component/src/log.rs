@@ -115,6 +115,17 @@ pub fn presents_with_software(line: &str) -> bool {
             || line.contains("presents with rinch's software renderer"))
 }
 
+/// Whether `line` is an event logged at error level, as rinch's and the
+/// components' `tracing` output writes it: its level, `ERROR`, as the first
+/// or (after the time) second word.
+#[must_use]
+pub fn is_error(line: &str) -> bool {
+    strip_ansi(line)
+        .split_whitespace()
+        .take(2)
+        .any(|word| word == "ERROR")
+}
+
 /// `field: "value"` in a `Debug` struct.
 fn quoted_field(info: &str, field: &str) -> Option<String> {
     let start = info.find(&format!(" {field}: \""))? + field.len() + 4;
@@ -243,6 +254,21 @@ mod tests {
             rust_log(Some("rinch=warn")),
             "rinch=warn,wgpu_core::instance=debug"
         );
+    }
+
+    #[test]
+    fn error_lines_are_told_by_their_level() {
+        assert!(is_error(
+            "2026-11-13T21:18:32.407084Z ERROR deskrinch_component::report: the taskbar shows none"
+        ));
+        assert!(is_error(
+            "\u{1b}[2m2026-11-13T21:18:32Z\u{1b}[0m \u{1b}[31mERROR\u{1b}[0m x: y"
+        ));
+        assert!(is_error("ERROR x: y"));
+        assert!(!is_error(
+            "2026-11-13T21:18:32Z  WARN x: an ERROR in the message is not the level"
+        ));
+        assert!(!is_error("[PERF] frame 1: style 0.10ms"));
     }
 
     #[test]
