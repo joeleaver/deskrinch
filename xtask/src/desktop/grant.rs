@@ -1,6 +1,6 @@
 //! The restricted interfaces the shell's components use, granted to them
-//! under KWin before they start ([`crate::grant`]). Without them, the
-//! panel's taskbar would find no window list and stay empty.
+//! under KWin before they start ([`crate::grant`]). A component that uses
+//! nothing restricted is granted nothing, and no file is written for it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

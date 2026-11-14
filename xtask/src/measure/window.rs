@@ -1,7 +1,7 @@
 //! `--window`: one window opened in the measured program's session at the
 //! idle window's start, and kept open to its end, so that the idle
-//! window's figures include what that window costs the program (a panel's
-//! taskbar following it, say).
+//! window's figures include what that window costs the program (one that
+//! follows the session's windows, say).
 //!
 //! The window is a `deskrinch-test-client` window with the app id the
 //! caller names: what a component does with a window depends on whether

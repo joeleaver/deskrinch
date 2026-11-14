@@ -2,9 +2,9 @@
 //! grants it, when it is one of the shell's components (by its file name,
 //! or as `--component` names it), installed through [`crate::grant`] into
 //! each session's data directory before the compositor starts; nothing
-//! otherwise, for a reason each run's notes give. A measured panel is then
-//! the panel that ships, following the window list, rather than one whose
-//! taskbar gave up at its start.
+//! otherwise, for a reason each run's notes give. A measured component is
+//! then granted what it is granted on the desktop, and works as it does
+//! there.
 //!
 //! KWin grants by the executable it sees (`/proc/<pid>/exe`). Under
 //! `--instructions` that is not the program but Valgrind's Callgrind tool,

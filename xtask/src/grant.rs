@@ -2,9 +2,9 @@
 //! ([`Component::wayland_grants`]): KWin offers a restricted interface only
 //! to an executable whose installed desktop file grants it
 //! (`deskrinch-kwin-access`). Every xtask that starts a component under
-//! KWin (`desktop`, `measure`) installs its grant through here, and
-//! `compositor-tests` takes the panel's from the same list; sway and labwc
-//! restrict nothing.
+//! KWin (`desktop`, `measure`, and `compositor-tests` for a suite's
+//! programs) installs its grant through here; sway and labwc restrict
+//! nothing.
 
 use std::path::Path;
 
