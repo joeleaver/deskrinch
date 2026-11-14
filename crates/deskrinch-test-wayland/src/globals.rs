@@ -2,7 +2,7 @@
 //!
 //! `wayland_client::globals::registry_queue_init` waits for the compositor
 //! with a blocking round trip. [`Globals::list`] does the same within a
-//! [`Deadline`], and keeps the list itself (on the registry's own object
+//! `deskrinch_test_wait::Deadline`, and keeps the list itself (on the registry's own object
 //! data, so the client's state needs no registry handler).
 
 use std::ops::RangeInclusive;
@@ -15,7 +15,9 @@ use wayland_client::protocol::wl_display;
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle};
 
-use crate::wait::{Deadline, WaitError, roundtrip};
+use deskrinch_test_wait::Deadline;
+
+use crate::wait::{WaitError, roundtrip};
 
 /// One global the compositor announced.
 #[derive(Debug, Clone, PartialEq, Eq)]

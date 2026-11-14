@@ -3,8 +3,9 @@
 use std::time::Duration;
 
 use deskrinch_notification_service::OperationError;
+use deskrinch_test_wait::QUIET;
 
-use crate::common::{Client, PrivateBus, QUIET, Signal, id, start};
+use crate::common::{Client, PrivateBus, Signal, id, start};
 
 #[test]
 fn a_paused_notification_expires_only_after_it_resumes() {

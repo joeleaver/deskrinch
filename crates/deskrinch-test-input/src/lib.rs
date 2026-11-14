@@ -74,14 +74,8 @@ pub use backend::Input;
 pub use button::Button;
 pub use key::Key;
 
-use std::time::Duration;
-
 /// The restricted KWin interface keys and the pointer are injected through.
 pub const KWIN_FAKE_INPUT_INTERFACE: &str = "org_kde_kwin_fake_input";
-
-/// How long anything here waits for the compositor: generous, since a
-/// loaded machine runs nested compositors slowly.
-pub const PATIENCE: Duration = Duration::from_secs(60);
 
 /// Why input could not be injected.
 #[derive(Debug, thiserror::Error)]

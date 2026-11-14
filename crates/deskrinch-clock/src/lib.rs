@@ -81,8 +81,6 @@ mod error;
 mod format;
 mod locale;
 #[cfg(test)]
-mod test_patience;
-#[cfg(test)]
 mod test_zones;
 mod ticker;
 mod timer;

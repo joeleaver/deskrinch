@@ -105,8 +105,8 @@ pub(crate) enum Error {
     /// A test binary cannot be granted what KWin restricts.
     #[error("could not write a test binary's desktop file")]
     DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),
-    /// The nested compositor exited before opening its socket.
-    #[error("{compositor} exited ({status}) before opening its socket; its log:\n{log}")]
+    /// The nested compositor exited before it was ready.
+    #[error("{compositor} exited ({status}) before it was ready; its log:\n{log}")]
     CompositorExited {
         /// The compositor.
         compositor: &'static str,

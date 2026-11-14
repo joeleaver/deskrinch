@@ -103,6 +103,16 @@ pub struct Timing {
     pub max_delay: Duration,
 }
 
+impl Timing {
+    /// How long after a change its report can still be on its way, with a
+    /// margin: half again the longest delay. For whoever must know that a
+    /// change caused no report, such as a test.
+    #[must_use]
+    pub fn settled(self) -> Duration {
+        self.max_delay + self.max_delay / 2
+    }
+}
+
 impl Default for Timing {
     /// A pause of 100 ms, at most 1 s after the first change.
     fn default() -> Self {

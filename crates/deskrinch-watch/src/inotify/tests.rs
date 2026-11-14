@@ -2,6 +2,7 @@
 //! wakes it, and what does not.
 
 use super::*;
+use deskrinch_test_wait::{PATIENCE, QUIET};
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::os::unix::fs::{PermissionsExt, symlink};
@@ -15,19 +16,16 @@ const NAMES_ONLY: How = How {
     entries: false,
 };
 
-/// Long enough for an event already queued to be read; nothing here waits
-/// for one that is not.
-const SETTLE: Duration = Duration::from_millis(200);
-
 fn root() -> (tempfile::TempDir, PathBuf) {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().canonicalize().unwrap();
     (dir, path)
 }
 
-/// The paths the next wait reads, or none when it reads nothing.
+/// The paths the next wait reads: changes that must come, waited for within
+/// the patience.
 fn changed(inotify: &mut Inotify) -> Vec<PathBuf> {
-    match inotify.wait(Some(SETTLE)) {
+    match inotify.wait(Some(PATIENCE)) {
         Wait::Changes(changes) => changes
             .into_iter()
             .map(|change| match change {
@@ -66,7 +64,7 @@ fn reading_and_listing_a_watched_tree_reads_no_event() {
         fs::metadata(root.join("tree/a.desktop")).unwrap();
     }
     assert!(
-        matches!(inotify.wait(Some(SETTLE)), Wait::Quiet),
+        matches!(inotify.wait(Some(QUIET)), Wait::Quiet),
         "reads woke the watch"
     );
 }
@@ -85,7 +83,7 @@ fn opening_files_in_a_directory_watched_for_a_name_reads_no_event() {
     // Written in place: a name already there, which a name's watch does not
     // follow.
     fs::write(root.join("share/mime.cache"), "y").unwrap();
-    assert!(matches!(inotify.wait(Some(SETTLE)), Wait::Quiet));
+    assert!(matches!(inotify.wait(Some(QUIET)), Wait::Quiet));
 }
 
 #[test]
@@ -162,7 +160,7 @@ fn a_directory_watched_for_a_name_sees_names_made_and_removed() {
 fn a_watched_directory_removed_is_a_change() {
     let (_dir, root, mut inotify) = watched_tree();
     fs::remove_dir_all(root.join("tree")).unwrap();
-    match inotify.wait(Some(SETTLE)) {
+    match inotify.wait(Some(PATIENCE)) {
         Wait::Changes(changes) => assert!(!changes.is_empty()),
         other => panic!("{other:?}"),
     }
@@ -202,11 +200,8 @@ fn the_waker_wakes_a_wait() {
     let mut inotify = Inotify::new().unwrap();
     inotify.watch(&root, NAMES_ONLY).unwrap();
     (inotify.waker())();
-    assert!(matches!(
-        inotify.wait(Some(Duration::from_secs(10))),
-        Wait::Woken
-    ));
-    assert!(matches!(inotify.wait(Some(SETTLE)), Wait::Quiet), "once");
+    assert!(matches!(inotify.wait(Some(PATIENCE)), Wait::Woken));
+    assert!(matches!(inotify.wait(Some(QUIET)), Wait::Quiet), "once");
 }
 
 #[test]

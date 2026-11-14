@@ -4,14 +4,10 @@ use std::collections::HashMap;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
-use std::thread;
-use std::time::{Duration, Instant};
 
 use deskrinch_desktop_entries::{BaseDirs, DesktopEntry, DesktopId, Environment, LaunchContext};
 use deskrinch_test_dbus::session::REAL_SESSION_VARIABLES;
-
-/// How long a test waits for something asynchronous before failing.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
+use deskrinch_test_wait::wait_for;
 
 /// Writes `text` to `dir/relative`, creating directories, through a rename
 /// so a watcher never sees a half-written file.
@@ -125,25 +121,15 @@ if [ -n "$child" ]; then wait "$child"; fi
 /// What the recorder with PID `pid` wrote, once it has: each key's values.
 pub(crate) fn recorded(out: &Path, pid: u32) -> HashMap<String, Vec<String>> {
     let path = out.join(pid.to_string());
-    let text = wait_for(|| fs::read_to_string(&path).ok());
+    let text = wait_for(&format!("{} to be written", path.display()), || {
+        fs::read_to_string(&path).map_err(|error| error.kind())
+    });
     let mut values: HashMap<String, Vec<String>> = HashMap::new();
     for line in text.lines() {
         let (key, value) = line.split_once('=').unwrap();
         values.entry(key.into()).or_default().push(value.into());
     }
     values
-}
-
-/// Polls `probe` until it returns something, or fails the test.
-pub(crate) fn wait_for<T>(mut probe: impl FnMut() -> Option<T>) -> T {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
-        if let Some(value) = probe() {
-            return value;
-        }
-        assert!(Instant::now() < deadline, "timed out waiting");
-        thread::sleep(Duration::from_millis(10));
-    }
 }
 
 /// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.

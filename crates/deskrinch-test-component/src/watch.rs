@@ -336,7 +336,7 @@ mod tests {
             use std::io::Write as _;
             writer.write_all(b"three\n").expect("write");
         });
-        assert!(watch.wait_for_line(Duration::from_secs(600), |line| line == "three"));
+        assert!(watch.wait_for_line(deskrinch_test_wait::PATIENCE, |line| line == "three"));
         later.join().expect("writer");
         assert!(!watch.wait_for_line(Duration::from_millis(50), |line| line == "four"));
     }

@@ -4,14 +4,11 @@ use std::fmt::Debug;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use deskrinch_config::{Diagnostic, Event, Section, Settings, Sources, Subscription, Watcher};
+use deskrinch_test_wait::{quiet_for, recv};
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
-
-/// How long a test waits for an event before failing.
-const PATIENCE: Duration = Duration::from_secs(10);
 
 /// A component's settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -118,8 +115,9 @@ pub(crate) fn write(path: &Path, text: &str) {
 }
 
 /// The next event, which must come soon.
+#[track_caller]
 fn next<T>(events: &Receiver<Event<T>>) -> Event<T> {
-    events.recv_timeout(PATIENCE).expect("no event arrived")
+    recv("an event", events)
 }
 
 /// The next event, which must be new settings.
@@ -133,11 +131,14 @@ pub(crate) fn next_change<T: Debug>(events: &Receiver<Event<T>>) -> T {
 }
 
 /// Asserts that nothing arrives for long enough for a change to have
-/// settled and been delivered.
+/// settled and been delivered: past the watcher's longest delay.
+#[track_caller]
 pub(crate) fn nothing<T: Debug>(events: &Receiver<Event<T>>) {
-    if let Ok(event) = events.recv_timeout(Duration::from_millis(1500)) {
-        panic!("expected nothing, got {event:?}");
-    }
+    quiet_for(
+        "nothing",
+        events,
+        deskrinch_watch::Timing::default().settled(),
+    );
 }
 
 /// The next event, which must be diagnostics.

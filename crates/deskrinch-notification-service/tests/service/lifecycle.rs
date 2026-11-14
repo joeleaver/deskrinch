@@ -6,7 +6,8 @@ use std::time::Duration;
 use deskrinch_notification_service::{CloseReason, Event, OperationError};
 use zbus::Variant;
 
-use crate::common::{Client, PrivateBus, QUIET, Signal, id, start};
+use crate::common::{Client, PrivateBus, Signal, id, start};
+use deskrinch_test_wait::{QUIET, recv};
 
 #[test]
 fn replacement_keeps_the_id_and_emits_no_close() {
@@ -218,9 +219,9 @@ fn the_subscriber_may_call_back_into_the_handle() {
         .unwrap();
     handle_slot.set(service.handle()).unwrap();
     let n = Client::new(&bus).simple(0, "a", "", 0);
-    let first = rx.recv_timeout(crate::common::PATIENCE).unwrap();
+    let first = recv("an event", &rx);
     assert!(matches!(first, Event::Shown(_)));
-    let second = rx.recv_timeout(crate::common::PATIENCE).unwrap();
+    let second = recv("an event", &rx);
     assert_eq!(
         second,
         Event::Closed {

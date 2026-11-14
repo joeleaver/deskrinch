@@ -5,15 +5,12 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_test_client::Compositor;
 use deskrinch_test_component::{Component, Renderer, log};
 use deskrinch_test_screen::{Image, Rgba, Screen};
-
-/// How long something that should happen gets: generous, since a loaded
-/// machine runs nested compositors slowly.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(60);
+use deskrinch_test_wait::{PATIENCE, wait_for};
 
 /// The wallpaper binary Cargo built.
 const WALLPAPER: &str = env!("CARGO_BIN_EXE_deskrinch-wallpaper");
@@ -158,35 +155,27 @@ pub(crate) fn first_other_within(
 /// Waits until every output of the session is `color` from edge to edge,
 /// as captured afresh; panics with the first output and pixel that is not.
 pub(crate) fn wait_covered(color: Rgba) {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    wait_for(&format!("every output to be all {color:?}"), || {
         let mut screen = Screen::connect().unwrap();
         let wrong = screen.outputs().into_iter().find_map(|name| {
             let image = screen.capture(&name).unwrap();
             first_other(&image, color).map(|at| (name, image.width(), image.height(), at))
         });
-        let Some((name, width, height, (x, y, pixel))) = wrong else {
-            return;
-        };
-        assert!(
-            Instant::now() < deadline,
-            "{name} ({width}x{height}) is not all {color:?}: {pixel:?} at ({x}, {y})"
-        );
-        std::thread::sleep(Duration::from_millis(200));
-    }
+        match wrong {
+            None => Ok(()),
+            Some((name, width, height, (x, y, pixel))) => Err(format!(
+                "{name} ({width}x{height}) has {pixel:?} at ({x}, {y})"
+            )),
+        }
+    });
 }
 
 /// Waits until `check` finds nothing wrong with the output `name`'s
 /// picture, captured afresh; panics with what it last found.
 pub(crate) fn wait_output(name: &str, check: impl Fn(&Image) -> Option<String>) {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    wait_for(&format!("{name} to pass its check"), || {
         let mut screen = Screen::connect().unwrap();
         let image = screen.capture(name).unwrap();
-        let Some(why) = check(&image) else {
-            return;
-        };
-        assert!(Instant::now() < deadline, "{name}: {why}");
-        std::thread::sleep(Duration::from_millis(200));
-    }
+        check(&image).map_or(Ok(()), Err)
+    });
 }

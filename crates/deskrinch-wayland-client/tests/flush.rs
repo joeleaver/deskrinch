@@ -8,16 +8,14 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
 
 use deskrinch_wayland_client::{Client, EndCause, Flushed, Globals, Lifecycle};
 use wayland_client::protocol::wl_callback::{self, WlCallback};
 use wayland_client::{Connection, Dispatch, QueueHandle};
 
+use deskrinch_test_wait::{Deadline, QUIET, wait_for};
 use deskrinch_test_wayland::stand_in::StandIn;
 
-/// How long anything here waits.
-const PATIENCE: Duration = Duration::from_secs(30);
 /// Requests sent between flushes: well inside the backend's own buffer, so
 /// that only the socket fills.
 const BATCH: usize = 64;
@@ -73,7 +71,7 @@ fn a_full_socket_is_waited_out_not_taken_for_a_lost_connection() {
     // The compositor stops reading; requests go out until the socket is full.
     stand_in.set_reading(false);
     let mut sent = 0;
-    let deadline = Instant::now() + PATIENCE;
+    let deadline = Deadline::patience();
     loop {
         for _ in 0..BATCH {
             client.display().sync(&queue, ());
@@ -82,23 +80,18 @@ fn a_full_socket_is_waited_out_not_taken_for_a_lost_connection() {
         if attachment.flush().unwrap() == Flushed::Pending {
             break;
         }
-        assert!(Instant::now() < deadline, "the socket never filled");
+        assert!(!deadline.passed(), "the socket never filled");
     }
     // Waiting on a full socket ends nothing.
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(QUIET);
     assert_eq!(*ends.lock().unwrap(), Vec::<String>::new());
 
     // The compositor reads again: every request arrives and is answered.
     stand_in.set_reading(true);
-    let deadline = Instant::now() + PATIENCE;
-    while answered.load(Ordering::Acquire) < sent {
-        assert!(
-            Instant::now() < deadline,
-            "{} of {sent} requests answered",
-            answered.load(Ordering::Acquire)
-        );
-        thread::sleep(Duration::from_millis(20));
-    }
+    wait_for(&format!("all {sent} requests to be answered"), || {
+        let count = answered.load(Ordering::Acquire);
+        if count < sent { Err(count) } else { Ok(()) }
+    });
     assert_eq!(*ends.lock().unwrap(), Vec::<String>::new());
     drop(attachment);
 }

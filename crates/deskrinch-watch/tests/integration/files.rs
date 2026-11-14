@@ -3,8 +3,8 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::Duration;
 
+use deskrinch_test_wait::recv;
 use deskrinch_watch::{Target, Timing, Watcher};
 
 use crate::support::{Root, changed, quiet, watch, write};
@@ -110,7 +110,7 @@ fn may_be_dropped_by_its_own_subscriber() {
     .unwrap();
     *slot.lock().unwrap() = Some(watcher);
     write(&file, "a");
-    finished.recv_timeout(Duration::from_secs(10)).unwrap();
+    let () = recv("the watcher to be dropped by its own subscriber", &finished);
     assert!(slot.lock().unwrap().is_none());
 }
 

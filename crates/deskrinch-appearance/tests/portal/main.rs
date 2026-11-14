@@ -195,9 +195,13 @@ mod follow {
         let bus = bus();
         let (appearance, events) = follow(&bus);
         assert!(matches!(next(&events), Event::NoPortal));
-        let start = std::time::Instant::now();
-        drop(appearance);
-        assert!(start.elapsed() < std::time::Duration::from_secs(1));
+        // The drop returns: it does not wait on a bus that has no portal.
+        let (dropped, done) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            drop(appearance);
+            dropped.send(()).ok();
+        });
+        let () = deskrinch_test_wait::recv("the drop to return", &done);
         let _portal = stand_in(&bus, &scheme(1), Methods::Current);
         quiet(&events);
     }

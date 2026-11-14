@@ -1,14 +1,13 @@
 //! What the panel reserves: a maximised window stops at it.
 
-use std::time::{Duration, Instant};
-
 use deskrinch_test_client::{Paint, TestClient, TestWindow};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 
 use crate::support::{
-    Band, Edge, PATIENCE, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
+    Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
+use deskrinch_test_wait::wait_for;
 
 /// A colour neither the panel nor a compositor's background has.
 pub(crate) const WINDOW: Rgba = Rgba::opaque(13, 200, 77);
@@ -96,15 +95,13 @@ fn wrong(image: &Image, panel: &Image, band: Band, scale: u32) -> Option<String>
 /// at `band`, whose own rows are `panel`.
 pub(crate) fn wait_window_beside(screen: &mut Screen, output: &str, panel: &Image, band: Band) {
     let scale = scale_of(output);
-    let deadline = Instant::now() + PATIENCE;
-    loop {
-        let image = screen.capture(output).unwrap();
-        let Some(why) = wrong(&image, panel, band, scale) else {
-            return;
-        };
-        assert!(Instant::now() < deadline, "on {output}: {why}");
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    wait_for(
+        &format!("a maximised window beside the panel on {output}"),
+        || {
+            let image = screen.capture(output).unwrap();
+            wrong(&image, panel, band, scale).map_or(Ok(()), Err)
+        },
+    );
 }
 
 /// The picture of `output` in `pictures`.

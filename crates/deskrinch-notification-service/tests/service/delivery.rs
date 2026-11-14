@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use deskrinch_notification_service::{Config, ManualClock, SignalDelivery};
+use deskrinch_test_wait::QUIET;
 
-use crate::common::{Client, PrivateBus, QUIET, Signal, Signals, id, start, start_with};
+use crate::common::{Client, PrivateBus, Signal, Signals, id, start, start_with};
 
 #[test]
 fn by_default_only_the_sender_hears_about_its_notification() {

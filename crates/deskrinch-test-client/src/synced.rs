@@ -7,13 +7,13 @@
 //! clients that list windows about it.
 
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Instant;
 
 use wayland_client::protocol::wl_callback::{self, WlCallback};
 use wayland_client::{Connection, Dispatch, QueueHandle};
 
 use crate::client::Client;
-use crate::{Error, PATIENCE, lock};
+use crate::{Error, lock};
+use deskrinch_test_wait::{Deadline, PATIENCE};
 
 /// Whether a `sync` has been answered.
 #[derive(Debug, Default)]
@@ -23,12 +23,12 @@ pub(crate) struct Synced {
 }
 
 impl Synced {
-    /// Waits, at most [`PATIENCE`], until the `sync` is answered.
+    /// Waits, at most [`PATIENCE`](deskrinch_test_wait::PATIENCE), until the `sync` is answered.
     pub(crate) fn wait(&self, what: &'static str) -> Result<(), Error> {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         let mut done = lock(&self.done);
         while !*done {
-            let left = deadline.saturating_duration_since(Instant::now());
+            let left = deadline.left();
             if left.is_zero() {
                 return Err(Error::TimedOut {
                     what,

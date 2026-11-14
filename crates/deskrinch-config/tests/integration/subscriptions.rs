@@ -5,6 +5,7 @@ use std::os::unix::fs::symlink;
 use std::sync::mpsc;
 
 use deskrinch_config::{Event, Section, Watcher};
+use deskrinch_test_wait::recv;
 
 use crate::support::{Dirs, General, Panel, next_change, nothing, panel, subscribe, write};
 
@@ -70,9 +71,7 @@ fn lets_a_subscriber_subscribe_from_its_callback() {
         &dirs.user(),
         "[panel]\nheight = 50\n[general]\nterminal = 'kitty'\n",
     );
-    let general = events
-        .recv_timeout(std::time::Duration::from_secs(10))
-        .unwrap();
+    let general = recv("the general settings", &events);
     assert_eq!(general.terminal, "kitty");
 }
 

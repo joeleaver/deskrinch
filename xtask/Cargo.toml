@@ -22,6 +22,7 @@ deskrinch-test-dbus.workspace = true
 deskrinch-test-input.workspace = true
 deskrinch-test-screen.workspace = true
 deskrinch-test-wayland.workspace = true
+deskrinch-test-wait.workspace = true
 deskrinch-window-management.workspace = true
 rustix = { workspace = true, features = ["fs", "param", "process"] }
 serde_json.workspace = true

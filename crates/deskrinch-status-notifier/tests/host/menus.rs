@@ -238,6 +238,7 @@ fn a_menu_without_about_to_show_is_read_at_once() {
     f.item.menus(|m| m.about_to_show = AboutToShow::Error);
     let started = Instant::now();
     assert_eq!(f.open().entries[0].label.text, "Open");
+    // Read before the timeout it would otherwise have waited out.
     assert!(started.elapsed() < timeout);
 }
 
