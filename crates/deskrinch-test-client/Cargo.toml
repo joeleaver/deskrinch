@@ -12,10 +12,20 @@ publish.workspace = true
 deskrinch-test-wait.workspace = true
 # Colours, transforms, shm buffers and waits shared with the screen crate.
 deskrinch-test-wayland.workspace = true
+# Reading `kscreen-doctor -j`'s listing of KWin's outputs.
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
 thiserror.workspace = true
 wayland-client.workspace = true
 wayland-protocols = { workspace = true, features = ["client", "unstable"] }
 wayland-protocols-wlr = { workspace = true, features = ["client"] }
+
+# The compositor tests run inside nested compositors that
+# `cargo xtask compositor-tests` starts; they are ignored by a plain
+# `cargo test`.
+[[test]]
+name = "compositor"
+path = "tests/compositor/main.rs"
 
 [lints]
 workspace = true
