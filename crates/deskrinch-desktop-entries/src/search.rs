@@ -11,7 +11,8 @@
 //! 3. each of `Keywords` ([`MatchField::Keyword`]);
 //! 4. the file name of the program `Exec` runs ([`MatchField::Executable`]).
 //!
-//! Translated fields match in the caller's locale and untranslated. A
+//! Translated fields match in the locales the entries were parsed for, and
+//! untranslated. A
 //! comparison of a text with a field gives a [`MatchKind`], best first:
 //!
 //! 1. the field is the text ([`MatchKind::Exact`]);
@@ -48,7 +49,7 @@
 use crate::entry::DesktopEntry;
 use crate::exec;
 use crate::fold::fold;
-use deskrinch_keyfile::{Locale, Localized};
+use crate::translated::Translated;
 
 /// How a field matched, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -100,12 +101,12 @@ pub struct Match<'a> {
 }
 
 /// The entries that match `query`, best first, by the rules in the module
-/// documentation. `locales` chooses the translations matched and the names
-/// ties are broken by.
+/// documentation. The entries' names and keywords are matched as they were
+/// resolved for the session's locales, and untranslated; ties are broken by
+/// the name shown.
 pub fn search<'a>(
     entries: impl IntoIterator<Item = &'a DesktopEntry>,
     query: &str,
-    locales: &[Locale],
 ) -> Vec<Match<'a>> {
     let folded = fold(query);
     let terms: Vec<&str> = folded.split_whitespace().collect();
@@ -116,7 +117,7 @@ pub fn search<'a>(
     let mut matches: Vec<(Match<'a>, String)> = entries
         .into_iter()
         .filter_map(|entry| {
-            let fields = fields(entry, locales);
+            let fields = fields(entry);
             let (coverage, (kind, field)) = best(&fields, &whole)
                 .map(|best| (Coverage::Whole, best))
                 .or_else(|| {
@@ -131,7 +132,7 @@ pub fn search<'a>(
                         .max()?;
                     Some((Coverage::AllTerms, worst))
                 })?;
-            let sort_name = fold(entry.name.get(locales));
+            let sort_name = fold(&entry.name.value);
             let found = Match {
                 entry,
                 coverage,
@@ -154,20 +155,16 @@ pub fn search<'a>(
 }
 
 /// An entry's searchable fields, folded.
-fn fields(entry: &DesktopEntry, locales: &[Locale]) -> Vec<(MatchField, String)> {
+fn fields(entry: &DesktopEntry) -> Vec<(MatchField, String)> {
     let mut fields = Vec::new();
-    let mut localized = |field: MatchField, value: &Localized<String>| {
-        fields.push((field, fold(value.get(locales))));
-        fields.push((field, fold(&value.default)));
-    };
-    localized(MatchField::Name, &entry.name);
-    if let Some(generic) = &entry.generic_name {
-        localized(MatchField::GenericName, generic);
+    for name in entry.name.values() {
+        fields.push((MatchField::Name, fold(name)));
     }
-    if let Some(keywords) = &entry.keywords {
-        for keyword in keywords.get(locales).iter().chain(&keywords.default) {
-            fields.push((MatchField::Keyword, fold(keyword)));
-        }
+    for generic in entry.generic_name.iter().flat_map(Translated::values) {
+        fields.push((MatchField::GenericName, fold(generic)));
+    }
+    for keyword in entry.keywords.iter().flat_map(Translated::values).flatten() {
+        fields.push((MatchField::Keyword, fold(keyword)));
     }
     let program = entry
         .application()

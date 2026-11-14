@@ -15,11 +15,15 @@ fn app(name: &str, extra: &str) -> String {
 /// The next event, as `(kind, id, name)`.
 fn next(events: &Receiver<Event>) -> (String, String, String) {
     match recv("an event", events) {
-        Event::Added(e) => ("added".into(), e.entry.id.to_string(), e.entry.name.default),
+        Event::Added(e) => (
+            "added".into(),
+            e.entry.id.to_string(),
+            e.entry.name.value.clone(),
+        ),
         Event::Changed(e) => (
             "changed".into(),
             e.entry.id.to_string(),
-            e.entry.name.default,
+            e.entry.name.value.clone(),
         ),
         Event::Removed(id) => ("removed".into(), id.to_string(), String::new()),
         Event::Error(error) => panic!("watch error: {error}"),
