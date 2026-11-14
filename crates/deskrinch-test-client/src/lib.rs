@@ -46,6 +46,7 @@
 
 mod client;
 mod compositor;
+mod converge;
 mod keyboard;
 mod kscreen;
 pub mod layout;
@@ -157,12 +158,17 @@ pub enum Error {
     },
     /// The compositor took a layout, but did not report it within
     /// [`PATIENCE`].
-    #[error("the compositor did not report the outputs as set within {patience:?}: {differences}")]
+    #[error(
+        "the compositor did not report the outputs as set within {patience:?}, after \
+         {applications} applications: {differences}"
+    )]
     LayoutNotReached {
         /// What still differed, both layouts listed.
         differences: String,
         /// How long it waited.
         patience: Duration,
+        /// How many times the layout was applied.
+        applications: u32,
     },
     /// An output to be on has no mode the compositor reported, so none can
     /// be stated for it; nothing was asked of the compositor.

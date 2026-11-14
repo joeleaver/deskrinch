@@ -181,6 +181,7 @@ fn apply_and_wait(
                 differences: layout_differences(layout, &now)
                     .unwrap_or_else(|| "the outputs are as asked, but not as waited for".into()),
                 patience: PATIENCE,
+                applications: 1,
             });
         }
         std::thread::sleep(std::time::Duration::from_millis(50));
@@ -219,6 +220,12 @@ fn change_with(
     let guard = RestoreOutputs::new(before);
     apply_and_wait(&target, |now| shows(now, name, &wanted))?;
     Ok(guard)
+}
+
+/// Puts the outputs back as `before`, applying it again while the
+/// compositor reports otherwise ([`converge`](crate::converge)).
+fn restore(before: &[OutputState]) -> Result<(), Error> {
+    crate::converge::converge(before, apply, outputs, crate::converge::SETTLE, PATIENCE).map(drop)
 }
 
 /// The layout `before` with the output `name` replaced by what `change`
@@ -319,8 +326,7 @@ impl RestoreOutputs {
     /// [`PATIENCE`].
     pub fn restore(mut self) -> Result<(), Error> {
         self.restored = true;
-        let before = self.before.clone();
-        apply_and_wait(&before, |now| layout_differences(&before, now).is_none())
+        restore(&self.before)
     }
 }
 
@@ -329,9 +335,7 @@ impl Drop for RestoreOutputs {
         if self.restored {
             return;
         }
-        let before = &self.before;
-        if let Err(error) = apply_and_wait(before, |now| layout_differences(before, now).is_none())
-        {
+        if let Err(error) = restore(&self.before) {
             if std::thread::panicking() {
                 eprintln!("could not put the session's outputs back: {error}");
             } else {
