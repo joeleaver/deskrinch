@@ -129,7 +129,14 @@ fn waits_for_a_line_written_before_or_after() {
     });
     assert!(watch.wait_for_line(deskrinch_test_wait::PATIENCE, |line| line == "three"));
     later.join().expect("writer");
-    assert!(!watch.wait_for_line(Duration::from_millis(50), |line| line == "four"));
+    // Both streams have closed: the wait ends at once, not at its bound.
+    let started = Instant::now();
+    assert!(!watch.wait_for_line(deskrinch_test_wait::PATIENCE, |line| line == "four"));
+    assert!(
+        started.elapsed() < deskrinch_test_wait::PATIENCE,
+        "it waited {:?} on streams that had closed",
+        started.elapsed()
+    );
 }
 
 #[test]
@@ -138,7 +145,14 @@ fn no_first_frame_once_both_streams_close() {
     for handle in [watch.follow(&b"error\n"[..]), watch.follow(&b""[..])] {
         handle.join().expect("reader");
     }
-    assert_eq!(watch.wait_first_frame(Duration::from_secs(60)), None);
+    // Both streams have closed: the wait ends at once, not at its bound.
+    let started = Instant::now();
+    assert_eq!(watch.wait_first_frame(deskrinch_test_wait::PATIENCE), None);
+    assert!(
+        started.elapsed() < deskrinch_test_wait::PATIENCE,
+        "it waited {:?} on streams that had closed",
+        started.elapsed()
+    );
     assert_eq!(watch.tail(), "error");
     assert_eq!(watch.last_words(), "error");
 }
