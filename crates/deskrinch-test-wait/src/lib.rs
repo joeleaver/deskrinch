@@ -18,8 +18,11 @@
 //! waited 120s for the window on HEADLESS-2 alone; last seen: [Window { … }]
 //! ```
 //!
-//! A wait for something that must *not* happen (a quiet window) is a
-//! different fact, and has no home here.
+//! A wait for something that must *not* happen is a different fact. Where
+//! what is tested is ordered with something observable, a test does that
+//! next and waits for it instead (a sentinel), which costs no wall time and
+//! cannot pass falsely. Where nothing is ordered with it, [`quiet_for`]
+//! watches a window: the code's own delay where it has one, or [`QUIET`].
 
 use std::fmt::Debug;
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
@@ -39,6 +42,15 @@ pub const PATIENCE: Duration = Duration::from_secs(120);
 
 /// How often a poll looks again, where nothing signals the change.
 pub const POLL: Duration = Duration::from_millis(10);
+
+/// How long a test watches for something that must not happen, where the
+/// code under test has no delay of its own to outlast: half a second.
+///
+/// A window can only show that nothing came *within* it. On a slow
+/// machine a wrong event can come after it and be missed, so a test that
+/// passes with it proves less than one with a sentinel; but it can never
+/// fail a correct test.
+pub const QUIET: Duration = Duration::from_millis(500);
 
 /// A point in time to give up at, and how long the wait it bounds is.
 #[derive(Debug, Clone, Copy)]
@@ -159,6 +171,18 @@ pub fn recv<T>(what: &str, values: &Receiver<T>) -> T {
     }
 }
 
+/// That nothing arrives on `values` for `window`.
+///
+/// # Panics
+///
+/// When something does, naming `what` and showing it.
+#[track_caller]
+pub fn quiet_for<T: Debug>(what: &str, values: &Receiver<T>, window: Duration) {
+    if let Ok(value) = values.recv_timeout(window) {
+        panic!("{what}: {value:?} arrived");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
@@ -198,6 +222,14 @@ mod tests {
             "{message}"
         );
         assert!(message.contains("\"HEADLESS-1\""), "{message}");
+    }
+
+    #[test]
+    #[should_panic(expected = "nothing more: 3 arrived")]
+    fn a_quiet_window_that_is_not_quiet_shows_what_came() {
+        let (sender, values) = mpsc::channel();
+        sender.send(3).unwrap();
+        quiet_for("nothing more", &values, Duration::ZERO);
     }
 
     #[test]

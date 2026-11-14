@@ -8,13 +8,12 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 
 use deskrinch_wayland_client::{Client, EndCause, Flushed, Globals, Lifecycle};
 use wayland_client::protocol::wl_callback::{self, WlCallback};
 use wayland_client::{Connection, Dispatch, QueueHandle};
 
-use deskrinch_test_wait::{Deadline, wait_for};
+use deskrinch_test_wait::{Deadline, QUIET, wait_for};
 use deskrinch_test_wayland::stand_in::StandIn;
 
 /// Requests sent between flushes: well inside the backend's own buffer, so
@@ -84,7 +83,7 @@ fn a_full_socket_is_waited_out_not_taken_for_a_lost_connection() {
         assert!(!deadline.passed(), "the socket never filled");
     }
     // Waiting on a full socket ends nothing.
-    thread::sleep(Duration::from_secs(1));
+    thread::sleep(QUIET);
     assert_eq!(*ends.lock().unwrap(), Vec::<String>::new());
 
     // The compositor reads again: every request arrives and is answered.

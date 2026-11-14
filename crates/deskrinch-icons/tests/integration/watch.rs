@@ -3,12 +3,11 @@
 use std::fs;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use deskrinch_icons::{Event, HICOLOR, Index, Watcher};
 
 use crate::support::{Fixture, found, theme_text};
-use deskrinch_test_wait::recv;
+use deskrinch_test_wait::{quiet_for, recv};
 
 fn watch(f: &Fixture, theme: &str) -> (Watcher, Arc<Index>, Receiver<Event>) {
     let (sender, events) = mpsc::channel();
@@ -40,10 +39,14 @@ fn until(events: &Receiver<Event>, wanted: impl Fn(&Index) -> bool) -> Arc<Index
     }
 }
 
+/// That nothing is reported past the watcher's longest delay.
+#[track_caller]
 fn nothing(events: &Receiver<Event>) {
-    if let Ok(event) = events.recv_timeout(Duration::from_millis(1500)) {
-        panic!("expected nothing, got {event:?}");
-    }
+    quiet_for(
+        "nothing reported",
+        events,
+        deskrinch_watch::Timing::default().settled(),
+    );
 }
 
 #[test]

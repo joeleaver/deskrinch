@@ -3,9 +3,8 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
-use deskrinch_test_wait::recv;
+use deskrinch_test_wait::{quiet_for, recv};
 use deskrinch_watch::{Event, Target, Timing, Watcher};
 use tempfile::TempDir;
 
@@ -52,10 +51,9 @@ pub(crate) fn changed(events: &Receiver<Event>) {
     }
 }
 
-/// Asserts that nothing is reported for a while: long enough for a
-/// change to have settled and been reported.
+/// Asserts that nothing is reported for long enough for a change to have
+/// settled and been reported: past the watcher's longest delay.
+#[track_caller]
 pub(crate) fn quiet(events: &Receiver<Event>) {
-    if let Ok(event) = events.recv_timeout(Duration::from_millis(1500)) {
-        panic!("expected nothing, got {event:?}");
-    }
+    quiet_for("nothing reported", events, Timing::default().settled());
 }

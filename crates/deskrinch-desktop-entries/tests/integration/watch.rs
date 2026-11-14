@@ -2,12 +2,11 @@
 
 use std::fs;
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use deskrinch_desktop_entries::{Event, Visibility, Watcher};
 
 use crate::support::{environment, script, write};
-use deskrinch_test_wait::recv;
+use deskrinch_test_wait::{quiet_for, recv};
 
 fn app(name: &str, extra: &str) -> String {
     format!("[Desktop Entry]\nType=Application\nName={name}\nExec=run\n{extra}")
@@ -115,7 +114,11 @@ fn refresh_re_evaluates_try_exec_and_exec() {
         ("run", Visibility::Shown),
     ] {
         script(&bin.join(program), "true\n");
-        assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+        quiet_for(
+            "nothing before the refresh",
+            &events,
+            deskrinch_watch::Timing::default().settled(),
+        );
         watcher.refresh();
         match recv("an event", &events) {
             Event::Changed(e) => assert_eq!(e.visibility, visibility, "{program}"),
@@ -124,5 +127,9 @@ fn refresh_re_evaluates_try_exec_and_exec() {
     }
     // A refresh that finds nothing new reports nothing.
     watcher.refresh();
-    assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+    quiet_for(
+        "nothing from an idle refresh",
+        &events,
+        deskrinch_watch::Timing::default().settled(),
+    );
 }
