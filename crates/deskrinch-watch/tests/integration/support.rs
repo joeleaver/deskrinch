@@ -71,6 +71,13 @@ pub(crate) fn reported(events: &Receiver<Event>) {
 
 /// Asserts that nothing is reported for long enough for a change to have
 /// settled and been reported: past the watcher's longest delay.
+///
+/// A quiet window, kept where no ordered check can stand in for it: an
+/// [`Event::Changed`] carries nothing that tells which write it reports, so
+/// a later write's report could not be told from a wrong one. It cannot
+/// fail because the machine is slow: it starts after the writes are made
+/// and their reports have stopped ([`reported`]), and a slow machine only
+/// delays a wrong report into it.
 #[track_caller]
 pub(crate) fn quiet(events: &Receiver<Event>) {
     quiet_for("nothing reported", events, Timing::default().settled());

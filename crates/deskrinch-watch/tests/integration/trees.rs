@@ -19,7 +19,7 @@ fn reports_changes_anywhere_in_a_tree() {
     reported(&events);
     write(&tree.join("kde/org.kde.konsole.desktop"), "c");
     reported(&events);
-    // Beside the tree is not in it.
+    // Beside the tree is not in it: a quiet window (see `quiet`).
     write(&root.join("share/icons/x.png"), "d");
     quiet(&events);
 }

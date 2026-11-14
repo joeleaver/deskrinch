@@ -22,6 +22,7 @@ fn reports_changes_to_a_file_and_then_nothing_more() {
         write(&file, text);
     }
     reported(&events);
+    // Nothing comes once they have stopped (a quiet window: see `quiet`).
     quiet(&events);
 }
 
@@ -63,6 +64,8 @@ fn ignores_other_files_in_the_directory() {
     let (_watcher, events) = watch(vec![Target::File(file)]);
     write(&root.join("notes.txt"), "unrelated");
     assert_eq!(fs::read_to_string(root.join("config.toml")).unwrap(), "a");
+    // Nothing to follow it that a report could be told from: a quiet
+    // window (see `quiet`).
     quiet(&events);
 }
 
@@ -71,8 +74,9 @@ fn reports_a_change_when_asked_to_refresh() {
     let root = Root::new();
     let (watcher, events) = watch(vec![Target::File(root.join("config.toml"))]);
     watcher.refresh();
+    // A refresh is reported; that it is reported once is the debounce's
+    // unit tests' to show, by what the worker does next.
     changed(&events);
-    quiet(&events);
 }
 
 #[test]
@@ -88,6 +92,7 @@ fn watches_the_targets_it_is_given_next() {
     changed(&events);
     write(&second, "b2");
     reported(&events);
+    // The old target is no longer watched: a quiet window (see `quiet`).
     write(&first, "a2");
     quiet(&events);
 }
@@ -141,6 +146,7 @@ fn follows_a_link_and_sees_it_re_pointed() {
     // Now the new target is watched, and the old one no longer concerns it.
     write(&second, "b2");
     reported(&events);
+    // The old target no longer concerns it: a quiet window (see `quiet`).
     write(&first, "a3");
     quiet(&events);
 }
