@@ -42,6 +42,20 @@ mod measure {
             .unwrap()
     }
 
+    /// The note of what the stand-in, `sh`, was granted under the compositor
+    /// tested with: under KWin, which restricts interfaces, the warning that
+    /// `sh` is none of the shell's components; elsewhere, that the
+    /// compositor restricts nothing.
+    fn granted_to_sh() -> String {
+        match compositor().as_str() {
+            "kwin" => "granted: NOTHING: sh is not one of the shell's components by its file \
+                       name; if it is one, --component PACKAGE names it, and it is granted as \
+                       the shell grants it"
+                .to_owned(),
+            other => format!("granted: nothing: {other} restricts nothing"),
+        }
+    }
+
     /// A script line that records, in `dir`, the stand-in's own pid and its
     /// session's directory; with `child`, it also starts a background
     /// process for the session to end, and records its pid.
@@ -110,10 +124,11 @@ mod measure {
             // Each run's notes.
             "idle wake-ups by thread: ",
             "the program's output: ",
-            "granted: nothing",
         ] {
             assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
         }
+        let granted = granted_to_sh();
+        assert!(stdout.contains(&granted), "no {granted:?} in:\n{stdout}");
         assert_session_ended(dir.path());
     }
 
