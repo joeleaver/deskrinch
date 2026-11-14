@@ -149,7 +149,9 @@ enum Task {
         /// The GPU driver's shader cache at each start.
         #[arg(long, value_enum, default_value = "cold")]
         shader_cache: measure::ShaderCache,
-        /// Seconds after the first frame before memory is read.
+        /// Seconds after the first frame before memory is read and the idle
+        /// window begins, in both modes: work done after the first frame (an
+        /// index built on a thread of its own) is kept out of the window.
         #[arg(long, default_value_t = 5)]
         settle: u64,
         /// Seconds of the idle window. Two minutes catch two ticks of a
