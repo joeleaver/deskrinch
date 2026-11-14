@@ -32,11 +32,11 @@ mod tests {
             name: name.to_owned(),
             enabled: true,
             position: (x, 0),
-            mode: Mode {
+            mode: Some(Mode {
                 width: 1280,
                 height: 720,
                 refresh_mhz: 0,
-            },
+            }),
             scale: 1.0,
             transform: Transform::Normal,
         }
