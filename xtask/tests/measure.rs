@@ -4,8 +4,8 @@
 //! the report's sections, the errors for a program that exits or never draws,
 //! and that each session is ended afterwards. Nothing here asserts on time.
 //!
-//! The Callgrind path (`--instructions`) is not tested here: it needs
-//! Valgrind, which CI does not install.
+//! The Callgrind path (`--instructions`) is tested apart, in
+//! `tests/measure_callgrind.rs`: it needs Valgrind.
 //!
 //! Ignored by a plain `cargo test`, because they need a compositor
 //! installed; they start only isolated sessions of their own, so they are
