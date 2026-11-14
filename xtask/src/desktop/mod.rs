@@ -25,10 +25,10 @@ use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::time::{Duration, Instant};
 
 use deskrinch_shell::{COMPONENTS, LAUNCHER_CHORD, LAUNCHER_TOGGLE, Ready};
 use deskrinch_test_component::{RINCH_RENDERER_VARIABLE, Renderer as Rinch};
+use deskrinch_test_wait::{Deadline, PATIENCE};
 
 use self::ending::{Followed, follow, run_until_ended};
 use self::profile::Profile;
@@ -36,16 +36,11 @@ use crate::Outcome;
 use crate::error::Error;
 use crate::session::{
     Binding, ClientId, Compositor, CompositorRenderer, Display, GPU_VARIABLE, Gpu, Home, Options,
-    OutputTransform, Outputs, RenderNodes, Scale, Session, interrupt,
+    OutputTransform, Outputs, POLL, RenderNodes, Scale, Session, interrupt,
 };
 
 /// The exit status when the command refuses to run here (`EX_NOPERM`).
 pub(crate) const REFUSED: u8 = 77;
-
-/// How long a component has to be ready.
-const COMPONENT_STARTUP: Duration = Duration::from_secs(60);
-/// How often to look again while waiting.
-pub(super) const POLL: Duration = Duration::from_millis(100);
 
 /// `cargo xtask desktop --help`.
 pub(crate) const LONG_ABOUT: &str = "\
@@ -191,7 +186,7 @@ pub(crate) enum DesktopError {
         status: ExitStatus,
     },
     /// A component was not ready in time.
-    #[error("{package} did not own {name} within {COMPONENT_STARTUP:?}")]
+    #[error("{package} did not own {name} within {PATIENCE:?}")]
     ComponentNotReady {
         /// The component's package.
         package: &'static str,
@@ -396,7 +391,8 @@ fn wait_until_ready(
     id: ClientId,
     name: &'static str,
 ) -> Result<(), Error> {
-    let deadline = Instant::now() + COMPONENT_STARTUP;
+    // A component that exits fails at once: only a hung one waits it out.
+    let deadline = Deadline::patience();
     loop {
         interrupt::check()?;
         if session.wait_for_name(name, POLL).is_ok() {
@@ -405,7 +401,7 @@ fn wait_until_ready(
         if let Some(status) = session.client_status(id) {
             return Err(DesktopError::ComponentExited { package, status }.into());
         }
-        if Instant::now() >= deadline {
+        if deadline.passed() {
             return Err(DesktopError::ComponentNotReady { package, name }.into());
         }
     }

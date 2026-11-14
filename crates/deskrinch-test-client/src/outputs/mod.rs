@@ -15,19 +15,20 @@
 
 use std::os::unix::net::UnixStream;
 use std::path::Path;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use wayland_client::protocol::wl_output::Transform as WlTransform;
 use wayland_client::{Connection, EventQueue};
 use wayland_protocols_wlr::output_management::v1::client::zwlr_output_manager_v1::ZwlrOutputManagerV1;
 
-use deskrinch_test_wayland::{Deadline, Globals, Transform, dispatch_until};
+use deskrinch_test_wait::{Deadline, PATIENCE};
+use deskrinch_test_wayland::{Globals, Transform, dispatch_until};
 
 mod events;
 
 use self::events::{Outcome, State};
 use crate::layout::{Mode, OutputState, mode_to_set};
-use crate::{Error, PATIENCE, waited};
+use crate::{Error, waited};
 
 /// What to change about an output; `None` leaves that as it is.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
@@ -181,14 +182,14 @@ fn retry_cancelled(
     mut attempt: impl FnMut() -> Result<Applied, Error>,
     patience: Duration,
 ) -> Result<(), Error> {
-    let deadline = Instant::now() + patience;
+    let deadline = Deadline::after(patience);
     let mut cancelled = 0;
     loop {
         match attempt()? {
             Applied::Done => return Ok(()),
             Applied::Cancelled => cancelled += 1,
         }
-        if Instant::now() >= deadline {
+        if deadline.passed() {
             return Err(Error::Cancelled {
                 attempts: cancelled,
                 patience,

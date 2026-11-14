@@ -6,7 +6,8 @@ use std::os::fd::AsFd;
 use std::time::Instant;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_wayland::{Deadline, Globals, memory_file, roundtrip};
+use deskrinch_test_wait::Deadline;
+use deskrinch_test_wayland::{Globals, memory_file, roundtrip};
 use wayland_client::protocol::wl_seat::WlSeat;
 use wayland_client::{Connection, EventQueue, Proxy, delegate_noop};
 use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1;
@@ -15,7 +16,8 @@ use wayland_protocols_plasma::fake_input::client::org_kde_kwin_fake_input::OrgKd
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_manager_v1::ZwlrVirtualPointerManagerV1;
 use wayland_protocols_wlr::virtual_pointer::v1::client::zwlr_virtual_pointer_v1::ZwlrVirtualPointerV1;
 
-use crate::{Error, Key, PATIENCE};
+use crate::{Error, Key};
+use deskrinch_test_wait::PATIENCE;
 
 /// A US keyboard, built from the system's xkb data, as the virtual
 /// keyboard's keymap: what the compositor tells the window with the focus
@@ -104,7 +106,7 @@ impl Input {
     ///
     /// When there is no compositor, it offers neither mechanism
     /// ([`Error::NoMechanism`]), or it does not answer within
-    /// [`PATIENCE`].
+    /// [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn connect() -> Result<Self, Error> {
         let _nested = Compositor::current();
         let connection = Connection::connect_to_env().map_err(Error::Connect)?;
@@ -150,7 +152,7 @@ impl Input {
     ///
     /// # Errors
     ///
-    /// When the compositor does not answer within [`PATIENCE`].
+    /// When the compositor does not answer within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn press(&mut self, key: Key) -> Result<(), Error> {
         self.send(key, PRESSED);
         self.send(key, RELEASED);

@@ -12,7 +12,7 @@
 //! second or more), which the test says on its output and does not fail
 //! on; a dropped clock's thread has ended when the drop returns. How late
 //! the clock wakes in practice is a measurement (`cargo xtask measure`),
-//! not an assertion. Every wait has [`PATIENCE`], which only keeps a
+//! not an assertion. Every wait has `deskrinch_test_wait::PATIENCE`, which only keeps a
 //! broken clock from hanging the run.
 //!
 //! That a change of zone is shown at once is claimed where time is the
@@ -20,10 +20,6 @@
 //! heard (`ticker`'s `a_time_zone_change_ticks_in_the_new_zone`), and the
 //! worker blocks on the zone watch rather than looking for it from time to
 //! time (`clock`'s `a_zone_change_wakes_a_waiting_worker_by_itself`).
-
-// The patience the timer's unit tests share.
-#[path = "../src/test_patience.rs"]
-mod test_patience;
 
 // Inside `cfg(test)`, where clippy allows the tests their `unwrap`s.
 #[cfg(test)]
@@ -39,7 +35,7 @@ mod real_clock {
         Cause, Clock, ClockError, Environment, Event, Precision, Tick, next_boundary,
     };
 
-    use crate::test_patience::PATIENCE;
+    use deskrinch_test_wait::PATIENCE;
 
     const ZONEINFO: &str = "/usr/share/zoneinfo";
 
@@ -143,6 +139,11 @@ mod real_clock {
         }
     }
 
+    /// How long a minutes clock is watched for a tick it should not make:
+    /// longer than the second a clock that wrongly woke at each second
+    /// would take to tick, so that such a clock is seen.
+    const SECONDS_TICK_WINDOW: Duration = Duration::from_secs(2);
+
     #[test]
     fn a_minutes_clock_sleeps_until_the_minute() {
         let dir = tempfile::tempdir().unwrap();
@@ -151,11 +152,11 @@ mod real_clock {
         let (_clock, events) = start(env(&localtime), Precision::Minutes);
         let first = tick(&events);
         let minute = next_boundary(first.now.timestamp(), &TimeZone::UTC, Precision::Minutes);
-        // Whatever comes in the next two seconds (nothing, unless the
-        // minute turns meanwhile) is the minute's tick: a clock that woke
-        // at each second would show a time before the minute. The two
-        // seconds are a window to look in, not a bound on the clock.
-        match events.recv_timeout(Duration::from_secs(2)) {
+        // Whatever comes within the window (nothing, unless the minute
+        // turns meanwhile) is the minute's tick: a clock that woke at each
+        // second would show a time before the minute. The window is one to
+        // look in, not a bound on the clock.
+        match events.recv_timeout(SECONDS_TICK_WINDOW) {
             Err(RecvTimeoutError::Timeout) => {}
             Ok(Event::Tick(tick)) => {
                 assert_eq!(tick.cause, Cause::Boundary);

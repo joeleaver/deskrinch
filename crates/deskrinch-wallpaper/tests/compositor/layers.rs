@@ -2,14 +2,14 @@
 
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::Instant;
 
 use deskrinch_test_client::{Paint, TestClient};
 use deskrinch_test_component::{Component, Renderer};
 use deskrinch_test_screen::Screen;
+use deskrinch_test_wait::eventually;
 
 use crate::support::{
-    BLUE, ORANGE, PATIENCE, Wallpaper, about, first_other, first_other_within, in_nested_session,
+    BLUE, ORANGE, Wallpaper, about, first_other, first_other_within, in_nested_session,
     wait_covered, wait_output, write_settings, written,
 };
 
@@ -74,23 +74,14 @@ fn the_panel_is_above_it() {
     }
     // On the output the compositor gave it, its bottom row is the panel's,
     // and the middle of the output still the wallpaper's.
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    eventually("an output to show the panel over the wallpaper", || {
         let mut screen = Screen::connect().unwrap();
-        let shown = screen.outputs().into_iter().any(|name| {
+        screen.outputs().into_iter().any(|name| {
             let image = screen.capture(&name).unwrap();
             let bottom = image.row(image.height() - 2).unwrap();
             let middle = image.row(image.height() / 2).unwrap();
             !bottom.iter().all(|&pixel| about(pixel, BLUE))
                 && middle.iter().all(|&pixel| about(pixel, BLUE))
-        });
-        if shown {
-            return;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "no output shows the panel over the wallpaper"
-        );
-        std::thread::sleep(std::time::Duration::from_millis(200));
-    }
+        })
+    });
 }

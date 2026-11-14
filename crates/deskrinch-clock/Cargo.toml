@@ -24,6 +24,7 @@ rustix = { workspace = true, features = ["event", "fs", "time"] }
 thiserror.workspace = true
 
 [dev-dependencies]
+deskrinch-test-wait.workspace = true
 tempfile.workspace = true
 
 [lints]

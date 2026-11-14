@@ -5,7 +5,6 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Condvar, Mutex};
-use std::time::Instant;
 
 use deskrinch_test_wayland::{ShmBuffer, ShmError};
 use wayland_client::protocol::wl_buffer::WlBuffer;
@@ -19,7 +18,8 @@ use wayland_protocols::xdg::shell::client::xdg_toplevel::{self, XdgToplevel};
 
 use crate::client::Client;
 use crate::seat::Windows;
-use crate::{Error, PATIENCE, Paint, lock};
+use crate::{Error, Paint, lock};
+use deskrinch_test_wait::Deadline;
 
 /// The size a window draws when the compositor leaves it the choice.
 const DEFAULT_SIZE: (i32, i32) = (320, 240);
@@ -167,7 +167,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When no such buffer is drawn within [`PATIENCE`], or a buffer could
+    /// When no such buffer is drawn within [`PATIENCE`](deskrinch_test_wait::PATIENCE), or a buffer could
     /// not be made.
     pub fn wait_drawn(
         &self,
@@ -200,7 +200,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When it does not get it within [`PATIENCE`].
+    /// When it does not get it within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn wait_keyboard(&self) -> Result<(), Error> {
         self.wait_input("the keyboard focus", |status| status.input.keyboard)
     }
@@ -210,7 +210,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When it is not pressed within [`PATIENCE`].
+    /// When it is not pressed within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn wait_key(&self, key: u32) -> Result<(), Error> {
         self.wait_input("a key press", |status| status.input.keys.contains(&key))
     }
@@ -227,13 +227,13 @@ impl TestWindow {
         what: &str,
         done: impl Fn(&Status) -> bool,
     ) -> Result<(), Error> {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         let mut status = lock(&self.shared.status);
         loop {
             if done(&status) {
                 return Ok(());
             }
-            let left = deadline.saturating_duration_since(Instant::now());
+            let left = deadline.left();
             if left.is_zero() {
                 return Err(Error::NotReceived {
                     title: self.shared.title.clone(),
@@ -253,7 +253,7 @@ impl TestWindow {
         what: &str,
         done: impl Fn(&Status) -> Option<(i32, i32)>,
     ) -> Result<(i32, i32), Error> {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         let mut status = lock(&self.shared.status);
         loop {
             if let Some(failure) = status.failure.take() {
@@ -262,7 +262,7 @@ impl TestWindow {
             if let Some(size) = done(&status) {
                 return Ok(size);
             }
-            let left = deadline.saturating_duration_since(Instant::now());
+            let left = deadline.left();
             if left.is_zero() {
                 return Err(Error::NotDrawn {
                     title: self.shared.title.clone(),

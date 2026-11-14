@@ -26,7 +26,7 @@ use rustix::process::{
     Pid, Signal, kill_process, kill_process_group, test_kill_process, test_kill_process_group,
 };
 
-use super::{Leftover, leftovers};
+use super::{Leftover, POLL, leftovers};
 
 /// How long a group has to end after `SIGTERM` before it gets `SIGKILL`.
 pub(super) const SHUTDOWN: Duration = Duration::from_secs(5);
@@ -34,8 +34,6 @@ pub(super) const SHUTDOWN: Duration = Duration::from_secs(5);
 /// reaped) before it is taken to be stuck: far beyond what scheduling and
 /// reaping take even at a load in the hundreds.
 pub(super) const STUCK: Duration = Duration::from_secs(60);
-/// How often to look again while waiting.
-const POLL: Duration = Duration::from_millis(50);
 
 /// Ends every process of the process group `group`: `SIGTERM`, then
 /// `SIGKILL` for what is left after [`SHUTDOWN`], then waits for the group

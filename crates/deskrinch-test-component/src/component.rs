@@ -6,24 +6,13 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::{Duration, Instant};
 
 use deskrinch_test_client::Compositor;
+use deskrinch_test_wait::PATIENCE;
 
 use crate::log;
 use crate::watch::{Presented, Watch};
 
 /// The variable `cargo xtask compositor-tests` names a run's renderer in.
 pub const RENDERER_VARIABLE: &str = "DESKRINCH_TEST_RENDERER";
-
-/// How long a component may go without presenting its first frame before
-/// it is taken to be hung: two minutes.
-///
-/// A hang detector, not a performance expectation: it is there so that a
-/// component that never presents fails instead of hanging the test, and is
-/// generous enough that only a hang reaches it, a cold GPU start on a
-/// loaded machine included (device and pipeline set-up alone can be silent
-/// for many seconds). How fast a first frame is, is measured with
-/// `cargo xtask measure`, never by a test's wait. A component that ends
-/// before presenting fails at once, not after this.
-pub const HUNG_AFTER: Duration = Duration::from_secs(120);
 
 /// rinch's own variable for the renderer it presents with, which takes a
 /// [`Renderer::env`] value.
@@ -182,7 +171,7 @@ impl Component {
 
     /// Waits for its first frame, then for its saying which renderer
     /// presented it; returns that. A component that has not presented
-    /// within [`HUNG_AFTER`] is taken to be hung; one that ends first fails
+    /// within [`PATIENCE`](PATIENCE) is taken to be hung; one that ends first fails
     /// at once.
     ///
     /// # Errors
@@ -190,7 +179,7 @@ impl Component {
     /// When no frame came, or it ended first; the error holds its last
     /// lines.
     pub fn wait_presented(&self) -> Result<Presented, String> {
-        if self.watch.wait_first_frame(HUNG_AFTER).is_none() {
+        if self.watch.wait_first_frame(PATIENCE).is_none() {
             return Err(format!(
                 "no frame; its last lines:\n{}",
                 self.watch.last_words()
@@ -198,7 +187,7 @@ impl Component {
         }
         // The two streams are read apart: the renderer's line may come after
         // the frame's.
-        self.watch.wait_for_line(HUNG_AFTER, |line| {
+        self.watch.wait_for_line(PATIENCE, |line| {
             log::presents_with_software(line) || log::adapter(line).is_some()
         });
         self.watch.presented().ok_or_else(|| {
@@ -296,8 +285,9 @@ mod tests {
         let started = Instant::now();
         let error = component.wait_presented().unwrap_err();
         assert!(error.contains("cannot start"), "{error}");
+        // Before the bound it would otherwise have waited out.
         assert!(
-            started.elapsed() < HUNG_AFTER / 4,
+            started.elapsed() < PATIENCE,
             "it waited {:?} for a program that had ended",
             started.elapsed()
         );
@@ -318,7 +308,7 @@ mod tests {
         assert!(
             component
                 .watch()
-                .wait_for_line(Duration::from_secs(600), |line| line == expected),
+                .wait_for_line(PATIENCE, |line| line == expected),
             "{}",
             component.watch().tail()
         );
@@ -333,14 +323,9 @@ mod tests {
             "(sleep 0.2; echo \"[PERF] frame 1: x\" >&2) & exit 3",
         ]);
         let mut client = Component::start_unguarded(command, Renderer::Software).unwrap();
-        let status = client.wait_exit(Duration::from_secs(600)).unwrap().unwrap();
+        let status = client.wait_exit(PATIENCE).unwrap().unwrap();
         assert_eq!(status.code(), Some(3));
-        assert!(
-            client
-                .watch()
-                .wait_first_frame(Duration::from_secs(600))
-                .is_some()
-        );
+        assert!(client.watch().wait_first_frame(PATIENCE).is_some());
     }
 
     #[test]

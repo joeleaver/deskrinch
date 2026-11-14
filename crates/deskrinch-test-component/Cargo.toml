@@ -9,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The patience a first frame is waited for with.
+deskrinch-test-wait.workspace = true
 # The nested-session guard a component is started behind.
 deskrinch-test-client.workspace = true
 # The component killed when the test process dies.
