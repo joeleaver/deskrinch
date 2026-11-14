@@ -16,6 +16,8 @@ wayland-client.workspace = true
 wayland-protocols = { workspace = true, features = ["client", "unstable"] }
 
 [dev-dependencies]
+# The stand-in compositor, for what no real one does on cue.
+deskrinch-test-wayland.workspace = true
 deskrinch-test-client.workspace = true
 # The tests take the client thread's id on that thread.
 rustix = { workspace = true, features = ["thread"] }

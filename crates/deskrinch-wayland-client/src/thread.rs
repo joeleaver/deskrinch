@@ -10,18 +10,19 @@ use std::sync::mpsc::{Receiver, SyncSender};
 use rustix::event::{PollFd, PollFlags, poll};
 use wayland_client::backend::WaylandError;
 use wayland_client::globals::GlobalList;
-use wayland_client::protocol::wl_registry::WlRegistry;
-use wayland_client::{Connection, DispatchError, EventQueue};
+use wayland_client::{Connection, DispatchError};
 
-use crate::ended::{EndCause, Ended};
-use crate::globals::{GlobalEvent, Globals, Registry};
+use crate::globals::Registry;
+use crate::lifecycle::EndCause;
+use crate::states::{Attached, Counts, States};
 
 /// What other threads ask of the client's thread.
 pub(crate) enum Control {
     /// Run an attachment's setup and, if it succeeds, dispatch its queue.
     Attach(Job),
-    /// Stop dispatching attachment `id` and drop it; acknowledge, when
-    /// asked, once that is done.
+    /// Detach attachment `id`: it releases what it bound, and is dispatched
+    /// as a releasing state until nothing can reach it; acknowledge, when
+    /// asked, once it has released.
     Detach(u64, Option<SyncSender<()>>),
     /// The last handle to the client is gone: end the thread.
     Stop,
@@ -29,68 +30,40 @@ pub(crate) enum Control {
 
 /// An attachment's setup, run on the client's thread with the connection
 /// and its globals (or with `None` once the connection has ended, to
-/// refuse). It answers its waiter itself, and returns what to dispatch.
+/// refuse). A setup that fails, or a refusal, answers its waiter itself; one
+/// that succeeds returns what to dispatch and the answer, which the thread
+/// gives once the state is attached and counted.
 pub(crate) type Job =
-    Box<dyn FnOnce(Option<(&Connection, &GlobalList)>) -> Option<Attached> + Send>;
+    Box<dyn FnOnce(Option<(&Connection, &GlobalList)>) -> Option<(Attached, Answer)> + Send>;
 
-/// An attached state, with its queue, behind one type.
-pub(crate) struct Attached {
-    pub(crate) id: u64,
-    pub(crate) live: Box<dyn Live>,
-}
-
-/// What the thread does with an attached state.
-pub(crate) trait Live: Send {
-    /// Dispatches the events its queue holds.
-    fn dispatch(&mut self) -> Result<usize, DispatchError>;
-    /// Hands it a registry event.
-    fn global(&mut self, registry: &WlRegistry, event: &GlobalEvent);
-    /// Ends it, once.
-    fn end(&mut self, cause: EndCause);
-}
-
-/// A state and the queue dispatched into it.
-pub(crate) struct Queue<State> {
-    pub(crate) queue: EventQueue<State>,
-    pub(crate) state: State,
-}
-
-impl<State: Ended + Globals + Send + 'static> Live for Queue<State> {
-    fn dispatch(&mut self) -> Result<usize, DispatchError> {
-        self.queue.dispatch_pending(&mut self.state)
-    }
-
-    fn global(&mut self, registry: &WlRegistry, event: &GlobalEvent) {
-        match event {
-            GlobalEvent::Added(global) => {
-                self.state
-                    .global_added(registry, global, &self.queue.handle());
-            }
-            GlobalEvent::Removed(name) => self.state.global_removed(*name),
-        }
-    }
-
-    fn end(&mut self, cause: EndCause) {
-        self.state.end(cause);
-    }
-}
+/// Tells an attach's waiter that its state is attached.
+pub(crate) type Answer = Box<dyn FnOnce() + Send>;
 
 /// The thread's body.
+///
+/// Its life is decided by the handles alone: when the last [`Client`] and
+/// [`Attachment`] are gone it returns at once, releasing states and all,
+/// and the connection closes. A releasing state never keeps it.
+///
+/// [`Client`]: crate::Client
+/// [`Attachment`]: crate::Attachment
 pub(crate) fn run(
     connection: &Connection,
     mut registry: Registry,
+    counts: Arc<Counts>,
     controls: &Receiver<Control>,
     wake: &OwnedFd,
 ) {
-    let mut attached: Vec<Attached> = Vec::new();
+    let mut states = States::new(counts);
     let cause = loop {
-        match take_controls(connection, &mut registry, controls, &mut attached) {
+        match take_controls(connection, &mut registry, controls, &mut states) {
             Next::Go => {}
             Next::End(cause) => break cause,
             // The last handle is gone, and with it every attachment.
             Next::Stop => return,
         }
-        if let Some(cause) = dispatch_all(&mut registry, &mut attached) {
+        // A detach's requests leave in the flush below, in this round.
+        if let Some(cause) = states.dispatch(&mut registry) {
             break cause;
         }
         // Whether requests are left unsent: the socket would not take them,
@@ -149,7 +122,7 @@ pub(crate) fn run(
             drop(guard);
         }
     };
-    end_all(&mut attached, &cause);
+    states.end(&cause);
     refuse_until_stopped(controls);
 }
 
@@ -164,8 +137,8 @@ enum Next {
 }
 
 /// Carries out what other threads asked, first in every round: a detached
-/// state is never dispatched again. A setup or a detached state's drop that
-/// panics ends the connection.
+/// state releases what it bound before anything else is dispatched. A
+/// setup, a release or a state's drop that panics ends the connection.
 ///
 /// Before a setup, everything read so far is dispatched to the states
 /// already attached, the registry's events included: the new state's
@@ -175,17 +148,17 @@ fn take_controls(
     connection: &Connection,
     registry: &mut Registry,
     controls: &Receiver<Control>,
-    attached: &mut Vec<Attached>,
+    states: &mut States,
 ) -> Next {
     while let Ok(control) = controls.try_recv() {
         match control {
             Control::Attach(job) => {
-                if let Some(cause) = dispatch_all(registry, attached) {
+                if let Some(cause) = states.dispatch(registry) {
                     return Next::End(cause);
                 }
                 let globals = registry.globals();
                 match panic::catch_unwind(AssertUnwindSafe(|| job(Some((connection, globals))))) {
-                    Ok(Some(new)) => attached.push(new),
+                    Ok(Some((new, answer))) => states.attach(new, answer),
                     Ok(None) => {}
                     // A setup's handler panicked (its waiter has heard the
                     // end already: the answer was dropped unsent).
@@ -193,17 +166,12 @@ fn take_controls(
                 }
             }
             Control::Detach(id, acknowledge) => {
-                let detached = attached
-                    .iter()
-                    .position(|attachment| attachment.id == id)
-                    .map(|index| attached.remove(index));
-                // A state whose drop panics is a handler panicking.
-                let dropped = panic::catch_unwind(AssertUnwindSafe(|| drop(detached)));
+                let detached = states.detach(id);
                 if let Some(acknowledge) = acknowledge {
                     // The waiter may be gone; nothing else to tell.
                     let _ = acknowledge.send(());
                 }
-                if dropped.is_err() {
+                if detached.is_err() {
                     return Next::End(EndCause::HandlerPanicked);
                 }
             }
@@ -211,56 +179,6 @@ fn take_controls(
         }
     }
     Next::Go
-}
-
-/// Hands the registry events read so far to every attached state, in
-/// order; why the connection ends, if it does.
-fn forward_globals(registry: &mut Registry, attached: &mut [Attached]) -> Option<EndCause> {
-    let events = match registry.take() {
-        Ok(events) => events,
-        Err(error) => return Some(EndCause::ConnectionLost(Arc::new(error))),
-    };
-    let wl_registry = registry.globals().registry();
-    for event in &events {
-        for attachment in attached.iter_mut() {
-            let handed = panic::catch_unwind(AssertUnwindSafe(|| {
-                attachment.live.global(wl_registry, event);
-            }));
-            if handed.is_err() {
-                return Some(EndCause::HandlerPanicked);
-            }
-        }
-    }
-    None
-}
-
-/// Dispatches every attached queue, then hands on the registry events; why
-/// the connection ends, if it does.
-///
-/// The registry's events come last: a global's removal is sent after the
-/// events its object was sent before it, and read with them or later, so a
-/// state hears those events before the removal. (An added global has no
-/// object yet, so nothing of it can be waiting.)
-fn dispatch_all(registry: &mut Registry, attached: &mut [Attached]) -> Option<EndCause> {
-    for attachment in attached.iter_mut() {
-        match panic::catch_unwind(AssertUnwindSafe(|| attachment.live.dispatch())) {
-            Ok(Ok(_)) => {}
-            Ok(Err(error)) => return Some(EndCause::ConnectionLost(Arc::new(error))),
-            Err(_) => return Some(EndCause::HandlerPanicked),
-        }
-    }
-    forward_globals(registry, attached)
-}
-
-/// Ends every attached state once, and drops them all.
-fn end_all(attached: &mut Vec<Attached>, cause: &EndCause) {
-    for mut attachment in attached.drain(..) {
-        // A state whose end panics has had its end; the others still get
-        // theirs.
-        drop(panic::catch_unwind(AssertUnwindSafe(|| {
-            attachment.live.end(cause.clone());
-        })));
-    }
 }
 
 /// After the end: answer every control until the last handle is gone, so

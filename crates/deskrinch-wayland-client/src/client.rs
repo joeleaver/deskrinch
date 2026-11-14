@@ -14,6 +14,7 @@ use wayland_client::protocol::wl_display::WlDisplay;
 use wayland_client::{ConnectError, Connection};
 
 use crate::globals::Registry;
+use crate::states::{Counts, StateCounts};
 use crate::thread::{self as client_thread, Control};
 
 /// The client thread's name, as `/proc` shows it.
@@ -59,6 +60,7 @@ pub(crate) struct Shared {
     thread: Mutex<Option<JoinHandle<()>>>,
     thread_id: ThreadId,
     next_id: AtomicU64,
+    counts: Arc<Counts>,
 }
 
 impl Client {
@@ -88,10 +90,18 @@ impl Client {
         let thread_wake = wake.try_clone().map_err(ClientError::Thread)?;
         let (controls, received) = mpsc::channel();
         let thread_connection = connection.clone();
+        let counts = Arc::new(Counts::default());
+        let thread_counts = Arc::clone(&counts);
         let thread = thread::Builder::new()
             .name(THREAD_NAME.to_owned())
             .spawn(move || {
-                client_thread::run(&thread_connection, registry, &received, &thread_wake);
+                client_thread::run(
+                    &thread_connection,
+                    registry,
+                    thread_counts,
+                    &received,
+                    &thread_wake,
+                );
             })
             .map_err(ClientError::Thread)?;
         let thread_id = thread.thread().id();
@@ -103,6 +113,7 @@ impl Client {
                 thread: Mutex::new(Some(thread)),
                 thread_id,
                 next_id: AtomicU64::new(0),
+                counts,
             }),
         })
     }
@@ -114,6 +125,16 @@ impl Client {
     #[must_use]
     pub fn display(&self) -> WlDisplay {
         self.shared.connection.display()
+    }
+
+    /// How many states are attached and how many releasing, as the
+    /// client's thread last left them, and how many events releasing states
+    /// have been handed (see [`StateCounts`]). An attach is counted by the
+    /// time [`attach`](Self::attach) returns, and a detach by the time its
+    /// attachment's drop returns.
+    #[must_use]
+    pub fn states(&self) -> StateCounts {
+        self.shared.counts.get()
     }
 }
 

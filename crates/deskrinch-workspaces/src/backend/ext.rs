@@ -1,5 +1,13 @@
 //! `ext_workspace_v1`, the standard protocol: workspace groups on outputs,
 //! and workspaces in them, changes batched until the manager's `done`.
+//!
+//! # Releasing
+//!
+//! Every workspace and group handle is destroyed (`destroy`), then the
+//! manager is told to `stop`, after which it takes no request. The
+//! compositor may still announce workspaces and groups until it sends
+//! `finished`, after which it destroys the manager: those are destroyed as
+//! they arrive. The state is dropped once `finished` has come.
 
 use std::collections::{BTreeSet, HashMap};
 
@@ -86,9 +94,20 @@ pub(super) struct Tracking {
     workspaces: HashMap<ObjectId, WorkspaceId>,
     /// Each group, and the outputs it is on.
     groups: HashMap<ObjectId, (GroupId, GroupOutputs)>,
+    /// Each group's handle, to destroy on release.
+    group_handles: HashMap<ObjectId, ExtWorkspaceGroupHandleV1>,
 }
 
 impl Tracking {
+    /// Destroys every group handle. The workspace handles are the shared
+    /// state's ([`Handle::Ext`]), and the manager is told to `stop` after
+    /// them all.
+    pub(super) fn release(self) {
+        for group in self.group_handles.into_values() {
+            group.destroy();
+        }
+    }
+
     /// Stages every group's outputs as of the manager's last `done`, by
     /// `names`: what an output's name changing or the output going away
     /// changes between batches. What the open batch has staged is not
@@ -135,7 +154,7 @@ impl Tracking {
 fn tracking(backend: &mut Backend) -> Option<&mut Tracking> {
     match backend {
         Backend::Ext(tracking) => Some(tracking),
-        Backend::Plasma(_) => None,
+        Backend::Plasma(_) | Backend::Released(_) => None,
     }
 }
 
@@ -191,30 +210,42 @@ impl Dispatch<ExtWorkspaceManagerV1, ()> for State {
     ) {
         match event {
             ext_workspace_manager_v1::Event::WorkspaceGroup { workspace_group } => {
-                let group = state.shared.lock().list.add_group();
-                match (group, tracking(&mut state.backend)) {
-                    (Some(group), Some(tracking)) => {
-                        tracking
-                            .groups
-                            .insert(workspace_group.id(), (group, GroupOutputs::default()));
-                    }
-                    // Beyond the bound, or not this backend: not listed.
-                    _ => workspace_group.destroy(),
-                }
+                // Released, beyond the bound, or not this backend: not
+                // listed.
+                let Some(tracking) = tracking(&mut state.backend) else {
+                    workspace_group.destroy();
+                    return;
+                };
+                let Some(group) = state.shared.lock().list.add_group() else {
+                    workspace_group.destroy();
+                    return;
+                };
+                tracking
+                    .groups
+                    .insert(workspace_group.id(), (group, GroupOutputs::default()));
+                tracking
+                    .group_handles
+                    .insert(workspace_group.id(), workspace_group);
             }
             ext_workspace_manager_v1::Event::Workspace { workspace } => {
-                let id = state.shared.lock().list.add();
-                match (id, tracking(&mut state.backend)) {
-                    (Some(id), Some(tracking)) => {
-                        tracking.workspaces.insert(workspace.id(), id);
-                        let mut inner = state.shared.lock();
-                        inner.handles.insert(id, Handle::Ext(workspace));
-                    }
-                    _ => workspace.destroy(),
-                }
+                let Some(tracking) = tracking(&mut state.backend) else {
+                    workspace.destroy();
+                    return;
+                };
+                let mut inner = state.shared.lock();
+                let Some(id) = inner.list.add() else {
+                    workspace.destroy();
+                    return;
+                };
+                tracking.workspaces.insert(workspace.id(), id);
+                inner.handles.insert(id, Handle::Ext(workspace));
             }
             ext_workspace_manager_v1::Event::Done => done(state),
-            ext_workspace_manager_v1::Event::Finished => state.end(EndReason::Finished),
+            ext_workspace_manager_v1::Event::Finished => match &mut state.backend {
+                // The `stop` a release sent is answered: nothing more comes.
+                Backend::Released(remaining) => remaining.finished(),
+                _ => state.end(EndReason::Finished),
+            },
             _ => {}
         }
     }
@@ -237,6 +268,14 @@ fn output_moved(
     let Some(global) = Outputs::global_of(output) else {
         return;
     };
+    // An `output_enter` names one of the client's `wl_output`s, of any state
+    // on the connection: one that another state bound before this one heard
+    // of the global is dropped here. That loses nothing: when this state
+    // binds its own `wl_output` for the output, the compositor sends the same
+    // existing group an `output_enter` naming it. Seen under labwc (a
+    // `WAYLAND_DEBUG` trace of a second state binding its outputs beside a
+    // first). KWin's desktops have no outputs of their own: this does not
+    // arise there.
     if entered && !state.outputs.contains(global) {
         return;
     }
@@ -298,6 +337,7 @@ impl Dispatch<ExtWorkspaceGroupHandleV1, ()> for State {
             }
             ext_workspace_group_handle_v1::Event::Removed => {
                 tracking.groups.remove(&proxy.id());
+                tracking.group_handles.remove(&proxy.id());
                 state.shared.lock().list.remove_group(group);
                 proxy.destroy();
             }

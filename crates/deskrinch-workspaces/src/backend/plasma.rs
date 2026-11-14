@@ -12,8 +12,9 @@
 //! As KWin 6.6.6 sends them (a `WAYLAND_DEBUG` trace of the nested session):
 //!
 //! - A switch, asked for by `request_activate` on the desktop switched to
-//!   or made by KWin itself (its D-Bus `current`): `deactivated` on the desktop left, `activated` on the one
-//!   switched to, then the manager's `done`. The two desktops' events are
+//!   or made by KWin itself (its D-Bus `current`): `deactivated` on the
+//!   desktop left, `activated` on the one switched to, then the manager's
+//!   `done`. The two desktops' events are
 //!   staged; the manager's `done` delivers them as one batch.
 //! - A desktop created: the manager's `desktop_created` and its `done`.
 //!   Once the client asks for the desktop with `get_virtual_desktop`, the
@@ -27,6 +28,15 @@
 //! So the manager's `done` ends every batch but a new desktop's
 //! description, which the desktop's own `done` ends. Nothing incidental
 //! (an output's event, say) is needed to deliver a batch.
+//!
+//! # Releasing
+//!
+//! Neither interface has a destructor or a `stop`:
+//! `org_kde_plasma_virtual_desktop_management` and every
+//! `org_kde_plasma_virtual_desktop` stay alive, and keep sending (on every
+//! switch, `deactivated`, `activated` and the manager's `done`), for as
+//! long as the connection lasts. A released state forgets them and is
+//! never dropped: its events are dispatched and thrown away.
 
 use std::collections::HashMap;
 
@@ -125,7 +135,7 @@ impl Tracking {
 fn tracking(backend: &mut Backend) -> Option<&mut Tracking> {
     match backend {
         Backend::Plasma(tracking) => Some(tracking),
-        Backend::Ext(_) => None,
+        Backend::Ext(_) | Backend::Released(_) => None,
     }
 }
 
@@ -231,6 +241,11 @@ impl Dispatch<OrgKdePlasmaVirtualDesktop, WorkspaceId> for State {
         _: &Connection,
         _: &QueueHandle<Self>,
     ) {
+        // Released: a desktop has no destructor, so its events keep coming
+        // and are dropped here.
+        if tracking(&mut state.backend).is_none() {
+            return;
+        }
         let change = match event {
             org_kde_plasma_virtual_desktop::Event::Name { name } => Change::Name(name),
             org_kde_plasma_virtual_desktop::Event::Activated => {

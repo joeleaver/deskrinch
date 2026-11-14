@@ -8,7 +8,8 @@ use std::time::{Duration, Instant};
 
 use deskrinch_test_client::Compositor;
 use deskrinch_wayland_client::{
-    Attachment, Client, Detached, EndCause, Ended, Globals, OutputGlobal, Outputs, OutputsHandler,
+    Attachment, Client, Detached, EndCause, Globals, Lifecycle, OutputGlobal, Outputs,
+    OutputsHandler, Remaining,
 };
 use wayland_client::globals::Global;
 use wayland_client::protocol::wl_callback::{self, WlCallback};
@@ -29,10 +30,15 @@ pub(crate) fn nested() {
 
 /// What a test learns from its state: the id of the thread its setup ran
 /// on (the client's), the outputs it saw at setup (their names, and their
-/// `wl_output` globals), the globals that came and went after it, and how
-/// it ended.
+/// `wl_output` globals), the globals that came and went after it, how it
+/// ended, and whether it was released; and what the test asks of its
+/// release.
 #[derive(Debug, Default)]
 pub(crate) struct Record {
+    /// Set by the test: the state's release leaves it releasing, as one
+    /// holding an object without a destructor would be.
+    pub(crate) linger: bool,
+    pub(crate) releases: usize,
     pub(crate) thread: Option<u32>,
     pub(crate) outputs: usize,
     pub(crate) output_names: Vec<String>,
@@ -59,6 +65,7 @@ pub(crate) struct Probe {
     outputs: Outputs,
     record: Arc<Mutex<Record>>,
     detached: Detached,
+    remaining: Remaining,
 }
 
 impl Probe {
@@ -67,9 +74,27 @@ impl Probe {
     }
 }
 
-impl Ended for Probe {
+impl Lifecycle for Probe {
     fn end(&mut self, cause: EndCause) {
         self.record().ends.push(format!("{cause:?}"));
+    }
+
+    fn release(&mut self) {
+        if !self.outputs.release() {
+            self.remaining.linger();
+        }
+        let linger = {
+            let mut record = self.record();
+            record.releases += 1;
+            record.linger
+        };
+        if linger {
+            self.remaining.linger();
+        }
+    }
+
+    fn released(&self) -> bool {
+        self.remaining.is_empty()
     }
 }
 
@@ -134,6 +159,7 @@ pub(crate) fn attach(client: &Client) -> Attached {
                     outputs: Outputs::default(),
                     record: setup_record,
                     detached: setup.detached(),
+                    remaining: Remaining::default(),
                 };
                 let handle = setup.handle();
                 let registry = setup.globals().registry().clone();

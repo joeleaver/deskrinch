@@ -7,6 +7,7 @@ use crate::session::{Compositor, Outputs, Scale};
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
+const TEST_CLIENT: &str = "deskrinch-test-client";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
 const PANEL: &str = "deskrinch-panel";
@@ -104,7 +105,22 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 18] = [
+pub(super) const SUITES: [Suite; 19] = [
+    // The test client's output changes, first: that every change to the
+    // session's outputs is put back exactly, which the suites after it
+    // rely on.
+    Suite {
+        target: Target {
+            package: TEST_CLIENT,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: PLAIN,
+        renders: false,
+        filter: &[],
+    },
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,

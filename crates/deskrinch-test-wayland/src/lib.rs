@@ -13,11 +13,14 @@
 //!   condition holds or a [`Deadline`] passes, so a compositor that never
 //!   answers fails a test with [`WaitError::TimedOut`] instead of hanging
 //!   it.
+//! - [`stand_in`]: a stand-in compositor on a socket pair, for what a real
+//!   one cannot be made to do on cue.
 
 mod color;
 mod globals;
 mod memory;
 mod shm;
+pub mod stand_in;
 mod transform;
 mod wait;
 
