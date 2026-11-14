@@ -1,10 +1,21 @@
 //! Builds one index of this machine's real themes and keeps it to the end:
 //! the smallest program to measure the index's heap and the cost of
-//! building it under Valgrind. `cargo build --release -p deskrinch-icons
-//! --example index_heap`, then for the heap `valgrind --tool=dhat
-//! target/release/examples/index_heap [THEME]` (`breeze` by default): what
-//! is live at the end is the index. For instructions, Callgrind's inclusive
-//! count of `Index::load`.
+//! building it under Valgrind. Build it with `cargo build --release -p
+//! deskrinch-icons --example index_heap`, copy
+//! `target/release/examples/index_heap` into a directory of your own
+//! (`mktemp -d`), and run there:
+//!
+//! - The heap: `valgrind --tool=dhat --dhat-out-file=dhat.json
+//!   ./index_heap [THEME]` (`breeze` by default). "At t-end" is the index
+//!   (with this program's few bytes); "Total" counts every allocation made,
+//!   nearly all of them while building. `dh_view.html` (with Valgrind)
+//!   shows each allocation site of `dhat.json`.
+//! - The instructions: `valgrind --tool=callgrind --dump-instr=no
+//!   --separate-threads=no --callgrind-out-file=cg.out ./index_heap`, then
+//!   `callgrind_annotate --inclusive=yes cg.out`: the line for
+//!   `Index::load` is the whole build; `Lister::list` the listing,
+//!   `TableBuilder::push` (inside it) the interning, and
+//!   `TableBuilder::finish` the two sorts.
 //!
 //! It only reads: the base directories of this process's environment, as
 //! `SearchPath::new` finds them.
