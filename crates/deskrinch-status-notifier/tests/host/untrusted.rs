@@ -58,6 +58,9 @@ fn an_oversized_reply_keeps_the_item_pending_until_a_later_read_fits() {
         Reply::Properties(properties(&"x".repeat(128 * 1024))),
     );
     item.register(&item.unique_name()).unwrap();
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     events.quiet();
     assert_eq!(host.handle().items(), Vec::<Arc<Item>>::new());
 
@@ -86,6 +89,8 @@ fn an_item_that_never_answers_holds_up_no_other() {
     item.register(&item.unique_name()).unwrap();
     assert_eq!(events.added().title, "A");
     // The silent one stays pending.
+    // A window: what could happen here is timed by the read timeout, and
+    // is ordered after nothing the test can do.
     events.quiet();
 }
 
@@ -102,6 +107,8 @@ fn an_item_whose_read_times_out_stays_pending() {
     let silent = StandIn::start(&bus, "/StatusNotifierItem", Reply::Silent);
     silent.register(&silent.unique_name()).unwrap();
     // Its read times out, and it is not reported.
+    // A window: what could happen here is timed by the read timeout, and
+    // is ordered after nothing the test can do.
     events.quiet_for(read_timeout + Duration::from_millis(500));
     assert_eq!(host.handle().items(), Vec::<Arc<Item>>::new());
     silent.set(Reply::Properties(properties("A")));
@@ -124,6 +131,8 @@ fn the_read_timeout_does_not_bound_the_host_s_own_calls() {
     }));
     let item = StandIn::start(&bus, "/StatusNotifierItem", Reply::Silent);
     item.register(&item.unique_name()).unwrap();
+    // A window: what could happen here is timed by the read timeout, and
+    // is ordered after nothing the test can do.
     events.quiet();
     assert_eq!(host.handle().items(), Vec::<Arc<Item>>::new());
 }
@@ -156,5 +165,8 @@ fn registrations_that_name_neither_a_service_nor_a_path_are_refused() {
             "{bad:?}"
         );
     }
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     events.quiet();
 }

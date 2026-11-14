@@ -138,6 +138,9 @@ fn opening_a_menu_says_so_then_reads_it_after_about_to_show() {
     assert_eq!(f.handle.menu(&f.added.id), Some(menu));
     // Open already: nothing more.
     f.handle.open_menu(&f.added.id).unwrap();
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     f.events.quiet();
     assert_eq!(f.item.menu_calls(), Vec::new());
 }
@@ -308,6 +311,9 @@ fn closing_says_so_and_stops_following_the_menu() {
         Err(OperationError::NoMenu(f.added.id.clone()))
     );
     f.item.layout_updated(MENU);
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     f.events.quiet();
     assert_eq!(f.item.menu_calls(), Vec::new());
     // Closed already: nothing more.
@@ -380,6 +386,9 @@ fn a_menu_that_moves_is_read_where_it_is_and_one_that_goes_fails() {
     assert_eq!(menu.entries[0].label.text, "There");
     // The old object's signals are not the menu's any more.
     f.item.layout_updated(MENU);
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     f.events.quiet();
 
     // `/` is libayatana's way of saying there is none.
@@ -411,6 +420,9 @@ fn an_item_that_leaves_takes_its_open_menu_with_it() {
     let menu = events.menu();
     drop(item);
     assert_eq!(events.removed(), added.id);
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     events.quiet();
     assert_eq!(handle.menu(&added.id), None);
     assert_eq!(matches.live(<[_]>::is_empty), Vec::<String>::new());

@@ -18,6 +18,9 @@ fn first_read_fails(limits: Limits, layout: Layout) -> MenuFailure {
     // The menu is closed: nothing more is read or said.
     assert_eq!(f.handle.menu(&f.added.id), None);
     f.item.layout_updated(MENU);
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     f.events.quiet();
     reason
 }
@@ -82,6 +85,9 @@ fn a_later_read_that_fails_keeps_what_was_read() {
     let menu = f.open();
     f.item.set_layout(MENU, Layout::Error);
     f.item.layout_updated(MENU);
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     f.events.quiet();
     assert_eq!(f.handle.menu(&f.added.id), Some(menu));
 }

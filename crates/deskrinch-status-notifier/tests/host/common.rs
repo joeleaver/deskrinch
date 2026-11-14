@@ -345,6 +345,8 @@ impl MenuMatches {
                 Err(_) => break,
             }
         }
+        // A window: this gathers an open-ended set, which has no last
+        // member to wait for.
         while let Ok(call) = self.calls.recv_timeout(QUIET) {
             apply(&mut live, call);
         }
@@ -382,6 +384,8 @@ impl ReadDestinations {
                 Err(_) => return seen,
             }
         }
+        // A window: this gathers an open-ended set, which has no last
+        // member to wait for.
         while let Ok(destination) = self.0.recv_timeout(QUIET) {
             seen.push(destination);
         }

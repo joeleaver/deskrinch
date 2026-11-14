@@ -59,6 +59,9 @@ fn a_well_known_name_moving_to_another_connection_is_read_from_it() {
     );
     // The first connection leaving does not take the item with it.
     drop(first);
+    // A window: the tracker takes owner changes, item signals and
+    // finished reads by turns, in no order it states, so no later event is
+    // sure to follow this one.
     events.quiet();
     assert_eq!(host.handle().items().len(), 1);
 }
@@ -91,6 +94,9 @@ fn a_read_waiting_out_its_interval_goes_to_whoever_owns_the_item_when_it_starts(
     assert_eq!((changed.id.clone(), changed.title.as_str()), (id, "B"));
     assert_eq!(reads.seen(2), [first.unique_name(), second.unique_name()]);
     assert_eq!((first.reads(), second.reads()), (1, 1));
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     events.quiet();
     assert_eq!(host.handle().items()[0].title, "B");
 }
@@ -109,6 +115,9 @@ fn an_item_that_leaves_while_it_is_read_is_removed() {
     item.signal("NewTitle");
     drop(item);
     assert_eq!(events.removed(), id);
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     events.quiet();
     assert_eq!(host.handle().items().len(), 0);
 }
@@ -154,6 +163,9 @@ fn an_item_signalling_in_a_loop_is_read_at_the_interval() {
     }
     // The latest properties are read, and reported once.
     assert_eq!(events.changed().title, "B");
+    // A window: what this could wrongly cause would come of a read, and
+    // the tracker's reads finish in no order it states, so no later event
+    // is sure to follow it.
     thread::sleep(interval * 3);
     events.quiet();
 
