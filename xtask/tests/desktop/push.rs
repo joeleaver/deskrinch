@@ -63,7 +63,8 @@ pub(crate) fn push(input: &mut Input, output: &str, point: (f64, f64), size: (f6
 /// pointer that has stayed at the edge for a while by the time stamps of
 /// its motions, so a stalled compositor delays the result and cannot fail
 /// it; an edge that never acts fails at the patience, saying how long it was
-/// pushed, with how many motions, and what was last seen.
+/// pushed, with how many motions, and what was last seen. What it found,
+/// with how long it pushed and in how many motions, for the record.
 #[track_caller]
 pub(crate) fn push_until<T, S: Debug>(
     input: &mut Input,
@@ -71,7 +72,7 @@ pub(crate) fn push_until<T, S: Debug>(
     (point, size): ((f64, f64), (f64, f64)),
     what: &str,
     mut started: impl FnMut() -> Result<T, S>,
-) -> T {
+) -> (T, Duration, u32) {
     let (dx, dy) = bring_to(input, output, point, size);
     let pushing = Deadline::patience();
     let since = Instant::now();
@@ -91,10 +92,7 @@ pub(crate) fn push_until<T, S: Debug>(
         nudges += 1;
         std::thread::sleep(PUSH_EVERY);
     };
-    eprintln!(
-        "{what}: pushed for {:?}, in {nudges} motions",
-        since.elapsed()
-    );
+    let took = since.elapsed();
     back_to_the_middle(input, output, size);
-    found
+    (found, took, nudges)
 }

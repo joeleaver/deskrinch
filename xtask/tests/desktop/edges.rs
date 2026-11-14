@@ -438,14 +438,18 @@ fn sweep(
             beyond()
         } else {
             let what = format!("the {place} to start {wanted:?}");
-            push_until(input, output, (point, size), &what, || {
+            let (started, took, motions) = push_until(input, output, (point, size), &what, || {
                 let started = beyond();
                 if wanted.iter().all(|w| started.iter().any(|e| e == w)) {
                     Ok(started)
                 } else {
                     Err(started)
                 }
-            })
+            });
+            record.note(&format!(
+                "the {place}: pushed for {took:?}, in {motions} motions"
+            ));
+            started
         };
         assert!(kwin_running(), "KWin is gone after the {place}");
         record.note(&format!("{place}: {started:?}"));
