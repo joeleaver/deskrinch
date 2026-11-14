@@ -113,16 +113,20 @@ fn a_window_follows_an_output_that_goes_and_comes_back() {
     stand_in.send(burst);
     wait_outputs(&heard, &["OUT"]);
 
-    // The output goes, and comes back as a new global (named apart here, so
-    // that what is reported shows which one it is); the window leaves the
-    // old one only after it is gone.
-    let mut burst = message(registry, GLOBAL_REMOVE, &[Arg::Uint(OUTPUT)]);
-    burst.extend(message(
+    // The output goes, and nothing names it again: the compositor has no
+    // `wl_output` left to put in an `output_leave`. The window is reported
+    // on no output at once, not at some later `done`.
+    stand_in.send(message(registry, GLOBAL_REMOVE, &[Arg::Uint(OUTPUT)]));
+    wait_outputs(&heard, &[]);
+
+    // It comes back as a new global (named apart here, so that what is
+    // reported shows which one it is). The window enters it; a late leave
+    // of the old one, should a compositor send one, changes nothing.
+    stand_in.send(message(
         registry,
         GLOBAL,
         &[Arg::Uint(OUTPUT_AGAIN), Arg::Str("wl_output"), Arg::Uint(4)],
     ));
-    stand_in.send(burst);
     let again = bound(&stand_in, OUTPUT_AGAIN);
     let mut burst = named(again, "OUT-AGAIN");
     burst.extend(message(window, OUTPUT_ENTER, &[Arg::Uint(again)]));
