@@ -143,7 +143,7 @@ pub fn layout_differences(before: &[OutputState], after: &[OutputState]) -> Opti
 /// # Errors
 ///
 /// When the compositor cannot be asked, or does not answer within
-/// [`PATIENCE`](deskrinch_test_wait::PATIENCE).
+/// [`PATIENCE`].
 ///
 /// # Panics
 ///
@@ -165,7 +165,7 @@ fn apply(layout: &[OutputState]) -> Result<(), Error> {
 
 /// Makes the outputs `layout` and waits until the compositor reports what
 /// `reached` takes, saying what still differs from `layout` if it does not
-/// within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
+/// within [`PATIENCE`].
 fn apply_and_wait(
     layout: &[OutputState],
     reached: impl Fn(&[OutputState]) -> bool,
@@ -260,7 +260,7 @@ fn with(
 /// # Errors
 ///
 /// When there is no output so named, the compositor refuses, or does not
-/// report the change within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
+/// report the change within [`PATIENCE`].
 ///
 /// # Panics
 ///
@@ -324,7 +324,7 @@ impl RestoreOutputs {
     /// # Errors
     ///
     /// When the compositor refuses, or does not report the layout within
-    /// [`PATIENCE`](deskrinch_test_wait::PATIENCE).
+    /// [`PATIENCE`].
     pub fn restore(mut self) -> Result<(), Error> {
         self.restored = true;
         restore(&self.before)
