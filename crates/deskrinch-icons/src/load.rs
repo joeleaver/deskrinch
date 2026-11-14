@@ -268,11 +268,8 @@ struct Reader {
 }
 
 /// What a listing of `dir` that failed says: nothing for a directory that
-/// is not there, which has no icons; else the problem. A link is listed
-/// without being followed (see [`crate::listing`]): themes such as Breeze
-/// are mostly links, and following each was most of what a build cost. So
-/// a listed icon may be a broken link (or a link to a directory);
-/// [`Index::find`] checks the one it answers with.
+/// is not there, which has no icons; else the problem. What a listing
+/// lists, links included, is in [`crate::listing`].
 fn unreadable(listed: io::Result<()>, dir: &Path) -> Option<(PathBuf, ProblemKind)> {
     match listed {
         Ok(()) => None,

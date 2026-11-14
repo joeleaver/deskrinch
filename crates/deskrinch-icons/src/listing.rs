@@ -2,15 +2,23 @@
 //! entry: `getdents` into one buffer, reused for every directory of a
 //! build, each name read where it lies.
 //!
-//! What is listed is what `std::fs::read_dir` with `DirEntry::file_type`
-//! listed before: a regular file, or a symbolic link of any kind (to a
-//! file, to a directory, or dangling), without following it; named in
-//! UTF-8 with an icon format's extension and a stem before it (so a hidden
-//! `.name.png` is the icon `.name`, and `.png` is none). `.` and `..` are
-//! not entries. Where the file system gives no type in the listing
-//! (`DT_UNKNOWN`), the entry's own `lstat` says it, as std's `file_type`
-//! does. An error reading the directory part way ends its listing, as
-//! std's iterator ended.
+//! An entry is listed when it is a regular file or a symbolic link of any
+//! kind (to a file, to a directory, or dangling), and its name is UTF-8
+//! with an icon format's extension and a stem before it: a hidden
+//! `.name.png` is the icon `.name`, and `.png` is none. Directories and
+//! other kinds of file are not listed, nor are `.` and `..`. Where the file
+//! system gives no type in the listing (`DT_UNKNOWN`), the entry's own
+//! `lstat` says it.
+//!
+//! Links are not followed: themes such as Breeze are mostly links, and
+//! following each would be most of what a build costs. So a listed icon
+//! may be a broken link, or a link to a directory; [`Index::find`] checks
+//! the one it answers with.
+//!
+//! An error reading a directory part way ends its listing, with what was
+//! listed until then kept.
+//!
+//! [`Index::find`]: crate::Index::find
 
 use std::io;
 use std::path::Path;
