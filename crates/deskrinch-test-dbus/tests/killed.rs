@@ -34,7 +34,9 @@ fn process_with_a_bus() {
     let bus = thread::spawn(|| PrivateBus::start().unwrap())
         .join()
         .unwrap();
-    // Still serving once that thread has gone.
+    // Still serving once that thread has gone. A window: `join` returns
+    // when the thread's id is cleared, before the parent-death signal its
+    // exit sends, and nothing reports that signal.
     thread::sleep(Duration::from_millis(100));
     let _serving =
         zbus::block_on(zbus::connection::Builder::address(bus.address()).build()).unwrap();

@@ -18,7 +18,10 @@
 //! the way an installed deskrinch is: one desktop file per binary, in the
 //! session's data directory, built from the interface constants of the
 //! crates that binary uses (KWin's checks stay on). Each `kwin_not_granted`
-//! binary checks that a binary without one is refused. The window-management
+//! binary checks that a binary without one is refused. A suite's programs (the
+//! shell components its tests start that are not of its own crate) are built
+//! with it, granted what the shell grants them, and handed to its tests by
+//! path ([`deskrinch_test_component::programs`]). The window-management
 //! `session_end` tests end the session under a connected manager, so they
 //! run last.
 //!
@@ -43,7 +46,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_kwin_access::DesktopEntry;
-use deskrinch_test_component::{RENDERER_VARIABLE, Renderer};
+use deskrinch_test_component::{RENDERER_VARIABLE, Renderer, programs};
 
 use self::build::Target;
 use self::selection::Selection;
@@ -89,9 +92,9 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
         let names: Vec<_> = compositors.iter().map(|c| c.name()).collect();
         return Err(selection.nothing_runs(&names.join(", ")).into());
     }
-    let binaries = build(root, &selection)?;
+    let built = build(root, &selection)?;
     if selection.test().is_some()
-        && let Some(binary) = binaries.values().next()
+        && let Some(binary) = built.tests.values().next()
     {
         selection.check_test(&list_tests(binary)?)?;
     }
@@ -100,7 +103,7 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
     for (place, runs) in sessions {
         let session = place.with_gpu(gpu);
         println!("compositor-tests: {}", session.said());
-        if !run_in(session, &runs, &selection, &binaries)? {
+        if !run_in(session, &runs, &selection, &built)? {
             failed.push(session.said());
         }
     }
@@ -113,16 +116,29 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
     }
 }
 
-/// The chosen suites' binaries, by their rows in [`SUITES`].
-fn build(root: &Path, selection: &Selection) -> Result<BTreeMap<usize, PathBuf>, Error> {
+/// What a run built: the chosen suites' test binaries, by their rows in
+/// [`SUITES`], and the programs they declare, by package.
+struct Built {
+    tests: BTreeMap<usize, PathBuf>,
+    programs: BTreeMap<&'static str, PathBuf>,
+}
+
+/// Builds the chosen suites' test binaries and the programs they declare.
+fn build(root: &Path, selection: &Selection) -> Result<Built, Error> {
     let mut targets: Vec<Target> = Vec::new();
+    let mut programs: Vec<&'static str> = Vec::new();
     for &row in selection.rows() {
         if !targets.contains(&SUITES[row].target) {
             targets.push(SUITES[row].target);
         }
+        for program in SUITES[row].programs {
+            if !programs.contains(&program.package) {
+                programs.push(program.package);
+            }
+        }
     }
     let built = build::test_binaries(root, &targets)?;
-    Ok(selection
+    let tests = selection
         .rows()
         .iter()
         .map(|&row| {
@@ -131,7 +147,13 @@ fn build(root: &Path, selection: &Selection) -> Result<BTreeMap<usize, PathBuf>,
                 .position(|target| *target == SUITES[row].target);
             (row, built[at.unwrap_or_default()].clone())
         })
-        .collect())
+        .collect();
+    let programs = programs
+        .iter()
+        .copied()
+        .zip(build::programs(root, &programs)?)
+        .collect();
+    Ok(Built { tests, programs })
 }
 
 /// The compositor tests `binary` has, as it lists them.
@@ -238,14 +260,10 @@ fn runs(place: Place, plan: &renderers::Plan, selection: &Selection) -> Vec<Run>
 }
 
 /// Runs `runs` in one fresh session at `place`, each suite with the
-/// arguments `selection` gives it; `binaries` are the chosen suites'.
-/// Returns whether they passed; on failure, prints the compositor's log.
-fn run_in(
-    place: Place,
-    runs: &[Run],
-    selection: &Selection,
-    binaries: &BTreeMap<usize, PathBuf>,
-) -> Result<bool, Error> {
+/// arguments `selection` gives it and the paths of the programs it
+/// declares; `built` is what the run built. Returns whether they passed; on
+/// failure, prints the compositor's log.
+fn run_in(place: Place, runs: &[Run], selection: &Selection, built: &Built) -> Result<bool, Error> {
     let compositor = place.compositor;
     let session = Session::start(
         compositor,
@@ -254,29 +272,32 @@ fn run_in(
         None,
         place.gpu,
         |data_home| match compositor {
-            Compositor::Kwin => grant_all(binaries, data_home),
+            Compositor::Kwin => grant_all(built, data_home),
             Compositor::Sway | Compositor::Labwc => Ok(()),
         },
     )?;
     let start = session.output_layout()?;
     let mut passed = true;
     for &(row, renderer) in runs {
-        let (suite, binary) = (&SUITES[row], &binaries[&row]);
+        let (suite, binary) = (&SUITES[row], &built.tests[&row]);
         let args = selection.args(suite).unwrap_or_default();
-        let env = match renderer {
-            None => {
-                println!("compositor-tests: {}", suite.target.name());
-                Vec::new()
-            }
+        let mut env = programs::environment(
+            suite
+                .programs
+                .iter()
+                .map(|program| (program.package, built.programs[program.package].as_path())),
+        );
+        match renderer {
+            None => println!("compositor-tests: {}", suite.target.name()),
             Some(renderer) => {
                 println!(
                     "compositor-tests: {} with the {} renderer",
                     suite.target.name(),
                     renderer.env()
                 );
-                vec![(RENDERER_VARIABLE, renderer.env())]
+                env.push((RENDERER_VARIABLE.to_owned(), renderer.env().into()));
             }
-        };
+        }
         passed &= session.run_tests(binary, &args, &env)?;
         // A suite that ends the session leaves no outputs to list.
         if suite.ends_the_session() {
@@ -305,9 +326,10 @@ fn run_in(
 }
 
 /// Installs, for each chosen suite KWin grants something, the one desktop
-/// file that grants its binary all of it.
-fn grant_all(binaries: &BTreeMap<usize, PathBuf>, data_home: &Path) -> Result<(), Error> {
-    for (&row, binary) in binaries {
+/// file that grants its binary all of it; and for each program they
+/// declare, what the shell grants that component ([`crate::grant`]).
+fn grant_all(built: &Built, data_home: &Path) -> Result<(), Error> {
+    for (&row, binary) in &built.tests {
         let Some(grant) = &SUITES[row].grant else {
             continue;
         };
@@ -316,6 +338,11 @@ fn grant_all(binaries: &BTreeMap<usize, PathBuf>, data_home: &Path) -> Result<()
             what: format!("install {}", entry.file_name()),
             source,
         })?;
+    }
+    for &row in built.tests.keys() {
+        for program in SUITES[row].programs {
+            crate::grant::install(program, &built.programs[program.package], data_home)?;
+        }
     }
     Ok(())
 }

@@ -44,6 +44,9 @@ pub(crate) struct Run {
     pub(crate) notes: Vec<(String, String)>,
     /// Which renderer presented, as the program said.
     pub(crate) presented: Option<Presented>,
+    /// Everything the program wrote, oldest first ([`super::output`] keeps
+    /// it in a file and checks it).
+    pub(crate) output: Vec<String>,
 }
 
 impl Run {

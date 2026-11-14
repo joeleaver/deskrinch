@@ -1234,6 +1234,7 @@ dependencies = [
  "deskrinch-appearance",
  "deskrinch-component",
  "deskrinch-settings",
+ "deskrinch-shell",
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-screen",

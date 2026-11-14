@@ -2,9 +2,9 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::sync::mpsc::{self, Receiver};
 
-use deskrinch_test_wait::{quiet_for, recv};
+use deskrinch_test_wait::{gathered, quiet_for, recv};
 use deskrinch_watch::{Event, Target, Timing, Watcher};
 use tempfile::TempDir;
 
@@ -59,12 +59,9 @@ pub(crate) fn changed(events: &Receiver<Event>) {
 /// error, or on no change within the patience.
 pub(crate) fn reported(events: &Receiver<Event>) {
     changed(events);
-    loop {
-        match events.recv_timeout(Timing::default().settled()) {
-            Ok(Event::Changed) => {}
-            Ok(Event::Error(error)) => panic!("expected changes, got an error: {error:?}"),
-            Err(RecvTimeoutError::Timeout) => return,
-            Err(RecvTimeoutError::Disconnected) => panic!("the watcher stopped"),
+    for event in gathered("further reports", events, Timing::default().settled()) {
+        if let Event::Error(error) = event {
+            panic!("expected changes, got an error: {error:?}");
         }
     }
 }

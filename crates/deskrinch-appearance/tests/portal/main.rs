@@ -11,7 +11,7 @@ mod follow {
         COLOR_SCHEME, GNOME_ICON_THEME, INTERFACE, KDE_ICON_THEME, Methods, PATH, Setting, Value,
     };
 
-    use crate::support::{bus, follow, next, portal as stand_in, preferences, quiet};
+    use crate::support::{bus, follow, next, portal as stand_in, preferences};
 
     fn scheme(number: u32) -> [(Setting<'static>, Value); 1] {
         [(COLOR_SCHEME, Value::Number(number))]
@@ -28,8 +28,11 @@ mod follow {
         portal.set(COLOR_SCHEME, Value::Number(0)).unwrap();
         assert_eq!(preferences(&events).color_scheme, ColorScheme::NoPreference);
         // The same value again changes nothing, and is not passed on.
+        // Sentinel: the portal's changes to one key arrive in order, so a
+        // new value's preferences come first.
         portal.set(COLOR_SCHEME, Value::Number(0)).unwrap();
-        quiet(&events);
+        portal.set(COLOR_SCHEME, Value::Number(1)).unwrap();
+        assert_eq!(preferences(&events).color_scheme, ColorScheme::PreferDark);
     }
 
     #[test]
@@ -75,7 +78,14 @@ mod follow {
         portal
             .set(other_namespace, Value::text("BreezeDark"))
             .unwrap();
-        quiet(&events);
+        // Sentinel: the portal's changes in one namespace arrive in order
+        // (and one the crate does not read never reaches it), so a change
+        // to a key it reads, in that namespace, comes first.
+        portal.set(KDE_ICON_THEME, Value::text("breeze")).unwrap();
+        assert_eq!(
+            preferences(&events).icon_themes.kde.as_deref(),
+            Some("breeze")
+        );
     }
 
     #[test]
@@ -185,9 +195,20 @@ mod follow {
             ),
         ))
         .unwrap();
-        quiet(&events);
-        portal.set(COLOR_SCHEME, Value::Number(2)).unwrap();
-        assert_eq!(preferences(&events).color_scheme, ColorScheme::PreferLight);
+        // Sentinel: the bus routes each message as it reads it, so once the
+        // impostor's own call to the bus is answered, its signal is queued
+        // to the follower ahead of anything the portal sends after; a value
+        // other than the impostor's then comes first.
+        zbus::block_on(impostor.call_method(
+            Some("org.freedesktop.DBus"),
+            "/org/freedesktop/DBus",
+            Some("org.freedesktop.DBus"),
+            "GetId",
+            &(),
+        ))
+        .unwrap();
+        portal.set(COLOR_SCHEME, Value::Number(0)).unwrap();
+        assert_eq!(preferences(&events).color_scheme, ColorScheme::NoPreference);
     }
 
     #[test]
@@ -203,16 +224,21 @@ mod follow {
         });
         let () = deskrinch_test_wait::recv("the drop to return", &done);
         let _portal = stand_in(&bus, &scheme(1), Methods::Current);
-        quiet(&events);
+        // Sentinel: the drop joined the thread, which owned the subscriber,
+        // so the channel is closed and nothing more can come.
+        match events.recv_timeout(deskrinch_test_wait::PATIENCE) {
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {}
+            other => panic!("expected the subscriber gone, got {other:?}"),
+        }
     }
 }
 
 #[cfg(test)]
 mod activation {
     use deskrinch_appearance::{ColorScheme, Event};
-    use deskrinch_test_portal::{COLOR_SCHEME, KDE_ICON_THEME, Value};
+    use deskrinch_test_portal::{COLOR_SCHEME, KDE_ICON_THEME, Methods, Value};
 
-    use crate::support::{activating_bus, bus, follow, next, preferences, quiet};
+    use crate::support::{activating_bus, bus, follow, next, portal, preferences, quiet};
 
     /// The stand-in portal the bus starts (`deskrinch_test_portal`'s
     /// `serve_from_env`); not a test of its own.
@@ -236,7 +262,9 @@ mod activation {
         let first = preferences(&events);
         assert_eq!(first.color_scheme, ColorScheme::PreferLight);
         assert_eq!(first.icon_themes.kde.as_deref(), Some("breeze"));
-        // Its owner change does not repeat it.
+        // Its owner change does not repeat it. A window: the stand-in the bus
+        // started has no handle here to make a change that could follow as
+        // a sentinel.
         quiet(&events);
     }
 
@@ -245,6 +273,9 @@ mod activation {
         let bus = bus();
         let (_appearance, events) = follow(&bus);
         assert!(matches!(next(&events), Event::NoPortal));
-        quiet(&events);
+        // Nothing more. Sentinel: the bus's signals arrive in order, so a
+        // portal that appears now is read and reported first.
+        let _portal = portal(&bus, &[(COLOR_SCHEME, Value::Number(1))], Methods::Current);
+        assert_eq!(preferences(&events).color_scheme, ColorScheme::PreferDark);
     }
 }

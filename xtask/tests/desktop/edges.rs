@@ -335,6 +335,8 @@ fn inside_the_desktop_edges_and_the_overview() {
             "invokeShortcut",
             "Overview",
         );
+        // A window: KWin starts its effects on its own, and nothing ordered
+        // follows a shortcut that does nothing.
         std::thread::sleep(SHOWN_WITHIN);
         let after = active_effects();
         record.note(&format!(
@@ -433,6 +435,8 @@ fn sweep(
         };
         let wanted = must_start(place);
         let started = if wanted.is_empty() {
+            // A window: KWin starts its effects on its own, and nothing
+            // ordered follows an edge that does nothing.
             push(input, output, point, size);
             std::thread::sleep(ACTS_WITHIN);
             beyond()

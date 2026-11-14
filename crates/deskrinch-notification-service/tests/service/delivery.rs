@@ -31,6 +31,8 @@ fn by_default_only_the_sender_hears_about_its_notification() {
         Signal::ActionInvoked(n, "default".into())
     );
     assert_eq!(client.signals.next(), Signal::Closed(n, 2));
+    // A window: with signals sent only to senders, nothing the service sends
+    // reaches a bystander that could come after these as a sentinel.
     bystander.none_within(QUIET);
 }
 
@@ -44,7 +46,12 @@ fn the_signals_follow_the_sender_that_replaced_it() {
     second.simple(n, "a, again", "", 0);
     service.handle().dismiss(id(n)).unwrap();
     assert_eq!(second.signals.next(), Signal::Closed(n, 2));
-    first.signals.none_within(QUIET);
+    // Nothing for the first sender. Sentinel: the service sends signals in
+    // the order it handles the handle's calls, so a close of its own
+    // notification comes first.
+    let sentinel = first.simple(0, "sentinel", "", 0);
+    service.handle().dismiss(id(sentinel)).unwrap();
+    assert_eq!(first.signals.next(), Signal::Closed(sentinel, 2));
 }
 
 #[test]

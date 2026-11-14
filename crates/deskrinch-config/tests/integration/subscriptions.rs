@@ -27,14 +27,22 @@ fn delivers_each_section_only_its_own_changes() {
         "[panel]\nheight = 40\n[general]\nterminal = 'alacritty'\n",
     );
     assert_eq!(next_change(&general_events).terminal, "alacritty");
-    nothing(&panel_events);
 
+    // Nothing for the panel. Sentinel: the general change shows the reload
+    // ran, and a reload delivers to every subscriber before the next one
+    // starts, so the panel's next change is this one.
     write(
         &dirs.user(),
         "[panel]\nheight = 41\n[general]\nterminal = 'alacritty'\n",
     );
     assert_eq!(next_change(&panel_events), panel(41));
-    nothing(&general_events);
+
+    // Nothing for the general section, likewise.
+    write(
+        &dirs.user(),
+        "[panel]\nheight = 41\n[general]\nterminal = 'foot'\n",
+    );
+    assert_eq!(next_change(&general_events).terminal, "foot");
 }
 
 #[test]
@@ -94,7 +102,9 @@ fn follows_a_configuration_file_link_that_is_re_pointed() {
 
     write(&second, "[panel]\nheight = 61\n");
     assert_eq!(next_change(&events), panel(61));
-    // The old target no longer matters.
+    // The old target no longer matters. A window: whether its write was
+    // seen is not observable, and a later change could be read in the same
+    // settled reload, hiding it.
     write(&first, "[panel]\nheight = 41\n");
     nothing(&events);
 }
