@@ -1090,6 +1090,8 @@ name = "deskrinch-test-client"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-wayland",
+ "serde",
+ "serde_json",
  "thiserror 2.0.21",
  "wayland-client",
  "wayland-protocols",
