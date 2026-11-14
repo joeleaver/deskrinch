@@ -1,7 +1,10 @@
 //! Instruction counts, as rinch's performance CI takes them: the program
 //! runs under Valgrind's Callgrind, which counts every instruction it
 //! executes (`Ir`) on every thread, whatever the machine's load. The count
-//! is dumped at the first frame and again at the end of an idle window.
+//! is dumped at the first frame, again after the settle (`--settle`, as in
+//! the other mode: work the program does after its first frame, such as
+//! building an index on a thread of its own, is kept out of the idle window,
+//! and its count is noted), and at the end of the idle window.
 //!
 //! Under Callgrind the program runs tens of times slower, so its memory,
 //! CPU time and wall time say nothing; this mode reports instructions and
@@ -16,7 +19,7 @@ use std::time::{Duration, Instant};
 
 use super::output;
 use super::probe::{self, Timing};
-use super::report::{Run, Unit};
+use super::report::{self, Run, Unit};
 use super::window::{self, Stimulus};
 use crate::error::Error;
 use crate::session::interrupt;
@@ -92,6 +95,8 @@ fn run_child(
     }
     let load = probe::load_average();
     dump(control, &pid, "first-frame")?;
+    probe::wait(child, watch, program, timing.settle)?;
+    dump(control, &pid, "settle")?;
     let frames_before = watch.frames();
     let end = Instant::now() + timing.idle;
     let opened = stimulus.begin()?;
@@ -105,7 +110,8 @@ fn run_child(
     window::end(opened, &mut run)?;
 
     let first = totals(out, 1)?;
-    let idle = totals(out, 2)?;
+    let settle = totals(out, 2)?;
+    let idle = totals(out, 3)?;
     run.push("instructions to first frame (Ir)", Unit::Count, first);
     run.push("instructions in the idle window (Ir)", Unit::Count, idle);
     run.push("frames in the idle window", Unit::Count, frames);
@@ -116,6 +122,14 @@ fn run_child(
             per_frame,
         );
     }
+    run.note(
+        "instructions during the settle, kept out of the idle window",
+        format!(
+            "{} Ir in {} s",
+            report::format(settle, Unit::Count),
+            timing.settle.as_secs()
+        ),
+    );
     run.note("load average at the first frame", load);
     run.note("renderer", watch.renderer());
     run.presented = watch.presented();

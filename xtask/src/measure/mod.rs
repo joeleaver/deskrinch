@@ -83,7 +83,9 @@ Each run starts the program as the only client of a fresh nested compositor
 
 --instructions runs the program under Valgrind's Callgrind and reports
 instructions to the first frame, in the idle window, and per frame: the
-deterministic figure, for a loaded machine. Without it, CPU time is the
+deterministic figure, for a loaded machine. The idle window begins --settle
+seconds after the first frame there too, and each run notes the
+instructions of the settle, kept out of the window. Without it, CPU time is the
 figure to compare; wall time is printed apart, beside the load average, and
 is not comparable.
 

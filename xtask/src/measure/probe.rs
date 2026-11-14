@@ -279,7 +279,12 @@ fn sample(pid: u32, program: &str) -> Result<ProcessSample, Error> {
 }
 
 /// Waits `duration`, failing if the program exits or xtask is interrupted.
-fn wait(child: &mut Child, watch: &Watch, program: &str, duration: Duration) -> Result<(), Error> {
+pub(super) fn wait(
+    child: &mut Child,
+    watch: &Watch,
+    program: &str,
+    duration: Duration,
+) -> Result<(), Error> {
     let end = Instant::now() + duration;
     while Instant::now() < end {
         interrupt::check()?;
