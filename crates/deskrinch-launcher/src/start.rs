@@ -86,7 +86,7 @@ mod tests {
         let text =
             format!("[Desktop Entry]\nType=Application\nName=Top\nExec=top\nTerminal={terminal}\n");
         let id = DesktopId::new("top.desktop").unwrap();
-        DesktopEntry::parse(id, "/x".into(), &text).unwrap()
+        DesktopEntry::parse(id, "/x".into(), &text, &[]).unwrap()
     }
 
     fn setting(words: &[&str]) -> TerminalCommand {
