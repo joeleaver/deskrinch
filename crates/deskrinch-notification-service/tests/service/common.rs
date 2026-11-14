@@ -5,9 +5,9 @@
 //! `dbus-daemon` the test starts, whose configuration has no service
 //! directories, so nothing can be activated on it either.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
@@ -64,12 +64,32 @@ impl PrivateBus {
     }
 }
 
-/// The events a service reported, in order.
-pub(crate) struct Events(Receiver<Event>);
+/// The events a service reported, in order, but for those about the
+/// sentinels of [`Time`](crate::time::Time).
+pub(crate) struct Events {
+    events: Receiver<Event>,
+    sentinels: Mutex<HashSet<u32>>,
+}
 
 impl Events {
     pub(crate) fn next(&self) -> Event {
-        recv("an event from the service", &self.0)
+        loop {
+            let event = recv("an event from the service", &self.events);
+            let about = match &event {
+                Event::Shown(n) | Event::Replaced(n) => Some(n.id.get()),
+                Event::Closed { id, .. } => Some(id.get()),
+                _ => None,
+            };
+            let sentinels = self.sentinels.lock().unwrap();
+            if !about.is_some_and(|id| sentinels.contains(&id)) {
+                return event;
+            }
+        }
+    }
+
+    /// Leaves out, from now on, the events about the notification `id`.
+    pub(crate) fn leave_out(&self, id: u32) {
+        self.sentinels.lock().unwrap().insert(id);
     }
 
     pub(crate) fn next_shown(&self) -> Arc<deskrinch_notification_service::Notification> {
@@ -88,7 +108,11 @@ pub(crate) fn start_with(config: Config, clock: Arc<dyn Clock>) -> (Service, Eve
         let _sent = tx.send(event);
     })
     .unwrap();
-    (service, Events(rx))
+    let events = Events {
+        events: rx,
+        sentinels: Mutex::default(),
+    };
+    (service, events)
 }
 
 /// Starts a service on `bus` with a manual clock.

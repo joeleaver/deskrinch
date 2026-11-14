@@ -52,7 +52,20 @@ fn each_activation_reaches_the_item() {
         handle.activate(&id, activation, None).unwrap();
         assert_eq!(item.next_call(), call);
     }
-    item.no_call();
+    // No more calls. Sentinel: the tracker sends the handle's calls in the
+    // order they were made, on one connection, so one more is the next the
+    // item hears.
+    handle
+        .activate(
+            &id,
+            Activation::Scroll {
+                delta: 7,
+                orientation: Orientation::Vertical,
+            },
+            None,
+        )
+        .unwrap();
+    assert_eq!(item.next_call(), Call::Scroll(7, "vertical".into()));
 }
 
 #[test]

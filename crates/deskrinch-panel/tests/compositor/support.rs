@@ -154,7 +154,8 @@ impl Pictures {
     /// [`STILL`] apart. What the last test showed may still be going: KWin
     /// fades a closed window or panel out, the more slowly the busier the
     /// machine is, and a picture taken during the fade would count the
-    /// whole fade as the panel's.
+    /// whole fade as the panel's. A window, since nothing reports a fade's
+    /// end: two pictures alike are the only sign of it.
     pub(crate) fn still(screen: &mut Screen) -> Self {
         let deadline = Deadline::patience();
         let mut last = Self::take(screen);

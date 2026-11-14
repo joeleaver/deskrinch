@@ -82,7 +82,8 @@ fn a_full_socket_is_waited_out_not_taken_for_a_lost_connection() {
         }
         assert!(!deadline.passed(), "the socket never filled");
     }
-    // Waiting on a full socket ends nothing.
+    // Waiting on a full socket ends nothing. A window: nothing the client
+    // does while the socket stays full can be observed to follow it.
     thread::sleep(QUIET);
     assert_eq!(*ends.lock().unwrap(), Vec::<String>::new());
 
