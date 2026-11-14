@@ -93,6 +93,14 @@ pub(super) struct Suite {
     pub(super) filter: &'static [&'static str],
 }
 
+impl Suite {
+    /// Whether it is the row that ends the session (the window-management
+    /// tests of [`SESSION_END`]), after which nothing of it is left.
+    pub(super) fn ends_the_session(&self) -> bool {
+        self.filter == [SESSION_END]
+    }
+}
+
 /// The module of the window-management tests that ends the session, so
 /// runs last, on its own.
 pub(super) const SESSION_END: &str = "session_end::";

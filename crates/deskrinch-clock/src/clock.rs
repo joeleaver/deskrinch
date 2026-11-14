@@ -228,3 +228,63 @@ impl Worker {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+    use std::os::unix::fs::symlink;
+    use std::path::PathBuf;
+    use std::sync::mpsc;
+
+    use jiff::SignedDuration;
+
+    use super::*;
+    use crate::test_patience::PATIENCE;
+
+    /// The worker does not look for a change of zone from time to time: it
+    /// blocks on the zone watch, with the timer and its stop signal, and
+    /// wakes because the watch is ready. Shown without a bound on time:
+    /// the timer is armed an hour ahead and an armed wait has no timeout,
+    /// so the wait can only return early because the zone changed.
+    #[test]
+    fn a_zone_change_wakes_a_waiting_worker_by_itself() {
+        let dir = tempfile::tempdir().unwrap();
+        let (berlin, tokyo) = (dir.path().join("berlin"), dir.path().join("tokyo"));
+        fs::write(&berlin, "b").unwrap();
+        fs::write(&tokyo, "t").unwrap();
+        let localtime = dir.path().join("localtime");
+        symlink(&berlin, &localtime).unwrap();
+
+        let mut watch = ZoneWatch::new().unwrap();
+        watch.watch(Some(&localtime)).unwrap();
+        let timer = WallTimer::new().unwrap();
+        let in_an_hour = Timestamp::now() + SignedDuration::from_hours(1);
+        assert_eq!(timer.arm(in_an_hour).unwrap(), Fired::Pending);
+        let mut worker = Worker {
+            env: Environment {
+                tz: None,
+                zoneinfo: PathBuf::from("/usr/share/zoneinfo"),
+                localtime: localtime.clone(),
+                time_locale: None,
+            },
+            timer,
+            watch,
+            stop: Arc::new(eventfd(0, EventfdFlags::CLOEXEC | EventfdFlags::NONBLOCK).unwrap()),
+            subscriber: Box::new(|_| {}),
+        };
+        let (send, woke) = mpsc::channel();
+        let waiting = thread::spawn(move || send.send(worker.wait(true)).unwrap());
+
+        // timedatectl's way: a new link renamed over the old.
+        let new_link = dir.path().join(".localtime.new");
+        symlink(&tokyo, &new_link).unwrap();
+        fs::rename(&new_link, &localtime).unwrap();
+
+        let woke = woke
+            .recv_timeout(PATIENCE)
+            .expect("the worker woke for the zone, an hour before its timer");
+        assert!(woke.zone, "{woke:?}");
+        assert!(!woke.stop && !woke.clock_set, "{woke:?}");
+        waiting.join().unwrap();
+    }
+}
