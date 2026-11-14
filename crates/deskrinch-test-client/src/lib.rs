@@ -164,6 +164,10 @@ pub enum Error {
         /// How long it waited.
         patience: Duration,
     },
+    /// An output to be on has no mode the compositor reported, so none can
+    /// be stated for it; nothing was asked of the compositor.
+    #[error("{0} is to be on, but its compositor reported no mode for it")]
+    NoMode(String),
     /// `kscreen-doctor` said something that could not be read.
     #[error("could not read kscreen-doctor's outputs: {why}")]
     Kscreen {

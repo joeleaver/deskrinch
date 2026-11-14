@@ -17,7 +17,7 @@ use std::process::Command;
 use deskrinch_test_wayland::Transform;
 use serde::Deserialize;
 
-use crate::layout::{Mode, OutputState};
+use crate::layout::{Mode, OutputState, mode_to_set};
 use crate::{Error, OutputChange};
 
 /// The program.
@@ -147,14 +147,7 @@ pub fn kscreen_outputs(json: &str) -> Result<Vec<OutputState>, Error> {
                 .modes
                 .iter()
                 .find(|mode| Some(&mode.id) == listed.current_mode_id.as_ref())
-                .map_or(
-                    Mode {
-                        width: 0,
-                        height: 0,
-                        refresh_mhz: 0,
-                    },
-                    ListedMode::mode,
-                );
+                .map(ListedMode::mode);
             Ok(OutputState {
                 name: listed.name,
                 enabled: listed.enabled,
@@ -182,8 +175,9 @@ fn layout_settings(
             settings.push(format!("output.{name}.disable"));
             continue;
         }
-        let id = ids(name, output.mode).ok_or_else(|| Error::Kscreen {
-            why: format!("{name} has no mode {}", output.mode),
+        let mode = mode_to_set(output)?;
+        let id = ids(name, mode).ok_or_else(|| Error::Kscreen {
+            why: format!("{name} has no mode {mode}"),
         })?;
         let (x, y) = output.position;
         settings.extend([
@@ -271,20 +265,37 @@ mod tests {
         assert_eq!(outputs[0].position, (0, 0));
         assert_eq!(
             outputs[0].mode,
-            Mode {
+            Some(Mode {
                 width: 1280,
                 height: 720,
                 refresh_mhz: 60_000
-            }
+            })
         );
         assert!(!outputs[1].enabled);
         assert_eq!(outputs[1].position, (1280, 0));
-        assert_eq!(outputs[1].mode.refresh_mhz, 59_940);
+        assert_eq!(outputs[1].mode.map(|mode| mode.refresh_mhz), Some(59_940));
         assert!((outputs[1].scale - 1.5).abs() < f64::EPSILON);
         assert_eq!(outputs[1].transform, Transform::Rotated90);
         assert!(kscreen_outputs("{}").is_err());
         let rotated = LISTING.replace("\"rotation\":2", "\"rotation\":3");
         assert!(kscreen_outputs(&rotated).is_err());
+        let unmoded = LISTING.replace("\"currentModeId\":\"2\",", "");
+        assert_eq!(kscreen_outputs(&unmoded).unwrap()[1].mode, None);
+    }
+
+    #[test]
+    fn an_output_to_be_on_without_a_mode_is_refused_before_kscreen_is_run() {
+        let mut outputs = kscreen_outputs(LISTING).unwrap();
+        outputs[1].enabled = true;
+        outputs[1].mode = None;
+        let ids = |_: &str, _| Some("1".to_owned());
+        assert!(matches!(
+            layout_settings(&outputs, ids),
+            Err(Error::NoMode(name)) if name == "Virtual-1"
+        ));
+        // Off, it needs none.
+        outputs[1].enabled = false;
+        assert!(layout_settings(&outputs, ids).is_ok());
     }
 
     #[test]

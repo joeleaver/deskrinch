@@ -64,6 +64,31 @@ fn each_output_turned_and_put_back_leaves_the_layout_as_it_was() {
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn each_output_scaled_and_put_back_leaves_the_layout_as_it_was() {
+    let before = fresh();
+    for output in &before {
+        // Another whole scale than its own: labwc lays the outputs out
+        // again when one is scaled.
+        let other = if (output.scale - 2.0).abs() < 1e-6 {
+            1.0
+        } else {
+            2.0
+        };
+        let scaled = OutputChange {
+            scale: Some(other),
+            transform: None,
+        };
+        let restore = change_output(&output.name, scaled).unwrap();
+        let now = outputs().unwrap();
+        let this = now.iter().find(|o| o.name == output.name).unwrap();
+        assert!((this.scale - other).abs() < 1e-6, "{now:?}");
+        restore.restore().unwrap();
+        assert_as(&before, &format!("{} scaled and back", output.name));
+    }
+}
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn a_guard_dropped_puts_the_layout_back() {
     let before = fresh();
     let first = &before[0].name;

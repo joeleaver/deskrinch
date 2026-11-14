@@ -49,8 +49,10 @@ pub struct OutputState {
     /// The position of its top-left corner in the layout, in logical
     /// pixels.
     pub position: (i32, i32),
-    /// Its mode.
-    pub mode: Mode,
+    /// Its current mode; `None` when the compositor reports none (an
+    /// output that is off may not say). An output to be turned on needs
+    /// one: a change refuses it without ([`Error::NoMode`]).
+    pub mode: Option<Mode>,
     /// Its scale: how many physical pixels a logical one covers.
     pub scale: f64,
     /// Its transform.
@@ -86,12 +88,23 @@ impl fmt::Display for OutputState {
         if !self.enabled {
             return write!(f, "{} off", self.name);
         }
+        let mode = self
+            .mode
+            .map_or_else(|| "no mode".to_owned(), |mode| mode.to_string());
         write!(
             f,
-            "{} at {},{}, {}, scale {}, {:?}",
-            self.name, self.position.0, self.position.1, self.mode, self.scale, self.transform
+            "{} at {},{}, {mode}, scale {}, {:?}",
+            self.name, self.position.0, self.position.1, self.scale, self.transform
         )
     }
+}
+
+/// The mode of `output`, to be on: refused with [`Error::NoMode`] when the
+/// compositor reported none, before anything is asked of it.
+pub(crate) fn mode_to_set(output: &OutputState) -> Result<Mode, Error> {
+    output
+        .mode
+        .ok_or_else(|| Error::NoMode(output.name.clone()))
 }
 
 /// What differs between two layouts, `before` and `after`, for a
@@ -337,11 +350,11 @@ mod tests {
             name: name.to_owned(),
             enabled: true,
             position: (x, 0),
-            mode: Mode {
+            mode: Some(Mode {
                 width: 1280,
                 height: 720,
                 refresh_mhz: 60_000,
-            },
+            }),
             scale: 1.0,
             transform: Transform::Normal,
         }
@@ -375,7 +388,7 @@ mod tests {
         let before = [output("A", 0), output("B", 1280)];
         let changes: [&dyn Fn(&mut OutputState); 5] = [
             &|o| o.enabled = false,
-            &|o| o.mode.refresh_mhz = 59_940,
+            &|o| o.mode.as_mut().unwrap().refresh_mhz = 59_940,
             &|o| o.scale = 2.0,
             &|o| o.transform = Transform::Rotated90,
             &|o| o.name = "C".into(),
@@ -433,6 +446,20 @@ mod tests {
         assert!(shows(&[off.clone(), output("B", 0)], "A", &off));
         assert!(!shows(&[output("A", 0)], "A", &off));
         assert!(!shows(&[output("A", 0)], "C", &off));
+    }
+
+    #[test]
+    fn no_mode_is_no_mode_compared_and_refused_to_set() {
+        let none = OutputState {
+            mode: None,
+            ..output("A", 0)
+        };
+        let alone = std::slice::from_ref(&none);
+        assert!(layout_differences(&[output("A", 0)], alone).is_some());
+        assert_eq!(layout_differences(alone, alone), None);
+        assert_eq!(none.to_string(), "A at 0,0, no mode, scale 1, Normal");
+        assert!(matches!(mode_to_set(&none), Err(Error::NoMode(name)) if name == "A"));
+        assert!(mode_to_set(&output("A", 0)).is_ok());
     }
 
     #[test]

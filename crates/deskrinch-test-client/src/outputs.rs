@@ -36,7 +36,7 @@ use wayland_protocols_wlr::output_management::v1::client::zwlr_output_mode_v1::{
 
 use deskrinch_test_wayland::{Deadline, Globals, Transform, dispatch_until};
 
-use crate::layout::{Mode, OutputState};
+use crate::layout::{Mode, OutputState, mode_to_set};
 use crate::{Error, PATIENCE, waited};
 
 /// One head (output) as the manager describes it.
@@ -114,7 +114,7 @@ impl Manager {
                         .map(|(_, described)| *described)
                 });
                 OutputState {
-                    mode: mode.unwrap_or(head.state.mode),
+                    mode,
                     ..head.state.clone()
                 }
             })
@@ -122,48 +122,41 @@ impl Manager {
     }
 
     /// Makes the outputs `layout`: every head named, each one on stated in
-    /// full. A head `layout` does not name is stated as it is.
+    /// full. A head `layout` does not name is stated as it is. Nothing is
+    /// sent unless every head can be stated ([`plan`]).
     fn apply(mut self, layout: &[OutputState]) -> Result<(), Error> {
         let qh = self.queue.handle();
-        for output in layout {
-            if !self.state.heads.iter().any(|h| h.state.name == output.name) {
-                return Err(Error::UnknownOutput(output.name.clone()));
-            }
-        }
-        let refused = |reason: String| Error::OutputRefused {
-            name: "the outputs".to_owned(),
-            reason,
-        };
+        let plans = plan(&self.layout(), layout)?;
         let serial = self.state.serial.unwrap_or_default();
         let configuration = self.proxy.create_configuration(serial, &qh, ());
-        for head in &self.state.heads {
-            let target = layout
-                .iter()
-                .find(|output| output.name == head.state.name)
-                .unwrap_or(&head.state);
-            if !target.enabled {
+        for (head, planned) in self.state.heads.iter().zip(plans) {
+            let Planned::On {
+                mode,
+                position,
+                scale,
+                transform,
+            } = planned
+            else {
                 configuration.disable_head(&head.proxy);
                 continue;
-            }
+            };
             let settings = configuration.enable_head(&head.proxy, &qh, ());
             let listed = head.modes.iter().find(|proxy| {
                 self.state
                     .modes
                     .iter()
-                    .any(|(mode, described)| mode == *proxy && *described == target.mode)
+                    .any(|(listed, described)| listed == *proxy && *described == mode)
             });
             match listed {
-                Some(mode) => settings.set_mode(mode),
+                Some(listed) => settings.set_mode(listed),
                 None => settings.set_custom_mode(
-                    signed(target.mode.width),
-                    signed(target.mode.height),
-                    signed(target.mode.refresh_mhz),
+                    signed(mode.width),
+                    signed(mode.height),
+                    signed(mode.refresh_mhz),
                 ),
             }
-            settings.set_position(target.position.0, target.position.1);
-            settings.set_scale(target.scale);
-            let transform = WlTransform::try_from(target.transform.to_wayland())
-                .map_err(|()| refused(format!("transform {:?}", target.transform)))?;
+            settings.set_position(position.0, position.1);
+            settings.set_scale(scale);
             settings.set_transform(transform);
         }
         configuration.apply();
@@ -178,8 +171,62 @@ impl Manager {
             .outcome
             .take()
             .unwrap_or_else(|| Err("no answer".into()))
-            .map_err(refused)
+            .map_err(|reason| Error::OutputRefused {
+                name: "the outputs".to_owned(),
+                reason,
+            })
     }
+}
+
+/// What a configuration says of one head.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Planned {
+    /// `disable_head`.
+    Off,
+    /// `enable_head`, with everything stated.
+    On {
+        mode: Mode,
+        position: (i32, i32),
+        scale: f64,
+        transform: WlTransform,
+    },
+}
+
+/// What a configuration that makes the outputs `layout` says of each head
+/// of `current`, in its order: a head `layout` does not name is stated as
+/// it is. Refused, before anything is sent, for an output `layout` names
+/// that is not there, and for one to be on with no known mode.
+fn plan(current: &[OutputState], layout: &[OutputState]) -> Result<Vec<Planned>, Error> {
+    if let Some(unknown) = layout
+        .iter()
+        .find(|output| !current.iter().any(|head| head.name == output.name))
+    {
+        return Err(Error::UnknownOutput(unknown.name.clone()));
+    }
+    current
+        .iter()
+        .map(|head| {
+            let target = layout
+                .iter()
+                .find(|output| output.name == head.name)
+                .unwrap_or(head);
+            if !target.enabled {
+                return Ok(Planned::Off);
+            }
+            let transform = WlTransform::try_from(target.transform.to_wayland()).map_err(|()| {
+                Error::OutputRefused {
+                    name: target.name.clone(),
+                    reason: format!("transform {:?}", target.transform),
+                }
+            })?;
+            Ok(Planned::On {
+                mode: mode_to_set(target)?,
+                position: target.position,
+                scale: target.scale,
+                transform,
+            })
+        })
+        .collect()
 }
 
 /// `value` as the protocol's `int`, saturating (no output is that large).
@@ -280,11 +327,7 @@ impl Dispatch<ZwlrOutputManagerV1, ()> for State {
                     name: String::new(),
                     enabled: false,
                     position: (0, 0),
-                    mode: Mode {
-                        width: 0,
-                        height: 0,
-                        refresh_mhz: 0,
-                    },
+                    mode: None,
                     scale: 1.0,
                     transform: Transform::Normal,
                 },
@@ -398,3 +441,65 @@ impl Dispatch<ZwlrOutputConfigurationV1, ()> for State {
 }
 
 delegate_noop!(State: ZwlrOutputConfigurationHeadV1);
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn output(name: &str, mode: Option<Mode>) -> OutputState {
+        OutputState {
+            name: name.to_owned(),
+            enabled: true,
+            position: (0, 0),
+            mode,
+            scale: 1.0,
+            transform: Transform::Normal,
+        }
+    }
+
+    const MODE: Mode = Mode {
+        width: 1280,
+        height: 720,
+        refresh_mhz: 0,
+    };
+
+    #[test]
+    fn every_head_is_stated_and_one_not_named_as_it_is() {
+        let current = [output("A", Some(MODE)), output("B", Some(MODE))];
+        let off = OutputState {
+            enabled: false,
+            ..current[0].clone()
+        };
+        let plans = plan(&current, &[off]).unwrap();
+        assert_eq!(plans[0], Planned::Off);
+        assert_eq!(
+            plans[1],
+            Planned::On {
+                mode: MODE,
+                position: (0, 0),
+                scale: 1.0,
+                transform: WlTransform::Normal,
+            }
+        );
+    }
+
+    #[test]
+    fn an_output_to_be_on_without_a_mode_is_refused_before_anything_is_sent() {
+        // As a head that is off may come: no current mode.
+        let current = [output("A", Some(MODE)), output("B", None)];
+        assert!(matches!(
+            plan(&current, &[]),
+            Err(Error::NoMode(name)) if name == "B"
+        ));
+        // Off, it needs none.
+        let off = OutputState {
+            enabled: false,
+            ..current[1].clone()
+        };
+        assert!(plan(&current, &[off]).is_ok());
+        assert!(matches!(
+            plan(&current, &[output("C", Some(MODE))]),
+            Err(Error::UnknownOutput(name)) if name == "C"
+        ));
+    }
+}
