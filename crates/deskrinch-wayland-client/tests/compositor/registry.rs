@@ -3,28 +3,10 @@
 
 use std::sync::{Arc, Mutex};
 
-use deskrinch_test_client::set_output_enabled;
+use deskrinch_test_client::turn_output_off;
 use deskrinch_wayland_client::Client;
 
 use crate::support::{Record, attach, bounded, eventually, nested};
-
-/// Turns an output back on when dropped, whatever the test did meanwhile:
-/// the session's later tests expect both outputs.
-struct Off(String);
-
-impl Off {
-    fn new(name: &str) -> Self {
-        set_output_enabled(name, false).expect("turn the output off");
-        Self(name.to_owned())
-    }
-}
-
-impl Drop for Off {
-    fn drop(&mut self) {
-        // A failure here is reported by the test that follows.
-        drop(set_output_enabled(&self.0, true));
-    }
-}
 
 /// The `wl_output` globals `record` has seen added since setup.
 fn outputs_added(record: &Mutex<Record>) -> Vec<u32> {
@@ -54,7 +36,8 @@ fn a_global_that_goes_and_comes_back_reaches_every_state() {
             record.output_globals.clone(),
         )
     };
-    let off = Off::new(&name);
+    // Put back as it was, the whole layout, when restored or dropped.
+    let off = turn_output_off(&name).expect("turn the output off");
     for record in records {
         eventually("an output's global gone, for every state", || {
             record
@@ -66,7 +49,7 @@ fn a_global_that_goes_and_comes_back_reaches_every_state() {
         });
         assert_eq!(outputs_added(record), Vec::<u32>::new());
     }
-    drop(off);
+    off.restore().expect("put the outputs back");
     for record in records {
         eventually("an output's global back, for every state", || {
             !outputs_added(record).is_empty()
