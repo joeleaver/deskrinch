@@ -100,6 +100,6 @@ mod visibility;
 
 pub use client::{Answer, ClientError, Request, send};
 pub use model::{Action, FREQUENT, Input, Model, ROWS, Row, frequent};
-pub use prepare::{Drawn, Preparation};
+pub use prepare::{Change, Drawn, PREPARING, Preparation, preparing};
 pub use service::{INTERFACE, NAME, PATH, ServeError, Service};
 pub use visibility::Visibility;

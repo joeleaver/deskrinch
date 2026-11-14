@@ -27,7 +27,9 @@ use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{CatalogEntry, Environment};
 use deskrinch_icons::Index;
-use deskrinch_launcher::{Action, Drawn, Input, Model, Preparation, Visibility, frequent};
+use deskrinch_launcher::{
+    Action, Drawn, Input, Model, Preparation, Visibility, frequent, preparing,
+};
 use deskrinch_settings::general::GeneralSettings;
 use deskrinch_start_record::Record;
 use deskrinch_theme::{Scheme, Theme};
@@ -181,10 +183,7 @@ fn prepare_while_hidden(
         let drawn = drawn.get();
         let changes = preparation.wants(drawn, untracked(|| shown.get()));
         if !changes.is_empty() {
-            tracing::info!(
-                "preparing the hidden window for its next show: {} changed",
-                changes.join(", ")
-            );
+            tracing::info!("{}", preparing(&changes));
             prepare_current_window();
         }
     });

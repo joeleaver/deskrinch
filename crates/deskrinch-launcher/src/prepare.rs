@@ -27,26 +27,63 @@ impl PartialEq for Drawn {
 }
 
 impl Drawn {
-    /// What differs from `before`, for the log: everything when there is
-    /// none.
+    /// What differs from `before`: everything when there is none.
     #[must_use]
-    pub fn changes(&self, before: Option<&Self>) -> Vec<&'static str> {
+    pub fn changes(&self, before: Option<&Self>) -> Vec<Change> {
         let Some(before) = before else {
-            return vec!["everything (not prepared before)"];
+            return vec![Change::Everything];
         };
         let icons = match (&self.icons, &before.icons) {
             (Some(now), Some(then)) => !Arc::ptr_eq(now, then),
             (now, then) => now.is_some() != then.is_some(),
         };
         [
-            ("the results", self.rows != before.rows),
-            ("the icons", icons),
-            ("the look", self.look != before.look),
+            (Change::Results, self.rows != before.rows),
+            (Change::Icons, icons),
+            (Change::Look, self.look != before.look),
         ]
         .into_iter()
         .filter_map(|(what, changed)| changed.then_some(what))
         .collect()
     }
+}
+
+/// A part of what the next show draws that changed, as the log names it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Change {
+    /// Nothing was prepared before.
+    Everything,
+    /// The results an empty query shows.
+    Results,
+    /// The icon theme's index.
+    Icons,
+    /// Dark or light.
+    Look,
+}
+
+impl Change {
+    /// Its name in the log's line ([`preparing`]).
+    #[must_use]
+    pub fn says(self) -> &'static str {
+        match self {
+            Self::Everything => "everything (not prepared before)",
+            Self::Results => "the results",
+            Self::Icons => "the icons",
+            Self::Look => "the look",
+        }
+    }
+}
+
+/// How the launcher's line saying it prepares begins ([`preparing`]).
+pub const PREPARING: &str = "preparing the hidden window for its next show:";
+
+/// The line the launcher writes, at info, each time it asks rinch to
+/// prepare its hidden window, naming what changed: one home for its
+/// wording, which the launcher logs with and its tests read.
+#[must_use]
+pub fn preparing(changes: &[Change]) -> String {
+    let named: Vec<&str> = changes.iter().map(|change| change.says()).collect();
+    format!("{PREPARING} {} changed", named.join(", "))
 }
 
 /// What the launcher last prepared, and whether to prepare again.
@@ -78,7 +115,7 @@ impl Preparation {
     /// The next show now draws `drawn`, and the launcher is `shown` or not:
     /// what changed since the last preparation, when it should prepare now
     /// (hidden, and something changed); nothing otherwise.
-    pub fn wants(&mut self, drawn: Drawn, shown: bool) -> Vec<&'static str> {
+    pub fn wants(&mut self, drawn: Drawn, shown: bool) -> Vec<Change> {
         if shown {
             return Vec::new();
         }

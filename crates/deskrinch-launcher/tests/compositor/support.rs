@@ -5,9 +5,9 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use deskrinch_bus::Bus;
-use deskrinch_launcher::NAME;
+use deskrinch_launcher::{Change, NAME, PREPARING};
 use deskrinch_test_client::Compositor;
-use deskrinch_test_component::{Component, Renderer};
+use deskrinch_test_component::{Component, PerfLine, PerfWindow, Renderer, perf};
 use deskrinch_test_wait::{Deadline, POLL, comes_true};
 
 /// How long a test watches a launcher for something that must not happen
@@ -65,6 +65,47 @@ impl Launcher {
     /// The frames it has presented (rinch's `RINCH_PERF` lines).
     pub(crate) fn frames(&self) -> u64 {
         self.component().watch().frames()
+    }
+
+    /// The frames rinch has prepared for its hidden window (not presented).
+    pub(crate) fn prepared(&self) -> u64 {
+        self.component().watch().prepared()
+    }
+
+    /// Waits until a prepared frame has followed a line in which the
+    /// launcher said it asked to prepare because of one of `causes`
+    /// ([`deskrinch_launcher::preparing`]); `Err` with its last lines when
+    /// none has within the patience.
+    pub(crate) fn wait_prepared_for(&self, causes: &[Change]) -> Result<(), String> {
+        let asked = |line: &str| {
+            line.contains(PREPARING) && causes.iter().any(|cause| line.contains(cause.says()))
+        };
+        let prepared = |line: &str| {
+            matches!(
+                perf::parse(line),
+                Some(PerfLine::Prepared {
+                    window: PerfWindow::Main,
+                    ..
+                })
+            )
+        };
+        let watch = self.component().watch();
+        let followed = || {
+            let lines = watch.lines();
+            lines
+                .iter()
+                .position(|line| asked(line))
+                .is_some_and(|at| lines[at..].iter().any(|line| prepared(line)))
+        };
+        if comes_true(followed) {
+            Ok(())
+        } else {
+            let named: Vec<&str> = causes.iter().map(|cause| cause.says()).collect();
+            Err(format!(
+                "no prepared frame followed a request naming {named:?}; its last lines:\n{}",
+                watch.tail()
+            ))
+        }
     }
 
     /// Waits until it has presented, with the run's renderer.
