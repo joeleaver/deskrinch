@@ -108,9 +108,9 @@ pub(crate) fn lines(stdout: impl std::io::Read + Send + 'static) -> Receiver<Str
     thread::spawn(move || {
         for line in BufReader::new(stdout).lines() {
             let Ok(line) = line else { break };
-            if sender.send(line).is_err() {
-                break;
-            }
+            // Read on once no one listens, so that the desktop and what it
+            // runs never write into a pipe that is not drained.
+            let _sent = sender.send(line);
         }
     });
     receiver
@@ -119,7 +119,12 @@ pub(crate) fn lines(stdout: impl std::io::Read + Send + 'static) -> Receiver<Str
 impl Desktop {
     /// Waits for it to end; how it did.
     pub(crate) fn wait(&mut self) -> ExitStatus {
-        let deadline = Instant::now() + PATIENCE;
+        self.wait_within(PATIENCE)
+    }
+
+    /// Waits up to `patience` for it to end; how it did.
+    pub(crate) fn wait_within(&mut self, patience: Duration) -> ExitStatus {
+        let deadline = Instant::now() + patience;
         loop {
             if let Some(status) = self.child.try_wait().unwrap() {
                 return status;
