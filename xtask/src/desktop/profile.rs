@@ -2,6 +2,11 @@
 //! keeps from one run to the next, under `.work/desktop/NAME/` in the
 //! workspace (gitignored). One desktop uses a profile at a time.
 //!
+//! Its home is the session's `HOME`, which also catches what ignores the
+//! XDG variables: KWin, run in secure mode for its file capability, has
+//! Mesa put its shader cache in `home/.cache`, not in the profile's
+//! `cache` (see `deskrinch_test_dbus::session`).
+//!
 //! Two things keep it to one:
 //!
 //! - a lock (`flock` on `.lock`) held for as long as `cargo xtask desktop`
