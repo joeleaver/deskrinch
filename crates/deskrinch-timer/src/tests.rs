@@ -5,7 +5,7 @@ use std::task::{Wake, Waker};
 use std::thread;
 
 use super::*;
-use deskrinch_test_wait::eventually;
+use deskrinch_test_wait::{PATIENCE, eventually};
 
 /// Runs `future` on this thread, parking between polls.
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -185,7 +185,8 @@ fn many_sleeps_share_one_thread() {
             Poll::Pending
         }
     }));
-    assert!(started.elapsed() < Duration::from_secs(5));
+    // Woken, not left to wait out something longer.
+    assert!(started.elapsed() < PATIENCE);
     assert_eq!(timer.shared.held(), (0, 0));
 }
 

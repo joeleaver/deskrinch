@@ -195,8 +195,9 @@ mod tests {
         let started = std::time::Instant::now();
         let read = sink.wait_written(Deadline::patience()).unwrap();
         assert_eq!(read, b"a whole picture");
+        // Before the deadline it would otherwise have waited out.
         assert!(
-            started.elapsed() < Duration::from_secs(10),
+            started.elapsed() < deskrinch_test_wait::PATIENCE,
             "read at once, not at the deadline"
         );
     }

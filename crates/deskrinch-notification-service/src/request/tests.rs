@@ -299,6 +299,12 @@ fn the_expiry_starts_when_shown_and_pauses_keeping_the_rest() {
     );
 }
 
+/// How long the worst-case body may take to parse: a speed claim the parser
+/// makes (its work is linear in the bounded input, so a hostile sender
+/// cannot stall the service), told from the minutes a quadratic parse of
+/// this input would take; not a measure of how fast it is.
+const LINEAR_PARSE: Duration = Duration::from_secs(5);
+
 #[test]
 fn the_worst_case_body_at_the_markup_bound_is_parsed_quickly() {
     use deskrinch_untrusted::markup::{self, MAX_TAG_BYTES};
@@ -317,5 +323,5 @@ fn the_worst_case_body_at_the_markup_bound_is_parsed_quickly() {
     let started = Instant::now();
     let parsed = markup::parse(&body, options);
     assert!(parsed.plain_text().len() <= options.max_text_bytes);
-    assert!(started.elapsed() < Duration::from_secs(5));
+    assert!(started.elapsed() < LINEAR_PARSE);
 }

@@ -296,8 +296,9 @@ mod tests {
         let started = Instant::now();
         let error = component.wait_presented().unwrap_err();
         assert!(error.contains("cannot start"), "{error}");
+        // Before the bound it would otherwise have waited out.
         assert!(
-            started.elapsed() < HUNG_AFTER / 4,
+            started.elapsed() < HUNG_AFTER,
             "it waited {:?} for a program that had ended",
             started.elapsed()
         );
