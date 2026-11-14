@@ -5,7 +5,7 @@ use std::path::Path;
 use deskrinch_desktop_entries::DesktopId;
 use deskrinch_icons::SearchPath;
 
-use super::Change::{Everything, Icons, Look, Results};
+use super::Change::{Everything, Hidden, Icons, Look, Results};
 use super::*;
 
 /// No change: nothing to prepare.
@@ -71,23 +71,32 @@ fn prepares_again_when_the_results_the_icons_or_the_look_change_while_hidden() {
 }
 
 #[test]
-fn a_change_while_shown_is_prepared_with_the_next_change_while_hidden() {
+fn every_hide_prepares_naming_what_changed_while_shown() {
     let mut preparation = Preparation::default();
-    assert_eq!(
-        preparation.wants(drawn(&["a"], None, Scheme::Dark), false),
-        [Everything]
-    );
+    let first = drawn(&["a"], None, Scheme::Dark);
+    assert_eq!(preparation.wants(first.clone(), false), [Everything]);
     // Shown: its frames are its preparation, whatever changes.
-    let more = drawn(&["a", "b"], None, Scheme::Dark);
-    assert_eq!(preparation.wants(more, true), NOTHING);
+    assert_eq!(preparation.wants(first.clone(), true), NOTHING);
     let light = drawn(&["b"], None, Scheme::Light);
-    assert_eq!(preparation.wants(light, true), NOTHING);
-    // Hidden again, the next change prepares everything since the last.
-    let icons = index();
+    assert_eq!(preparation.wants(light.clone(), true), NOTHING);
+    // Hidden: the hide prepares, with what changed since the last.
     assert_eq!(
-        preparation.wants(drawn(&["b"], Some(&icons), Scheme::Light), false),
-        [Results, Icons, Look]
+        preparation.wants(light.clone(), false),
+        [Hidden, Results, Look]
     );
+    assert_eq!(preparation.wants(light.clone(), false), NOTHING);
+    // A hide that changed nothing prepares too: the last painted frame
+    // was the shown one's.
+    assert_eq!(preparation.wants(light.clone(), true), NOTHING);
+    assert_eq!(preparation.wants(light, false), [Hidden]);
+}
+
+#[test]
+fn a_launcher_made_shown_prepares_everything_at_its_first_hide() {
+    let mut preparation = Preparation::default();
+    let rows = drawn(&["a"], None, Scheme::Dark);
+    assert_eq!(preparation.wants(rows.clone(), true), NOTHING);
+    assert_eq!(preparation.wants(rows, false), [Everything]);
 }
 
 #[test]
@@ -101,12 +110,13 @@ fn drawn_is_equal_when_nothing_a_show_draws_differs() {
 }
 
 #[test]
-fn the_line_names_what_changed() {
+fn the_line_says_why() {
     assert_eq!(
         preparing(&[Everything]),
-        "preparing the hidden window for its next show: everything (not prepared before) changed"
+        "preparing the hidden window for its next show: nothing was prepared before"
     );
-    let line = preparing(&[Results, Icons]);
-    assert!(line.starts_with(PREPARING));
-    assert!(line.ends_with("the results, the icons changed"), "{line}");
+    assert_eq!(
+        preparing(&[Hidden, Results, Icons]),
+        format!("{PREPARING} it was hidden; the results changed; the icons changed")
+    );
 }

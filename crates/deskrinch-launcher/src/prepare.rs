@@ -48,28 +48,31 @@ impl Drawn {
     }
 }
 
-/// A part of what the next show draws that changed, as the log names it.
+/// Why the launcher prepares, as the log names it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Change {
     /// Nothing was prepared before.
     Everything,
-    /// The results an empty query shows.
+    /// It was just hidden: its last frame was the shown one's.
+    Hidden,
+    /// The results an empty query shows changed.
     Results,
-    /// The icon theme's index.
+    /// The icon theme's index changed.
     Icons,
-    /// Dark or light.
+    /// Dark or light changed.
     Look,
 }
 
 impl Change {
-    /// Its name in the log's line ([`preparing`]).
+    /// Its words in the log's line ([`preparing`]).
     #[must_use]
     pub fn says(self) -> &'static str {
         match self {
-            Self::Everything => "everything (not prepared before)",
-            Self::Results => "the results",
-            Self::Icons => "the icons",
-            Self::Look => "the look",
+            Self::Everything => "nothing was prepared before",
+            Self::Hidden => "it was hidden",
+            Self::Results => "the results changed",
+            Self::Icons => "the icons changed",
+            Self::Look => "the look changed",
         }
     }
 }
@@ -78,12 +81,12 @@ impl Change {
 pub const PREPARING: &str = "preparing the hidden window for its next show:";
 
 /// The line the launcher writes, at info, each time it asks rinch to
-/// prepare its hidden window, naming what changed: one home for its
-/// wording, which the launcher logs with and its tests read.
+/// prepare its hidden window, saying why: one home for its wording, which
+/// the launcher logs with and its tests read.
 #[must_use]
 pub fn preparing(changes: &[Change]) -> String {
     let named: Vec<&str> = changes.iter().map(|change| change.says()).collect();
-    format!("{PREPARING} {} changed", named.join(", "))
+    format!("{PREPARING} {}", named.join("; "))
 }
 
 /// What the launcher last prepared, and whether to prepare again.
@@ -94,32 +97,49 @@ pub fn preparing(changes: &[Change]) -> String {
 /// (`rinch::windows::prepare_current_window`), rinch does that work for the
 /// hidden window without presenting anything, and keeps what it made.
 ///
-/// What a show draws, as far as it can change while the launcher is hidden,
-/// is [`Drawn`]: the results an empty query shows (the frequent
-/// applications, which the installed applications and the record of starts
-/// make), the icon theme's index their icons come from, and the look. The
-/// launcher prepares whenever that changes while it is hidden, the first
-/// time included ([`wants`](Self::wants)), and never while it is shown,
-/// when its frames are its preparation. A change made while it is shown is
-/// prepared with the next change made while it is hidden.
+/// The rule: while the launcher is hidden, the frame it last painted is
+/// what its next show draws. So it prepares at start, at every hide, and
+/// whenever what the next show draws ([`Drawn`]) changes while it is
+/// hidden; never while it is shown, when its frames are its preparation.
 ///
-/// The pictures need nothing more: rinch loads an icon's file on a worker,
-/// and a prepared window that is still hidden prepares itself again when
-/// one lands.
+/// - At a hide the last painted frame is the shown one's: the query and its
+///   results, which the hide clears back to the frequent applications. The
+///   launcher prepares at every hide, without asking whether the hide
+///   changed what is drawn: one with nothing changed costs about 17 thousand
+///   instructions with the software renderer and 21 thousand with the GPU
+///   one (measured with `cargo xtask measure --summon --instructions`,
+///   against 132 and 216 thousand for the hide itself), too little to make
+///   the rule conditional.
+/// - While hidden, [`Drawn`] changes when the frequent applications do (the
+///   installed applications, the record of starts and `[general]` make
+///   them), when the icon theme's index does, and when the look does.
+/// - A change made while it is shown needs nothing more: the hide that
+///   follows prepares.
+///
+/// The pictures need nothing either: rinch loads an icon's file on a
+/// worker, and a prepared window that is still hidden prepares itself
+/// again when one lands.
 #[derive(Debug, Default)]
 pub struct Preparation {
     prepared: Option<Drawn>,
+    /// Whether it was shown when last asked.
+    shown: bool,
 }
 
 impl Preparation {
     /// The next show now draws `drawn`, and the launcher is `shown` or not:
-    /// what changed since the last preparation, when it should prepare now
-    /// (hidden, and something changed); nothing otherwise.
+    /// why it should prepare now (hidden, and just hidden or something
+    /// changed since the last preparation); nothing otherwise.
     pub fn wants(&mut self, drawn: Drawn, shown: bool) -> Vec<Change> {
+        let hidden_now = self.shown && !shown;
+        self.shown = shown;
         if shown {
             return Vec::new();
         }
-        let changes = drawn.changes(self.prepared.as_ref());
+        let mut changes = drawn.changes(self.prepared.as_ref());
+        if hidden_now && changes != [Change::Everything] {
+            changes.insert(0, Change::Hidden);
+        }
         if !changes.is_empty() {
             self.prepared = Some(drawn);
         }

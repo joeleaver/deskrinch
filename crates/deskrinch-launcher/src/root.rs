@@ -17,8 +17,9 @@
 //!   show, and only at the next hide while it is shown. The first, made
 //!   with the window, is the model's from the start.
 //! - While hidden, the window is prepared for its next show (rinch styles,
-//!   lays out and paints it without presenting) at start and whenever what
-//!   that show draws changes: see [`prepare_while_hidden`].
+//!   lays out and paints it without presenting) at start, at every hide,
+//!   and whenever what that show draws changes: see
+//!   [`prepare_while_hidden`].
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -161,12 +162,12 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
     content
 }
 
-/// Has rinch prepare the hidden window for its next show whenever what that
-/// show draws changes while the launcher is hidden, the first time
-/// included ([`Preparation`]): the frequent applications (which the
-/// installed applications, the record of starts and `[general]` make), the
-/// icon theme's index, and the look. The request is queued and runs on the
-/// event loop's next turn, after this turn's changes are in the document.
+/// Has rinch prepare the hidden window for its next show as
+/// [`Preparation`] says: at start, at every hide, and whenever what that
+/// show draws changes while the launcher is hidden (the frequent
+/// applications, the icon theme's index, the look). The request is queued
+/// and runs on the event loop's next turn, after this turn's changes are in
+/// the document: a hide's clearing of the model included.
 fn prepare_while_hidden(
     model: Signal<Model>,
     index: Signal<Option<Arc<Index>>>,
@@ -181,7 +182,7 @@ fn prepare_while_hidden(
     let mut preparation = Preparation::default();
     Effect::new(move || {
         let drawn = drawn.get();
-        let changes = preparation.wants(drawn, untracked(|| shown.get()));
+        let changes = preparation.wants(drawn, shown.get());
         if !changes.is_empty() {
             tracing::info!("{}", preparing(&changes));
             prepare_current_window();

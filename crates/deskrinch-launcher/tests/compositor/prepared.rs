@@ -1,16 +1,16 @@
 //! The hidden launcher has rinch prepare its window for the next show
 //! (`deskrinch_launcher::Preparation`): when what that show draws changes,
-//! each request said in its log (`deskrinch_launcher::preparing`) and
+//! and at every hide, each request said in its log (`deskrinch_launcher::preparing`) and
 //! followed by rinch's prepared frame. It presents nothing while hidden, and
 //! an idle hidden launcher prepares nothing more. That the first show then
 //! draws the right content is [`crate::screen`]'s and [`crate::frequent`]'s
 //! tests, which summon a hidden launcher.
 
-use deskrinch_launcher::Change::{Everything, Icons, Results};
+use deskrinch_launcher::Change::{Everything, Hidden, Icons, Results};
 
 use crate::frequent::write_record;
 use crate::screen::Shown;
-use crate::support::stays;
+use crate::support::{client, stays};
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
@@ -26,6 +26,17 @@ fn a_hidden_launcher_prepares_for_its_results_and_its_icons() {
         panic!("the icons: {why}");
     }
     assert_eq!(launcher.frames(), 0, "a hidden launcher presented");
+}
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn a_hide_prepares_for_the_next_show() {
+    let shown = Shown::summon("", |dir| write_record(dir, &["Plain"]));
+    let launcher = &shown.launcher;
+    assert!(client(&["hide"]).success());
+    if let Err(why) = launcher.wait_prepared_for(&[Hidden]) {
+        panic!("the hide: {why}");
+    }
 }
 
 #[test]
