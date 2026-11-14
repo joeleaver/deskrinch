@@ -153,14 +153,15 @@ jobs:
             packages: >-
               kwin-wayland kwin-common libgl1-mesa-dri dbus-daemon
               libkscreen-bin libqt6wlshellintegration6
+              valgrind
             # kscreen-doctor has no --version, and starts Qt even to fail:
             # its package's version says what was installed.
             version: kwin_wayland --version && dpkg-query -W -f='${Package} ${Version}\n' libkscreen-bin
           - compositor: sway
-            packages: sway dbus-daemon
+            packages: sway dbus-daemon valgrind
             version: sway --version
           - compositor: labwc
-            packages: labwc dbus-daemon
+            packages: labwc dbus-daemon valgrind
             version: labwc --version
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -200,8 +201,20 @@ jobs:
           cargo build -p deskrinch-panel --locked
           cargo xtask measure --compositor sway --runs 1 --settle 1 --idle 5 \
             --renderer software --expect-renderer software target/debug/deskrinch-panel
+      # Under KWin the panel binds window management, which KWin grants only
+      # to an executable a desktop file names: under Callgrind that is
+      # Valgrind's tool, which measure grants as the shell grants the panel.
+      # measure fails a run whose program logs an error, so if the grant ever
+      # stops working, this run says so.
+      - name: Measure the panel under KWin, under Callgrind
+        if: matrix.compositor == 'kwin'
+        run: |
+          cargo build -p deskrinch-panel --locked
+          cargo xtask measure --compositor kwin --runs 1 --settle 2 --idle 2 \
+            --instructions --renderer software --expect-renderer software \
+            target/debug/deskrinch-panel
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
-        run: cargo test -p xtask --test session --test measure --locked -- --ignored
+        run: cargo test -p xtask --test session --test measure --test measure_callgrind --locked -- --ignored
         env:
           DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
 

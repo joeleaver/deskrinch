@@ -3,8 +3,9 @@
 //! settle comes before the idle window in this mode too, and its count is
 //! noted.
 //!
-//! Apart from `tests/measure.rs` because it needs Valgrind, which CI does
-//! not install. Ignored by a plain `cargo test`; name the compositor:
+//! Apart from `tests/measure.rs` because it needs Valgrind (CI installs it
+//! for the compositor jobs). Ignored by a plain `cargo test`; name the
+//! compositor:
 //!
 //! ```sh
 //! DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure_callgrind -- --ignored
