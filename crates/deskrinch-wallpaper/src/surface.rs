@@ -15,11 +15,22 @@
 //! - Its namespace, [`NAMESPACE`], is the window's app id, which is how
 //!   compositors name it in their rules.
 //!
-//! An output can go between rinch listing it and the window for it being
-//! made. rinch then makes no window (an id no output has is never the
-//! compositor's to place elsewhere), reports the window closed and logs a
-//! warning of its own; the wallpaper's part is [`closed`]: nothing to put
-//! right, no error, and the row goes when `outputs()` next changes.
+//! # When a window closes
+//!
+//! The wallpaper never closes its own windows, and assumes the compositor
+//! closes a background layer surface only when its output goes. So it
+//! treats every close of a window as its output going: nothing to put
+//! right and no error, the row (and so the window) going when `outputs()`
+//! next changes, and an output that comes back being a new row. That
+//! covers an output that goes between rinch listing it and the window for
+//! it being made, too: rinch then makes no window (an id no output has is
+//! never the compositor's to place elsewhere), reports it closed and logs a
+//! warning of its own.
+//!
+//! What is not handled, as a limit: a compositor that closed the surface
+//! while keeping the output would leave that output without a wallpaper
+//! until the outputs next change. KWin, sway and labwc close it only with
+//! its output.
 
 use rinch::{
     LayerAnchor, LayerAxes, LayerExclusiveZone, LayerKeyboard, LayerShellLayer, LayerSurface,
@@ -49,24 +60,13 @@ pub(crate) fn layer_surface(output: OutputId) -> LayerSurface {
     }
 }
 
-/// What a window on the output `output` closing means to the wallpaper.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Closed {
-    /// Its output went: before the window was made (rinch made none), or
-    /// after (the compositor closed the surface). Nothing to put right, and
-    /// no error: the output's row, and so its window, goes when `outputs()`
-    /// next changes, and an output that comes back is a new row.
-    OutputWent(OutputId),
-}
-
-/// What a window on the output `output` closing means (its `on_closed`):
-/// a window closes for no cause but its output going, the wallpaper never
-/// closing its own windows and the compositor closing a background layer
-/// surface only when its output goes.
-pub(crate) fn closed(output: OutputId) -> Closed {
-    let closed = Closed::OutputWent(output);
-    tracing::debug!("wallpaper: {closed:?}; its row goes with the output");
-    closed
+/// Says that the window on the output `output` closed (its `on_closed`):
+/// its output went, and its row goes with it (see the module's "When a
+/// window closes").
+pub(crate) fn closed(output: OutputId) {
+    tracing::debug!(
+        "wallpaper: the window on output {output:?} closed; its row goes with the output"
+    );
 }
 
 #[cfg(test)]
@@ -86,11 +86,5 @@ mod tests {
         // Placed by its id, which every output has, named or not.
         assert_eq!(surface.output_id, Some(output));
         assert_eq!(surface.output, None);
-    }
-
-    #[test]
-    fn a_window_closed_because_its_output_went_is_nothing_to_put_right() {
-        let output = OutputId::from_raw(3);
-        assert_eq!(closed(output), Closed::OutputWent(output));
     }
 }
