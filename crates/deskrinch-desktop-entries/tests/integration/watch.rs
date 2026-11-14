@@ -2,11 +2,11 @@
 
 use std::fs;
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use deskrinch_desktop_entries::{Event, Visibility, Watcher};
 
-use crate::support::{PATIENCE, environment, script, write};
+use crate::support::{environment, script, write};
+use deskrinch_test_wait::{quiet_for, recv};
 
 fn app(name: &str, extra: &str) -> String {
     format!("[Desktop Entry]\nType=Application\nName={name}\nExec=run\n{extra}")
@@ -14,12 +14,16 @@ fn app(name: &str, extra: &str) -> String {
 
 /// The next event, as `(kind, id, name)`.
 fn next(events: &Receiver<Event>) -> (String, String, String) {
-    match events.recv_timeout(PATIENCE).expect("no event arrived") {
-        Event::Added(e) => ("added".into(), e.entry.id.to_string(), e.entry.name.default),
+    match recv("an event", events) {
+        Event::Added(e) => (
+            "added".into(),
+            e.entry.id.to_string(),
+            e.entry.name.value.clone(),
+        ),
         Event::Changed(e) => (
             "changed".into(),
             e.entry.id.to_string(),
-            e.entry.name.default,
+            e.entry.name.value.clone(),
         ),
         Event::Removed(id) => ("removed".into(), id.to_string(), String::new()),
         Event::Error(error) => panic!("watch error: {error}"),
@@ -114,14 +118,22 @@ fn refresh_re_evaluates_try_exec_and_exec() {
         ("run", Visibility::Shown),
     ] {
         script(&bin.join(program), "true\n");
-        assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+        quiet_for(
+            "nothing before the refresh",
+            &events,
+            deskrinch_watch::Timing::default().settled(),
+        );
         watcher.refresh();
-        match events.recv_timeout(PATIENCE).expect("no event arrived") {
+        match recv("an event", &events) {
             Event::Changed(e) => assert_eq!(e.visibility, visibility, "{program}"),
             other => panic!("unexpected event {other:?}"),
         }
     }
     // A refresh that finds nothing new reports nothing.
     watcher.refresh();
-    assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+    quiet_for(
+        "nothing from an idle refresh",
+        &events,
+        deskrinch_watch::Timing::default().settled(),
+    );
 }

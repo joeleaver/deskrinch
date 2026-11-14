@@ -10,9 +10,8 @@ use deskrinch_bus::Bus;
 use deskrinch_launcher::{Answer, Request, send};
 use rustix::process::{Pid, Signal, kill_process};
 
-use crate::support::{
-    Launcher, PATIENCE, client, eventually, in_nested_session, launcher, owner_pid, run, stays,
-};
+use crate::support::{Launcher, client, in_nested_session, launcher, owner_pid, run, stays};
+use deskrinch_test_wait::{PATIENCE, comes_true};
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
@@ -29,7 +28,7 @@ fn toggle_shows_it_and_toggles_it_back() {
     let launcher = Launcher::start(&[]);
     assert!(client(&["toggle"]).success());
     assert!(
-        eventually(|| launcher.frames() > 0),
+        comes_true(|| launcher.frames() > 0),
         "a toggle did not show it"
     );
     // The next toggle hides it: the bus's own toggle then shows it again.
@@ -46,7 +45,7 @@ fn show_and_hide_set_it() {
     in_nested_session();
     let launcher = Launcher::start(&[]);
     assert!(client(&["show"]).success());
-    assert!(eventually(|| launcher.frames() > 0));
+    assert!(comes_true(|| launcher.frames() > 0));
     assert!(client(&["show"]).success());
     // Shown twice is shown: a toggle now hides it.
     assert_eq!(
@@ -83,7 +82,7 @@ fn a_second_launcher_asked_to_show_shows_the_first() {
     assert!(second.success(), "{second:?}");
     assert_eq!(owner_pid(), Some(first));
     assert!(
-        eventually(|| launcher.frames() > 0),
+        comes_true(|| launcher.frames() > 0),
         "the first was not shown"
     );
 }
@@ -106,9 +105,9 @@ fn with_none_running_toggle_starts_one_shown() {
     let mut toggle = run(launcher(&["toggle"]));
     let status = toggle.wait_exit(PATIENCE).unwrap();
     assert!(status.is_some_and(|status| status.success()));
-    assert!(eventually(|| owner_pid().is_some()), "no launcher started");
+    assert!(comes_true(|| owner_pid().is_some()), "no launcher started");
     let started = owner_pid().unwrap();
-    let shown = eventually(|| toggle.watch().frames() > 0);
+    let shown = comes_true(|| toggle.watch().frames() > 0);
     // It runs in a process group of its own, so the session would not
     // end it: this test does, before it asserts anything more. (The binary
     // under test starts it, so it cannot be bound to this process; should
@@ -116,7 +115,7 @@ fn with_none_running_toggle_starts_one_shown() {
     // compositor does, its display gone.)
     let pid = Pid::from_raw(i32::try_from(started).unwrap()).unwrap();
     kill_process(pid, Signal::TERM).unwrap();
-    assert!(eventually(|| owner_pid().is_none()), "it did not end");
+    assert!(comes_true(|| owner_pid().is_none()), "it did not end");
     assert!(shown, "the started launcher was not shown");
 }
 

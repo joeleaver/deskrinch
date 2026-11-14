@@ -15,7 +15,7 @@ use std::io;
 use std::time::Duration;
 
 use deskrinch_bus::Bus;
-use deskrinch_test_wayland::Deadline;
+use deskrinch_test_wait::Deadline;
 use zbus::{Connection, Fd, OwnedVariant, Variant};
 
 use self::sink::Sink;
@@ -95,7 +95,7 @@ impl ScreenShot2 {
         sink.close_writer();
         let timed_out = || CaptureError::TimedOut {
             output: name.to_owned(),
-            patience: deadline.patience(),
+            patience: deadline.bound(),
         };
         let reply = reply.map_err(|error| match &error {
             zbus::Error::InputOutput(io) if io.kind() == io::ErrorKind::TimedOut => timed_out(),

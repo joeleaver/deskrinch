@@ -10,9 +10,13 @@
 //!   [`Environment::from_process`]; nothing below it reads the process
 //!   environment, so everything runs on fixtures.
 //! - A [`DesktopEntry`] is one parsed `.desktop` file, named by its
-//!   [`DesktopId`]. Translated keys are [`Localized`] values, resolved by the
-//!   specification's locale matching when read.
-//! - A [`Catalog`] is every installed entry, one per ID, with the
+//!   [`DesktopId`], parsed for the environment's locales: each translated key
+//!   keeps the value for them, chosen by the specification's locale matching
+//!   ([`Translated`] for the names and keywords people search by, which keep
+//!   the untranslated value too), and the translations for other locales are
+//!   never read.
+//! - A [`Catalog`] is every installed entry, one per ID, each shared (`Arc`)
+//!   by everything that holds the catalog, with the
 //!   specification's precedence and `Hidden` rules applied and each entry's
 //!   [`Visibility`] (`NoDisplay`, `OnlyShowIn`/`NotShowIn`, `TryExec`, and
 //!   whether the program `Exec` runs is installed).
@@ -40,7 +44,7 @@
 //!
 //! let env = Environment::from_process();
 //! let catalog = Catalog::scan(&env);
-//! let found = search(catalog.shown(), "term", &env.locales);
+//! let found = search(catalog.shown(), "term");
 //! if let Some(best) = found.first() {
 //!     let context = LaunchContext::new(&env)
 //!         .with_terminal(["foot", "--"])
@@ -64,13 +68,12 @@ mod icon;
 mod launch;
 mod scan;
 pub mod search;
+mod translated;
 mod watch;
 
 pub use app_id::entry_for_app_id;
 pub use catalog::{Catalog, CatalogEntry, Visibility};
-pub use deskrinch_keyfile::{
-    Deviation as KeyFileDeviation, Locale, Localized, LocalizedList, LocalizedString, SyntaxError,
-};
+pub use deskrinch_keyfile::{Deviation as KeyFileDeviation, Locale, SyntaxError};
 pub use deskrinch_watch::WatchError;
 pub use deskrinch_xdg::BaseDirs;
 pub use deviation::Deviation;
@@ -83,4 +86,5 @@ pub use launch::{
     DirectReason, LaunchContext, Launched, Placement, XDG_TERMINAL_EXEC, default_terminal, launch,
 };
 pub use search::{Coverage, Match, MatchField, MatchKind, search};
+pub use translated::Translated;
 pub use watch::{Event, Watcher};

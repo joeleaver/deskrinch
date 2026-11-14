@@ -23,13 +23,13 @@ deskrinch-xdg.workspace = true
 # decodes it, with the same crate and formats.
 image.workspace = true
 # `gpu` adds the GPU renderer beside the software one rinch always has on
-# the desktop; the wallpaper asks for software for now (rinch issue 2669;
-# see the crate docs' "Rendering").
+# the desktop; which one draws is chosen at run time (see the crate docs).
 # `theme`: the look's variables.
 rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 tracing.workspace = true
 
 [dev-dependencies]
+deskrinch-test-wait.workspace = true
 # The compositor tests: the session's outputs, turned, and turned off and
 # on; the wallpaper started and watched; the screen captured.
 deskrinch-test-client.workspace = true

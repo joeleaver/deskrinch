@@ -49,6 +49,7 @@ tracing.workspace = true
 zbus = { workspace = true, features = ["default-rt", "service"] }
 
 [dev-dependencies]
+deskrinch-test-wait.workspace = true
 # The shell's description, whose name for the launcher must be its own.
 deskrinch-shell.workspace = true
 # The compositor tests refuse to run outside a nested session.

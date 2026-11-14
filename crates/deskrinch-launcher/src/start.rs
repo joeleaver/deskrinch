@@ -5,10 +5,11 @@
 //! (D-Bus activation, a systemd scope).
 
 use std::ffi::OsString;
+use std::sync::Arc;
 
 use deskrinch_component::report;
 use deskrinch_desktop_entries::{
-    DesktopEntry, EntryKind, Environment, LaunchContext, default_terminal, launch,
+    CatalogEntry, DesktopEntry, EntryKind, Environment, LaunchContext, default_terminal, launch,
 };
 use deskrinch_settings::general::{NoTerminal, TerminalCommand, terminal};
 use rinch::prelude::{ActivationToken, ActivationTokenError};
@@ -18,12 +19,12 @@ use crate::starts::Starts;
 /// The name the launched applications' systemd scopes are given.
 const SCOPE_LAUNCHER: &str = "deskrinch-launcher";
 
-/// Starts `entry` on a thread of its own, with `token` when there is one,
+/// Starts `entry` (the catalog's own, shared) on a thread of its own, with `token` when there is one,
 /// and in the terminal `setting` names (or the default) when it runs in
 /// one; a start that succeeded is recorded in `starts`. What goes wrong is
 /// reported, and not recorded.
 pub(crate) fn start(
-    entry: DesktopEntry,
+    entry: Arc<CatalogEntry>,
     token: Result<ActivationToken, ActivationTokenError>,
     env: &Environment,
     setting: Option<TerminalCommand>,
@@ -36,15 +37,16 @@ pub(crate) fn start(
         // takes the focus.
         Err(error) => tracing::info!(
             "starting {} without an activation token: {error}",
-            entry.id.as_str()
+            entry.entry.id.as_str()
         ),
     }
     let env = env.clone();
     let spawned = std::thread::Builder::new()
         .name("launcher-start".into())
         .spawn(move || {
+            let entry = &entry.entry;
             let what = format!("starting {}", entry.id.as_str());
-            let context = match terminal_for(&entry, setting.as_ref(), || default_terminal(&env)) {
+            let context = match terminal_for(entry, setting.as_ref(), || default_terminal(&env)) {
                 Ok(Some(command)) => context.with_terminal(command),
                 Ok(None) => context,
                 Err(error) => {
@@ -52,8 +54,8 @@ pub(crate) fn start(
                     return;
                 }
             };
-            match launch(&entry, None, &[], &context) {
-                Ok(_launched) => starts.record(entry.id),
+            match launch(entry, None, &[], &context) {
+                Ok(_launched) => starts.record(entry.id.clone()),
                 Err(error) => report::error(&what, &error),
             }
         });
@@ -86,7 +88,7 @@ mod tests {
         let text =
             format!("[Desktop Entry]\nType=Application\nName=Top\nExec=top\nTerminal={terminal}\n");
         let id = DesktopId::new("top.desktop").unwrap();
-        DesktopEntry::parse(id, "/x".into(), &text).unwrap()
+        DesktopEntry::parse(id, "/x".into(), &text, &[]).unwrap()
     }
 
     fn setting(words: &[&str]) -> TerminalCommand {

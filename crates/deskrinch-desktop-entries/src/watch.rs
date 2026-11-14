@@ -15,6 +15,7 @@
 //! a launcher calls it when it opens to show nothing stale.
 
 use std::collections::BTreeSet;
+use std::sync::Arc;
 
 use deskrinch_watch::{Armed, Target, Timing, WatchError};
 
@@ -27,11 +28,11 @@ use crate::scan::application_dirs;
 #[derive(Debug)]
 pub enum Event {
     /// An entry appeared: a new ID, or one a removed `Hidden` entry
-    /// uncovered.
-    Added(CatalogEntry),
+    /// uncovered. The catalog's own, shared.
+    Added(Arc<CatalogEntry>),
     /// An entry changed: its file, or which file wins for its ID, or its
-    /// visibility.
-    Changed(CatalogEntry),
+    /// visibility. The new entry, shared with the catalog.
+    Changed(Arc<CatalogEntry>),
     /// The entry with this ID is gone (deleted, or hidden by `Hidden=true`).
     Removed(DesktopId),
     /// Watching failed in part; the watcher carries on and rescans.
@@ -70,7 +71,9 @@ impl Watcher {
         let mut last = catalog.clone();
         let watch = armed.start("desktop-entries-watch", move |event| match event {
             deskrinch_watch::Event::Changed => {
-                let newer = Catalog::scan(&env);
+                // Entries that did not change keep the allocation everything
+                // already shares.
+                let newer = Catalog::scan(&env).reusing(&last);
                 for event in diff(&last, &newer) {
                     subscriber(event);
                 }
@@ -99,9 +102,9 @@ pub(crate) fn diff(older: &Catalog, newer: &Catalog) -> Vec<Event> {
     let ids: BTreeSet<&DesktopId> = older.keys().chain(newer.keys()).collect();
     ids.into_iter()
         .filter_map(|id| match (older.get(id), newer.get(id)) {
-            (None, Some(added)) => Some(Event::Added(added.clone())),
+            (None, Some(added)) => Some(Event::Added(Arc::clone(added))),
             (Some(_), None) => Some(Event::Removed(id.clone())),
-            (Some(old), Some(new)) if old != new => Some(Event::Changed(new.clone())),
+            (Some(old), Some(new)) if old != new => Some(Event::Changed(Arc::clone(new))),
             _ => None,
         })
         .collect()

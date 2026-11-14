@@ -334,7 +334,7 @@ mod tests {
     fn a_name_owned_already_is_found_at_once() {
         let bus = PrivateBus::start().unwrap();
         let _owner = own(&bus, "org.deskrinch.Test.Early");
-        bus.wait_for_name("org.deskrinch.Test.Early", Duration::from_secs(600))
+        bus.wait_for_name("org.deskrinch.Test.Early", deskrinch_test_wait::PATIENCE)
             .unwrap();
     }
 
@@ -346,7 +346,7 @@ mod tests {
             wait_for(
                 &address,
                 "org.deskrinch.Test.Late",
-                Duration::from_secs(600),
+                deskrinch_test_wait::PATIENCE,
             )
         });
         let _owner = own(&bus, "org.deskrinch.Test.Late");

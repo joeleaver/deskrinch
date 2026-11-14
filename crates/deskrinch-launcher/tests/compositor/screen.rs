@@ -13,13 +13,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::time::{Duration, Instant};
 
 use deskrinch_test_input::{Input, Key};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use tempfile::TempDir;
 
-use crate::support::{Launcher, PATIENCE, client, eventually, in_nested_session, launcher, stays};
+use crate::support::{Launcher, client, in_nested_session, launcher, stays};
+use deskrinch_test_wait::{PATIENCE, comes_true, wait_for};
 
 /// The launcher's size on the screen (scale 1): its layer surface's.
 pub(crate) const WIDTH: u32 = 640;
@@ -72,7 +72,7 @@ impl Shown {
     pub(crate) fn hidden(config: &str, prepare: impl FnOnce(&Path)) -> Self {
         let hidden = Self::prepare(config, prepare, &[]);
         assert!(
-            eventually(|| hidden.launcher.said("record of starts")),
+            comes_true(|| hidden.launcher.said("record of starts")),
             "the record of starts was not loaded\nthe launcher logged:\n{}",
             hidden.launcher.log()
         );
@@ -140,21 +140,16 @@ impl Shown {
     /// chooses, and the session has more than one.
     fn find_output(&mut self) -> String {
         let outputs = self.screen.outputs();
-        let deadline = Instant::now() + PATIENCE;
-        loop {
+        let what = format!("the launcher drawn on one of {outputs:?}");
+        wait_for(&what, || {
             for output in &outputs {
                 let image = self.screen.capture(output).unwrap();
                 if at_centre(&image).is_some() {
-                    return output.clone();
+                    return Ok(output.clone());
                 }
             }
-            assert!(
-                Instant::now() < deadline,
-                "the launcher was not drawn on any of {outputs:?}\nthe launcher logged:\n{}",
-                self.launcher.log()
-            );
-            std::thread::sleep(Duration::from_millis(100));
-        }
+            Err(format!("the launcher logged:\n{}", self.launcher.log()))
+        })
     }
 
     /// Captures until `accept` takes an image; panics, with what the
@@ -273,7 +268,7 @@ pub(crate) fn results_drawn(image: &Image) -> bool {
 /// The one application started, once it has been.
 pub(crate) fn the_one_started(shown: &Shown) -> Vec<String> {
     assert!(
-        eventually(|| !shown.started().is_empty()),
+        comes_true(|| !shown.started().is_empty()),
         "nothing was started"
     );
     let mut started = shown.started();
@@ -374,7 +369,7 @@ fn a_terminal_application_without_a_terminal_is_reported_and_not_started() {
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     assert!(
-        eventually(|| shown.launcher.said("runs in a terminal, and there is none")),
+        comes_true(|| shown.launcher.said("runs in a terminal, and there is none")),
         "the missing terminal was not reported"
     );
     assert!(

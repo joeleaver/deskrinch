@@ -8,8 +8,9 @@
 use std::os::fd::OwnedFd;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use deskrinch_test_wait::Deadline;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use wayland_client::backend::protocol::Message;
 use wayland_client::backend::{Backend, ObjectData, ObjectId, WaylandError};
@@ -39,42 +40,6 @@ pub enum WaitError {
     Poll(#[source] std::io::Error),
 }
 
-/// A point in time to give up at, and how long the wait it bounds is.
-#[derive(Debug, Clone, Copy)]
-pub struct Deadline {
-    at: Instant,
-    patience: Duration,
-}
-
-impl Deadline {
-    /// A deadline `patience` from now.
-    #[must_use]
-    pub fn after(patience: Duration) -> Self {
-        Self {
-            at: Instant::now() + patience,
-            patience,
-        }
-    }
-
-    /// How long is left; zero once it has passed.
-    #[must_use]
-    pub fn left(&self) -> Duration {
-        self.at.saturating_duration_since(Instant::now())
-    }
-
-    /// The whole wait it bounds.
-    #[must_use]
-    pub fn patience(&self) -> Duration {
-        self.patience
-    }
-
-    /// The error for this deadline having passed.
-    #[must_use]
-    pub fn timed_out(&self) -> WaitError {
-        WaitError::TimedOut(self.patience)
-    }
-}
-
 /// Dispatches `queue`'s events into `state` until `done` takes the state,
 /// or `deadline` passes.
 ///
@@ -100,7 +65,7 @@ pub fn dispatch_until<S>(
         };
         let left = deadline.left();
         if left.is_zero() {
-            return Err(deadline.timed_out());
+            return Err(WaitError::TimedOut(deadline.bound()));
         }
         let readable = {
             let fd = guard.connection_fd();
@@ -222,13 +187,8 @@ mod tests {
         let (connection, compositor) = silent();
         drop(compositor);
         let mut queue = connection.new_event_queue::<Nothing>();
-        let error = roundtrip(
-            &connection,
-            &mut queue,
-            &mut Nothing,
-            Deadline::after(Duration::from_secs(600)),
-        )
-        .unwrap_err();
+        let error =
+            roundtrip(&connection, &mut queue, &mut Nothing, Deadline::patience()).unwrap_err();
         assert!(!matches!(error, WaitError::TimedOut(_)), "{error:?}");
     }
 }

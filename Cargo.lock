@@ -863,6 +863,7 @@ dependencies = [
  "deskrinch-bus",
  "deskrinch-test-dbus",
  "deskrinch-test-portal",
+ "deskrinch-test-wait",
  "futures-core",
  "thiserror 2.0.21",
  "zbus 6.2.1",
@@ -893,6 +894,7 @@ dependencies = [
 name = "deskrinch-clock"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "icu_datetime",
  "icu_locale_core",
  "icu_provider",
@@ -909,6 +911,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-config",
  "deskrinch-settings",
+ "deskrinch-test-wait",
  "deskrinch-xdg",
  "rinch",
  "serde",
@@ -920,6 +923,7 @@ dependencies = [
 name = "deskrinch-config"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "deskrinch-watch",
  "deskrinch-xdg",
  "serde",
@@ -936,6 +940,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-keyfile",
  "deskrinch-test-dbus",
+ "deskrinch-test-wait",
  "deskrinch-timer",
  "deskrinch-watch",
  "deskrinch-xdg",
@@ -959,6 +964,7 @@ name = "deskrinch-icons"
 version = "0.1.0"
 dependencies = [
  "deskrinch-keyfile",
+ "deskrinch-test-wait",
  "deskrinch-watch",
  "deskrinch-xdg",
  "hashbrown 0.17.1",
@@ -1001,6 +1007,7 @@ dependencies = [
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-screen",
+ "deskrinch-test-wait",
  "deskrinch-theme",
  "deskrinch-xdg",
  "rinch",
@@ -1017,6 +1024,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-dbus",
+ "deskrinch-test-wait",
  "deskrinch-untrusted",
  "futures-core",
  "percent-encoding",
@@ -1037,6 +1045,7 @@ dependencies = [
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-screen",
+ "deskrinch-test-wait",
  "deskrinch-theme",
  "deskrinch-xdg",
  "rinch",
@@ -1074,6 +1083,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-dbus",
+ "deskrinch-test-wait",
  "deskrinch-timer",
  "deskrinch-untrusted",
  "futures-core",
@@ -1090,6 +1100,7 @@ dependencies = [
 name = "deskrinch-test-client"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "serde",
  "serde_json",
@@ -1105,6 +1116,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
  "deskrinch-test-lifetime",
+ "deskrinch-test-wait",
 ]
 
 [[package]]
@@ -1113,6 +1125,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-lifetime",
+ "deskrinch-test-wait",
  "futures-core",
  "rustix",
  "tempfile",
@@ -1125,6 +1138,7 @@ name = "deskrinch-test-input"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "thiserror 2.0.21",
  "wayland-client",
@@ -1137,6 +1151,7 @@ dependencies = [
 name = "deskrinch-test-lifetime"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "rustix",
  "tempfile",
 ]
@@ -1157,6 +1172,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-client",
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "rustix",
  "thiserror 2.0.21",
@@ -1167,9 +1183,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-wait"
+version = "0.1.0"
+
+[[package]]
 name = "deskrinch-test-wayland"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "rustix",
  "thiserror 2.0.21",
  "wayland-client",
@@ -1193,6 +1214,9 @@ dependencies = [
 [[package]]
 name = "deskrinch-timer"
 version = "0.1.0"
+dependencies = [
+ "deskrinch-test-wait",
+]
 
 [[package]]
 name = "deskrinch-untrusted"
@@ -1212,6 +1236,7 @@ dependencies = [
  "deskrinch-test-client",
  "deskrinch-test-component",
  "deskrinch-test-screen",
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-theme",
  "deskrinch-watch",
@@ -1226,6 +1251,7 @@ dependencies = [
 name = "deskrinch-watch"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "rustix",
  "tempfile",
  "thiserror 2.0.21",
@@ -1236,6 +1262,7 @@ name = "deskrinch-wayland-client"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-client",
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "rustix",
  "thiserror 2.0.21",
@@ -1249,6 +1276,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-client",
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-wayland-client",
  "rustix",
@@ -1268,6 +1296,7 @@ dependencies = [
  "deskrinch-test-client",
  "deskrinch-test-input",
  "deskrinch-test-screen",
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-untrusted",
  "deskrinch-wayland-client",
@@ -6389,6 +6418,7 @@ dependencies = [
  "deskrinch-test-input",
  "deskrinch-test-lifetime",
  "deskrinch-test-screen",
+ "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-window-management",
  "rustix",

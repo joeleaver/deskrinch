@@ -22,13 +22,15 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_client::{Compositor, Paint, TestClient};
 use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE, Key};
 use deskrinch_test_screen::{KWIN_SCREENSHOT_INTERFACE, Rgba, Screen};
+use deskrinch_test_wait::{Deadline, PATIENCE, POLL, comes_true, eventually, wait_for};
 
+use crate::push::{push, push_until};
 use crate::support::{TestProfile, start};
 
 /// Set to the file the inside test writes its findings to: it runs only
@@ -38,14 +40,20 @@ const INSIDE: &str = "DESKRINCH_DESKTOP_EDGES_RECORD";
 const INSIDE_TEST: &str = "edges::inside_the_desktop_edges_and_the_overview";
 /// A colour for the window the Overview shows.
 const SEEN: Rgba = Rgba::opaque(0xe0, 0x7a, 0x1f);
-/// How long anything inside is waited for.
-const PATIENCE: Duration = Duration::from_secs(30);
-/// How long the pointer keeps pushing against an edge: well past the time
-/// KWin waits there before it acts (`ElectricBorderDelay`, 75 ms by
-/// default).
-const PUSHING: Duration = Duration::from_millis(1500);
-/// How often a push repeats while it lasts, as a mouse's motion does.
-const PUSH_EVERY: Duration = Duration::from_millis(20);
+/// How long the desktop running the inside test may take: that test is a
+/// run of waits, each within the patience, of which a handful can take
+/// long (KWin loading the Overview, the window's opening playing out).
+const INSIDE_TAKES: Duration = PATIENCE.saturating_mul(3);
+/// How soon the Overview's shortcut, once it works, shows the Overview:
+/// measured (see [`open_overview_by_its_shortcut`]); also the window a
+/// shortcut that must do nothing is watched for.
+const SHOWN_WITHIN: Duration = Duration::from_secs(2);
+/// How long an edge or corner that must do nothing is watched after its
+/// push: past KWin's `ElectricBorderDelay` (75 ms by default) and an
+/// effect's start. A negative claim, which a slow machine can pass falsely
+/// and a correct desktop can never fail; a place that must start something
+/// is pushed until it has, within the patience, instead.
+const ACTS_WITHIN: Duration = Duration::from_secs(1);
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
@@ -67,7 +75,7 @@ fn kwin_s_edges_and_overview_leave_it_and_the_shell_running() {
         &["--profile", profile.name.as_str()],
         &["sh", "-c", &script],
     );
-    let status = desktop.wait_within(Duration::from_secs(300));
+    let status = desktop.wait_within(INSIDE_TAKES);
     let found = fs::read_to_string(&record).unwrap_or_default();
     let _removed = fs::remove_file(&record);
     eprintln!("found inside:\n{found}");
@@ -237,63 +245,33 @@ fn invoke(name: &str) {
 /// opens, each time only once the last invocation has had two seconds to
 /// show it: never while it is open, which would close it.
 fn open_overview_by_its_shortcut() {
-    let deadline = Instant::now() + PATIENCE;
+    let deadline = Deadline::patience();
     loop {
         invoke("Overview");
-        let shown_by = Instant::now() + Duration::from_secs(2);
-        while Instant::now() < shown_by {
+        let shown_by = Deadline::after(SHOWN_WITHIN);
+        while !shown_by.passed() {
             if active_effects().iter().any(|e| e == "overview") {
                 return;
             }
-            std::thread::sleep(Duration::from_millis(100));
+            std::thread::sleep(POLL);
         }
         assert!(
-            Instant::now() < deadline,
-            "the Overview's shortcut never opened it"
+            !deadline.passed(),
+            "waited {PATIENCE:?} for the Overview's shortcut to open it"
         );
     }
 }
 
 /// Waits until `effects` holds for the active effects; the last seen.
 fn wait_effects(what: &str, effects: impl Fn(&[String]) -> bool) -> Vec<String> {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    wait_for(what, || {
         let active = active_effects();
         if effects(&active) {
-            return active;
-        }
-        assert!(
-            Instant::now() < deadline,
-            "waited in vain for {what}: {active:?}"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
-}
-
-/// Pushes the pointer into `(x, y)` on `output`, at an edge or corner, as
-/// a hand on a mouse does: there, then on outwards in small motions for
-/// [`PUSHING`], which the compositor stops at the edge.
-fn push(input: &mut Input, output: &str, (x, y): (f64, f64), (width, height): (f64, f64)) {
-    // Outwards on each axis the point is at an edge of.
-    let outwards = |at: f64, end: f64| {
-        if at <= 0.0 {
-            -4.0
-        } else if at >= end - 1.0 {
-            4.0
+            Ok(active)
         } else {
-            0.0
+            Err(active)
         }
-    };
-    let (dx, dy) = (outwards(x, width), outwards(y, height));
-    input.move_pointer(output, x, y).unwrap();
-    let until = Instant::now() + PUSHING;
-    while Instant::now() < until {
-        input.nudge_pointer(dx, dy).unwrap();
-        std::thread::sleep(PUSH_EVERY);
-    }
-    input
-        .move_pointer(output, width / 2.0, height / 2.0)
-        .unwrap();
+    })
 }
 
 /// Whether some pixel of `output`'s picture is [`SEEN`]: the window's
@@ -357,7 +335,7 @@ fn inside_the_desktop_edges_and_the_overview() {
             "invokeShortcut",
             "Overview",
         );
-        std::thread::sleep(Duration::from_secs(2));
+        std::thread::sleep(SHOWN_WITHIN);
         let after = active_effects();
         record.note(&format!(
             "the Overview's shortcut ({}): {after:?}",
@@ -365,7 +343,7 @@ fn inside_the_desktop_edges_and_the_overview() {
         ));
         assert!(after.iter().all(|e| e != "overview"), "{after:?}");
         // No edge or corner does anything.
-        let started = sweep(&mut input, &output, size, &baseline, &record);
+        let started = sweep(&mut input, &output, size, &baseline, &record, |_| &[]);
         assert!(
             started.iter().all(|(_, effects)| effects.is_empty()),
             "{started:?}"
@@ -376,23 +354,19 @@ fn inside_the_desktop_edges_and_the_overview() {
 
     // The Overview by its shortcut, showing the window, and closed again,
     // once KWin has loaded it.
-    let deadline = Instant::now() + PATIENCE;
-    while !effect_loaded("overview") || !shortcut_registered("Overview") {
-        assert!(
-            Instant::now() < deadline,
-            "KWin never loaded the Overview, or never registered its shortcut"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    eventually(
+        "KWin to load the Overview and register its shortcut",
+        || effect_loaded("overview") && shortcut_registered("Overview"),
+    );
     // And once the window's opening has played out.
     let before = wait_effects("the window's opening to end", |now| {
         now.iter().all(|e| e != "scale")
     });
     record.note(&format!("before: {before:?}"));
     open_overview_by_its_shortcut();
-    std::thread::sleep(Duration::from_secs(1));
     let mut screen = Screen::connect().unwrap();
-    let shown = shows_the_window(&mut screen, &output);
+    // Asserted after the Overview is closed again, which the next steps need.
+    let shown = comes_true(|| shows_the_window(&mut screen, &output));
     record.note(&format!("the Overview shows the window: {shown}"));
     invoke("Overview");
     wait_effects("the Overview to close", |now| {
@@ -401,7 +375,13 @@ fn inside_the_desktop_edges_and_the_overview() {
     assert!(kwin_running(), "KWin is gone after the Overview");
     assert!(shown, "the Overview did not show the window");
     let baseline = active_effects();
-    let started = sweep(&mut input, &output, size, &baseline, &record);
+    let started = sweep(&mut input, &output, size, &baseline, &record, |place| {
+        if place == "top-left corner" {
+            &["screenedge", "overview"]
+        } else {
+            &[]
+        }
+    });
     // The Overview's hot corner is there and opens it (closed by Escape),
     // and no other edge does anything. KWin's `screenedge` effect lights an
     // edge reserved for an action as the pointer comes to it.
@@ -420,13 +400,17 @@ fn inside_the_desktop_edges_and_the_overview() {
 /// Pushes the pointer into every corner and along every edge of `output`
 /// (`size` logical pixels), checking after each that KWin still runs;
 /// what each started beyond `baseline`, by place, each ended again (an
-/// effect other than an edge's light by Escape).
+/// effect other than an edge's light by Escape). What `must_start` names
+/// for a place is pushed for until it has started, within the patience; a
+/// place that must start nothing is pushed for
+/// [`PUSHING`](crate::push::PUSHING) and watched for [`ACTS_WITHIN`].
 fn sweep(
     input: &mut Input,
     output: &str,
     size: (f64, f64),
     baseline: &[String],
     record: &Record,
+    must_start: impl Fn(&str) -> &'static [&'static str],
 ) -> Vec<(&'static str, Vec<String>)> {
     let (right, bottom) = (size.0 - 1.0, size.1 - 1.0);
     let places = [
@@ -441,13 +425,33 @@ fn sweep(
     ];
     let mut found = Vec::new();
     for (place, point) in places {
-        push(input, output, point, size);
-        std::thread::sleep(Duration::from_secs(1));
+        let beyond = || -> Vec<String> {
+            active_effects()
+                .into_iter()
+                .filter(|e| !baseline.contains(e))
+                .collect()
+        };
+        let wanted = must_start(place);
+        let started = if wanted.is_empty() {
+            push(input, output, point, size);
+            std::thread::sleep(ACTS_WITHIN);
+            beyond()
+        } else {
+            let what = format!("the {place} to start {wanted:?}");
+            let (started, took, motions) = push_until(input, output, (point, size), &what, || {
+                let started = beyond();
+                if wanted.iter().all(|w| started.iter().any(|e| e == w)) {
+                    Ok(started)
+                } else {
+                    Err(started)
+                }
+            });
+            record.note(&format!(
+                "the {place}: pushed for {took:?}, in {motions} motions"
+            ));
+            started
+        };
         assert!(kwin_running(), "KWin is gone after the {place}");
-        let started: Vec<String> = active_effects()
-            .into_iter()
-            .filter(|e| !baseline.contains(e))
-            .collect();
         record.note(&format!("{place}: {started:?}"));
         if started.iter().any(|e| e != "screenedge") {
             input.press(Key::ESCAPE).unwrap();

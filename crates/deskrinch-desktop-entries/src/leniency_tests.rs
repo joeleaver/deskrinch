@@ -9,9 +9,16 @@
 use super::*;
 use deskrinch_keyfile::{Deviation as KeyFileDeviation, Locale, SyntaxError};
 
+/// Parses `text` for a German session, so that the cases about translations
+/// read what GLib gives for German.
 fn parse(text: impl AsRef<[u8]>) -> Result<DesktopEntry, ParseError> {
     let id = DesktopId::new("a.desktop").unwrap();
-    DesktopEntry::parse(id, "/a.desktop".into(), text)
+    DesktopEntry::parse(
+        id,
+        "/a.desktop".into(),
+        text,
+        &[Locale::parse("de").unwrap()],
+    )
 }
 
 /// A conforming application entry with `extra` lines appended.
@@ -36,7 +43,7 @@ fn a_repeated_group_is_merged_with_later_values_winning() {
     // repeated `Name=B` replaces `Name=A`.
     let entry = app("[Other]\nX=1\n[Desktop Entry]\nNoDisplay=true\nName=B\n");
     assert!(entry.no_display);
-    assert_eq!(entry.name.default, "B");
+    assert_eq!(entry.name.value, "B");
     assert_eq!(
         entry.deviations,
         [
@@ -56,8 +63,8 @@ fn a_repeated_key_takes_the_last_value() {
     // GLib: `Name=A`, `Name=B` gives "B"; `Name[de]=X`, `Name[de]=Y` gives
     // "Y" for de.
     let entry = app("Name=B\nName[de]=X\nName[de]=Y\n");
-    assert_eq!(entry.name.default, "B");
-    assert_eq!(entry.name.get(&[Locale::parse("de").unwrap()]), "Y");
+    assert_eq!(entry.name.untranslated.as_deref(), Some("B"));
+    assert_eq!(entry.name.value, "Y");
     assert_eq!(entry.deviations.len(), 2);
 }
 
@@ -114,7 +121,7 @@ fn a_translation_whose_locale_cannot_match_is_ignored() {
     // GLib: `Name[de.UTF-8]=D` and `Name[]=B` load; neither is the German
     // name.
     let entry = app("Name[de.UTF-8]=D\nName[]=B\n");
-    assert_eq!(entry.name.get(&[Locale::parse("de").unwrap()]), "A");
+    assert_eq!(entry.name.value, "A");
     assert_eq!(entry.deviations.len(), 2);
 }
 
@@ -123,11 +130,11 @@ fn a_missing_name_reads_as_unnamed_keeping_translations() {
     // GLib: without `Name` the entry loads and `g_app_info_get_name` gives
     // "Unnamed"; with only `Name[de]=D`, the German name is "D".
     let entry = parse("[Desktop Entry]\nType=Application\nExec=true\n").unwrap();
-    assert_eq!(entry.name.default, "Unnamed");
+    assert_eq!(entry.name.value, "Unnamed");
     assert_eq!(entry.deviations, [main("Name")]);
     let entry = parse("[Desktop Entry]\nType=Application\nName[de]=D\nExec=true\n").unwrap();
-    assert_eq!(entry.name.default, "Unnamed");
-    assert_eq!(entry.name.get(&[Locale::parse("de").unwrap()]), "D");
+    assert_eq!(entry.name.untranslated.as_deref(), Some("Unnamed"));
+    assert_eq!(entry.name.value, "D");
     assert_eq!(
         entry.deviations,
         [Deviation::KeyFile(
@@ -154,7 +161,7 @@ fn actions_missing_keys_are_kept() {
     // without `Exec` is listed with its name.
     let entry = app("Actions=x;y;\n[Desktop Action x]\nExec=true\n[Desktop Action y]\nName=Y\n");
     let actions = &entry.application().unwrap().actions;
-    assert_eq!(actions[0].name.default, "Unnamed");
+    assert_eq!(actions[0].name, "Unnamed");
     assert_eq!(actions[1].exec, None);
     let group = |id: &str| format!("Desktop Action {id}");
     assert_eq!(
@@ -191,7 +198,7 @@ fn values_that_are_not_utf8_are_dropped() {
     // GLib: `Name=\xff` loads, the name is unreadable ("Unnamed");
     // `Comment=\xff` loads with no comment.
     let entry = parse(b"[Desktop Entry]\nType=Application\nName=\xff\nExec=true\n").unwrap();
-    assert_eq!(entry.name.default, "Unnamed");
+    assert_eq!(entry.name.value, "Unnamed");
     assert_eq!(
         entry.deviations,
         [
@@ -209,7 +216,7 @@ fn undefined_escapes_are_kept_literally() {
     // drops an entry whose `Exec` it cannot read. Here the backslash is kept
     // (see `deskrinch_keyfile::unescape`), so `Exec=sh -c "echo \$HOME"` still runs.
     let entry = app("Comment=A\\$x\n");
-    assert_eq!(entry.comment.unwrap().default, "A\\$x");
+    assert_eq!(entry.comment.unwrap(), "A\\$x");
     assert_eq!(
         entry.deviations,
         [Deviation::KeyFile(KeyFileDeviation::InvalidEscape {
@@ -224,7 +231,7 @@ fn leading_space_and_crlf_are_read_silently() {
     // GLib: a key line indented with spaces, and CRLF line ends, load
     // without complaint.
     let entry = parse("[Desktop Entry]\r\nType=Application\r\n  Name=A\r\nExec=true\r\n").unwrap();
-    assert_eq!(entry.name.default, "A");
+    assert_eq!(entry.name.value, "A");
     assert_eq!(entry.deviations, []);
 }
 

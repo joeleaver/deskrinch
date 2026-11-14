@@ -102,7 +102,7 @@ mod tests {
     use super::*;
     use jiff::SignedDuration;
 
-    use crate::test_patience::PATIENCE;
+    use deskrinch_test_wait::PATIENCE;
 
     /// Waits until the kernel says `timer` has fired, as the clock's worker
     /// does, within [`PATIENCE`].

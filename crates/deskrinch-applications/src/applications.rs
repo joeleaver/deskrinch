@@ -9,10 +9,11 @@ use deskrinch_desktop_entries::{
 };
 
 /// The catalog as a component keeps it: every installed entry by its ID,
-/// shown in menus or not, changed by the watcher's [`Event`]s.
+/// shown in menus or not, changed by the watcher's [`Event`]s. The entries
+/// are the catalog's own, shared: cloning this clones a map, never an entry.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Applications {
-    entries: BTreeMap<DesktopId, CatalogEntry>,
+    entries: BTreeMap<DesktopId, Arc<CatalogEntry>>,
 }
 
 impl Applications {
@@ -22,7 +23,7 @@ impl Applications {
         Self {
             entries: catalog
                 .iter()
-                .map(|entry| (entry.entry.id.clone(), entry.clone()))
+                .map(|entry| (entry.entry.id.clone(), Arc::clone(entry)))
                 .collect(),
         }
     }
@@ -33,21 +34,22 @@ impl Applications {
         match event {
             Event::Added(entry) | Event::Changed(entry) => {
                 let id = entry.entry.id.clone();
-                self.entries.insert(id, entry.clone()) != Some(entry)
+                self.entries.insert(id, Arc::clone(&entry)) != Some(entry)
             }
             Event::Removed(id) => self.entries.remove(&id).is_some(),
             Event::Error(_) => false,
         }
     }
 
-    /// The applications shown in menus, by ID.
+    /// The applications shown in menus, by ID: the entries themselves,
+    /// shared.
     #[must_use]
-    pub fn shown(&self) -> Arc<Vec<DesktopEntry>> {
+    pub fn shown(&self) -> Arc<Vec<Arc<CatalogEntry>>> {
         Arc::new(
             self.entries
                 .values()
                 .filter(|entry| entry.visibility == Visibility::Shown)
-                .map(|entry| entry.entry.clone())
+                .map(Arc::clone)
                 .collect(),
         )
     }
@@ -70,13 +72,13 @@ impl Applications {
 mod tests {
     use super::*;
 
-    fn entry(id: &str, visibility: Visibility) -> CatalogEntry {
+    fn entry(id: &str, visibility: Visibility) -> Arc<CatalogEntry> {
         let text = format!("[Desktop Entry]\nType=Application\nName={id}\nExec=true\n");
         let id = DesktopId::new(format!("{id}.desktop")).unwrap();
-        CatalogEntry {
-            entry: DesktopEntry::parse(id, "/x".into(), &text).unwrap(),
+        Arc::new(CatalogEntry {
+            entry: DesktopEntry::parse(id, "/x".into(), &text, &[]).unwrap(),
             visibility,
-        }
+        })
     }
 
     fn id(name: &str) -> DesktopId {
@@ -87,7 +89,7 @@ mod tests {
         applications
             .shown()
             .iter()
-            .map(|entry| entry.id.app_id().to_owned())
+            .map(|entry| entry.entry.id.app_id().to_owned())
             .collect()
     }
 
@@ -103,6 +105,41 @@ mod tests {
         assert!(applications.get(&id("a")).is_some());
         assert!(applications.apply(Event::Removed(id("b"))));
         assert_eq!(shown(&applications), Vec::<String>::new());
+    }
+
+    #[test]
+    fn the_catalog_the_state_and_a_delivery_share_each_entry() {
+        let data = tempfile::tempdir().unwrap();
+        let applications_dir = data.path().join("applications");
+        std::fs::create_dir_all(&applications_dir).unwrap();
+        std::fs::write(
+            applications_dir.join("a.desktop"),
+            "[Desktop Entry]\nType=Application\nName=A\nExec=true\n",
+        )
+        .unwrap();
+        let env = deskrinch_desktop_entries::Environment {
+            base_dirs: deskrinch_desktop_entries::BaseDirs {
+                data_home: Some(data.path().to_path_buf()),
+                ..deskrinch_desktop_entries::BaseDirs::default()
+            },
+            path: vec!["/usr/bin".into(), "/bin".into()],
+            ..deskrinch_desktop_entries::Environment::default()
+        };
+        let catalog = Catalog::scan(&env);
+        let in_catalog = catalog.get(&id("a")).expect("scanned");
+        let state = Applications::new(&catalog);
+        let delivered = state.clone();
+        assert!(Arc::ptr_eq(in_catalog, &state.entries[&id("a")]));
+        assert!(Arc::ptr_eq(in_catalog, &delivered.entries[&id("a")]));
+        assert!(Arc::ptr_eq(in_catalog, &delivered.shown()[0]));
+    }
+
+    #[test]
+    fn an_event_s_entry_is_the_one_kept() {
+        let mut applications = Applications::default();
+        let added = entry("a", Visibility::Shown);
+        applications.apply(Event::Added(Arc::clone(&added)));
+        assert!(Arc::ptr_eq(&added, &applications.clone().entries[&id("a")]));
     }
 
     #[test]

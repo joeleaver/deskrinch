@@ -73,7 +73,7 @@ fn waits_for_a_prepared_frame_since_a_mark() {
         writer
     });
     let window = Some(PerfWindow::Id(4));
-    assert!(watch.wait_prepared(window, &mark, Duration::from_secs(600)));
+    assert!(watch.wait_prepared(window, &mark, deskrinch_test_wait::PATIENCE));
     assert!(!watch.wait_prepared(Some(PerfWindow::Main), &mark, Duration::ZERO));
     let since = watch.since(&mark);
     assert_eq!(since.len(), 1);
@@ -127,7 +127,7 @@ fn waits_for_a_line_written_before_or_after() {
         use std::io::Write as _;
         writer.write_all(b"three\n").expect("write");
     });
-    assert!(watch.wait_for_line(Duration::from_secs(600), |line| line == "three"));
+    assert!(watch.wait_for_line(deskrinch_test_wait::PATIENCE, |line| line == "three"));
     later.join().expect("writer");
     assert!(!watch.wait_for_line(Duration::from_millis(50), |line| line == "four"));
 }

@@ -4,12 +4,12 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::{self, JoinHandle};
-use std::time::Instant;
 
 use zbus::message::Flags;
 use zbus::{Connection, Message};
 
-use crate::common::{PATIENCE, PrivateBus};
+use crate::common::PrivateBus;
+use deskrinch_test_wait::{Deadline, PATIENCE};
 
 /// Item signals a flood sends. The host drops each as it comes (no item is
 /// registered at the flood's object), so the host works through many
@@ -64,9 +64,13 @@ impl Flood {
 
     /// Waits until `count` have been sent.
     pub(crate) fn wait_for(&self, count: usize) {
-        let deadline = Instant::now() + PATIENCE;
+        // Spun, not polled: the flood must still be going when this returns.
+        let deadline = Deadline::patience();
         while self.sent.load(Ordering::SeqCst) < count {
-            assert!(Instant::now() < deadline, "the flood did not get going");
+            assert!(
+                !deadline.passed(),
+                "waited {PATIENCE:?} for the flood to get going"
+            );
             thread::yield_now();
         }
     }

@@ -19,15 +19,15 @@
 //! one output left elsewhere, and applying the layout again ends. Under
 //! sway and KWin the first application is the layout.
 
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+use deskrinch_test_wait::{Deadline, POLL};
 
 use crate::Error;
 use crate::layout::{OutputState, layout_differences};
 
 /// How long an application has to show before the layout is applied again.
 pub(crate) const SETTLE: Duration = Duration::from_secs(1);
-/// How often the outputs are read while waiting.
-const POLL: Duration = Duration::from_millis(50);
 
 /// Applies `layout` with `apply`, and again while `read` does not report
 /// it, each application given `settle` to show, for at most `patience`.
@@ -45,25 +45,25 @@ pub(crate) fn converge(
     settle: Duration,
     patience: Duration,
 ) -> Result<u32, Error> {
-    let deadline = Instant::now() + patience;
+    let deadline = Deadline::after(patience);
     let mut applications = 0;
     loop {
         apply(layout)?;
         applications += 1;
-        let shown_by = (Instant::now() + settle).min(deadline);
+        let shown_by = Deadline::after(settle.min(deadline.left()));
         loop {
             let now = read()?;
             let Some(differences) = layout_differences(layout, &now) else {
                 return Ok(applications);
             };
-            if Instant::now() >= deadline {
+            if deadline.passed() {
                 return Err(Error::LayoutNotReached {
                     differences,
                     patience,
                     applications,
                 });
             }
-            if Instant::now() >= shown_by {
+            if shown_by.passed() {
                 break;
             }
             std::thread::sleep(POLL.min(settle));

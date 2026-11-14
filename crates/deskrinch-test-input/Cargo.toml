@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-test-wait.workspace = true
 # `Compositor::current`, which refuses a session that is not a nested one,
 # and where the outputs are in the layout.
 deskrinch-test-client.workspace = true

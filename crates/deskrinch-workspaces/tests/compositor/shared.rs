@@ -4,14 +4,13 @@
 //! the compositor to stop.
 
 use std::sync::mpsc;
-use std::thread;
-use std::time::{Duration, Instant};
 
 use deskrinch_test_client::TestClient;
 use deskrinch_window_management::WindowManagement;
 use deskrinch_workspaces::{Client, StateCounts, Workspaces};
 
-use crate::support::{Compositor, PATIENCE, Watcher, compositor, kwin, set_up};
+use crate::support::{Compositor, Watcher, compositor, kwin, set_up};
+use deskrinch_test_wait::{recv, wait_for};
 
 /// Switches made under KWin after a manager is dropped.
 const SWITCHES: u64 = 20;
@@ -20,18 +19,17 @@ const SWITCHES: u64 = 20;
 /// switched to, and the manager's `done`.
 const EVENTS_PER_SWITCH: u64 = 3;
 
-/// Waits until `check` holds for `client`'s state counts; panics with them
-/// otherwise.
+/// Waits until `check` holds for `client`'s state counts.
+#[track_caller]
 fn wait_states(client: &Client, what: &str, check: impl Fn(StateCounts) -> bool) -> StateCounts {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    wait_for(what, || {
         let states = client.states();
         if check(states) {
-            return states;
+            Ok(states)
+        } else {
+            Err(states)
         }
-        assert!(Instant::now() < deadline, "{what}: {states:?}");
-        thread::sleep(Duration::from_millis(20));
-    }
+    })
 }
 
 #[test]
@@ -54,16 +52,7 @@ fn workspaces_and_windows_share_one_connection() {
     let app_id = format!("org.deskrinch.test.Shared.p{}", std::process::id());
     let test = TestClient::connect().unwrap();
     let _window = test.open("Shared", &app_id).unwrap();
-    let deadline = Instant::now() + PATIENCE;
-    loop {
-        let left = deadline.saturating_duration_since(Instant::now());
-        let added = windows
-            .recv_timeout(left.max(Duration::from_millis(1)))
-            .expect("the window, through window management");
-        if added == app_id {
-            break;
-        }
-    }
+    while recv("the window, through window management", &windows) != app_id {}
     assert!(
         manager
             .windows()

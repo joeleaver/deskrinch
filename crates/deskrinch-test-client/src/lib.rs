@@ -73,11 +73,6 @@ pub use paint::Paint;
 pub use pointer::{PointerEvent, PointerMark};
 pub use window::TestWindow;
 
-/// How long anything here waits for the compositor (a window to be drawn
-/// as asked, a round trip, an output change): generous, since a loaded
-/// machine runs nested compositors slowly.
-pub const PATIENCE: Duration = Duration::from_secs(60);
-
 /// Why a test client could not do what was asked.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -97,7 +92,7 @@ pub enum Error {
     /// A global the client needs could not be bound.
     #[error("could not bind a global the client needs")]
     Bind(#[source] deskrinch_test_wayland::BindError),
-    /// The compositor did not answer within [`PATIENCE`].
+    /// The compositor did not answer within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     #[error("the compositor did not answer within {patience:?} while {what}")]
     TimedOut {
         /// What the client was waiting for.
@@ -114,7 +109,7 @@ pub enum Error {
     /// No output has this name.
     #[error("there is no output named {0:?}")]
     UnknownOutput(String),
-    /// A window did not draw what was waited for within [`PATIENCE`].
+    /// A window did not draw what was waited for within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     #[error("the window {title:?} did not draw {what} (it last drew {drawn:?})")]
     NotDrawn {
         /// The window's title.
@@ -124,7 +119,7 @@ pub enum Error {
         /// The size it last drew, if any.
         drawn: Option<(i32, i32)>,
     },
-    /// A window did not receive the input waited for within [`PATIENCE`].
+    /// A window did not receive the input waited for within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     #[error("the window {title:?} did not receive {what}")]
     NotReceived {
         /// The window's title.
@@ -157,7 +152,7 @@ pub enum Error {
         reason: String,
     },
     /// The compositor took a layout, but did not report it within
-    /// [`PATIENCE`].
+    /// [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     #[error(
         "the compositor did not report the outputs as set within {patience:?}, after \
          {applications} applications: {differences}"
@@ -170,7 +165,7 @@ pub enum Error {
         /// How many times the layout was applied.
         applications: u32,
     },
-    /// Every configuration made within [`PATIENCE`] was cancelled: the
+    /// Every configuration made within [`PATIENCE`](deskrinch_test_wait::PATIENCE) was cancelled: the
     /// outputs kept changing under it.
     #[error("the outputs changed under each of {attempts} configurations made within {patience:?}")]
     Cancelled {

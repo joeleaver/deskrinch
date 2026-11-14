@@ -22,7 +22,7 @@ use std::sync::Arc;
 
 use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::LiveSettings;
-use deskrinch_desktop_entries::{DesktopEntry, Environment};
+use deskrinch_desktop_entries::{CatalogEntry, Environment};
 use deskrinch_launcher::{Action, Input, Model, Visibility, frequent};
 use deskrinch_settings::general::GeneralSettings;
 use deskrinch_start_record::Record;
@@ -80,30 +80,23 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
     let index = icons.signal();
 
     // The applications changed: search them again for the same query.
-    {
-        let env = Rc::clone(&env);
-        Effect::new(move || {
-            let entries = entries.get();
-            untracked(|| model.update(|m| m.refresh(entries.iter(), &env.locales)));
-        });
-    }
+    Effect::new(move || {
+        let entries = entries.get();
+        untracked(|| model.update(|m| m.refresh(entries.iter().map(|e| &e.entry))));
+    });
 
     follow_frequent(&Frequent {
         starts: &starts,
         record,
         general,
         entries,
-        env: &env,
         model,
         shown,
     });
 
-    let on_query = {
-        let env = Rc::clone(&env);
-        move |query: String| {
-            let entries = entries.get();
-            model.update(|m| m.set_query(&query, entries.iter(), &env.locales));
-        }
+    let on_query = move |query: String| {
+        let entries = entries.get();
+        model.update(|m| m.set_query(&query, entries.iter().map(|e| &e.entry)));
     };
     let starter = Starter {
         visibility: Arc::clone(&visibility),
@@ -179,8 +172,7 @@ struct Frequent<'a> {
     starts: &'a Starts,
     record: Signal<Arc<Record>>,
     general: Signal<GeneralSettings>,
-    entries: Memo<Arc<Vec<DesktopEntry>>>,
-    env: &'a Rc<Environment>,
+    entries: Memo<Arc<Vec<Arc<CatalogEntry>>>>,
     model: Signal<Model>,
     /// Whether the window is shown.
     shown: Signal<bool>,
@@ -198,20 +190,18 @@ fn follow_frequent(parts: &Frequent<'_>) {
         record,
         general,
         entries,
-        env,
         model,
         shown,
     } = parts;
     let remember = Memo::new(move || general.with(|g| g.remember_starts));
     let starts = starts.clone();
     Effect::new(move || starts.remember(remember.get()));
-    let env = Rc::clone(env);
     let frequent = Memo::new(move || {
         if !remember.get() {
             return Vec::new();
         }
         let entries = entries.get();
-        record.with(|record| frequent(record, &entries, &env.locales))
+        record.with(|record| frequent(record, entries.iter().map(|e| &e.entry)))
     });
     let mut first = true;
     Effect::new(move || {
@@ -240,7 +230,7 @@ fn input(model: Signal<Model>, input: Input) -> Action {
 #[derive(Clone)]
 struct Starter {
     visibility: Arc<Visibility>,
-    entries: Memo<Arc<Vec<DesktopEntry>>>,
+    entries: Memo<Arc<Vec<Arc<CatalogEntry>>>>,
     /// `[general]`: the terminal applications run in.
     general: Signal<GeneralSettings>,
     env: Rc<Environment>,
@@ -255,7 +245,13 @@ impl Starter {
             Action::Stay => {}
             Action::Hide => self.visibility.hide(),
             Action::Launch(id) => {
-                let Some(entry) = self.entries.get().iter().find(|e| e.id == id).cloned() else {
+                let Some(entry) = self
+                    .entries
+                    .get()
+                    .iter()
+                    .find(|e| e.entry.id == id)
+                    .map(Arc::clone)
+                else {
                     return;
                 };
                 let setting = self.general.with(|g| g.terminal.clone());

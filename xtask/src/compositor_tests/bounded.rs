@@ -113,10 +113,12 @@ mod tests {
     fn an_overrun_is_interrupted_first() {
         let mut child = Command::new("sleep").arg("60").spawn().unwrap();
         let started = Instant::now();
-        let waited = wait(&mut child, SHORT, Duration::from_secs(30)).unwrap();
+        let grace = Duration::from_secs(30);
+        let waited = wait(&mut child, SHORT, grace).unwrap();
         assert_eq!(waited.stopped, Some(Stopped::Interrupted));
         assert_eq!(waited.status.signal(), Some(Signal::INT.as_raw()));
-        assert!(started.elapsed() < Duration::from_secs(10));
+        // Interrupted, so before the grace it would otherwise have had.
+        assert!(started.elapsed() < grace);
     }
 
     #[test]
@@ -132,6 +134,8 @@ mod tests {
         assert_eq!(waited.stopped, Some(Stopped::Killed));
         assert_eq!(waited.status.signal(), Some(Signal::KILL.as_raw()));
         assert!(started.elapsed() >= SHORT * 2);
-        assert!(started.elapsed() < Duration::from_secs(10));
+        // Killed, not left running: within the patience, which only a run
+        // that was never killed would reach.
+        assert!(started.elapsed() < deskrinch_test_wait::PATIENCE);
     }
 }

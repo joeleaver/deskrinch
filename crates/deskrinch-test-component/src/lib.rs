@@ -31,7 +31,7 @@ pub mod perf;
 mod watch;
 mod windows;
 
-pub use component::{Component, HUNG_AFTER, RENDERER_VARIABLE, RINCH_RENDERER_VARIABLE, Renderer};
+pub use component::{Component, RENDERER_VARIABLE, RINCH_RENDERER_VARIABLE, Renderer};
 pub use perf::{Opened, PerfLine, PerfWindow};
 pub use watch::{LAST_WORDS, Presented, Watch};
 pub use windows::{Mark, SinceMark, WindowState};

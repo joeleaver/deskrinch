@@ -11,19 +11,17 @@ use std::io::{BufRead as _, BufReader, Read as _};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_test_dbus::PrivateBus;
 use deskrinch_test_lifetime::running;
+use deskrinch_test_wait::eventually;
 
 /// Set in the child's environment, so that the ignored test runs only
 /// there.
 const CHILD: &str = "DESKRINCH_TEST_DBUS_KILLED_CHILD";
 /// What the child prints before the bus's session root.
 const MARK: &str = "process-with-a-bus:";
-
-/// How long the daemon of a killed process may take to be gone.
-const GONE_WITHIN: Duration = Duration::from_secs(1);
 
 /// The process to kill; not a test of its own.
 #[test]
@@ -66,11 +64,9 @@ fn a_killed_process_takes_its_bus_with_it() {
     process.kill().unwrap();
     process.wait().unwrap();
 
-    let deadline = Instant::now() + GONE_WITHIN;
-    while running(daemon) {
-        assert!(Instant::now() < deadline, "the daemon outlived its process");
-        thread::sleep(Duration::from_millis(10));
-    }
+    // Gone, not gone quickly: the kernel kills it as its parent dies, but it
+    // still has to be scheduled to exit, which a loaded machine can delay.
+    eventually("the daemon to go with its process", || !running(daemon));
     // Its directory stays until the next bus is started.
     assert!(root.is_dir());
     let _next = PrivateBus::start().unwrap();
