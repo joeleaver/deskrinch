@@ -10,7 +10,11 @@
 //! Two things keep it to one:
 //!
 //! - a lock (`flock` on `.lock`) held for as long as `cargo xtask desktop`
-//!   runs, which the kernel releases however it ends;
+//!   runs, which the kernel releases however it ends. The lock belongs to
+//!   the lock file's open file description, which a child shares from its
+//!   fork until its exec closes it: for a moment after its holder lets go,
+//!   a child just forked by another thread can still hold it. A refusal
+//!   then is true at that moment, and passes;
 //! - the session that uses it, claimed in `.session` (its root and its
 //!   process group) while it runs. Should the command be killed, its
 //!   session's supervisor is still ending that session, with the profile's
@@ -220,9 +224,8 @@ mod tests {
     /// Opens the profile `work` in `workspace` again once its lock is free.
     ///
     /// A lock this test has dropped can still be held, for a moment, by a
-    /// child another test's thread has just forked: the child shares the
-    /// lock's open file description until its exec closes it (see
-    /// [`a_child_between_fork_and_exec_holds_the_lock`]). So a profile
+    /// child another test's thread has just forked (see the module's doc,
+    /// and [`a_child_between_fork_and_exec_holds_the_lock`]). So a profile
     /// reopened in a test binary that spawns on other threads is waited for,
     /// within the patience; any other refusal fails at once.
     #[track_caller]
@@ -252,6 +255,10 @@ mod tests {
         reopened(workspace.path());
     }
 
+    /// The lock's open file description is shared with a child from its
+    /// fork until its exec (see the module's doc): a child held between the
+    /// two keeps the lock after the profile is dropped, and frees it at its
+    /// exec.
     #[test]
     #[expect(
         unsafe_code,
