@@ -10,14 +10,11 @@ use std::time::Duration;
 use deskrinch_status_notifier::{
     Bus, Config, Event, Host, Item, ItemId, Limits, Menu, MenuFailure,
 };
-use deskrinch_test_wait::{Deadline, PATIENCE, recv};
+use deskrinch_test_wait::{Deadline, PATIENCE, QUIET, quiet_for, recv};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::wire::OwnedVariant;
 use zbus::{Connection, MatchRule, Message, MessageStream};
-
-/// Long enough for an event that should not come to have arrived.
-pub(crate) const QUIET: Duration = Duration::from_millis(300);
 
 /// How long a test that a stalled host would hang ([`within`]) may take:
 /// several waits of [`PATIENCE`] in a row.
@@ -112,15 +109,15 @@ impl Events {
         }
     }
 
+    #[track_caller]
     pub(crate) fn quiet(&self) {
         self.quiet_for(QUIET);
     }
 
     /// That no event arrives for `time`.
+    #[track_caller]
     pub(crate) fn quiet_for(&self, time: Duration) {
-        if let Ok(event) = self.0.recv_timeout(time) {
-            panic!("unexpected event {event:?}");
-        }
+        quiet_for("no event", &self.0, time);
     }
 }
 

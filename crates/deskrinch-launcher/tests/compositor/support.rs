@@ -2,16 +2,20 @@
 //! who owns the launcher's name, and waiting.
 
 use std::process::{Command, ExitStatus, Stdio};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_bus::Bus;
 use deskrinch_launcher::NAME;
 use deskrinch_test_client::Compositor;
 use deskrinch_test_component::{Component, Renderer};
-use deskrinch_test_wait::comes_true;
+use deskrinch_test_wait::{Deadline, POLL, comes_true};
 
-/// How long a test watches for something that must not happen.
-pub(crate) const QUIET: Duration = Duration::from_secs(2);
+/// How long a test watches a launcher for something that must not happen
+/// (a frame drawn, a start, a process): not a delay of the launcher's own
+/// but a process's start, which `deskrinch_test_wait::STAYS_FOR` is too short
+/// to outlast on a loaded machine. Sentinels (a following command with a
+/// visible effect, awaited) are to replace it.
+pub(crate) const STAYS_FOR: Duration = Duration::from_secs(2);
 
 pub(crate) const LAUNCHER: &str = env!("CARGO_BIN_EXE_deskrinch-launcher");
 
@@ -141,14 +145,14 @@ pub(crate) fn owner_pid() -> Option<u32> {
     })
 }
 
-/// Whether `holds` stays true for [`QUIET`].
+/// Whether `holds` stays true for [`STAYS_FOR`].
 pub(crate) fn stays(mut holds: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + QUIET;
-    while Instant::now() < deadline {
+    let deadline = Deadline::after(STAYS_FOR);
+    while !deadline.passed() {
         if !holds() {
             return false;
         }
-        std::thread::sleep(Duration::from_millis(50));
+        std::thread::sleep(POLL);
     }
     holds()
 }

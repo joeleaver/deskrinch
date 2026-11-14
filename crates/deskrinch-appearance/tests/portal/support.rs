@@ -2,12 +2,11 @@
 //! events the crate reports about it.
 
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use deskrinch_appearance::{Appearance, Bus, Event, Preferences};
 use deskrinch_test_dbus::PrivateBus;
 use deskrinch_test_portal::{ActivatingBus, Methods, Setting, StandIn, Value};
-use deskrinch_test_wait::recv;
+use deskrinch_test_wait::{QUIET, quiet_for, recv};
 
 /// A private bus for one test.
 pub(crate) fn bus() -> PrivateBus {
@@ -61,8 +60,7 @@ pub(crate) fn preferences(events: &Receiver<Event>) -> Preferences {
 }
 
 /// That nothing more arrives for a moment.
+#[track_caller]
 pub(crate) fn quiet(events: &Receiver<Event>) {
-    if let Ok(event) = events.recv_timeout(Duration::from_millis(300)) {
-        panic!("unexpected {event:?}");
-    }
+    quiet_for("nothing more", events, QUIET);
 }

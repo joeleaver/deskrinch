@@ -6,8 +6,8 @@ use std::time::Duration;
 use deskrinch_notification_service::{CloseReason, Event, OperationError};
 use zbus::Variant;
 
-use crate::common::{Client, PrivateBus, QUIET, Signal, id, start};
-use deskrinch_test_wait::recv;
+use crate::common::{Client, PrivateBus, Signal, id, start};
+use deskrinch_test_wait::{QUIET, recv};
 
 #[test]
 fn replacement_keeps_the_id_and_emits_no_close() {

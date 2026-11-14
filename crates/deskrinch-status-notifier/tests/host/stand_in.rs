@@ -23,7 +23,7 @@ use zbus::{Connection, Message, MessageStream};
 
 use crate::common::{PrivateBus, call_watcher};
 use crate::stand_in_menu::{self, Layout, MenuCall, Menus};
-use deskrinch_test_wait::recv;
+use deskrinch_test_wait::{QUIET, quiet_for, recv};
 
 /// A property value, from anything zbus can make a variant of.
 pub(crate) fn v<'a>(value: impl Into<Variant<'a>>) -> OwnedVariant {
@@ -214,9 +214,7 @@ impl StandIn {
 
     /// That no call arrives for a moment.
     pub(crate) fn no_call(&self) {
-        if let Ok(call) = self.calls.recv_timeout(crate::common::QUIET) {
-            panic!("unexpected call {call:?}");
-        }
+        quiet_for("no call", &self.calls, QUIET);
     }
 }
 

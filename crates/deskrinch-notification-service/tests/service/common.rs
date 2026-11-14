@@ -14,13 +14,10 @@ use std::time::Duration;
 use deskrinch_notification_service::{
     Bus, Clock, Config, Event, ManualClock, NotificationId, Service,
 };
-use deskrinch_test_wait::recv;
+use deskrinch_test_wait::{quiet_for, recv};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::{Connection, MatchRule, MessageStream, Variant};
-
-/// Long enough for a signal that should not come to have arrived.
-pub(crate) const QUIET: Duration = Duration::from_millis(200);
 
 /// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.
 pub(crate) struct PrivateBus(deskrinch_test_dbus::PrivateBus);
@@ -239,10 +236,9 @@ impl Signals {
         recv("a signal", &self.0)
     }
 
+    #[track_caller]
     pub(crate) fn none_within(&self, wait: Duration) {
-        if let Ok(signal) = self.0.recv_timeout(wait) {
-            panic!("unexpected signal {signal:?}");
-        }
+        quiet_for("no signal", &self.0, wait);
     }
 }
 
