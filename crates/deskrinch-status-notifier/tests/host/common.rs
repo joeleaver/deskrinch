@@ -10,7 +10,7 @@ use std::time::Duration;
 use deskrinch_status_notifier::{
     Bus, Config, Event, Host, Item, ItemId, Limits, Menu, MenuFailure,
 };
-use deskrinch_test_wait::{PATIENCE, recv};
+use deskrinch_test_wait::{Deadline, PATIENCE, recv};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::wire::OwnedVariant;
@@ -340,9 +340,9 @@ impl MenuMatches {
                 live.remove(at);
             }
         };
-        let deadline = std::time::Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         while !settled(&live) {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let left = deadline.left();
             match self.calls.recv_timeout(left) {
                 Ok(call) => apply(&mut live, call),
                 Err(_) => break,
