@@ -11,6 +11,7 @@ mod desktop;
 mod error;
 mod file_length;
 mod git;
+mod grant;
 mod measure;
 mod run_in_session;
 mod session;
@@ -144,7 +145,9 @@ enum Task {
         /// The GPU driver's shader cache at each start.
         #[arg(long, value_enum, default_value = "cold")]
         shader_cache: measure::ShaderCache,
-        /// Seconds after the first frame before memory is read.
+        /// Seconds after the first frame before memory is read and the idle
+        /// window begins, in both modes: work done after the first frame (an
+        /// index built on a thread of its own) is kept out of the window.
         #[arg(long, default_value_t = 5)]
         settle: u64,
         /// Seconds of the idle window. Two minutes catch two ticks of a
@@ -176,6 +179,27 @@ enum Task {
         /// the cold one.
         #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=20))]
         shows: u32,
+        /// Open one window with this app id at the idle window's start, and
+        /// keep it open to its end: the idle figures then include what it
+        /// costs the program. A run fails if it cannot be opened or is gone
+        /// by the end.
+        #[arg(long, value_name = "APP_ID", conflicts_with = "summon")]
+        window: Option<String>,
+        /// The shell component the program is (its package, such as
+        /// deskrinch-panel), when its file name is not the package's: under
+        /// KWin it is granted what deskrinch-shell grants that component. A
+        /// program named as a component's package is granted without it.
+        #[arg(long, value_name = "PACKAGE")]
+        component: Option<String>,
+        /// Set KEY to VALUE in the measured program's environment, after
+        /// what measure sets itself (repeatable). The header and each run's
+        /// notes say what was set.
+        #[arg(long = "env", value_name = "KEY=VALUE", value_parser = measure::parse_env)]
+        env: Vec<(String, String)>,
+        /// Measure a program that logged errors, with the lines in each
+        /// run's notes, instead of failing the run.
+        #[arg(long)]
+        allow_errors: bool,
         /// Each run's state directory (`XDG_STATE_HOME`) starts with a copy
         /// of this directory's contents: state the program reads, such as
         /// the record of starts the launcher shows (`deskrinch/starts.toml`).
@@ -241,6 +265,10 @@ impl Task {
                 summon,
                 dismiss,
                 shows,
+                window,
+                component,
+                allow_errors,
+                env,
                 state,
                 program,
                 args,
@@ -264,6 +292,10 @@ impl Task {
                 summons: summon
                     .zip(dismiss)
                     .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
+                window,
+                component,
+                allow_errors,
+                env,
             }),
             Self::Session {
                 outputs,

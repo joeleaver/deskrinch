@@ -1,5 +1,6 @@
 //! The test binaries `cargo xtask compositor-tests` runs, and where.
 
+use deskrinch_shell::Component;
 use deskrinch_test_wayland::Transform;
 
 use super::build::{Backend, Target};
@@ -89,6 +90,11 @@ pub(super) struct Suite {
     /// tests ([`super::renderers`]), told which in
     /// `DESKRINCH_TEST_RENDERER`.
     pub(super) renders: bool,
+    /// The shell components its tests start that are not of its own crate
+    /// (the panel, for the wallpaper's layering test): built with its tests,
+    /// granted what the shell grants them, and handed to its tests by path
+    /// ([`deskrinch_test_component::programs`]).
+    pub(super) programs: &'static [&'static Component],
     /// The libtest arguments it runs with.
     pub(super) filter: &'static [&'static str],
 }
@@ -127,6 +133,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -144,6 +151,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &["--skip", SESSION_END],
     },
     Suite {
@@ -156,6 +164,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: KWIN,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -173,6 +182,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: &Pass::ALL,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -186,6 +196,7 @@ pub(super) const SUITES: [Suite; 19] = [
         // It rotates an output itself.
         passes: &[Pass::Plain, Pass::Scaled],
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -198,6 +209,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: KWIN,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     // The input devices, typing into test windows and pointing at them:
@@ -218,6 +230,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: &Pass::ALL,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     // The launcher, its real binary: its process, and keys typed into it
@@ -237,6 +250,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: PLAIN,
         renders: true,
+        programs: &[],
         filter: &[],
     },
     // The panel's real binary, checked by the screen: it captures under
@@ -257,12 +271,13 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
+        programs: &[],
         filter: &[],
     },
     // The wallpaper's real binary, checked by the screen on every output; the
-    // panel's binary, built in the same run, is started over it. Not in the
-    // flipped pass, for the panel's reason: a full output of one colour is
-    // the same mirrored.
+    // panel, declared as its program, built with it and handed to its tests,
+    // is started over it. Not in the flipped pass, for the panel's reason: a
+    // full output of one colour is the same mirrored.
     Suite {
         target: Target {
             package: WALLPAPER,
@@ -278,6 +293,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
+        programs: &[&deskrinch_shell::PANEL],
         filter: &[],
     },
     // The workspaces. KWin offers its virtual-desktop protocol ungranted, so
@@ -301,6 +317,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: KWIN,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &["--skip", UNSUPPORTED],
     },
     Suite {
@@ -313,6 +330,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: &[Compositor::Labwc],
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &["--skip", UNSUPPORTED, "--skip", KWIN_DESKTOPS],
     },
     Suite {
@@ -325,6 +343,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: &[Compositor::Sway],
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[UNSUPPORTED],
     },
     // The shared connection's one thread: states attached and detached from
@@ -339,6 +358,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     // `cargo xtask desktop`, nested: its window opens in this session, which
@@ -362,6 +382,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     // The two suites that exercise the shared connection, again on
@@ -379,6 +400,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[],
     },
     Suite {
@@ -396,6 +418,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &["--skip", SESSION_END],
     },
     // The workspaces' shared-connection tests on libwayland too: they share
@@ -415,6 +438,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: &[Compositor::Kwin, Compositor::Labwc],
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[SHARED],
     },
     // Last: it ends the session.
@@ -428,6 +452,7 @@ pub(super) const SUITES: [Suite; 19] = [
         compositors: ALL,
         passes: PLAIN,
         renders: false,
+        programs: &[],
         filter: &[SESSION_END],
     },
 ];

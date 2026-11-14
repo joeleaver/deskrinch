@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use deskrinch_test_client::{Paint, TestClient};
-use deskrinch_test_component::{Component, Renderer};
+use deskrinch_test_component::{Component, Renderer, programs};
 use deskrinch_test_screen::Screen;
 use deskrinch_test_wait::eventually;
 
@@ -45,18 +45,11 @@ fn a_window_is_above_it() {
     });
 }
 
-/// The panel binary, built beside this crate's in the same run: `cargo
-/// xtask compositor-tests` builds every suite's binaries in one Cargo run,
-/// the panel's suite among them.
+/// The panel binary: this suite declares the panel as one of its programs,
+/// which `cargo xtask compositor-tests` builds for it and hands to its
+/// tests by path ([`deskrinch_test_component::programs`]).
 fn panel_binary() -> PathBuf {
-    let panel =
-        PathBuf::from(env!("CARGO_BIN_EXE_deskrinch-wallpaper")).with_file_name("deskrinch-panel");
-    assert!(
-        panel.is_file(),
-        "{} is not built: run these through `cargo xtask compositor-tests`, which builds it",
-        panel.display()
-    );
-    panel
+    programs::program(deskrinch_shell::PANEL.package).unwrap_or_else(|why| panic!("{why}"))
 }
 
 #[test]
