@@ -12,6 +12,11 @@ publish.workspace = true
 name = "deskrinch-panel"
 path = "src/main.rs"
 
+# What the panel says, with one home for its wording: the binary logs with
+# it and the compositor tests wait with it.
+[lib]
+path = "src/lib.rs"
+
 [features]
 # rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input):
 # `RINCH_DEBUG=1 cargo run -p deskrinch-panel --features debug` (built with the
@@ -32,6 +37,8 @@ deskrinch-xdg.workspace = true
 # `deskrinch-theme`'s).
 rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 thiserror.workspace = true
+# Where the panel is placed, said when it moves (`deskrinch_panel::placed`).
+tracing.workspace = true
 
 [dev-dependencies]
 deskrinch-test-wait.workspace = true

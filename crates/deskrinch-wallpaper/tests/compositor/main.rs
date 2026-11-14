@@ -31,3 +31,5 @@ mod layers;
 mod outputs;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod together;

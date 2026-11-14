@@ -272,6 +272,25 @@ pub fn turn_output_off(name: &str) -> Result<RestoreOutputs, Error> {
     })
 }
 
+/// Moves the output named `name` of the nested compositor to `position`
+/// (logical pixels: another output's position puts the two at one place),
+/// every other output stated as it is, and returns once the compositor
+/// reports it there, with the guard that puts the whole layout back.
+///
+/// # Errors
+///
+/// As [`turn_output_off`].
+///
+/// # Panics
+///
+/// Outside a nested session, as [`Compositor::current`].
+pub fn move_output(name: &str, position: (i32, i32)) -> Result<RestoreOutputs, Error> {
+    change_with(name, |output| OutputState {
+        position,
+        ..output.clone()
+    })
+}
+
 /// Changes the scale or transform of the output named `name` of the nested
 /// compositor, every other output stated as it is, and returns once the
 /// compositor reports the change, with the guard that puts the whole layout

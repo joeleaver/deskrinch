@@ -13,6 +13,8 @@
 
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
 #[cfg(test)]
+mod covered;
+#[cfg(test)]
 mod live;
 #[cfg(test)]
 mod placement;

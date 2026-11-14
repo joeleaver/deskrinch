@@ -25,8 +25,8 @@
 //!   in, and refuses to go on outside one.
 //! - The session's outputs ([`outputs`], each an [`OutputState`]: on or
 //!   off, position, mode, scale, transform), and changes to them under any
-//!   of the three compositors: [`turn_output_off`], and [`change_output`]
-//!   for a scale or transform. Each states every output in full, and
+//!   of the three compositors: [`turn_output_off`], [`move_output`] for a
+//!   position, and [`change_output`] for a scale or transform. Each states every output in full, and
 //!   returns a [`RestoreOutputs`] that puts the whole layout back when
 //!   restored or dropped ([`layout`] says why). Through
 //!   `wlr-output-management` under sway and labwc, and KDE's
@@ -65,7 +65,8 @@ pub use client::TestClient;
 pub use compositor::Compositor;
 pub use kscreen::{KSCREEN_DOCTOR, kscreen_outputs, kscreen_settings};
 pub use layout::{
-    Mode, OutputState, RestoreOutputs, change_output, layout_differences, outputs, turn_output_off,
+    Mode, OutputState, RestoreOutputs, change_output, layout_differences, move_output, outputs,
+    turn_output_off,
 };
 pub use output_info::OutputInfo;
 pub use outputs::{OutputChange, configure_every_output, configure_output, wlroots_outputs_at};

@@ -92,6 +92,11 @@ impl Wallpaper {
         Self { component }
     }
 
+    /// Its last lines, for a failure's message.
+    pub(crate) fn log(&self) -> String {
+        self.component.watch().tail()
+    }
+
     /// Waits until the wallpaper has said something in which `says` is.
     pub(crate) fn wait_said(&self, says: &str) {
         let said = self
