@@ -3,6 +3,13 @@
 //! adapter line, whether rinch presented with its software renderer, every
 //! line for a test to look for, and the last lines for a report or an
 //! error.
+//!
+//! The frame methods without a window ([`Watch::frames`],
+//! [`Watch::prepared`], [`Watch::wait_first_frame`] and the like) are the
+//! main window's, as they always were. Every window's, the main one among
+//! them, are read from rinch's per-window lines ([`crate::perf`]):
+//! [`Watch::windows`], [`Watch::mark`] and [`Watch::since`],
+//! [`Watch::wait_first_frames`] and [`Watch::wait_prepared`].
 
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read};
@@ -12,6 +19,8 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::log::{self, Adapter};
+use crate::perf::{self, PerfWindow};
+use crate::windows::{Mark, SinceMark, WindowState, Windows};
 
 /// How many of the last lines are kept.
 const TAIL: usize = 20;
@@ -31,14 +40,31 @@ pub enum Presented {
 /// What the program has written so far.
 #[derive(Debug, Default)]
 struct Seen {
-    frames: u64,
-    first_frame: Option<Instant>,
     adapter: Option<Adapter>,
     software: bool,
     tail: VecDeque<String>,
     /// Every line, without ANSI codes.
     lines: Vec<String>,
+    /// Every window's frames, from the per-window lines.
+    windows: Windows,
     closed: u8,
+}
+
+impl Seen {
+    /// The main window's record, the one home of its frames.
+    fn main(&self) -> Option<&WindowState> {
+        self.windows.get(PerfWindow::Main)
+    }
+
+    /// The main window's presented frames.
+    fn main_frames(&self) -> u64 {
+        self.main().map_or(0, |main| main.frames)
+    }
+
+    /// When the main window's first frame was presented.
+    fn main_first_frame(&self) -> Option<Instant> {
+        self.main().and_then(|main| main.first_frame)
+    }
 }
 
 /// The shared record of a program's output, filled by one reader thread
@@ -80,9 +106,8 @@ impl Watch {
     fn line(&self, line: &str) {
         let (seen, changed) = &*self.seen;
         let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
-        if log::frame_number(line).is_some() {
-            seen.frames += 1;
-            seen.first_frame.get_or_insert_with(Instant::now);
+        if let Some(perf) = perf::parse(line) {
+            seen.windows.record(&perf, Instant::now());
         } else if log::presents_with_software(line) {
             seen.software = true;
         } else if seen.adapter.is_none() {
@@ -104,7 +129,7 @@ impl Watch {
         let deadline = Instant::now() + timeout;
         let mut guard = seen.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
-            if let Some(at) = guard.first_frame {
+            if let Some(at) = guard.main_first_frame() {
                 return Some(at);
             }
             let now = Instant::now();
@@ -127,7 +152,7 @@ impl Watch {
         let deadline = Instant::now() + timeout;
         let mut guard = seen.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
-            if guard.frames > frames {
+            if guard.main_frames() > frames {
                 return true;
             }
             let now = Instant::now();
@@ -165,6 +190,95 @@ impl Watch {
         }
     }
 
+    /// Waits up to `timeout` until `done` holds of what has been seen;
+    /// answers whether it did (not on timeout, or when both streams have
+    /// closed without it).
+    fn wait_until(&self, timeout: Duration, done: impl Fn(&Seen) -> bool) -> bool {
+        let (seen, changed) = &*self.seen;
+        let deadline = Instant::now() + timeout;
+        let mut guard = seen.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if done(&guard) {
+                return true;
+            }
+            let now = Instant::now();
+            if guard.closed >= 2 || now >= deadline {
+                return false;
+            }
+            guard = changed
+                .wait_timeout(guard, deadline - now)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
+        }
+    }
+
+    /// The main window's prepared frames so far (`[PERF] prepared N:`): never
+    /// counted in [`frames`](Self::frames), and never its first frame.
+    #[must_use]
+    pub fn prepared(&self) -> u64 {
+        self.lock().main().map_or(0, |main| main.prepared)
+    }
+
+    /// Waits up to `timeout` for a prepared frame of the main window after
+    /// the first `prepared`, the twin of
+    /// [`wait_frame_after`](Self::wait_frame_after).
+    #[must_use]
+    pub fn wait_prepared_after(&self, prepared: u64, timeout: Duration) -> bool {
+        self.wait_until(timeout, |seen| {
+            seen.main().is_some_and(|main| main.prepared > prepared)
+        })
+    }
+
+    /// The windows open now, the main one among them once it has written a
+    /// line, in the order they were first seen.
+    #[must_use]
+    pub fn windows(&self) -> Vec<WindowState> {
+        self.lock().windows.open()
+    }
+
+    /// Every window's presented and prepared frames now, to count from.
+    #[must_use]
+    pub fn mark(&self) -> Mark {
+        self.lock().windows.mark()
+    }
+
+    /// Every window's presented and prepared frames since `mark`, windows
+    /// closed since and made since included.
+    #[must_use]
+    pub fn since(&self, mark: &Mark) -> Vec<SinceMark> {
+        self.lock().windows.since(mark)
+    }
+
+    /// Waits up to `timeout` until `windows` windows have each presented a
+    /// frame; returns each window's first, earliest first, or `None` on
+    /// timeout or when both streams have closed first.
+    #[must_use]
+    pub fn wait_first_frames(
+        &self,
+        windows: usize,
+        timeout: Duration,
+    ) -> Option<Vec<(PerfWindow, Instant)>> {
+        self.wait_until(timeout, |seen| seen.windows.first_frames().len() >= windows)
+            .then(|| self.lock().windows.first_frames())
+    }
+
+    /// Waits up to `timeout` for a prepared frame since `since`, of `which`
+    /// window, or of any window for `None`; answers whether one came.
+    #[must_use]
+    pub fn wait_prepared(
+        &self,
+        which: Option<PerfWindow>,
+        since: &Mark,
+        timeout: Duration,
+    ) -> bool {
+        self.wait_until(timeout, |seen| {
+            seen.windows
+                .since(since)
+                .iter()
+                .any(|s| s.prepared > 0 && which.is_none_or(|which| s.window == which))
+        })
+    }
+
     /// What presented the frames, once the program has said: rinch's
     /// software renderer, or the GPU renderer on the adapter wgpu chose.
     /// `None` before the first frame, and for a program that presented
@@ -173,7 +287,7 @@ impl Watch {
     #[must_use]
     pub fn presented(&self) -> Option<Presented> {
         let seen = self.lock();
-        if seen.first_frame.is_none() {
+        if seen.main_first_frame().is_none() {
             None
         } else if seen.software {
             Some(Presented::Software)
@@ -185,13 +299,13 @@ impl Watch {
     /// Whether the first frame has come.
     #[must_use]
     pub fn has_first_frame(&self) -> bool {
-        self.lock().first_frame.is_some()
+        self.lock().main_first_frame().is_some()
     }
 
     /// The frames counted so far.
     #[must_use]
     pub fn frames(&self) -> u64 {
-        self.lock().frames
+        self.lock().main_frames()
     }
 
     /// The adapter wgpu logged, if it did.
@@ -260,95 +374,16 @@ impl Watch {
             .join("\n")
     }
 
+    /// Every line written so far, without ANSI codes, oldest first.
+    #[must_use]
+    pub fn lines(&self) -> Vec<String> {
+        self.lock().lines.clone()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Seen> {
         self.seen.0.lock().unwrap_or_else(PoisonError::into_inner)
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn counts_frames_and_keeps_the_adapter_and_a_tail() {
-        let watch = Watch::default();
-        let stderr = "starting\n[PERF] frame 1: a\n[PERF] frame 2: b\n";
-        let stdout = "x Request adapter result AdapterInfo { name: \"GPU\", \
-                      device_type: IntegratedGpu, driver: \"radv\", backend: Vulkan }\n";
-        let handles = [
-            watch.follow(stderr.as_bytes()),
-            watch.follow(stdout.as_bytes()),
-        ];
-        for handle in handles {
-            handle.join().expect("reader");
-        }
-        assert!(watch.wait_first_frame(Duration::ZERO).is_some());
-        assert!(watch.has_first_frame());
-        assert_eq!(watch.frames(), 2);
-        assert_eq!(watch.adapter().map(|a| a.driver), Some("radv".to_owned()));
-        assert!(!watch.presents_with_software());
-        assert!(watch.tail().contains("[PERF] frame 2: b"));
-    }
-
-    #[test]
-    fn notes_rinch_declining_the_adapter_wgpu_offered() {
-        let watch = Watch::default();
-        let stdout = "x Request adapter result AdapterInfo { name: \"llvmpipe\", \
-                      device_type: Cpu, driver: \"llvmpipe\", backend: Vulkan }\n\
-                      WARN rinch: the only GPU adapter that can present here, \"llvmpipe\" \
-                      (driver \"llvmpipe\"), is a software driver that renders on the CPU, \
-                      so Renderer::Auto presents with rinch's software renderer instead.\n";
-        watch.follow(stdout.as_bytes()).join().expect("reader");
-        assert!(watch.adapter().is_some_and(|a| a.is_software()));
-        assert!(watch.presents_with_software());
-    }
-
-    #[test]
-    fn says_which_renderer_presented() {
-        let gpu = Watch::default();
-        let stdout = "x Request adapter result AdapterInfo { name: \"GPU\", \
-                      device_type: IntegratedGpu, driver: \"radv\", backend: Vulkan }\n";
-        gpu.follow(stdout.as_bytes()).join().expect("reader");
-        assert_eq!(gpu.presented(), None, "before any frame");
-        gpu.follow(&b"[PERF] frame 1: a\n"[..])
-            .join()
-            .expect("reader");
-        assert!(matches!(gpu.presented(), Some(Presented::Gpu(a)) if a.driver == "radv"));
-
-        let software = Watch::default();
-        let stderr = "INFO rinch: presenting with the software renderer (chosen)\n\
-                      [PERF] frame 1: a\n";
-        software.follow(stderr.as_bytes()).join().expect("reader");
-        assert_eq!(software.presented(), Some(Presented::Software));
-    }
-
-    #[test]
-    fn waits_for_a_line_written_before_or_after() {
-        let watch = Watch::default();
-        watch
-            .follow(&b"one\n\x1b[31mtwo\x1b[0m\n"[..])
-            .join()
-            .expect("reader");
-        assert!(watch.wait_for_line(Duration::ZERO, |line| line == "two"));
-        let (reader, mut writer) = std::io::pipe().expect("pipe");
-        let _follower = watch.follow(reader);
-        let later = thread::spawn(move || {
-            use std::io::Write as _;
-            writer.write_all(b"three\n").expect("write");
-        });
-        assert!(watch.wait_for_line(deskrinch_test_wait::PATIENCE, |line| line == "three"));
-        later.join().expect("writer");
-        assert!(!watch.wait_for_line(Duration::from_millis(50), |line| line == "four"));
-    }
-
-    #[test]
-    fn no_first_frame_once_both_streams_close() {
-        let watch = Watch::default();
-        for handle in [watch.follow(&b"error\n"[..]), watch.follow(&b""[..])] {
-            handle.join().expect("reader");
-        }
-        assert_eq!(watch.wait_first_frame(Duration::from_secs(60)), None);
-        assert_eq!(watch.tail(), "error");
-        assert_eq!(watch.last_words(), "error");
-    }
-}
+mod tests;

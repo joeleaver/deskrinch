@@ -10,9 +10,12 @@
 //! - [`Renderer`] is the run's renderer, which `cargo xtask
 //!   compositor-tests` names in [`RENDERER_VARIABLE`]; a test asserts that
 //!   it is what presented, so a silent fallback fails.
-//! - [`log`] reads rinch's and wgpu's lines; `cargo xtask measure` reads
-//!   them through it too, so a change of wording in rinch is caught in one
-//!   place.
+//! - [`log`] reads rinch's and wgpu's lines, and [`perf`] every kind of
+//!   rinch's `RINCH_PERF` line (each window's presented and prepared
+//!   frames, windows opening and closing); `cargo xtask measure` reads them
+//!   through it too, so a change of wording in rinch is caught in one
+//!   place. [`Watch`] keeps the main window's frames as it always did, and
+//!   every window's beside them.
 //!
 //! Like the other test-support crates, it is for nested sessions only: the
 //! component it starts connects to whatever `WAYLAND_DISPLAY` and the
@@ -24,7 +27,11 @@
 
 mod component;
 pub mod log;
+pub mod perf;
 mod watch;
+mod windows;
 
 pub use component::{Component, RENDERER_VARIABLE, RINCH_RENDERER_VARIABLE, Renderer};
+pub use perf::{Opened, PerfLine, PerfWindow};
 pub use watch::{LAST_WORDS, Presented, Watch};
+pub use windows::{Mark, SinceMark, WindowState};
