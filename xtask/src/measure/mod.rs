@@ -93,8 +93,12 @@ again with the summon arguments, hidden again with the dismiss arguments
 after each show. Each show reports CPU time (or with --instructions the
 instructions) from the summon command to the first frame after it, the
 first show cold, each later one after a hide. The summon command's own
-process is not counted. Memory is read once, hidden and settled, before the
-first show (without --instructions); the idle window is not measured.
+process is not counted. Settled means its threads ran almost nothing and
+rinch prepared no frame for its hidden window over a second; the prepared
+frames before each show are reported, and with --instructions each hide
+too, from the dismiss command to settled, with its prepared frames. Memory
+is read once, hidden and settled, before the first show (without
+--instructions); the idle window is not measured.
 
 --state DIR starts each run's state directory (XDG_STATE_HOME) with a copy
 of DIR's contents, such as the launcher's record of starts
