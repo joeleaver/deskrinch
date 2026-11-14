@@ -319,7 +319,7 @@ mod tests {
         assert!(
             component
                 .watch()
-                .wait_for_line(Duration::from_secs(600), |line| line == expected),
+                .wait_for_line(deskrinch_test_wait::PATIENCE, |line| line == expected),
             "{}",
             component.watch().tail()
         );
@@ -334,12 +334,15 @@ mod tests {
             "(sleep 0.2; echo \"[PERF] frame 1: x\" >&2) & exit 3",
         ]);
         let mut client = Component::start_unguarded(command, Renderer::Software).unwrap();
-        let status = client.wait_exit(Duration::from_secs(600)).unwrap().unwrap();
+        let status = client
+            .wait_exit(deskrinch_test_wait::PATIENCE)
+            .unwrap()
+            .unwrap();
         assert_eq!(status.code(), Some(3));
         assert!(
             client
                 .watch()
-                .wait_first_frame(Duration::from_secs(600))
+                .wait_first_frame(deskrinch_test_wait::PATIENCE)
                 .is_some()
         );
     }
