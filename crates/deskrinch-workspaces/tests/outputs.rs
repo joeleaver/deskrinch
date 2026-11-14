@@ -44,7 +44,7 @@ fn last_heard(heard: &Mutex<Vec<Event>>) -> Option<Group> {
 #[track_caller]
 fn wait_outputs(heard: &Mutex<Vec<Event>>, outputs: &[&str]) {
     let wanted: BTreeSet<String> = outputs.iter().map(|&name| name.to_owned()).collect();
-    wait_for(&format!("the group on {wanted:?}"), || {
+    wait_for(&format!("the group to be on {wanted:?}"), || {
         let last = last_heard(heard);
         if last.as_ref().is_some_and(|group| group.outputs == wanted) {
             Ok(())

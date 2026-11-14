@@ -63,7 +63,7 @@ fn a_connection_of_its_own_closes_with_its_last_handle() {
     // The last handle: the thread ends without waiting for the releasing
     // state (as `lifecycle` says, a joined thread may be listed a moment).
     drop(client);
-    eventually("the client's thread gone", || !thread_alive(ours));
+    eventually("the client's thread to end", || !thread_alive(ours));
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn a_panic_in_a_releasing_state_ends_the_others() {
     // Its queue is still dispatched: a callback answered there now panics.
     client.display().sync(&queue, OnDone::Panic);
     bystander.attachment.flush().unwrap();
-    eventually("the bystander ended", || {
+    eventually("the bystander to end", || {
         !bystander.record.lock().unwrap().ends.is_empty()
     });
     assert_eq!(bystander.record.lock().unwrap().ends, ["HandlerPanicked"]);

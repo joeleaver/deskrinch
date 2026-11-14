@@ -51,7 +51,7 @@ fn last_heard(heard: &Mutex<Vec<Event>>) -> Option<Window> {
 #[track_caller]
 fn wait_outputs(heard: &Mutex<Vec<Event>>, outputs: &[&str]) {
     let wanted: BTreeSet<String> = outputs.iter().map(|&name| name.to_owned()).collect();
-    wait_for(&format!("the window on {wanted:?}"), || {
+    wait_for(&format!("the window to be on {wanted:?}"), || {
         let last = last_heard(heard);
         if last.as_ref().is_some_and(|window| window.outputs == wanted) {
             Ok(())
@@ -64,12 +64,13 @@ fn wait_outputs(heard: &Mutex<Vec<Event>>, outputs: &[&str]) {
 /// The one id the client gave global `name`, once it has bound it.
 #[track_caller]
 fn bound(stand_in: &StandIn, name: u32) -> u32 {
-    wait_for(&format!("global {name} bound once"), || {
-        match stand_in.bound(name)[..] {
+    wait_for(
+        &format!("global {name} to be bound once"),
+        || match stand_in.bound(name)[..] {
             [id] => Ok(id),
             ref ids => Err(ids.to_vec()),
-        }
-    })
+        },
+    )
 }
 
 /// An output's name, and its `done`.

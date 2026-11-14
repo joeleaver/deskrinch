@@ -28,7 +28,7 @@ use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_client::{Compositor, Paint, TestClient};
 use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE, Key};
 use deskrinch_test_screen::{KWIN_SCREENSHOT_INTERFACE, Rgba, Screen};
-use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually, wait_for};
+use deskrinch_test_wait::{Deadline, PATIENCE, POLL, comes_true, eventually, wait_for};
 
 use crate::support::{TestProfile, start};
 
@@ -47,9 +47,10 @@ const INSIDE_TAKES: Duration = PATIENCE.saturating_mul(3);
 /// measured (see [`open_overview_by_its_shortcut`]); also the window a
 /// shortcut that must do nothing is watched for.
 const SHOWN_WITHIN: Duration = Duration::from_secs(2);
-/// How long after an edge or corner is pushed, or the Overview opened, its
-/// effect is looked for: past KWin's `ElectricBorderDelay` (75 ms by
-/// default) and the effect's start.
+/// How long an edge or corner that must do nothing is watched after it is
+/// pushed: past KWin's `ElectricBorderDelay` (75 ms by default) and an
+/// effect's start. A place that must start something is waited for with the
+/// patience instead.
 const ACTS_WITHIN: Duration = Duration::from_secs(1);
 /// How long the pointer keeps pushing against an edge: well past the time
 /// KWin waits there before it acts (`ElectricBorderDelay`, 75 ms by
@@ -372,7 +373,7 @@ fn inside_the_desktop_edges_and_the_overview() {
         ));
         assert!(after.iter().all(|e| e != "overview"), "{after:?}");
         // No edge or corner does anything.
-        let started = sweep(&mut input, &output, size, &baseline, &record);
+        let started = sweep(&mut input, &output, size, &baseline, &record, |_| &[]);
         assert!(
             started.iter().all(|(_, effects)| effects.is_empty()),
             "{started:?}"
@@ -393,9 +394,9 @@ fn inside_the_desktop_edges_and_the_overview() {
     });
     record.note(&format!("before: {before:?}"));
     open_overview_by_its_shortcut();
-    std::thread::sleep(ACTS_WITHIN);
     let mut screen = Screen::connect().unwrap();
-    let shown = shows_the_window(&mut screen, &output);
+    // Asserted after the Overview is closed again, which the next steps need.
+    let shown = comes_true(|| shows_the_window(&mut screen, &output));
     record.note(&format!("the Overview shows the window: {shown}"));
     invoke("Overview");
     wait_effects("the Overview to close", |now| {
@@ -404,7 +405,13 @@ fn inside_the_desktop_edges_and_the_overview() {
     assert!(kwin_running(), "KWin is gone after the Overview");
     assert!(shown, "the Overview did not show the window");
     let baseline = active_effects();
-    let started = sweep(&mut input, &output, size, &baseline, &record);
+    let started = sweep(&mut input, &output, size, &baseline, &record, |place| {
+        if place == "top-left corner" {
+            &["screenedge", "overview"]
+        } else {
+            &[]
+        }
+    });
     // The Overview's hot corner is there and opens it (closed by Escape),
     // and no other edge does anything. KWin's `screenedge` effect lights an
     // edge reserved for an action as the pointer comes to it.
@@ -423,13 +430,16 @@ fn inside_the_desktop_edges_and_the_overview() {
 /// Pushes the pointer into every corner and along every edge of `output`
 /// (`size` logical pixels), checking after each that KWin still runs;
 /// what each started beyond `baseline`, by place, each ended again (an
-/// effect other than an edge's light by Escape).
+/// effect other than an edge's light by Escape). What `must_start` names
+/// for a place is waited for, within the patience; a place that must start
+/// nothing is watched for [`ACTS_WITHIN`].
 fn sweep(
     input: &mut Input,
     output: &str,
     size: (f64, f64),
     baseline: &[String],
     record: &Record,
+    must_start: impl Fn(&str) -> &'static [&'static str],
 ) -> Vec<(&'static str, Vec<String>)> {
     let (right, bottom) = (size.0 - 1.0, size.1 - 1.0);
     let places = [
@@ -445,12 +455,27 @@ fn sweep(
     let mut found = Vec::new();
     for (place, point) in places {
         push(input, output, point, size);
-        std::thread::sleep(ACTS_WITHIN);
+        let beyond = || -> Vec<String> {
+            active_effects()
+                .into_iter()
+                .filter(|e| !baseline.contains(e))
+                .collect()
+        };
+        let wanted = must_start(place);
+        let started = if wanted.is_empty() {
+            std::thread::sleep(ACTS_WITHIN);
+            beyond()
+        } else {
+            wait_for(&format!("the {place} to start {wanted:?}"), || {
+                let started = beyond();
+                if wanted.iter().all(|w| started.iter().any(|e| e == w)) {
+                    Ok(started)
+                } else {
+                    Err(started)
+                }
+            })
+        };
         assert!(kwin_running(), "KWin is gone after the {place}");
-        let started: Vec<String> = active_effects()
-            .into_iter()
-            .filter(|e| !baseline.contains(e))
-            .collect();
         record.note(&format!("{place}: {started:?}"));
         if started.iter().any(|e| e != "screenedge") {
             input.press(Key::ESCAPE).unwrap();

@@ -78,7 +78,7 @@ fn a_killed_process_takes_its_child_and_leaves_its_directory() {
 
     // Gone, not gone quickly: the kernel kills it as its parent dies, but it
     // still has to be scheduled to exit, which a loaded machine can delay.
-    eventually("the child gone with its process", || !running(pid));
+    eventually("the child to go with its process", || !running(pid));
     // Its directory stays until the next process makes one.
     assert!(dir.is_dir());
     let _mine = owned_dir().unwrap();

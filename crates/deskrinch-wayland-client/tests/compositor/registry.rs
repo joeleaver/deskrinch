@@ -41,7 +41,7 @@ fn a_global_that_goes_and_comes_back_reaches_every_state() {
     // Put back as it was, the whole layout, when restored or dropped.
     let off = turn_output_off(&name).expect("turn the output off");
     for record in records {
-        eventually("an output's global gone, for every state", || {
+        eventually("an output's global to go, for every state", || {
             record
                 .lock()
                 .unwrap()
@@ -53,7 +53,7 @@ fn a_global_that_goes_and_comes_back_reaches_every_state() {
     }
     off.restore().expect("put the outputs back");
     for record in records {
-        eventually("an output's global back, for every state", || {
+        eventually("an output's global to come back, for every state", || {
             !outputs_added(record).is_empty()
         });
         let record = record.lock().unwrap();

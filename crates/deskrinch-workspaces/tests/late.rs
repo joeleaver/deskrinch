@@ -57,7 +57,7 @@ fn a_workspace_announced_after_stop_is_destroyed_and_the_state_dropped() {
         "the late workspace destroyed: {:?}",
         stand_in.requests_to(late)
     );
-    wait_for("the state dropped", || {
+    wait_for("the state to be dropped", || {
         let states = client.states();
         if (states.attached, states.releasing) == (0, 0) {
             Ok(())

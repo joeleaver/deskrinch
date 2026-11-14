@@ -267,7 +267,9 @@ impl Drop for Desktop {
 /// The outer session's windows, as its window management lists them.
 pub(crate) fn outer_windows() -> deskrinch_window_management::WindowManager {
     let manager = deskrinch_window_management::connect(|_| {}).unwrap();
-    eventually("the desktop's window", || !manager.windows().is_empty());
+    eventually("the desktop's window to open", || {
+        !manager.windows().is_empty()
+    });
     manager
 }
 

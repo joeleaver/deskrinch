@@ -237,7 +237,7 @@ fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
 ///
 /// When that is not so within [`PATIENCE`], saying how it is instead.
 pub(crate) fn wait_band(screen: &mut Screen, before: &Pictures, band: Band) -> (String, Pictures) {
-    wait_for(&format!("the panel at {band:?}"), || {
+    wait_for(&format!("the panel to be at {band:?}"), || {
         let now = Pictures::still(screen);
         if let Some(why) = wrong(before, &now, band) {
             return Err(why);

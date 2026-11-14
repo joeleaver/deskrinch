@@ -121,7 +121,7 @@ if [ -n "$child" ]; then wait "$child"; fi
 /// What the recorder with PID `pid` wrote, once it has: each key's values.
 pub(crate) fn recorded(out: &Path, pid: u32) -> HashMap<String, Vec<String>> {
     let path = out.join(pid.to_string());
-    let text = wait_for(&format!("{} written", path.display()), || {
+    let text = wait_for(&format!("{} to be written", path.display()), || {
         fs::read_to_string(&path).map_err(|error| error.kind())
     });
     let mut values: HashMap<String, Vec<String>> = HashMap::new();

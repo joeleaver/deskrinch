@@ -40,7 +40,9 @@ fn write(root: &Path, text: &str) {
 
 /// The change `live` holds for the UI, once one arrives.
 fn next<T: Settings>(live: &LiveSettings<T>) -> T {
-    wait_for("a change delivered", || live.pending().ok_or("none yet"))
+    wait_for("a change to be delivered", || {
+        live.pending().ok_or("none yet")
+    })
 }
 
 #[test]

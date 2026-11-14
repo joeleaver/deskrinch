@@ -88,7 +88,7 @@ fn a_full_socket_is_waited_out_not_taken_for_a_lost_connection() {
 
     // The compositor reads again: every request arrives and is answered.
     stand_in.set_reading(true);
-    wait_for(&format!("all {sent} requests answered"), || {
+    wait_for(&format!("all {sent} requests to be answered"), || {
         let count = answered.load(Ordering::Acquire);
         if count < sent { Err(count) } else { Ok(()) }
     });

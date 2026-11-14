@@ -74,7 +74,7 @@ fn the_panel_is_above_it() {
     }
     // On the output the compositor gave it, its bottom row is the panel's,
     // and the middle of the output still the wallpaper's.
-    eventually("an output showing the panel over the wallpaper", || {
+    eventually("an output to show the panel over the wallpaper", || {
         let mut screen = Screen::connect().unwrap();
         screen.outputs().into_iter().any(|name| {
             let image = screen.capture(&name).unwrap();

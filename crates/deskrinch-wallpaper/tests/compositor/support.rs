@@ -155,7 +155,7 @@ pub(crate) fn first_other_within(
 /// Waits until every output of the session is `color` from edge to edge,
 /// as captured afresh; panics with the first output and pixel that is not.
 pub(crate) fn wait_covered(color: Rgba) {
-    wait_for(&format!("every output all {color:?}"), || {
+    wait_for(&format!("every output to be all {color:?}"), || {
         let mut screen = Screen::connect().unwrap();
         let wrong = screen.outputs().into_iter().find_map(|name| {
             let image = screen.capture(&name).unwrap();
@@ -173,7 +173,7 @@ pub(crate) fn wait_covered(color: Rgba) {
 /// Waits until `check` finds nothing wrong with the output `name`'s
 /// picture, captured afresh; panics with what it last found.
 pub(crate) fn wait_output(name: &str, check: impl Fn(&Image) -> Option<String>) {
-    wait_for(&format!("{name} as checked"), || {
+    wait_for(&format!("{name} to pass its check"), || {
         let mut screen = Screen::connect().unwrap();
         let image = screen.capture(name).unwrap();
         check(&image).map_or(Ok(()), Err)

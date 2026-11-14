@@ -89,7 +89,7 @@ mod session {
 
     fn wait_for_file(path: &Path) -> String {
         wait_for(
-            &format!("{} written", path.display()),
+            &format!("{} to be written", path.display()),
             || match fs::read_to_string(path) {
                 Ok(text) if text.ends_with('\n') => Ok(text),
                 other => Err(other.map_err(|error| error.kind())),
@@ -388,7 +388,7 @@ mod session {
             }
             left
         };
-        wait_for("the session gone", || {
+        wait_for("the session to go", || {
             let left = left();
             if left.is_empty() { Ok(()) } else { Err(left) }
         });

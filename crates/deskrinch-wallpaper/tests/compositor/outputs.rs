@@ -44,7 +44,7 @@ fn an_output_turned_while_it_runs_is_covered_at_its_new_shape() {
         transform: Some(to),
     };
     let restore = change_output(&name, turned).unwrap();
-    wait_for(&format!("{name} turned"), || {
+    wait_for(&format!("{name} to turn"), || {
         let size = captured_size(&name);
         if size == (height, width) {
             Ok(())

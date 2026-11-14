@@ -5,7 +5,7 @@ use std::task::{Wake, Waker};
 use std::thread;
 
 use super::*;
-use deskrinch_test_wait::{PATIENCE, eventually};
+use deskrinch_test_wait::{PATIENCE, QUIET, eventually};
 
 /// Runs `future` on this thread, parking between polls.
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -78,7 +78,9 @@ fn deadlines_fire_in_order() {
             sleep
         })
         .collect();
-    eventually("every sleep woken", || order.lock().unwrap().len() == 4);
+    eventually("every sleep to be woken", || {
+        order.lock().unwrap().len() == 4
+    });
     assert_eq!(*order.lock().unwrap(), [0, 10, 20, 30]);
     sleeps.clear();
 }
@@ -89,7 +91,8 @@ fn a_dropped_future_is_never_woken_and_leaves_nothing_behind() {
     let count = Arc::new(Count::default());
     let waker = Waker::from(Arc::clone(&count));
     // A second out, so a stall cannot make the first poll ready.
-    let mut sleep = timer.sleep(Duration::from_secs(1));
+    let deadline = Duration::from_secs(1);
+    let mut sleep = timer.sleep(deadline);
     assert_eq!(
         Pin::new(&mut sleep).poll(&mut Context::from_waker(&waker)),
         Poll::Pending
@@ -97,7 +100,8 @@ fn a_dropped_future_is_never_woken_and_leaves_nothing_behind() {
     assert_eq!(timer.shared.held(), (1, 1));
     drop(sleep);
     assert_eq!(timer.shared.held(), (0, 0));
-    thread::sleep(Duration::from_millis(1500));
+    // Watched past the dropped sleep's deadline, by half again.
+    thread::sleep(deadline + deadline / 2);
     assert_eq!(count.0.load(Ordering::SeqCst), 0);
 }
 
@@ -109,11 +113,11 @@ fn a_polled_sleep_is_woken_once_when_its_deadline_passes() {
     let mut sleep = timer.sleep(Duration::from_secs(1));
     let mut cx = Context::from_waker(&waker);
     assert_eq!(Pin::new(&mut sleep).poll(&mut cx), Poll::Pending);
-    eventually("the sleep was never woken", || {
+    eventually("the sleep to be woken", || {
         count.0.load(Ordering::SeqCst) >= 1
     });
-    // And only once.
-    thread::sleep(ms(100));
+    // And only once: a second wake would follow at once.
+    thread::sleep(QUIET);
     assert_eq!(count.0.load(Ordering::SeqCst), 1);
     assert_eq!(Pin::new(&mut sleep).poll(&mut cx), Poll::Ready(()));
 }
@@ -124,7 +128,7 @@ fn a_deadline_taken_before_the_first_poll_is_reported_passed_and_keeps_no_waker(
     // takes the deadline while nobody has polled, then the poll comes.
     let timer = Timer::start().unwrap();
     let key = timer.shared.insert(Instant::now());
-    eventually("the thread never took the deadline", || {
+    eventually("the thread to take the deadline", || {
         timer.shared.held() == (0, 0)
     });
     assert!(!timer.shared.set_waker(key, Waker::noop()));
@@ -199,8 +203,8 @@ fn the_thread_ends_with_the_last_handle_and_future() {
     drop(timer);
     drop(clone);
     // The sleep keeps the thread.
-    thread::sleep(ms(30));
+    thread::sleep(QUIET);
     assert!(weak.upgrade().is_some());
     drop(sleep);
-    eventually("the timer's thread ended", || weak.upgrade().is_none());
+    eventually("the timer's thread to end", || weak.upgrade().is_none());
 }

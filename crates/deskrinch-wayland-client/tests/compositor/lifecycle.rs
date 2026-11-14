@@ -27,7 +27,7 @@ fn the_thread_ends_with_the_last_handle() {
     // releases its memory, and takes it out of the task list only later, as
     // it finishes exiting. That the drop joins is the client's own business;
     // this sees the thread gone.
-    eventually("the client's thread gone", || !thread_alive(ours));
+    eventually("the client's thread to end", || !thread_alive(ours));
 }
 
 #[test]
@@ -40,7 +40,7 @@ fn a_panicking_handler_ends_every_state_once() {
     client.display().sync(&panicking.queue, OnDone::Panic);
     panicking.attachment.flush().unwrap();
     for record in [&panicking.record, &bystander.record] {
-        eventually("every state ended", || {
+        eventually("every state to end", || {
             !record.lock().unwrap().ends.is_empty()
         });
         let ends = record.lock().unwrap().ends.clone();
@@ -78,7 +78,7 @@ fn a_handle_dropped_inside_its_own_handler_does_not_deadlock() {
         .expect("still held: the answer cannot come before the flush")
         .flush()
         .unwrap();
-    eventually("the handle dropped by its handler", || {
+    eventually("the handle to be dropped by its handler", || {
         held.lock().unwrap().is_none()
     });
     // The client goes on: another state attaches and is dispatched.

@@ -110,8 +110,10 @@ const ROOT_PARENT: &str = "/tmp";
 /// What a session's root is named, before tempfile's random part.
 const ROOT_PREFIX: &str = "deskrinch-session-";
 
-/// How often to look again while waiting.
-const POLL: Duration = Duration::from_millis(50);
+/// The slice of a wait between two looks at whether a process still runs
+/// (and at an interrupt): a wait that also watches a process looks at it
+/// this often. One home for xtask's session and desktop.
+pub(crate) const POLL: Duration = Duration::from_millis(50);
 
 /// A running nested compositor.
 #[derive(Debug)]

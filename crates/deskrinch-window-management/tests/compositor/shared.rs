@@ -14,7 +14,7 @@ use deskrinch_test_wait::wait_for;
 #[track_caller]
 fn wait_states(client: &Client, attached: usize, releasing: usize) -> StateCounts {
     wait_for(
-        &format!("{attached} attached and {releasing} releasing"),
+        &format!("{attached} states attached and {releasing} releasing"),
         || {
             let states = client.states();
             if (states.attached, states.releasing) == (attached, releasing) {

@@ -25,7 +25,6 @@ use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
-use std::time::Duration;
 
 use deskrinch_shell::{COMPONENTS, LAUNCHER_CHORD, LAUNCHER_TOGGLE, Ready};
 use deskrinch_test_component::{RINCH_RENDERER_VARIABLE, Renderer as Rinch};
@@ -37,14 +36,11 @@ use crate::Outcome;
 use crate::error::Error;
 use crate::session::{
     Binding, ClientId, Compositor, CompositorRenderer, Display, GPU_VARIABLE, Gpu, Home, Options,
-    OutputTransform, Outputs, RenderNodes, Scale, Session, interrupt,
+    OutputTransform, Outputs, POLL, RenderNodes, Scale, Session, interrupt,
 };
 
 /// The exit status when the command refuses to run here (`EX_NOPERM`).
 pub(crate) const REFUSED: u8 = 77;
-
-/// How often to look again while waiting.
-pub(super) const POLL: Duration = Duration::from_millis(100);
 
 /// `cargo xtask desktop --help`.
 pub(crate) const LONG_ABOUT: &str = "\

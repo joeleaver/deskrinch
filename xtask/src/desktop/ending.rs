@@ -10,11 +10,12 @@
 use std::process::ExitStatus;
 use std::time::{Duration, Instant};
 
+use super::DesktopError;
 use super::window::{Seen, Window};
-use super::{DesktopError, POLL};
 use crate::Outcome;
 use crate::error::Error;
 use crate::run_in_session::exit_code;
+use crate::session::POLL;
 use crate::session::{ClientId, Session, interrupt};
 
 /// How long a compositor whose connection was lost has to be seen ended.

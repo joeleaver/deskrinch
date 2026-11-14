@@ -58,7 +58,7 @@ fn a_launch_and_its_children_land_in_a_real_transient_scope() {
     stop(&bus, unit);
     for process in [pid.to_string(), record["child"][0].clone()] {
         let proc = format!("/proc/{process}");
-        eventually(&format!("{proc} gone"), || !Path::new(&proc).exists());
+        eventually(&format!("{proc} to go"), || !Path::new(&proc).exists());
     }
 }
 

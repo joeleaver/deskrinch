@@ -124,7 +124,7 @@ fn an_objects_events_come_before_its_globals_removal() {
     burst.extend(message(registry, GLOBAL_REMOVE, &[Arg::Uint(OUTPUT)]));
     stand_in.send(burst);
 
-    eventually("the removal heard", || {
+    eventually("the removal to be heard", || {
         heard
             .lock()
             .unwrap()
@@ -202,7 +202,7 @@ fn a_detachs_requests_leave_in_its_own_round() {
     // Nothing is sent after this: only the detach's own round can flush
     // the output's release.
     drop(attachment);
-    eventually("the output's release sent", || {
+    eventually("the output's release to be sent", || {
         !stand_in.requests_to(output).is_empty()
     });
     assert_eq!(stand_in.requests_to(output), [OUTPUT_RELEASE]);

@@ -66,7 +66,7 @@ fn a_killed_process_takes_its_bus_with_it() {
 
     // Gone, not gone quickly: the kernel kills it as its parent dies, but it
     // still has to be scheduled to exit, which a loaded machine can delay.
-    eventually("the daemon gone with its process", || !running(daemon));
+    eventually("the daemon to go with its process", || !running(daemon));
     // Its directory stays until the next bus is started.
     assert!(root.is_dir());
     let _next = PrivateBus::start().unwrap();

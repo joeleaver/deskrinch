@@ -110,7 +110,7 @@ fn may_be_dropped_by_its_own_subscriber() {
     .unwrap();
     *slot.lock().unwrap() = Some(watcher);
     write(&file, "a");
-    let () = recv("the watcher dropped by its own subscriber", &finished);
+    let () = recv("the watcher to be dropped by its own subscriber", &finished);
     assert!(slot.lock().unwrap().is_none());
 }
 
