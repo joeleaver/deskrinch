@@ -13,7 +13,7 @@ use deskrinch_window_management::{
 };
 
 /// How long a test waits for the compositor to report something.
-const PATIENCE: Duration = Duration::from_secs(10);
+pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
 /// What each compositor does, where they differ.
 pub(crate) trait Behaviour {

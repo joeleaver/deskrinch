@@ -45,8 +45,9 @@ the `libnotify-bin` package). They never touch the session bus.
 The appearance crate's tests run a stand-in settings portal on a private
 D-Bus daemon too, never the session's.
 
-The compositor tests (the window-management crate's, `deskrinch-test-screen`'s,
-`deskrinch-test-input`'s, the launcher's and the panel's) drive a real
+The compositor tests (the window-management and workspaces crates',
+`deskrinch-test-screen`'s, `deskrinch-test-input`'s, the launcher's and the
+panel's) drive a real
 compositor and are ignored by `cargo test`. This runs them in nested,
 headless KWin, sway and labwc sessions that touch nothing in your own (the
 isolated sessions `cargo xtask session` gives; it needs `dbus-daemon`,
@@ -58,6 +59,34 @@ compositor, at scale 1 and at scale 2:
 cargo xtask compositor-tests [kwin] [sway] [labwc]
 cargo xtask compositor-tests --renderer software sway
 ```
+
+`--suite NAME` runs only the suite of that name, as the run prints it
+(`--suite "xtask desktop"`, `--suite "deskrinch-panel compositor"`; repeat it
+for several), and builds only what those suites need. An unknown name is an
+error that lists the names. With one suite chosen, `--test NAME` runs only
+that test of it, by its full name in its binary
+(`--test layers::a_window_is_above_it`), in each session where the suite
+runs it.
+
+`--repeat N --into DIR` runs the same thing N times, each in fresh sessions,
+each run's whole output in `DIR/run-NN.log` (`DIR` is made if missing, and
+must be empty). It says how each run went and, at the end, how many passed
+and failed and which files failed. It fails if any run did. A run that
+takes longer than `--run-timeout SECONDS` (an hour by default) is interrupted
+so that it ends its sessions, killed if it has not ended two minutes later,
+and counted as failed, with a note at the end of its file; the repeat goes
+on. To chase a
+failure CI saw, run what CI runs, narrowed:
+
+```sh
+cargo xtask compositor-tests --renderer software --suite "xtask desktop" \
+    --repeat 20 --into "$(mktemp -d)" kwin
+```
+
+`--renderer software` is CI's configuration on any machine: the run uses no
+GPU, and its sessions tell their clients so (`DESKRINCH_SESSION_GPU`, below).
+So the desktop tests' nested KWin composites in software (`QPainter`), as on
+CI's GPU-less runners.
 
 The suites that start a real component (the panel's and the launcher's) run
 once per renderer, and each of their tests checks which one presented.
@@ -196,6 +225,11 @@ What the command, and everything it starts, sees:
   activation off, which the compositor uses too: no portal, secret service
   or notification daemon is ever started on demand.
 - `XDG_CURRENT_DESKTOP` only when `--current-desktop NAME` sets it.
+- `DESKRINCH_SESSION_GPU=none` only when the run uses no GPU: with
+  `--no-gpu`, and in `cargo xtask compositor-tests --renderer software`'s
+  sessions. What decides by the machine's GPU then decides as on a machine
+  without one: `cargo xtask desktop`'s nested compositor composites in
+  software, as on CI's runners. xtask sets it; it is not for you to set.
 - With `--compositor-renderer gpu`, sway and labwc render with wlroots'
   GLES2 renderer on the GPU's render node (`WLR_RENDER_DRM_DEVICE`; a render
   node only, no KMS, seat or logind) instead of pixman, which a client
@@ -205,6 +239,13 @@ What the command, and everything it starts, sees:
   composites with OpenGL either way.
 - Under sway, no borders or title bars on any window, so that a tiled or
   maximised window fills the area it is given.
+- Under labwc, the workspace tests' fixture: four workspaces, switched
+  without the on-screen popup, and F12 bound to the next one
+  (`deskrinch_test_input::Key::F12`, a key no test types), with labwc's
+  default bindings otherwise. It is the test sessions' labwc that has them:
+  `cargo xtask desktop` (below) keeps labwc's own workspaces and leaves F12
+  to its windows. KWin starts with one virtual desktop; sway's workspaces
+  come and go with their windows.
 - None of your `DISPLAY`, `XAUTHORITY`, `WAYLAND_DISPLAY`, `WAYLAND_SOCKET`,
   `SWAYSOCK`, `I3SOCK`, `DBUS_SESSION_BUS_ADDRESS`, `XDG_CURRENT_DESKTOP`, or
   the login session's `XDG_SESSION_ID`, `XDG_SESSION_CLASS`,
@@ -294,7 +335,11 @@ killed, the session's supervisor ends the session.
 It is yours to run from a terminal: it refuses when standard input or
 standard error is not a terminal, or in CI. Agents and tests run it only
 inside `cargo xtask session`, where its window opens in the headless session;
-`cargo xtask compositor-tests` runs its tests that way.
+`cargo xtask compositor-tests` runs its tests that way. There, unless
+`--compositor-renderer` says otherwise, the nested compositor renders as on a
+machine without a GPU when the session says the run uses none
+(`DESKRINCH_SESSION_GPU=none`: `cargo xtask session --no-gpu`, or
+`compositor-tests --renderer software`).
 
 What the nested desktop does not have:
 

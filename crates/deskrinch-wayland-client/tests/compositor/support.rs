@@ -8,12 +8,13 @@ use std::time::{Duration, Instant};
 
 use deskrinch_test_client::Compositor;
 use deskrinch_wayland_client::{
-    Attachment, Client, Detached, EndCause, Ended, OutputGlobal, Outputs, OutputsHandler,
+    Attachment, Client, Detached, EndCause, Globals, Lifecycle, OutputGlobal, Outputs,
+    OutputsHandler, Remaining,
 };
-use wayland_client::globals::GlobalListContents;
+use wayland_client::globals::Global;
 use wayland_client::protocol::wl_callback::{self, WlCallback};
 use wayland_client::protocol::wl_output::WlOutput;
-use wayland_client::protocol::wl_registry::{self, WlRegistry};
+use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::ZxdgOutputV1;
@@ -27,11 +28,23 @@ pub(crate) fn nested() {
     let _compositor = Compositor::current();
 }
 
-/// What a test learns from its state: the outputs it saw named at setup,
-/// and how it ended.
+/// What a test learns from its state: the id of the thread its setup ran
+/// on (the client's), the outputs it saw at setup (their names, and their
+/// `wl_output` globals), the globals that came and went after it, how it
+/// ended, and whether it was released; and what the test asks of its
+/// release.
 #[derive(Debug, Default)]
 pub(crate) struct Record {
+    /// Set by the test: the state's release leaves it releasing, as one
+    /// holding an object without a destructor would be.
+    pub(crate) linger: bool,
+    pub(crate) releases: usize,
+    pub(crate) thread: Option<u32>,
     pub(crate) outputs: usize,
+    pub(crate) output_names: Vec<String>,
+    pub(crate) output_globals: Vec<u32>,
+    pub(crate) globals_added: Vec<(u32, String)>,
+    pub(crate) globals_removed: Vec<u32>,
     pub(crate) ends: Vec<String>,
 }
 
@@ -52,6 +65,7 @@ pub(crate) struct Probe {
     outputs: Outputs,
     record: Arc<Mutex<Record>>,
     detached: Detached,
+    remaining: Remaining,
 }
 
 impl Probe {
@@ -60,9 +74,39 @@ impl Probe {
     }
 }
 
-impl Ended for Probe {
+impl Lifecycle for Probe {
     fn end(&mut self, cause: EndCause) {
         self.record().ends.push(format!("{cause:?}"));
+    }
+
+    fn release(&mut self) {
+        if !self.outputs.release() {
+            self.remaining.linger();
+        }
+        let linger = {
+            let mut record = self.record();
+            record.releases += 1;
+            record.linger
+        };
+        if linger {
+            self.remaining.linger();
+        }
+    }
+
+    fn released(&self) -> bool {
+        self.remaining.is_empty()
+    }
+}
+
+impl Globals for Probe {
+    fn global_added(&mut self, _: &WlRegistry, global: &Global, _: &QueueHandle<Self>) {
+        self.record()
+            .globals_added
+            .push((global.name, global.interface.clone()));
+    }
+
+    fn global_removed(&mut self, name: u32) {
+        self.record().globals_removed.push(name);
     }
 }
 
@@ -77,18 +121,6 @@ impl OutputsHandler for Probe {
 wayland_client::delegate_dispatch!(Probe: [WlOutput: OutputGlobal] => Outputs);
 wayland_client::delegate_dispatch!(Probe: [ZxdgOutputV1: OutputGlobal] => Outputs);
 wayland_client::delegate_dispatch!(Probe: [ZxdgOutputManagerV1: ()] => Outputs);
-
-impl Dispatch<WlRegistry, GlobalListContents> for Probe {
-    fn event(
-        _: &mut Self,
-        _: &WlRegistry,
-        _: wl_registry::Event,
-        _: &GlobalListContents,
-        _: &Connection,
-        _: &QueueHandle<Self>,
-    ) {
-    }
-}
 
 impl Dispatch<WlCallback, OnDone> for Probe {
     fn event(
@@ -127,6 +159,7 @@ pub(crate) fn attach(client: &Client) -> Attached {
                     outputs: Outputs::default(),
                     record: setup_record,
                     detached: setup.detached(),
+                    remaining: Remaining::default(),
                 };
                 let handle = setup.handle();
                 let registry = setup.globals().registry().clone();
@@ -147,8 +180,23 @@ pub(crate) fn attach(client: &Client) -> Attached {
                 }
                 setup.roundtrip(&mut probe)?;
                 setup.roundtrip(&mut probe)?;
-                let outputs = probe.outputs.all_names().len();
-                probe.record.lock().unwrap().outputs = outputs;
+                let names = probe.outputs.all_names();
+                let mut record = probe.record();
+                record.outputs = names.len();
+                record.output_names = names.into_iter().collect();
+                record.output_globals = globals
+                    .iter()
+                    .filter(|global| global.interface == WlOutput::interface().name)
+                    .map(|global| global.name)
+                    .collect();
+                // Setup runs on the client's thread.
+                record.thread = Some(
+                    rustix::thread::gettid()
+                        .as_raw_nonzero()
+                        .get()
+                        .unsigned_abs(),
+                );
+                drop(record);
                 assert!(!probe.detached.is_set());
                 Ok::<_, wayland_client::DispatchError>((probe, handle))
             })
@@ -186,14 +234,8 @@ pub(crate) fn eventually(what: &str, check: impl Fn() -> bool) {
     }
 }
 
-/// How many of this process's threads are a client's.
-pub(crate) fn client_threads() -> usize {
-    std::fs::read_dir("/proc/self/task")
-        .unwrap()
-        .filter_map(Result::ok)
-        .filter(|task| {
-            std::fs::read_to_string(task.path().join("comm"))
-                .is_ok_and(|name| name.trim() == "deskrinch-wl")
-        })
-        .count()
+/// Whether the thread with id `id` is still listed in this process's
+/// `/proc/self/task`.
+pub(crate) fn thread_alive(id: u32) -> bool {
+    std::path::Path::new(&format!("/proc/self/task/{id}")).exists()
 }

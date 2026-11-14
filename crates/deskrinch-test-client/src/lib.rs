@@ -23,8 +23,20 @@
 //!   events, frames and the cursor are not kept.
 //! - [`Compositor::current`] says which nested compositor the tests run
 //!   in, and refuses to go on outside one.
-//! - [`configure_output`] changes an output's scale or transform, under a
-//!   compositor that offers `wlr-output-management` (not KWin).
+//! - The session's outputs ([`outputs`], each an [`OutputState`]: on or
+//!   off, position, mode, scale, transform), and changes to them under any
+//!   of the three compositors: [`turn_output_off`], and [`change_output`]
+//!   for a scale or transform. Each states every output in full, and
+//!   returns a [`RestoreOutputs`] that puts the whole layout back when
+//!   restored or dropped ([`layout`] says why). Through
+//!   `wlr-output-management` under sway and labwc, and KDE's
+//!   `kscreen-doctor` under KWin.
+//! - For a session's runner, which is not one of its clients:
+//!   [`configure_every_output`] and [`wlroots_outputs_at`] on a wlroots
+//!   compositor's socket, [`kscreen_settings`] for running `kscreen-doctor`
+//!   itself, [`kscreen_outputs`] to read its listing, and
+//!   [`layout_differences`] to compare two layouts. [`configure_output`]
+//!   changes one output under a wlroots compositor without a guard.
 //!
 //! What windows the tests look at and act on (the window-management
 //! crate's), and what windows they photograph (`deskrinch-test-screen`'s),
@@ -34,7 +46,10 @@
 
 mod client;
 mod compositor;
+mod converge;
 mod keyboard;
+mod kscreen;
+pub mod layout;
 mod output_info;
 mod outputs;
 mod paint;
@@ -48,8 +63,12 @@ use std::time::Duration;
 
 pub use client::TestClient;
 pub use compositor::Compositor;
+pub use kscreen::{KSCREEN_DOCTOR, kscreen_outputs, kscreen_settings};
+pub use layout::{
+    Mode, OutputState, RestoreOutputs, change_output, layout_differences, outputs, turn_output_off,
+};
 pub use output_info::OutputInfo;
-pub use outputs::{OutputChange, OutputSettings, configure_every_output, configure_output};
+pub use outputs::{OutputChange, configure_every_output, configure_output, wlroots_outputs_at};
 pub use paint::Paint;
 pub use pointer::{PointerEvent, PointerMark};
 pub use window::TestWindow;
@@ -120,6 +139,15 @@ pub enum Error {
     /// one; see [`configure_output`]).
     #[error("the compositor does not offer zwlr_output_manager_v1")]
     NoOutputManagement,
+    /// A program could not be run.
+    #[error("could not run {program}")]
+    Spawn {
+        /// The program.
+        program: &'static str,
+        /// Why.
+        #[source]
+        source: std::io::Error,
+    },
     /// The compositor refused an output change.
     #[error("the compositor refused to change {name}: {reason}")]
     OutputRefused {
@@ -127,6 +155,39 @@ pub enum Error {
         name: String,
         /// Why, as far as it said.
         reason: String,
+    },
+    /// The compositor took a layout, but did not report it within
+    /// [`PATIENCE`].
+    #[error(
+        "the compositor did not report the outputs as set within {patience:?}, after \
+         {applications} applications: {differences}"
+    )]
+    LayoutNotReached {
+        /// What still differed, both layouts listed.
+        differences: String,
+        /// How long it waited.
+        patience: Duration,
+        /// How many times the layout was applied.
+        applications: u32,
+    },
+    /// Every configuration made within [`PATIENCE`] was cancelled: the
+    /// outputs kept changing under it.
+    #[error("the outputs changed under each of {attempts} configurations made within {patience:?}")]
+    Cancelled {
+        /// How many configurations were cancelled.
+        attempts: u32,
+        /// How long it kept trying.
+        patience: Duration,
+    },
+    /// An output to be on has no mode the compositor reported, so none can
+    /// be stated for it; nothing was asked of the compositor.
+    #[error("{0} is to be on, but its compositor reported no mode for it")]
+    NoMode(String),
+    /// `kscreen-doctor` said something that could not be read.
+    #[error("could not read kscreen-doctor's outputs: {why}")]
+    Kscreen {
+        /// Why.
+        why: String,
     },
 }
 

@@ -1,0 +1,44 @@
+[package]
+name = "deskrinch-workspaces"
+description = "The compositor's workspaces, followed and switched between, behind one trait: KWin's virtual desktops and ext-workspace-v1."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+bitflags.workspace = true
+deskrinch-untrusted.workspace = true
+deskrinch-wayland-client.workspace = true
+thiserror.workspace = true
+wayland-client.workspace = true
+wayland-protocols = { workspace = true, features = ["client", "staging", "unstable"] }
+wayland-protocols-plasma = { workspace = true, features = ["client"] }
+
+[dev-dependencies]
+# The stand-in compositor, for what no real one does on cue.
+deskrinch-test-wayland.workspace = true
+# KWin's own D-Bus interface, the compositor's side of the KWin tests.
+deskrinch-bus.workspace = true
+# The compositor tests refuse to run outside a nested session, and open
+# windows.
+deskrinch-test-client.workspace = true
+# labwc's own switch: F12, pressed on the virtual keyboard.
+deskrinch-test-input.workspace = true
+# labwc's side of a switch: what the screen shows.
+deskrinch-test-screen.workspace = true
+# One connection shared with window management.
+deskrinch-window-management.workspace = true
+zbus = { workspace = true, features = ["default-rt"] }
+
+# The compositor tests run inside a nested compositor that
+# `cargo xtask compositor-tests` starts; they are ignored by a plain
+# `cargo test`.
+[[test]]
+name = "compositor"
+path = "tests/compositor/main.rs"
+
+[lints]
+workspace = true

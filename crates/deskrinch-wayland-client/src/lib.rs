@@ -10,8 +10,12 @@
 //!   its own. A component using two of them, as the panel does, then holds
 //!   one connection and one thread beside its toolkit's.
 //! - [`Attachment`] keeps a state attached; dropping it detaches the state.
-//! - [`Ended`] is how an attached state hears that the connection ended,
-//!   once, with its [`EndCause`].
+//! - [`Lifecycle`] is what every state does at the ends of its life: hear
+//!   that the connection ended, once, with its [`EndCause`]; and, when its
+//!   attachment is dropped, release what it bound.
+//! - [`Globals`] is how it hears of the globals that appear and go after
+//!   its setup: the client owns the connection's one `wl_registry`, and
+//!   every state binds from it onto its own queue.
 //! - [`Outputs`] binds `wl_output` and `zxdg_output_v1` into a crate's own
 //!   state ([`OutputsHandler`]) and tracks each output's name and logical
 //!   rectangle.
@@ -59,13 +63,39 @@
 //!
 //! # Ending
 //!
-//! A lost connection reaches every attached state's [`Ended::end`] exactly
-//! once ([`EndCause::ConnectionLost`]). A handler that panics (a
-//! subscriber's, say) ends the connection for every state
-//! ([`EndCause::HandlerPanicked`]): the panic is reported by the panic hook
-//! where it happens, and no state is left silently undispatched. The thread
-//! ends when the last [`Client`] clone and the last [`Attachment`] are
-//! gone.
+//! A lost connection reaches every attached state's [`Lifecycle::end`]
+//! exactly once ([`EndCause::ConnectionLost`]). A handler that panics (a
+//! subscriber's, say, or a releasing state's) ends the connection for
+//! every state ([`EndCause::HandlerPanicked`]): the panic is reported by
+//! the panic hook where it happens, and no state is left silently
+//! undispatched, since an undispatched state's objects would fill its queue
+//! for as long as the connection lasts. The thread ends when the last
+//! [`Client`] clone and the last [`Attachment`] are gone, releasing states
+//! or not: the connection then closes at once.
+//!
+//! # Detaching
+//!
+//! Every object a state bound keeps sending it events until the compositor
+//! is told to stop, and wayland-client keeps queueing them for the state's
+//! queue as long as any of its objects lives. So a detached state is not
+//! simply dropped. Its [`Lifecycle::release`] sends each protocol's
+//! requests for stopping (a manager's `stop`, a handle's `destroy`,
+//! [`Outputs::release`]), in the round it is detached; the thread keeps
+//! dispatching it, as a releasing state whose handlers create and keep
+//! nothing, and drops it once [`Lifecycle::released`] says nothing can
+//! reach it: after a manager's `finished`, with every object destroyed.
+//! [`Client::states`] counts both kinds, and the events releasing states
+//! were handed.
+//!
+//! Some objects have no destructor: KWin's window-management and
+//! virtual-desktop managers and its virtual desktops, and a `wl_seat` or
+//! `wl_output` too old to be released. A state holding one is never
+//! dropped: it is dispatched, and its events thrown away, for as long as
+//! the connection lasts. So under KWin every detach on a shared
+//! connection leaves a residue, on both sides, until the connection
+//! closes: a component that would attach and detach repeatedly keeps its
+//! state attached, or gives it a connection of its own (which closes when
+//! its last handle goes, without waiting for anything).
 //!
 //! A compositor that stops reading for long enough, while the crates keep
 //! sending, still ends the connection, and that limit is upstream's, not
@@ -80,11 +110,15 @@
 
 mod attach;
 mod client;
-mod ended;
+mod globals;
+mod lifecycle;
 mod outputs;
+mod states;
 mod thread;
 
 pub use attach::{AttachError, Attachment, Detached, Flushed, Setup};
 pub use client::{Client, ClientError};
-pub use ended::{EndCause, Ended};
+pub use globals::Globals;
+pub use lifecycle::{EndCause, Lifecycle, Remaining};
 pub use outputs::{OutputGlobal, Outputs, OutputsHandler, Rect, layout_available, names_available};
+pub use states::StateCounts;

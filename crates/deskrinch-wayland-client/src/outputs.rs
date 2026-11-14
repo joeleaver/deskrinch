@@ -140,7 +140,9 @@ pub struct Outputs {
 }
 
 impl Outputs {
-    /// Binds the output with registry name `global`.
+    /// Binds the output with registry name `global`; nothing for one it has
+    /// bound already, which a state may be handed twice (see
+    /// [`Globals`](crate::Globals)).
     pub fn add<State>(
         &mut self,
         registry: &WlRegistry,
@@ -150,6 +152,9 @@ impl Outputs {
     ) where
         State: Dispatch<WlOutput, OutputGlobal> + Dispatch<ZxdgOutputV1, OutputGlobal> + 'static,
     {
+        if self.by_global.contains_key(&global) {
+            return;
+        }
         let data = OutputGlobal(global);
         let proxy: WlOutput = registry.bind(global, version.min(OUTPUT_NAME_SINCE), qh, data);
         let xdg = self
@@ -168,7 +173,8 @@ impl Outputs {
         );
     }
 
-    /// Binds the xdg-output manager and describes every output with it.
+    /// Binds the xdg-output manager and describes every output with it;
+    /// nothing once it is bound.
     pub fn add_manager<State>(
         &mut self,
         registry: &WlRegistry,
@@ -201,6 +207,36 @@ impl Outputs {
             output.proxy.release();
         }
         true
+    }
+
+    /// Lets go of everything bound: each output's xdg-output destroyed, each
+    /// `wl_output` released, and the xdg-output manager destroyed, for a
+    /// state's [`Lifecycle::release`](crate::Lifecycle::release). Whether
+    /// nothing is left that can send events: a `wl_output` older than
+    /// version 3 has no `release` and stays.
+    pub fn release(&mut self) -> bool {
+        let mut gone = true;
+        for (_, output) in self.by_global.drain() {
+            if let Some(xdg) = output.xdg {
+                xdg.destroy();
+            }
+            if output.proxy.version() >= OUTPUT_RELEASE_SINCE {
+                output.proxy.release();
+            } else {
+                gone = false;
+            }
+        }
+        if let Some(manager) = self.manager.take() {
+            manager.destroy();
+        }
+        gone
+    }
+
+    /// Whether the output with registry name `global` is bound: one whose
+    /// global has gone is not.
+    #[must_use]
+    pub fn contains(&self, global: u32) -> bool {
+        self.by_global.contains_key(&global)
     }
 
     /// The registry name of a bound output.

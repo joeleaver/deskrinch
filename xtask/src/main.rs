@@ -58,20 +58,7 @@ enum Task {
     /// reaches the real desktop session. Needs `dbus-daemon`, and
     /// `kwin_wayland` (with `kscreen-doctor`), `sway` and `labwc` for those
     /// compositors.
-    CompositorTests {
-        /// The compositors to run in; all of them when none is given.
-        #[arg(value_enum)]
-        compositors: Vec<session::Compositor>,
-        /// The renderers the suites that draw run with: `software`; `gpu`
-        /// (failing where the machine has no GPU); or `all`, software and,
-        /// where the machine has a GPU, the GPU. Under sway and labwc the
-        /// GPU pass runs in a session of its own whose compositor renders on
-        /// the GPU too (wlroots' pixman renderer, which every other session
-        /// has, offers nothing the GPU renderer can present on). The run
-        /// says which it chose, and why.
-        #[arg(long, value_enum, default_value = "all")]
-        renderer: compositor_tests::renderers::Choice,
-    },
+    CompositorTests(compositor_tests::Args),
     /// Run a command in an isolated, nested, headless compositor session.
     #[command(long_about = run_in_session::long_about())]
     Session {
@@ -112,6 +99,12 @@ enum Task {
         /// it renders on it.
         #[arg(long, value_enum, default_value = "software")]
         compositor_renderer: session::CompositorRenderer,
+        /// Run as on a machine without a GPU: the session's programs are told
+        /// the run uses none (`DESKRINCH_SESSION_GPU=none`), as `cargo xtask
+        /// compositor-tests --renderer software` tells them, so that `cargo
+        /// xtask desktop` inside composites in software as it does in CI.
+        #[arg(long)]
+        no_gpu: bool,
         /// The compositor to run.
         #[arg(value_enum)]
         compositor: session::Compositor,
@@ -226,10 +219,7 @@ impl Task {
         match self {
             Self::FileLength => file_length::run(root),
             Self::CiPackages { packages } => ci_packages::run(&packages),
-            Self::CompositorTests {
-                compositors,
-                renderer,
-            } => compositor_tests::run(root, &compositors, renderer),
+            Self::CompositorTests(args) => compositor_tests::run(root, &args),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Desktop(args) => desktop::run(root, &args),
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
@@ -277,6 +267,7 @@ impl Task {
                 keep,
                 current_desktop,
                 compositor_renderer,
+                no_gpu,
                 compositor,
                 program,
                 args,
@@ -290,6 +281,7 @@ impl Task {
                 },
                 keep,
                 current_desktop,
+                gpu: session::Gpu::from_allowed(!no_gpu),
                 program,
                 args,
             }),

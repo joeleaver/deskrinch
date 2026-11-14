@@ -1,11 +1,17 @@
 //! How a running desktop ends, and why: its window closed, the command
 //! after `--` exited, or xtask was interrupted, whichever came first.
+//!
+//! The window is followed ([`follow`]) before the desktop says it is ready,
+//! so that from then on its closing is noticed. The compositor going away
+//! is the same ending whenever it is noticed: while the follower connects or
+//! in its first exchange, or while it watches. Either way the compositor's
+//! own exit status is waited for and decides.
 
 use std::process::ExitStatus;
 use std::time::{Duration, Instant};
 
-use super::POLL;
 use super::window::{Seen, Window};
+use super::{DesktopError, POLL};
 use crate::Outcome;
 use crate::error::Error;
 use crate::run_in_session::exit_code;
@@ -14,8 +20,51 @@ use crate::session::{ClientId, Session, interrupt};
 /// How long a compositor whose connection was lost has to be seen ended.
 const COMPOSITOR_GONE: Duration = Duration::from_secs(5);
 
+/// What following the desktop's window came to.
+#[derive(Debug)]
+pub(super) enum Followed {
+    /// The window is followed: the desktop notices it closing.
+    Window(Window),
+    /// The compositor went away before the window could be followed, and
+    /// the desktop ended with this outcome.
+    Ended(Outcome),
+}
+
+/// Follows the desktop's window, in the compositor of `session`.
+///
+/// When following fails, the compositor's exit status tells why, not the
+/// failure's text: if the compositor has ended, or ends within
+/// [`COMPOSITOR_GONE`], it went away (its window closed, or it failed), and
+/// that is the ending, decided as [`run_until_ended`] decides a compositor
+/// gone while watched. If it runs on, the follower failed for a reason of
+/// its own, and that is the error ([`DesktopError::Watch`]). An interrupt
+/// that came first is the outcome either way.
+pub(super) fn follow(session: &mut Session) -> Result<Followed, Error> {
+    let error = match Window::follow(&session.socket_path()) {
+        Ok(window) => return Ok(Followed::Window(window)),
+        Err(error) => error,
+    };
+    let compositor = wait_for_compositor(session);
+    let ended = unfollowed(error, interrupt::interrupted(), compositor);
+    if is_failure(&ended) {
+        report_failure(session, compositor);
+    }
+    ended.map(Followed::Ended)
+}
+
+/// Whether an ending is the compositor's failure, whose log is to be
+/// shown: a failed outcome, or an error other than an interrupt (the
+/// follower's own, while the compositor runs on).
+fn is_failure(ended: &Result<Outcome, Error>) -> bool {
+    match ended {
+        Ok(outcome) => *outcome == Outcome::Failed,
+        Err(error) => !matches!(error, Error::Interrupted),
+    }
+}
+
 /// Runs until the window closes, the command exits or xtask is
-/// interrupted; says when a component exits meanwhile.
+/// interrupted; says when a component exits meanwhile. `window` is the
+/// desktop's, followed ([`follow`]).
 ///
 /// An interrupt that came first is the outcome, whatever is noticed after
 /// it: the handler records it before it ends the session's group, so once
@@ -23,16 +72,10 @@ const COMPOSITOR_GONE: Duration = Duration::from_secs(5);
 /// read again, and if it is there, that is why they went.
 pub(super) fn run_until_ended(
     session: &mut Session,
+    mut window: Window,
     components: &[(&'static str, ClientId)],
     program: Option<ClientId>,
 ) -> Result<Outcome, Error> {
-    let mut window = match Window::follow(&session.socket_path()) {
-        Ok(window) => window,
-        Err(error) => {
-            interrupt::check()?;
-            return Err(error.into());
-        }
-    };
     let mut reported = vec![false; components.len()];
     loop {
         if let Some(status) = program.and_then(|id| session.client_status(id)) {
@@ -52,17 +95,23 @@ pub(super) fn run_until_ended(
                     .then(|| wait_for_compositor(session))
                     .flatten();
                 let ended = outcome(Ending::Window(seen), interrupt::interrupted(), compositor);
-                if let Ok(Outcome::Failed) = ended {
-                    let how = compositor.map_or_else(
-                        || "lost its connection and runs on".to_owned(),
-                        |status| format!("exited ({status})"),
-                    );
-                    eprintln!("desktop: the compositor {how}; its log:\n{}", session.log());
+                if is_failure(&ended) {
+                    report_failure(session, compositor);
                 }
                 return ended;
             }
         }
     }
+}
+
+/// Says that the compositor failed, `compositor` saying how it ended (`None`
+/// if it runs on though its connection is lost), with its log.
+fn report_failure(session: &Session, compositor: Option<ExitStatus>) {
+    let how = compositor.map_or_else(
+        || "lost its connection and runs on".to_owned(),
+        |status| format!("exited ({status})"),
+    );
+    eprintln!("desktop: the compositor {how}; its log:\n{}", session.log());
 }
 
 /// How the compositor ended, once it has, waiting up to [`COMPOSITOR_GONE`]
@@ -112,8 +161,29 @@ fn outcome(
     })
 }
 
+/// The desktop's outcome when its window could not be followed (`error`),
+/// seen with xtask `interrupted` or not, and with the compositor ended as
+/// `compositor` says: an interrupt is the outcome; then a compositor that
+/// has ended went away, which ends the desktop as [`outcome`] decides for a
+/// compositor gone; one that runs on leaves the follower's failure its own,
+/// the error.
+fn unfollowed(
+    error: DesktopError,
+    interrupted: bool,
+    compositor: Option<ExitStatus>,
+) -> Result<Outcome, Error> {
+    match compositor {
+        Some(_) => outcome(Ending::Window(Seen::Gone), interrupted, compositor),
+        None if interrupted => Err(Error::Interrupted),
+        None => Err(error.into()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use std::os::unix::net::UnixListener;
+    use std::thread;
+
     use super::*;
 
     /// Exit statuses as `wait` gives them.
@@ -159,5 +229,83 @@ mod tests {
         assert_eq!(decide(gone, Some(killed(11))), Outcome::Failed);
         assert_eq!(decide(gone, Some(exited(1))), Outcome::Failed);
         assert_eq!(decide(gone, None), Outcome::Failed, "runs on unreachable");
+    }
+
+    /// A follow's failure, as [`Window::follow`] gives it.
+    fn watch_error() -> DesktopError {
+        DesktopError::Watch {
+            socket: "/nowhere/wayland-0".into(),
+            source: "the connection to the compositor failed".into(),
+        }
+    }
+
+    #[test]
+    fn a_follow_that_failed_is_decided_by_the_compositor() {
+        let decide = |interrupted, compositor| unfollowed(watch_error(), interrupted, compositor);
+        // Gone: its window closed (KWin) as it was being followed, or it
+        // failed.
+        assert_eq!(decide(false, Some(exited(0))).unwrap(), Outcome::Passed);
+        assert_eq!(decide(false, Some(exited(1))).unwrap(), Outcome::Failed);
+        assert_eq!(decide(false, Some(killed(11))).unwrap(), Outcome::Failed);
+        // Running on: the follower's own failure.
+        assert!(matches!(
+            decide(false, None),
+            Err(Error::Desktop(DesktopError::Watch { .. }))
+        ));
+        // An interrupt first is the outcome, whatever was seen after it.
+        for compositor in [None, Some(killed(15)), Some(exited(0))] {
+            assert!(
+                matches!(decide(true, compositor), Err(Error::Interrupted)),
+                "{compositor:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_failure_shows_the_compositors_log_and_an_interrupt_does_not() {
+        let decide = |interrupted, compositor| unfollowed(watch_error(), interrupted, compositor);
+        // The follower failing while the compositor runs on shows its log,
+        // as a watch losing a compositor that runs on does.
+        assert!(is_failure(&decide(false, None)));
+        assert!(is_failure(&decide(false, Some(killed(11)))));
+        assert!(!is_failure(&decide(false, Some(exited(0)))));
+        assert!(!is_failure(&decide(true, None)));
+    }
+
+    /// Follows a stand-in compositor at a socket in a new directory that is
+    /// gone before the first exchange completes: with `accepted`, it
+    /// accepts the connection and closes it; without, it is gone before
+    /// accepting, and its socket refuses.
+    fn follow_a_gone_compositor(accepted: bool) -> DesktopError {
+        let dir = tempfile::tempdir().unwrap();
+        let socket = dir.path().join("wayland-0");
+        let listener = UnixListener::bind(&socket).unwrap();
+        let stand_in = if accepted {
+            Some(thread::spawn(move || drop(listener.accept().unwrap())))
+        } else {
+            drop(listener);
+            None
+        };
+        let followed = Window::follow(&socket);
+        if let Some(stand_in) = stand_in {
+            stand_in.join().unwrap();
+        }
+        let error = followed.unwrap_err();
+        assert!(
+            matches!(&error, DesktopError::Watch { socket: at, .. } if *at == socket),
+            "{error}"
+        );
+        error
+    }
+
+    #[test]
+    fn a_compositor_gone_before_the_first_exchange_is_an_ending() {
+        for accepted in [true, false] {
+            // Its status decides, as when it goes while watched.
+            let ended = unfollowed(follow_a_gone_compositor(accepted), false, Some(exited(0)));
+            assert_eq!(ended.unwrap(), Outcome::Passed, "accepted: {accepted}");
+            let ended = unfollowed(follow_a_gone_compositor(accepted), false, Some(killed(6)));
+            assert_eq!(ended.unwrap(), Outcome::Failed, "accepted: {accepted}");
+        }
     }
 }
