@@ -14,6 +14,7 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::output;
 use super::probe::{self, Timing};
 use super::report::{Run, Unit};
 use super::window::{self, Stimulus};
@@ -55,7 +56,7 @@ pub(crate) fn measure(
     watch.follow_child(&mut child);
     let result = run_child(&mut child, &watch, &control, program, out, timing, stimulus);
     probe::stop(&mut child);
-    result
+    output::with_output(result, &watch)
 }
 
 fn run_child(
