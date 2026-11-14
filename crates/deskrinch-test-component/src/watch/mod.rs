@@ -281,13 +281,14 @@ impl Watch {
 
     /// What presented the frames, once the program has said: rinch's
     /// software renderer, or the GPU renderer on the adapter wgpu chose.
-    /// `None` before the first frame, and for a program that presented
+    /// `None` before any window's first frame (the main window's, or for a
+    /// windowless app another window's), and for a program that presented
     /// without saying either (a build without `RUST_LOG` letting the lines
     /// through).
     #[must_use]
     pub fn presented(&self) -> Option<Presented> {
         let seen = self.lock();
-        if seen.main_first_frame().is_none() {
+        if seen.windows.first_frames().is_empty() {
             None
         } else if seen.software {
             Some(Presented::Software)

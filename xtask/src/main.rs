@@ -185,6 +185,17 @@ enum Task {
         /// by the end.
         #[arg(long, value_name = "APP_ID", conflicts_with = "summon")]
         window: Option<String>,
+        /// The program opens this many windows (one per output, say): read
+        /// each from rinch's per-window lines instead of the main window's.
+        /// Start-up ends at the last one's first frame; a run fails if the
+        /// count differs or a window closes or opens after start-up.
+        #[arg(
+            long,
+            value_name = "N",
+            conflicts_with = "summon",
+            value_parser = clap::value_parser!(u32).range(1..=16)
+        )]
+        windows: Option<u32>,
         /// The shell component the program is (its package, such as
         /// deskrinch-panel), when its file name is not the package's: under
         /// KWin it is granted what deskrinch-shell grants that component. A
@@ -266,6 +277,7 @@ impl Task {
                 dismiss,
                 shows,
                 window,
+                windows,
                 component,
                 allow_errors,
                 env,
@@ -293,6 +305,7 @@ impl Task {
                     .zip(dismiss)
                     .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
                 window,
+                windows,
                 component,
                 allow_errors,
                 env,

@@ -202,7 +202,7 @@ jobs:
           cargo xtask measure --compositor sway --runs 1 --settle 1 --idle 5 \
             --renderer software --expect-renderer software target/debug/deskrinch-panel
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
-        run: cargo test -p xtask --test session --test measure --test measure_callgrind --locked -- --ignored
+        run: cargo test -p xtask --test session --test measure --test measure_windows --test measure_callgrind --locked -- --ignored
         env:
           DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
 
