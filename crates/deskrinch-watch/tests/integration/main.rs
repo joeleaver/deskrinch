@@ -6,3 +6,5 @@ mod files;
 mod support;
 #[cfg(test)]
 mod trees;
+#[cfg(test)]
+mod writes;
