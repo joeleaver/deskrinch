@@ -2,10 +2,19 @@
 //! keeps from one run to the next, under `.work/desktop/NAME/` in the
 //! workspace (gitignored). One desktop uses a profile at a time.
 //!
+//! Its home is the session's `HOME`, which also catches what ignores the
+//! XDG variables: KWin, run in secure mode for its file capability, has
+//! Mesa put its shader cache in `home/.cache`, not in the profile's
+//! `cache` (see `deskrinch_test_dbus::session`).
+//!
 //! Two things keep it to one:
 //!
 //! - a lock (`flock` on `.lock`) held for as long as `cargo xtask desktop`
-//!   runs, which the kernel releases however it ends;
+//!   runs, which the kernel releases however it ends. The lock belongs to
+//!   the lock file's open file description, which a child shares from its
+//!   fork until its exec closes it: for a moment after its holder lets go,
+//!   a child just forked by another thread can still hold it. A refusal
+//!   then is true at that moment, and passes;
 //! - the session that uses it, claimed in `.session` (its root and its
 //!   process group) while it runs. Should the command be killed, its
 //!   session's supervisor is still ending that session, with the profile's
@@ -194,8 +203,12 @@ fn io_error(what: &str, source: io::Error) -> Error {
 
 #[cfg(test)]
 mod tests {
+    use std::os::fd::{AsRawFd, BorrowedFd};
     use std::os::unix::process::CommandExt;
     use std::process::Command;
+
+    use deskrinch_test_wait::wait_for;
+    use rustix::pipe::{PipeFlags, pipe_with};
 
     use super::*;
 
@@ -208,6 +221,27 @@ mod tests {
         }
     }
 
+    /// Opens the profile `work` in `workspace` again once its lock is free.
+    ///
+    /// A lock this test has dropped can still be held, for a moment, by a
+    /// child another test's thread has just forked (see the module's doc,
+    /// and [`a_child_between_fork_and_exec_holds_the_lock`]). So a profile
+    /// reopened in a test binary that spawns on other threads is waited for,
+    /// within the patience; any other refusal fails at once.
+    #[track_caller]
+    fn reopened(workspace: &Path) -> Profile {
+        wait_for("the profile's lock to be free", || {
+            match Profile::open(workspace, "work") {
+                Ok(profile) => Ok(profile),
+                Err(Error::Desktop(DesktopError::ProfileInUse {
+                    why: "another desktop runs with it",
+                    ..
+                })) => Err("its lock is held"),
+                Err(other) => panic!("the profile refused otherwise: {other}"),
+            }
+        })
+    }
+
     #[test]
     fn one_desktop_at_a_time() {
         let workspace = tempfile::tempdir().unwrap();
@@ -218,7 +252,82 @@ mod tests {
             Err(Error::Desktop(DesktopError::ProfileInUse { .. }))
         ));
         drop(first);
-        Profile::open(workspace.path(), "work").unwrap();
+        reopened(workspace.path());
+    }
+
+    /// The lock's open file description is shared with a child from its
+    /// fork until its exec (see the module's doc): a child held between the
+    /// two keeps the lock after the profile is dropped, and frees it at its
+    /// exec.
+    #[test]
+    #[expect(
+        unsafe_code,
+        reason = "pre_exec, to hold a child between its fork and its exec"
+    )]
+    fn a_child_between_fork_and_exec_holds_the_lock() {
+        let workspace = tempfile::tempdir().unwrap();
+        let profile = Profile::open(workspace.path(), "work").unwrap();
+        // The child says it has forked on one pipe, then waits on another
+        // for leave to exec.
+        let (forked_read, forked_write) = pipe_with(PipeFlags::CLOEXEC).unwrap();
+        let (go_read, go_write) = pipe_with(PipeFlags::CLOEXEC).unwrap();
+        let (forked_fd, go_fd, go_write_fd) = (
+            forked_write.as_raw_fd(),
+            go_read.as_raw_fd(),
+            go_write.as_raw_fd(),
+        );
+        let mut command = Command::new("true");
+        let in_child = move || {
+            // SAFETY: the child's copy of `go_write`, open until this closes
+            // it, and used by nothing else in the child. Closed so that the
+            // child reads the end of the pipe, and goes on to its exec,
+            // should this test drop its own copy without writing.
+            unsafe { rustix::io::close(go_write_fd) };
+            // SAFETY: open in the child, inherited from the pipe this test
+            // holds, until its exec closes it.
+            let forked = unsafe { BorrowedFd::borrow_raw(forked_fd) };
+            // SAFETY: as `forked`.
+            let go = unsafe { BorrowedFd::borrow_raw(go_fd) };
+            let _said = rustix::io::write(forked, b"f");
+            let _go = rustix::io::read(go, &mut [0_u8; 1]);
+            Ok(())
+        };
+        // SAFETY: the closure runs in the child between fork and exec,
+        // where only async-signal-safe calls may be made. It makes three
+        // system calls, `close(2)`, `write(2)` and `read(2)`, on descriptors
+        // the child inherited open, allocates nothing, takes no lock, and
+        // returns.
+        unsafe {
+            command.pre_exec(in_child);
+        }
+        // `spawn` returns only once the child has exec'd. This test's copy
+        // of `forked_write` goes with it, so that a spawn that never forks
+        // ends the read below instead of leaving it waiting.
+        let spawned = std::thread::spawn(move || {
+            let child = command.spawn();
+            drop(forked_write);
+            child.unwrap()
+        });
+        assert_eq!(
+            rustix::io::read(&forked_read, &mut [0_u8; 1]).unwrap(),
+            1,
+            "the child never forked"
+        );
+        drop(profile);
+        // The child, not yet at its exec, still holds the lock.
+        assert!(matches!(
+            Profile::open(workspace.path(), "work"),
+            Err(Error::Desktop(DesktopError::ProfileInUse {
+                why: "another desktop runs with it",
+                ..
+            }))
+        ));
+        rustix::io::write(&go_write, b"g").unwrap();
+        let mut child = spawned.join().unwrap();
+        // Exec'd, so its copy is closed: the profile is free, once no
+        // other test's child holds it either.
+        reopened(workspace.path());
+        child.wait().unwrap();
     }
 
     /// A process group of its own that runs until killed.
@@ -275,7 +384,7 @@ mod tests {
         child.kill().unwrap();
         child.wait().unwrap();
         drop(session);
-        let mut second = Profile::open(workspace.path(), "work").unwrap();
+        let mut second = reopened(workspace.path());
         second.claim(Path::new("/nonexistent"), group).unwrap();
         drop(second);
         assert!(!dir.join(SESSION).exists());
