@@ -62,7 +62,12 @@ fn arm(limit: usize, targets: Vec<Target>) -> (Result<Armed, WatchError>, Sender
         waits,
         wake: wake.clone(),
     };
-    let armed = Armed::with_backend(Box::new(backend), targets, Timing::default());
+    let armed = Armed::with_parts(
+        Box::new(backend),
+        Box::new(System),
+        targets,
+        Timing::default(),
+    );
     (armed, wake)
 }
 

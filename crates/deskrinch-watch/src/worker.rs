@@ -8,8 +8,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread::{self, JoinHandle};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+use crate::clock::{Clock, System};
 use crate::error::WatchError;
 use crate::inotify::Inotify;
 use crate::plan::Plan;
@@ -149,6 +150,8 @@ impl std::fmt::Debug for Armed {
 
 struct Core {
     backend: Box<dyn Backend>,
+    /// Where the debounce takes the time from.
+    clock: Box<dyn Clock>,
     targets: Vec<Target>,
     timing: Timing,
     plan: Plan,
@@ -163,11 +166,14 @@ impl Armed {
     /// cannot be watched (for example when the inotify watch limit is
     /// reached).
     pub fn new(targets: Vec<Target>, timing: Timing) -> Result<Self, WatchError> {
-        Self::with_backend(Box::new(Inotify::new()?), targets, timing)
+        Self::with_parts(Box::new(Inotify::new()?), Box::new(System), targets, timing)
     }
 
-    pub(crate) fn with_backend(
+    /// Starts watching `targets` with `backend`, taking the time from
+    /// `clock`: the parts a test replaces.
+    pub(crate) fn with_parts(
         backend: Box<dyn Backend>,
+        clock: Box<dyn Clock>,
         targets: Vec<Target>,
         timing: Timing,
     ) -> Result<Self, WatchError> {
@@ -178,6 +184,7 @@ impl Armed {
         };
         let mut core = Core {
             backend,
+            clock,
             targets,
             timing,
             plan: Plan::default(),
@@ -304,12 +311,12 @@ impl Core {
                 Heard::Asked => true,
                 Heard::Changes(concerns) => {
                     let mut relevant = concerns;
-                    let deadline = Instant::now() + self.timing.max_delay;
+                    let deadline = self.clock.now() + self.timing.max_delay;
                     loop {
                         let wait = self
                             .timing
                             .quiet
-                            .min(deadline.saturating_duration_since(Instant::now()));
+                            .min(deadline.saturating_duration_since(self.clock.now()));
                         match self.hear(inbox, Some(wait), &mut subscriber) {
                             Heard::Changes(concerns) => relevant |= concerns,
                             Heard::Asked => relevant = true,
@@ -337,7 +344,7 @@ impl Core {
         timeout: Option<Duration>,
         subscriber: &mut impl FnMut(Event),
     ) -> Heard {
-        let deadline = timeout.map(|timeout| Instant::now() + timeout);
+        let deadline = timeout.map(|timeout| self.clock.now() + timeout);
         loop {
             match inbox.try_recv() {
                 Ok(Message::Refresh) => return Heard::Asked,
@@ -348,14 +355,15 @@ impl Core {
                 Ok(Message::Stop) | Err(TryRecvError::Disconnected) => return Heard::Stop,
                 Err(TryRecvError::Empty) => {}
             }
-            let left = deadline.map(|deadline| deadline.saturating_duration_since(Instant::now()));
+            let now = self.clock.now();
+            let left = deadline.map(|deadline| deadline.saturating_duration_since(now));
             match self.backend.wait(left) {
                 Wait::Changes(changes) => {
                     return Heard::Changes(self.consider(changes, subscriber));
                 }
                 Wait::Woken => {}
                 Wait::Quiet => {
-                    if deadline.is_some_and(|deadline| Instant::now() >= deadline) {
+                    if deadline.is_some_and(|deadline| self.clock.now() >= deadline) {
                         return Heard::Nothing;
                     }
                 }
@@ -424,5 +432,7 @@ impl Core {
     }
 }
 
+#[cfg(test)]
+mod debounce;
 #[cfg(test)]
 mod tests;

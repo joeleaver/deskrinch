@@ -65,6 +65,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod clock;
 mod error;
 mod inotify;
 mod plan;
