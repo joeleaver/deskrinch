@@ -15,6 +15,7 @@
 
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::time::{Duration, Instant};
 
 use wayland_client::protocol::wl_output::Transform as WlTransform;
 use wayland_client::{Connection, EventQueue};
@@ -24,7 +25,7 @@ use deskrinch_test_wayland::{Deadline, Globals, Transform, dispatch_until};
 
 mod events;
 
-use self::events::State;
+use self::events::{Outcome, State};
 use crate::layout::{Mode, OutputState, mode_to_set};
 use crate::{Error, PATIENCE, waited};
 
@@ -89,8 +90,9 @@ impl Manager {
 
     /// Makes the outputs `layout`: every head named, each one on stated in
     /// full. A head `layout` does not name is stated as it is. Nothing is
-    /// sent unless every head can be stated ([`plan`]).
-    fn apply(mut self, layout: &[OutputState]) -> Result<(), Error> {
+    /// sent unless every head can be stated ([`plan`]). Whether it was
+    /// applied, or cancelled because the outputs changed meanwhile.
+    fn apply(mut self, layout: &[OutputState]) -> Result<Applied, Error> {
         let qh = self.queue.handle();
         let plans = plan(&self.layout(), layout)?;
         let serial = self.state.serial.unwrap_or_default();
@@ -133,14 +135,65 @@ impl Manager {
         configuration.destroy();
         self.proxy.stop();
         applied?;
-        self.state
-            .outcome
-            .take()
-            .unwrap_or_else(|| Err("no answer".into()))
-            .map_err(|reason| Error::OutputRefused {
+        match self.state.outcome.take() {
+            Some(Outcome::Succeeded) => Ok(Applied::Done),
+            Some(Outcome::Cancelled) => Ok(Applied::Cancelled),
+            Some(Outcome::Failed) | None => Err(Error::OutputRefused {
                 name: "the outputs".to_owned(),
-                reason,
-            })
+                reason: "the compositor could not apply the configuration".to_owned(),
+            }),
+        }
+    }
+}
+
+/// What came of one configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Applied {
+    /// Applied.
+    Done,
+    /// Cancelled: the outputs changed since it was made.
+    Cancelled,
+}
+
+/// Makes the outputs on `connection` what `target` makes of them as they
+/// now are, reading them and making the configuration again each time one
+/// is cancelled ([`retry_cancelled`]): one home for every apply through
+/// `wlr-output-management`.
+fn applying(
+    connection: &Connection,
+    target: impl Fn(&[OutputState]) -> Vec<OutputState>,
+) -> Result<(), Error> {
+    retry_cancelled(
+        || {
+            let manager = Manager::bind(connection)?;
+            let layout = target(&manager.layout());
+            manager.apply(&layout)
+        },
+        PATIENCE,
+    )
+}
+
+/// Runs `attempt` again each time its configuration is cancelled, which
+/// the protocol means as "the outputs changed since; read again and try
+/// again", for at most `patience`. A configuration that failed is not
+/// retried: that is the compositor refusing it.
+fn retry_cancelled(
+    mut attempt: impl FnMut() -> Result<Applied, Error>,
+    patience: Duration,
+) -> Result<(), Error> {
+    let deadline = Instant::now() + patience;
+    let mut cancelled = 0;
+    loop {
+        match attempt()? {
+            Applied::Done => return Ok(()),
+            Applied::Cancelled => cancelled += 1,
+        }
+        if Instant::now() >= deadline {
+            return Err(Error::Cancelled {
+                attempts: cancelled,
+                patience,
+            });
+        }
     }
 }
 
@@ -210,7 +263,7 @@ pub(crate) fn layout_of_env() -> Result<Vec<OutputState>, Error> {
 /// and returns once it has applied it.
 pub(crate) fn apply_to_env(layout: &[OutputState]) -> Result<(), Error> {
     let connection = Connection::connect_to_env().map_err(Error::Connect)?;
-    Manager::bind(&connection)?.apply(layout)
+    applying(&connection, |_| layout.to_vec())
 }
 
 /// A connection to the compositor listening on the Wayland socket at
@@ -255,7 +308,8 @@ pub fn configure_output(name: &str, change: OutputChange) -> Result<OutputState,
         .into_iter()
         .find(|output| output.name == name && output.enabled)
         .ok_or_else(|| Error::UnknownOutput(name.to_owned()))?;
-    manager.apply(&[before.changed(change)])?;
+    let target = before.changed(change);
+    applying(&connection, |_| vec![target.clone()])?;
     Ok(before)
 }
 
@@ -268,13 +322,12 @@ pub fn configure_output(name: &str, change: OutputChange) -> Result<OutputState,
 ///
 /// As [`configure_output`].
 pub fn configure_every_output(socket: &Path, change: OutputChange) -> Result<(), Error> {
-    let manager = Manager::bind(&connect_at(socket)?)?;
-    let target: Vec<OutputState> = manager
-        .layout()
-        .iter()
-        .map(|output| output.changed(change))
-        .collect();
-    manager.apply(&target)
+    applying(&connect_at(socket)?, |current| {
+        current
+            .iter()
+            .map(|output| output.changed(change))
+            .collect()
+    })
 }
 
 #[cfg(test)]
@@ -297,6 +350,69 @@ mod tests {
         height: 720,
         refresh_mhz: 0,
     };
+
+    #[test]
+    fn a_cancelled_configuration_is_made_again() {
+        let attempts = std::cell::Cell::new(0);
+        retry_cancelled(
+            || {
+                attempts.set(attempts.get() + 1);
+                Ok(if attempts.get() == 1 {
+                    Applied::Cancelled
+                } else {
+                    Applied::Done
+                })
+            },
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert_eq!(attempts.get(), 2);
+    }
+
+    #[test]
+    fn cancelled_until_patience_runs_out_says_how_often() {
+        let attempts = std::cell::Cell::new(0_u32);
+        let error = retry_cancelled(
+            || {
+                attempts.set(attempts.get() + 1);
+                std::thread::sleep(Duration::from_millis(10));
+                Ok(Applied::Cancelled)
+            },
+            Duration::from_millis(100),
+        )
+        .unwrap_err();
+        let said = error.to_string();
+        let Error::Cancelled {
+            attempts: counted, ..
+        } = error
+        else {
+            panic!("{error:?}");
+        };
+        assert!(counted >= 2, "{counted}");
+        assert_eq!(counted, attempts.get());
+        assert!(
+            said.contains(&format!("each of {counted} configurations")),
+            "{said}"
+        );
+    }
+
+    #[test]
+    fn a_refusal_is_not_retried() {
+        let attempts = std::cell::Cell::new(0);
+        let error = retry_cancelled(
+            || {
+                attempts.set(attempts.get() + 1);
+                Err(Error::OutputRefused {
+                    name: "the outputs".into(),
+                    reason: "failed".into(),
+                })
+            },
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
+        assert!(matches!(error, Error::OutputRefused { .. }));
+        assert_eq!(attempts.get(), 1);
+    }
 
     #[test]
     fn every_head_is_stated_and_one_not_named_as_it_is() {

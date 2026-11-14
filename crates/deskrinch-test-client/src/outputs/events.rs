@@ -41,8 +41,20 @@ pub(super) struct State {
     pub(super) modes: Vec<(ZwlrOutputModeV1, Mode)>,
     /// The serial of the last complete description.
     pub(super) serial: Option<u32>,
-    /// `Ok` once applied, `Err` with the reason once not.
-    pub(super) outcome: Option<Result<(), String>>,
+    /// What the compositor answered a configuration, once it has.
+    pub(super) outcome: Option<Outcome>,
+}
+
+/// The compositor's answer to a configuration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Outcome {
+    /// `succeeded`: applied.
+    Succeeded,
+    /// `failed`: the compositor could not apply it.
+    Failed,
+    /// `cancelled`: the outputs changed since the serial it was made
+    /// from; read them again and make it again.
+    Cancelled,
 }
 
 impl Dispatch<ZwlrOutputManagerV1, ()> for State {
@@ -162,13 +174,9 @@ impl Dispatch<ZwlrOutputConfigurationV1, ()> for State {
         _: &QueueHandle<Self>,
     ) {
         state.outcome = match event {
-            zwlr_output_configuration_v1::Event::Succeeded => Some(Ok(())),
-            zwlr_output_configuration_v1::Event::Failed => {
-                Some(Err("the compositor could not apply it".into()))
-            }
-            zwlr_output_configuration_v1::Event::Cancelled => {
-                Some(Err("the outputs changed meanwhile".into()))
-            }
+            zwlr_output_configuration_v1::Event::Succeeded => Some(Outcome::Succeeded),
+            zwlr_output_configuration_v1::Event::Failed => Some(Outcome::Failed),
+            zwlr_output_configuration_v1::Event::Cancelled => Some(Outcome::Cancelled),
             _ => return,
         };
     }

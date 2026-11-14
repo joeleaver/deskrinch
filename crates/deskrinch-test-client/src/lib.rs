@@ -170,6 +170,15 @@ pub enum Error {
         /// How many times the layout was applied.
         applications: u32,
     },
+    /// Every configuration made within [`PATIENCE`] was cancelled: the
+    /// outputs kept changing under it.
+    #[error("the outputs changed under each of {attempts} configurations made within {patience:?}")]
+    Cancelled {
+        /// How many configurations were cancelled.
+        attempts: u32,
+        /// How long it kept trying.
+        patience: Duration,
+    },
     /// An output to be on has no mode the compositor reported, so none can
     /// be stated for it; nothing was asked of the compositor.
     #[error("{0} is to be on, but its compositor reported no mode for it")]
