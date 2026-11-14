@@ -13,8 +13,9 @@
 //!   named in `DBUS_SESSION_BUS_ADDRESS` for the compositor and every client.
 //! - Ready when the compositor's Wayland socket is open and it owns the
 //!   D-Bus names it registers at startup ([`Compositor::bus_names`]: KWin's
-//!   services; none for sway and labwc), each waited for within
-//!   [`STARTUP`].
+//!   services; none for sway and labwc), each waited for within the tests'
+//!   patience (`deskrinch_test_wait::PATIENCE`): a compositor that exits
+//!   meanwhile fails the start at once, so only a hung one waits it out.
 //! - For KWin, also: `CI` removed from KWin's environment (KWin's virtual
 //!   backend takes it to mean KWin's own CI and then looks only at
 //!   `/dev/dri/card1`; GitHub's runners set it), and KWin's own statement of
@@ -68,10 +69,11 @@ use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, ExitStatus, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_test_dbus::session::isolate;
 use deskrinch_test_dbus::{NameError, PrivateBus};
+use deskrinch_test_wait::{Deadline, PATIENCE};
 use rustix::process::Pid;
 use tempfile::TempDir;
 
@@ -107,8 +109,6 @@ const ROOT_PARENT: &str = "/tmp";
 /// What a session's root is named, before tempfile's random part.
 const ROOT_PREFIX: &str = "deskrinch-session-";
 
-/// How long a compositor has to open its socket.
-const STARTUP: Duration = Duration::from_secs(20);
 /// How often to look again while waiting.
 const POLL: Duration = Duration::from_millis(50);
 
@@ -346,7 +346,7 @@ impl Session {
     /// Waits for the compositor's Wayland socket and returns its name.
     fn wait_for_socket(&mut self) -> Result<String, Error> {
         let runtime = self.root.join("run");
-        let deadline = Instant::now() + STARTUP;
+        let deadline = Deadline::patience();
         loop {
             interrupt::check()?;
             if let Some(socket) = compositor::wayland_socket(&runtime) {
@@ -359,7 +359,7 @@ impl Session {
                     log: self.log(),
                 });
             }
-            if Instant::now() >= deadline {
+            if deadline.passed() {
                 return Err(Error::CompositorTimedOut {
                     compositor: self.compositor.name(),
                     log: self.log(),
@@ -369,22 +369,36 @@ impl Session {
         }
     }
 
-    /// Waits until the compositor owns each of its [`Compositor::bus_names`].
-    fn wait_for_bus_names(&self) -> Result<(), Error> {
+    /// Waits until the compositor owns each of its [`Compositor::bus_names`];
+    /// a compositor that exits meanwhile fails at once.
+    fn wait_for_bus_names(&mut self) -> Result<(), Error> {
         for &name in self.compositor.bus_names() {
-            self.bus
-                .wait_for_name(name, STARTUP)
-                .map_err(|source| Error::CompositorNotReady {
-                    compositor: self.compositor.name(),
-                    name,
-                    hint: self.compositor.missing_name_hint(name),
-                    source: Box::new(source),
-                    log: self.log(),
-                })?;
-            interrupt::check()?;
+            let deadline = Deadline::patience();
+            loop {
+                interrupt::check()?;
+                let waited = self.bus.wait_for_name(name, POLL);
+                let Err(source) = waited else { break };
+                if let Ok(Some(status)) = self.child.try_wait() {
+                    return Err(Error::CompositorExited {
+                        compositor: self.compositor.name(),
+                        status,
+                        log: self.log(),
+                    });
+                }
+                if deadline.passed() {
+                    return Err(Error::CompositorNotReady {
+                        compositor: self.compositor.name(),
+                        name,
+                        hint: self.compositor.missing_name_hint(name),
+                        source: Box::new(source),
+                        log: self.log(),
+                    });
+                }
+            }
         }
         if self.compositor.checks_opengl(&self.display) {
-            self.check_kwin_compositing(STARTUP)?;
+            // KWin owns its names by now: a dead one answers at once.
+            self.check_kwin_compositing(PATIENCE)?;
         }
         Ok(())
     }

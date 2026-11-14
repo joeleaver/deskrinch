@@ -18,9 +18,6 @@ use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle};
 
 use super::DesktopError;
 
-/// How long the compositor has to list its globals.
-const PATIENCE: Duration = Duration::from_secs(20);
-
 /// The outputs a compositor has, by global name.
 #[derive(Debug, Default)]
 struct Outputs(HashSet<u32>);
@@ -72,7 +69,8 @@ impl Window {
             &connection,
             &mut queue,
             &mut outputs,
-            Deadline::after(PATIENCE),
+            // A compositor that is gone fails the roundtrip at once.
+            Deadline::patience(),
         )
         .map_err(|error| watch(error.into()))?;
         Ok(Self {
