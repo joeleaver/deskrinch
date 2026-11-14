@@ -3,12 +3,13 @@
 //!
 //! The root is the document of an app with no window of its own
 //! (`App::windowless`): it draws nothing, and holds one `Window` per
-//! output, a row of a keyed `for` over rinch's `outputs()`, which follows
-//! the outputs connected, disconnected and changed. A row's window opens
-//! with its row and closes with it, or when the compositor closes its
-//! surface because its output went; an output that only changes (its
-//! mode, scale or transform) keeps its row and its window, which the
-//! compositor resizes.
+//! output, a row of a `for` over rinch's `outputs()` keyed by each output's
+//! id, which follows the outputs connected, disconnected and changed. A
+//! row's window opens with its row and closes with it, or when its output
+//! goes first ([`surface::closed`]); an output that only changes (its mode,
+//! scale or transform) keeps its row and its window, which the compositor
+//! resizes. Before any of it, the root asks whether the display offers a
+//! layer shell at all ([`role`]), and opens nothing if it does not.
 //!
 //! Every window draws the same thing, the [`style`] of the settings, from the same
 //! signals: a change of settings repaints every output once, and nothing
@@ -33,6 +34,12 @@ pub(crate) fn wallpaper(
     theme: Theme,
     home: Option<PathBuf>,
 ) -> NodeHandle {
+    let verdict = role::of_display();
+    if verdict != role::Verdict::Layer {
+        role::refuse(verdict);
+        // `exit` ends the loop once this returns: no window is opened.
+        return rsx! { div {} };
+    }
     let _applied = theme.apply();
     let settings = live.into_signal();
     // The picture's path, as the settings name it under this home.
@@ -55,33 +62,24 @@ pub(crate) fn wallpaper(
     Effect::new(move || follower.follow(path.get().as_deref()));
     let source = Memo::new(move || path.get().map(|path| picture::source(&path)));
     let drawn = Memo::new(move || style::css(&settings.get(), source.get().as_deref()));
-    let placed = Memo::new(move || surface::placeable(outputs()));
-    // An output without a name gets no window (rinch issue 2658), said
-    // once for each such output as it comes.
-    let mut reported = 0;
-    Effect::new(move || {
-        let (_, unnamed) = placed.get();
-        if unnamed > reported {
-            tracing::warn!(
-                "wallpaper: {unnamed} output(s) have no name, so no layer surface can be placed \
-                 on them, and they get no wallpaper (rinch issue 2658)"
-            );
-        }
-        reported = unnamed;
-    });
     rsx! {
         div {
-            for name in placed.get().0 {
+            for output in outputs() {
                 Window {
-                    key: name.clone(),
+                    key: output.id,
                     title: surface::TITLE.to_owned(),
                     width: surface::FIRST_SIZE.0,
                     height: surface::FIRST_SIZE.1,
                     borderless: true,
                     click_through: true,
                     app_id: Some(surface::NAMESPACE.to_owned()),
-                    wayland_layer: Some(surface::layer_surface(name.clone())),
-                    on_open: role::watch,
+                    wayland_layer: Some(surface::layer_surface(output.id)),
+                    on_closed: {
+                        let id = output.id;
+                        move || {
+                            surface::closed(id);
+                        }
+                    },
                     div { class: "wallpaper", style: {move || drawn.get()} }
                 }
             }

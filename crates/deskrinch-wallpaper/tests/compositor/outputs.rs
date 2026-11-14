@@ -104,5 +104,7 @@ fn an_output_turned_off_and_on_loses_it_and_gets_it_again() {
         wallpaper.running(),
         "the wallpaper ended as an output came back"
     );
+    // A window whose output went is nothing to put right: no error.
+    wallpaper.assert_no_error();
     wait_covered(BLUE);
 }

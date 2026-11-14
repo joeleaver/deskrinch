@@ -61,10 +61,10 @@ pub(crate) struct Wallpaper {
 impl Wallpaper {
     /// Starts the wallpaper with the run's renderer, and returns once rinch
     /// has said what it presents with, having checked that it is the run's
-    /// renderer. What it draws is the screen's to show: rinch writes its
-    /// per-frame lines (`RINCH_PERF`) for an app's main window only, and the
-    /// wallpaper has none, so its frames are not counted from its output
-    /// (rinch issue 2657).
+    /// renderer. What it draws is the screen's to show: rinch now writes a
+    /// frame line per window (`[PERF] window <id> frame N:`), which
+    /// `deskrinch-test-component` does not read yet, so its frames are not
+    /// counted from its output.
     pub(crate) fn start() -> Self {
         let renderer = Renderer::of_run();
         let component = Component::start(Command::new(WALLPAPER), renderer).unwrap();
@@ -104,6 +104,19 @@ impl Wallpaper {
         assert!(
             said,
             "the wallpaper did not say {says:?}; its last lines:\n{}",
+            self.component.watch().tail()
+        );
+    }
+
+    /// Fails if the wallpaper has logged an error so far.
+    pub(crate) fn assert_no_error(&self) {
+        let errored = self
+            .component
+            .watch()
+            .wait_for_line(Duration::ZERO, |line| line.contains(" ERROR "));
+        assert!(
+            !errored,
+            "the wallpaper logged an error; its last lines:\n{}",
             self.component.watch().tail()
         );
     }

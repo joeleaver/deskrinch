@@ -33,13 +33,13 @@
 //!   wallpaper its pointer then; it is not an oversight.
 //! - A compositor without the layer shell (GNOME) has no background layer:
 //!   rinch makes such a window an ordinary one, which for a wallpaper would
-//!   be a window over everything else. So the wallpaper says why and exits
-//!   with a failure status as soon as its first window turns out not to be
-//!   a layer surface ([`role`]): rinch cannot yet say whether the layer
-//!   shell is there before a window opens (rinch issue 2659).
-//! - An output without a name (`wl_output` before version 4) gets no
-//!   wallpaper, and the wallpaper says so: no layer surface can be placed
-//!   on it (rinch issue 2658).
+//!   be a window over everything else. So the wallpaper asks rinch which
+//!   window roles the display offers before opening any window, and
+//!   without the layer shell it says why, opens nothing, and exits with a
+//!   failure status ([`role`]).
+//! - Each output's window is keyed and placed by the output's id, which
+//!   every output has: an output without a name (`wl_output` before
+//!   version 4) gets its wallpaper like any other ([`surface`]).
 //!
 //! # Look
 //!
@@ -54,13 +54,16 @@
 //!
 //! # Rendering
 //!
-//! rinch's software renderer (tiny-skia) is asked for, pending the
-//! measurement that is to choose the default (rinch issue 2657: rinch does
-//! not yet count the frames of an app's non-main windows, which is all a
-//! wallpaper has). The hypothesis it is to settle: a wallpaper draws once
-//! per output and then sits still, so the GPU renderer's device and buffers
-//! may cost more memory than the one frame saves. Nothing has measured
-//! that yet. The user overrides the choice with rinch's `RINCH_RENDERER`
+//! rinch's software renderer (tiny-skia) is the default, for now and for a
+//! reason of its own: rinch's GPU renderer presents on the main thread in
+//! step with the compositor's frame callbacks, and stalls every window and
+//! all event handling when the compositor never shows one of the surfaces
+//! (rinch issue 2669, seen under sway with overlapping outputs; its fix is
+//! rinch PR 2674, in review). The default is to be chosen from a
+//! measurement once the tooling reads rinch's per-window frame lines; until
+//! then the hypothesis is that a wallpaper, drawing once per output and
+//! then sitting still, costs less in software than a GPU device and its
+//! buffers. The user overrides the choice with rinch's `RINCH_RENDERER`
 //! environment variable (`gpu`, `software`, `auto`).
 
 mod picture;
@@ -87,6 +90,8 @@ fn main() {
     let home = dirs.home.clone();
     App::windowless(move |scope| wallpaper::wallpaper(scope, live, theme, home))
         .image_scheme(picture::SCHEME, picture::load)
+        // Software, for now: rinch issue 2669 (see the crate's
+        // "Rendering"); chosen again by measurement when the tooling can.
         .renderer(Renderer::Software)
         .theme(first_theme)
         .run();
