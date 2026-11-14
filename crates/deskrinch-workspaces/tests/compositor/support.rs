@@ -8,6 +8,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use deskrinch_bus::Bus;
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_workspaces::{
     Action, Client, EndReason, Event, Workspace, WorkspaceId, WorkspaceManager, WorkspaceState,
     Workspaces, connect, connect_with,
@@ -16,8 +17,6 @@ use zbus::{OwnedVariant, Variant};
 
 pub(crate) use deskrinch_test_client::Compositor;
 
-/// How long something that should happen gets.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(30);
 /// The workspaces every test has: labwc's sessions configure four, and the
 /// KWin tests make four.
 pub(crate) const COUNT: usize = 4;

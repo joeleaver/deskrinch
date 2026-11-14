@@ -8,9 +8,7 @@ use std::time::Duration;
 use deskrinch_icons::{Event, HICOLOR, Index, Watcher};
 
 use crate::support::{Fixture, found, theme_text};
-
-/// How long a test waits for an event before failing.
-const PATIENCE: Duration = Duration::from_secs(10);
+use deskrinch_test_wait::PATIENCE;
 
 fn watch(f: &Fixture, theme: &str) -> (Watcher, Arc<Index>, Receiver<Event>) {
     let (sender, events) = mpsc::channel();

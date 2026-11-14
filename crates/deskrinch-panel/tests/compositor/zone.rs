@@ -6,9 +6,10 @@ use deskrinch_test_client::{Paint, TestClient, TestWindow};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 
 use crate::support::{
-    Band, Edge, PATIENCE, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
+    Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
+use deskrinch_test_wait::PATIENCE;
 
 /// A colour neither the panel nor a compositor's background has.
 pub(crate) const WINDOW: Rgba = Rgba::opaque(13, 200, 77);

@@ -15,6 +15,7 @@ deskrinch-xdg.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
+deskrinch-test-wait.workspace = true
 # The index_cost example reads this thread's CPU clock and the page size.
 rustix = { workspace = true, features = ["param", "time"] }
 tempfile.workspace = true

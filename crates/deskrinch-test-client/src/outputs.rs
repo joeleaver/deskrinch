@@ -30,9 +30,11 @@ use wayland_protocols_wlr::output_management::v1::client::zwlr_output_manager_v1
 };
 use wayland_protocols_wlr::output_management::v1::client::zwlr_output_mode_v1::ZwlrOutputModeV1;
 
-use deskrinch_test_wayland::{Deadline, Globals, Transform, dispatch_until};
+use deskrinch_test_wait::Deadline;
+use deskrinch_test_wayland::{Globals, Transform, dispatch_until};
 
-use crate::{Error, PATIENCE, waited};
+use crate::{Error, waited};
+use deskrinch_test_wait::PATIENCE;
 
 /// One head (output) as the manager describes it.
 #[derive(Debug)]

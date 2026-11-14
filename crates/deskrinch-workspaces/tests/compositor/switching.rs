@@ -8,7 +8,8 @@ use deskrinch_test_input::{Input, Key};
 use deskrinch_test_screen::{Rgba, Screen};
 use deskrinch_workspaces::{Action, WorkspaceState, Workspaces};
 
-use crate::support::{Compositor, PATIENCE, Watcher, compositor, kwin, set_up};
+use crate::support::{Compositor, Watcher, compositor, kwin, set_up};
+use deskrinch_test_wait::PATIENCE;
 
 /// A colour nothing else in a session has.
 const MARK: Rgba = Rgba::opaque(201, 17, 143);

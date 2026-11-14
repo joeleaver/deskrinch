@@ -11,8 +11,9 @@ use deskrinch_launcher::{Answer, Request, send};
 use rustix::process::{Pid, Signal, kill_process};
 
 use crate::support::{
-    Launcher, PATIENCE, client, eventually, in_nested_session, launcher, owner_pid, run, stays,
+    Launcher, client, eventually, in_nested_session, launcher, owner_pid, run, stays,
 };
+use deskrinch_test_wait::PATIENCE;
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]

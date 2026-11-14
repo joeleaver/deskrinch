@@ -14,13 +14,12 @@ use std::time::{Duration, Instant};
 use deskrinch_shell::{Key as ShellKey, Modifier};
 use deskrinch_test_client::Compositor;
 use deskrinch_test_input::Key;
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_window_management::WindowManagement;
 use rustix::process::{Pid, Signal, kill_process};
 
 /// How long a desktop has to be ready: the first builds its components.
 pub(crate) const READY: Duration = Duration::from_mins(15);
-/// How long anything else is waited for.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(60);
 /// The launcher's name, object and interface on the desktop's bus.
 pub(crate) const LAUNCHER: &str = "org.deskrinch.Launcher";
 pub(crate) const LAUNCHER_PATH: &str = "/org/deskrinch/Launcher";

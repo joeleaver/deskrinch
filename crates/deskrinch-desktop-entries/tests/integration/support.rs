@@ -9,9 +9,7 @@ use std::time::{Duration, Instant};
 
 use deskrinch_desktop_entries::{BaseDirs, DesktopEntry, DesktopId, Environment, LaunchContext};
 use deskrinch_test_dbus::session::REAL_SESSION_VARIABLES;
-
-/// How long a test waits for something asynchronous before failing.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
+use deskrinch_test_wait::PATIENCE;
 
 /// Writes `text` to `dir/relative`, creating directories, through a rename
 /// so a watcher never sees a half-written file.

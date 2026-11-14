@@ -8,12 +8,10 @@ use std::collections::BTreeMap;
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_window_management::{
     Client, EndReason, Event, Protocol, Window, WindowId, WindowManager, connect, connect_with,
 };
-
-/// How long a test waits for the compositor to report something.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
 /// What each compositor does, where they differ.
 pub(crate) trait Behaviour {

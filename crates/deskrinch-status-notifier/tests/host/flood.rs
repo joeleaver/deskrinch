@@ -9,7 +9,8 @@ use std::time::Instant;
 use zbus::message::Flags;
 use zbus::{Connection, Message};
 
-use crate::common::{PATIENCE, PrivateBus};
+use crate::common::PrivateBus;
+use deskrinch_test_wait::PATIENCE;
 
 /// Item signals a flood sends. The host drops each as it comes (no item is
 /// registered at the flood's object), so the host works through many

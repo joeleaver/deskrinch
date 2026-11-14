@@ -20,7 +20,7 @@ use std::time::Duration;
 
 use wayland_client::{ConnectError, Connection};
 
-use crate::Deadline;
+use deskrinch_test_wait::Deadline;
 
 /// The first id a compositor gives an object it creates (an event's
 /// `new_id`).
@@ -161,10 +161,10 @@ impl StandIn {
             if self.requests_to(object).contains(&opcode) {
                 return true;
             }
-            if deadline.left().is_zero() {
+            if deadline.passed() {
                 return false;
             }
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(deskrinch_test_wait::POLL);
         }
     }
 

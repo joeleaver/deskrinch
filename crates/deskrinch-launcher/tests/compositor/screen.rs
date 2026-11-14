@@ -19,7 +19,8 @@ use deskrinch_test_input::{Input, Key};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use tempfile::TempDir;
 
-use crate::support::{Launcher, PATIENCE, client, eventually, in_nested_session, launcher, stays};
+use crate::support::{Launcher, client, eventually, in_nested_session, launcher, stays};
+use deskrinch_test_wait::PATIENCE;
 
 /// The launcher's size on the screen (scale 1): its layer surface's.
 pub(crate) const WIDTH: u32 = 640;

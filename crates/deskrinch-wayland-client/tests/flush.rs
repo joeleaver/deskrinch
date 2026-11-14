@@ -14,10 +14,9 @@ use deskrinch_wayland_client::{Client, EndCause, Flushed, Globals, Lifecycle};
 use wayland_client::protocol::wl_callback::{self, WlCallback};
 use wayland_client::{Connection, Dispatch, QueueHandle};
 
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_test_wayland::stand_in::StandIn;
 
-/// How long anything here waits.
-const PATIENCE: Duration = Duration::from_secs(30);
 /// Requests sent between flushes: well inside the backend's own buffer, so
 /// that only the socket fills.
 const BATCH: usize = 64;

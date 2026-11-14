@@ -10,12 +10,10 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use deskrinch_test_wayland::Deadline;
+use deskrinch_test_wait::Deadline;
 use deskrinch_test_wayland::stand_in::{Arg, SERVER_ID, StandIn, message};
 use deskrinch_workspaces::{Client, Event, connect_with};
 
-/// How long anything here waits.
-const PATIENCE: Duration = Duration::from_secs(30);
 /// The manager's global name, as the stand-in lists it.
 const MANAGER: u32 = 1;
 /// `ext_workspace_manager_v1.stop`.

@@ -10,10 +10,8 @@ use std::time::{Duration, Instant};
 use deskrinch_test_client::{Compositor, TestClient};
 use deskrinch_test_component::{Component, Renderer};
 use deskrinch_test_screen::{Image, Screen};
+use deskrinch_test_wait::PATIENCE;
 
-/// How long something that should happen gets: generous, since a loaded
-/// machine runs nested compositors slowly.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(60);
 /// How long the screen must not change to count as still.
 const STILL: Duration = Duration::from_millis(500);
 

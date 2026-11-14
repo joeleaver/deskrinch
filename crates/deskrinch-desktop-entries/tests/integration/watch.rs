@@ -6,7 +6,8 @@ use std::time::Duration;
 
 use deskrinch_desktop_entries::{Event, Visibility, Watcher};
 
-use crate::support::{PATIENCE, environment, script, write};
+use crate::support::{environment, script, write};
+use deskrinch_test_wait::PATIENCE;
 
 fn app(name: &str, extra: &str) -> String {
     format!("[Desktop Entry]\nType=Application\nName={name}\nExec=run\n{extra}")

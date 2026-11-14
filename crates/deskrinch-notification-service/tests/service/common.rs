@@ -14,15 +14,13 @@ use std::time::Duration;
 use deskrinch_notification_service::{
     Bus, Clock, Config, Event, ManualClock, NotificationId, Service,
 };
+use deskrinch_test_wait::PATIENCE;
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::{Connection, MatchRule, MessageStream, Variant};
 
 /// Long enough for a signal that should not come to have arrived.
 pub(crate) const QUIET: Duration = Duration::from_millis(200);
-
-/// How long a test waits for something that should happen.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
 /// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.
 pub(crate) struct PrivateBus(deskrinch_test_dbus::PrivateBus);

@@ -7,6 +7,7 @@ use deskrinch_notification_service::{CloseReason, Event, OperationError};
 use zbus::Variant;
 
 use crate::common::{Client, PrivateBus, QUIET, Signal, id, start};
+use deskrinch_test_wait::PATIENCE;
 
 #[test]
 fn replacement_keeps_the_id_and_emits_no_close() {

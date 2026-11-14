@@ -19,7 +19,8 @@ use wayland_protocols::xdg::shell::client::xdg_toplevel::{self, XdgToplevel};
 
 use crate::client::Client;
 use crate::seat::Windows;
-use crate::{Error, PATIENCE, Paint, lock};
+use crate::{Error, Paint, lock};
+use deskrinch_test_wait::PATIENCE;
 
 /// The size a window draws when the compositor leaves it the choice.
 const DEFAULT_SIZE: (i32, i32) = (320, 240);
@@ -167,7 +168,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When no such buffer is drawn within [`PATIENCE`], or a buffer could
+    /// When no such buffer is drawn within [`PATIENCE`](deskrinch_test_wait::PATIENCE), or a buffer could
     /// not be made.
     pub fn wait_drawn(
         &self,
@@ -200,7 +201,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When it does not get it within [`PATIENCE`].
+    /// When it does not get it within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn wait_keyboard(&self) -> Result<(), Error> {
         self.wait_input("the keyboard focus", |status| status.input.keyboard)
     }
@@ -210,7 +211,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When it is not pressed within [`PATIENCE`].
+    /// When it is not pressed within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn wait_key(&self, key: u32) -> Result<(), Error> {
         self.wait_input("a key press", |status| status.input.keys.contains(&key))
     }

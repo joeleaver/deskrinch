@@ -30,7 +30,8 @@
 use std::io;
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
-use deskrinch_test_wayland::{Deadline, memory_file};
+use deskrinch_test_wait::Deadline;
+use deskrinch_test_wayland::memory_file;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fs::inotify::{self, CreateFlags, WatchFlags};
 use rustix::fs::{Mode, OFlags, open};
@@ -177,9 +178,7 @@ mod tests {
         let sent = picture.clone();
         let writing = thread::spawn(move || write_in_pieces(theirs, &sent));
         sink.close_writer();
-        let read = sink
-            .wait_written(Deadline::after(Duration::from_secs(600)))
-            .unwrap();
+        let read = sink.wait_written(Deadline::patience()).unwrap();
         writing.join().unwrap();
         assert_eq!(read.len(), picture.len());
         assert!(read == picture, "the bytes are the ones written");
@@ -194,9 +193,7 @@ mod tests {
         write_in_pieces(theirs, b"a whole picture");
         sink.close_writer();
         let started = std::time::Instant::now();
-        let read = sink
-            .wait_written(Deadline::after(Duration::from_secs(600)))
-            .unwrap();
+        let read = sink.wait_written(Deadline::patience()).unwrap();
         assert_eq!(read, b"a whole picture");
         assert!(
             started.elapsed() < Duration::from_secs(10),
@@ -214,9 +211,7 @@ mod tests {
             .unwrap_err();
         assert_eq!(error.kind(), io::ErrorKind::TimedOut);
         drop(theirs);
-        let read = sink
-            .wait_written(Deadline::after(Duration::from_secs(600)))
-            .unwrap();
+        let read = sink.wait_written(Deadline::patience()).unwrap();
         assert_eq!(read, Vec::<u8>::new());
     }
 }

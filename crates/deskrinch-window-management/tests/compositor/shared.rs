@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 use deskrinch_test_client::TestClient;
 use deskrinch_window_management::{Client, StateCounts, WindowManagement};
 
-use crate::support::{Compositor, PATIENCE, Watcher, unique_app_id};
+use crate::support::{Compositor, Watcher, unique_app_id};
+use deskrinch_test_wait::PATIENCE;
 
 /// Waits until `client`'s states are as `wanted`, ignoring the events
 /// discarded; panics with what they are otherwise.

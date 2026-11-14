@@ -26,10 +26,9 @@ use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::ZxdgOutputV1;
 
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_test_wayland::stand_in::{Arg, StandIn, message};
 
-/// How long anything here waits.
-const PATIENCE: Duration = Duration::from_secs(30);
 /// The output's global name, as the stand-in lists it.
 const OUTPUT: u32 = 1;
 /// `wl_registry.global_remove`, and `wl_output`'s `done` and `name`.

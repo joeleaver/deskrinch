@@ -14,7 +14,8 @@ use deskrinch_status_notifier::{
     Activation, Category, EntryKind, OperationError, Orientation, Status, Toggle, ToggleState,
 };
 
-use crate::common::{PATIENCE, PrivateBus, start};
+use crate::common::{PrivateBus, start};
+use deskrinch_test_wait::PATIENCE;
 
 /// Set in the child's environment, so that the ignored test runs only
 /// there.

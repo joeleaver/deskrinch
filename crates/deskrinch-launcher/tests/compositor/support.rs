@@ -8,9 +8,8 @@ use deskrinch_bus::Bus;
 use deskrinch_launcher::NAME;
 use deskrinch_test_client::Compositor;
 use deskrinch_test_component::{Component, Renderer};
+use deskrinch_test_wait::PATIENCE;
 
-/// How long something that should happen gets.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(30);
 /// How long a test watches for something that must not happen.
 pub(crate) const QUIET: Duration = Duration::from_secs(2);
 

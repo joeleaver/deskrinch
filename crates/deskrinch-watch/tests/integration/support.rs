@@ -5,11 +5,9 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_watch::{Event, Target, Timing, Watcher};
 use tempfile::TempDir;
-
-/// How long a test waits for an event before failing.
-const PATIENCE: Duration = Duration::from_secs(10);
 
 /// A temporary root, resolved (the system's temporary directory may be
 /// reached through a link).

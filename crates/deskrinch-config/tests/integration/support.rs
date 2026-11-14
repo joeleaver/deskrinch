@@ -7,11 +7,9 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use deskrinch_config::{Diagnostic, Event, Section, Settings, Sources, Subscription, Watcher};
+use deskrinch_test_wait::PATIENCE;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
-
-/// How long a test waits for an event before failing.
-const PATIENCE: Duration = Duration::from_secs(10);
 
 /// A component's settings.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

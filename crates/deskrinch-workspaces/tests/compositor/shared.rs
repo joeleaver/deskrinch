@@ -11,7 +11,8 @@ use deskrinch_test_client::TestClient;
 use deskrinch_window_management::WindowManagement;
 use deskrinch_workspaces::{Client, StateCounts, Workspaces};
 
-use crate::support::{Compositor, PATIENCE, Watcher, compositor, kwin, set_up};
+use crate::support::{Compositor, Watcher, compositor, kwin, set_up};
+use deskrinch_test_wait::PATIENCE;
 
 /// Switches made under KWin after a manager is dropped.
 const SWITCHES: u64 = 20;

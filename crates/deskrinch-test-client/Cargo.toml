@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-test-wait.workspace = true
 # Colours, transforms, shm buffers and waits shared with the screen crate.
 deskrinch-test-wayland.workspace = true
 thiserror.workspace = true

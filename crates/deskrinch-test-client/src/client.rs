@@ -9,7 +9,8 @@ use std::sync::{Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use deskrinch_test_wayland::{Deadline, Globals, WaitError, dispatch_until, roundtrip};
+use deskrinch_test_wait::Deadline;
+use deskrinch_test_wayland::{Globals, WaitError, dispatch_until, roundtrip};
 
 use wayland_client::backend::ObjectId;
 use wayland_client::protocol::wl_buffer::{self, WlBuffer};
@@ -35,7 +36,8 @@ use crate::pointer::Pointer;
 use crate::seat::Windows;
 use crate::synced::Synced;
 use crate::window::{Shared, Status, TestWindow};
-use crate::{Error, PATIENCE, Paint, lock, waited};
+use crate::{Error, Paint, lock, waited};
+use deskrinch_test_wait::PATIENCE;
 
 /// The client's thread's state.
 #[derive(Debug)]
@@ -208,7 +210,7 @@ impl TestClient {
     /// # Errors
     ///
     /// When the compositor does not configure it, or does not answer after
-    /// its first buffer, within [`PATIENCE`](crate::PATIENCE), or the
+    /// its first buffer, within [`PATIENCE`](deskrinch_test_wait::PATIENCE), or the
     /// connection fails.
     pub fn open(&self, title: &str, app_id: &str) -> Result<TestWindow, Error> {
         self.open_window(title, app_id, None, Paint::Transparent, None)

@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-test-wait.workspace = true
 deskrinch-bus.workspace = true
 deskrinch-test-wayland.workspace = true
 rustix = { workspace = true, features = ["event", "fs"] }

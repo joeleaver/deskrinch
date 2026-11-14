@@ -10,6 +10,7 @@ use std::time::Duration;
 use deskrinch_status_notifier::{
     Bus, Config, Event, Host, Item, ItemId, Limits, Menu, MenuFailure,
 };
+use deskrinch_test_wait::PATIENCE;
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::wire::OwnedVariant;
@@ -17,9 +18,6 @@ use zbus::{Connection, MatchRule, Message, MessageStream};
 
 /// Long enough for an event that should not come to have arrived.
 pub(crate) const QUIET: Duration = Duration::from_millis(300);
-
-/// How long a test waits for something that should happen.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
 /// How long a test that a stalled host would hang ([`within`]) may take:
 /// several waits of [`PATIENCE`] in a row.

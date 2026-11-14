@@ -21,8 +21,9 @@ use zbus::message::Type;
 use zbus::wire::{OwnedVariant, Variant};
 use zbus::{Connection, Message, MessageStream};
 
-use crate::common::{PATIENCE, PrivateBus, call_watcher};
+use crate::common::{PrivateBus, call_watcher};
 use crate::stand_in_menu::{self, Layout, MenuCall, Menus};
+use deskrinch_test_wait::PATIENCE;
 
 /// A property value, from anything zbus can make a variant of.
 pub(crate) fn v<'a>(value: impl Into<Variant<'a>>) -> OwnedVariant {

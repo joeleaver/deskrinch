@@ -7,6 +7,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use deskrinch_test_client::Compositor;
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_wayland_client::{
     Attachment, Client, Detached, EndCause, Globals, Lifecycle, OutputGlobal, Outputs,
     OutputsHandler, Remaining,
@@ -18,10 +19,6 @@ use wayland_client::protocol::wl_registry::WlRegistry;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_v1::ZxdgOutputV1;
-
-/// How long anything a test waits for gets: a hang fails instead of
-/// blocking.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(60);
 
 /// Refuses to run outside a nested session.
 pub(crate) fn nested() {

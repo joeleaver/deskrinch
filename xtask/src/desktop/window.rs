@@ -11,7 +11,8 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
-use deskrinch_test_wayland::{Deadline, WaitError, dispatch_until, roundtrip};
+use deskrinch_test_wait::Deadline;
+use deskrinch_test_wayland::{WaitError, dispatch_until, roundtrip};
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle};
 

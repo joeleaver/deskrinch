@@ -6,7 +6,8 @@ use std::thread;
 
 use deskrinch_notification_service::{CloseReason, Event, ImageSource, Urgency};
 
-use crate::common::{PATIENCE, PrivateBus, start};
+use crate::common::{PrivateBus, start};
+use deskrinch_test_wait::PATIENCE;
 
 pub(crate) fn notify_send(bus: &PrivateBus, args: &[&str]) -> Child {
     let mut command = bus.command("notify-send");

@@ -21,12 +21,13 @@ mod desktop {
 
     use deskrinch_shell::LAUNCHER_CHORD;
     use deskrinch_test_input::{Input, Key};
+    use deskrinch_test_wait::PATIENCE;
     use deskrinch_window_management::{Action, WindowManagement, WindowState};
     use rustix::process::Signal;
 
     use super::support::{
-        PATIENCE, TestProfile, desktop_command, environment, files, key, modifier_key,
-        outer_windows, start, until,
+        TestProfile, desktop_command, environment, files, key, modifier_key, outer_windows, start,
+        until,
     };
 
     #[test]
