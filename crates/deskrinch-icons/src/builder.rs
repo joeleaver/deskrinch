@@ -155,7 +155,13 @@ impl TableBuilder {
         for (place, &id) in order.iter().enumerate() {
             rank[id as usize] = place as u32;
         }
-        records.sort_unstable_by_key(|record| (rank[record.name as usize], record.at));
+        // From here a record's name is its place in the sorted names, so
+        // the records sort by two integers.
+        for record in &mut records {
+            record.name = rank[record.name as usize];
+        }
+        drop(rank);
+        records.sort_unstable_by_key(|record| (record.name, record.at));
 
         let mut text = String::with_capacity(names.text.len());
         let mut ends = Vec::with_capacity(count);
