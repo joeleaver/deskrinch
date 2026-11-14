@@ -268,6 +268,14 @@ fn output_moved(
     let Some(global) = Outputs::global_of(output) else {
         return;
     };
+    // An `output_enter` names one of the client's `wl_output`s, of any state
+    // on the connection: one that another state bound before this one heard
+    // of the global is dropped here. That loses nothing: when this state
+    // binds its own `wl_output` for the output, the compositor sends the same
+    // existing group an `output_enter` naming it. Seen under labwc (a
+    // `WAYLAND_DEBUG` trace of a second state binding its outputs beside a
+    // first). KWin's desktops have no outputs of their own: this does not
+    // arise there.
     if entered && !state.outputs.contains(global) {
         return;
     }
