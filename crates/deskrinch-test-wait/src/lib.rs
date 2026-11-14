@@ -15,7 +15,7 @@
 //! ([`#[track_caller]`](https://doc.rust-lang.org/reference/attributes/codegen.html#the-track_caller-attribute)):
 //!
 //! ```text
-//! waited 60s for the window on HEADLESS-2 alone; last seen: [Window { … }]
+//! waited 120s for the window on HEADLESS-2 alone; last seen: [Window { … }]
 //! ```
 //!
 //! A wait for something that must *not* happen (a quiet window) is a
@@ -26,8 +26,16 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::thread;
 use std::time::{Duration, Instant};
 
-/// How long any test waits for something that must happen.
-pub const PATIENCE: Duration = Duration::from_secs(60);
+/// How long any test waits for something that must happen: two minutes.
+///
+/// A hang detector, not a performance expectation: long enough that only a
+/// hang reaches it. The case that sets its length is the slowest thing a
+/// test waits for that does happen: a component's first frame from a cold
+/// GPU start on a loaded machine, whose device and pipeline set-up alone
+/// can be silent for many seconds. How fast anything is, is measured with
+/// `cargo xtask measure`, never by a test's wait. A hung test costs this
+/// much; nothing else does.
+pub const PATIENCE: Duration = Duration::from_secs(120);
 
 /// How often a poll looks again, where nothing signals the change.
 pub const POLL: Duration = Duration::from_millis(10);
@@ -186,7 +194,7 @@ mod tests {
     fn a_wait_in_vain_names_what_and_the_last_state() {
         let message = waited_in_vain("the window", &vec!["HEADLESS-1"]);
         assert!(
-            message.starts_with("waited 60s for the window; last seen: ["),
+            message.starts_with("waited 120s for the window; last seen: ["),
             "{message}"
         );
         assert!(message.contains("\"HEADLESS-1\""), "{message}");
