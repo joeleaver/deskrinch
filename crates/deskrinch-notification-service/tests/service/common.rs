@@ -14,7 +14,7 @@ use std::time::Duration;
 use deskrinch_notification_service::{
     Bus, Clock, Config, Event, ManualClock, NotificationId, Service,
 };
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::recv;
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::{Connection, MatchRule, MessageStream, Variant};
@@ -72,9 +72,7 @@ pub(crate) struct Events(Receiver<Event>);
 
 impl Events {
     pub(crate) fn next(&self) -> Event {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("the service reported no event in time")
+        recv("an event from the service", &self.0)
     }
 
     pub(crate) fn next_shown(&self) -> Arc<deskrinch_notification_service::Notification> {
@@ -238,9 +236,7 @@ impl Signals {
     }
 
     pub(crate) fn next(&self) -> Signal {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("no signal arrived in time")
+        recv("a signal", &self.0)
     }
 
     pub(crate) fn none_within(&self, wait: Duration) {

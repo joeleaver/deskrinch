@@ -8,7 +8,7 @@ use std::time::Duration;
 use deskrinch_icons::{Event, HICOLOR, Index, Watcher};
 
 use crate::support::{Fixture, found, theme_text};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::recv;
 
 fn watch(f: &Fixture, theme: &str) -> (Watcher, Arc<Index>, Receiver<Event>) {
     let (sender, events) = mpsc::channel();
@@ -20,9 +20,9 @@ fn watch(f: &Fixture, theme: &str) -> (Watcher, Arc<Index>, Receiver<Event>) {
 }
 
 fn next(events: &Receiver<Event>) -> Arc<Index> {
-    match events.recv_timeout(PATIENCE) {
-        Ok(Event::Changed(index)) => index,
-        other => panic!("expected a new index, got {other:?}"),
+    match recv("a new index", events) {
+        Event::Changed(index) => index,
+        Event::Error(error) => panic!("expected a new index, got an error: {error:?}"),
     }
 }
 

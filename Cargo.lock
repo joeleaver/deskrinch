@@ -863,6 +863,7 @@ dependencies = [
  "deskrinch-bus",
  "deskrinch-test-dbus",
  "deskrinch-test-portal",
+ "deskrinch-test-wait",
  "futures-core",
  "thiserror 2.0.21",
  "zbus 6.2.1",

@@ -7,7 +7,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
 use deskrinch_config::{Diagnostic, Event, Section, Settings, Sources, Subscription, Watcher};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::recv;
 use serde::{Deserialize, Serialize};
 use tempfile::TempDir;
 
@@ -116,8 +116,9 @@ pub(crate) fn write(path: &Path, text: &str) {
 }
 
 /// The next event, which must come soon.
+#[track_caller]
 fn next<T>(events: &Receiver<Event<T>>) -> Event<T> {
-    events.recv_timeout(PATIENCE).expect("no event arrived")
+    recv("an event", events)
 }
 
 /// The next event, which must be new settings.

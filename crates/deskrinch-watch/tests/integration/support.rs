@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::recv;
 use deskrinch_watch::{Event, Target, Timing, Watcher};
 use tempfile::TempDir;
 
@@ -46,9 +46,9 @@ pub(crate) fn write(path: &Path, text: &str) {
 
 /// Waits for the next report, which must be a change.
 pub(crate) fn changed(events: &Receiver<Event>) {
-    match events.recv_timeout(PATIENCE) {
-        Ok(Event::Changed) => {}
-        other => panic!("expected a change, got {other:?}"),
+    match recv("a change", events) {
+        Event::Changed => {}
+        Event::Error(error) => panic!("expected a change, got an error: {error:?}"),
     }
 }
 

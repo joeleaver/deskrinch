@@ -7,7 +7,7 @@ use std::time::Duration;
 use deskrinch_desktop_entries::{Event, Visibility, Watcher};
 
 use crate::support::{environment, script, write};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::recv;
 
 fn app(name: &str, extra: &str) -> String {
     format!("[Desktop Entry]\nType=Application\nName={name}\nExec=run\n{extra}")
@@ -15,7 +15,7 @@ fn app(name: &str, extra: &str) -> String {
 
 /// The next event, as `(kind, id, name)`.
 fn next(events: &Receiver<Event>) -> (String, String, String) {
-    match events.recv_timeout(PATIENCE).expect("no event arrived") {
+    match recv("an event", events) {
         Event::Added(e) => ("added".into(), e.entry.id.to_string(), e.entry.name.default),
         Event::Changed(e) => (
             "changed".into(),
@@ -117,7 +117,7 @@ fn refresh_re_evaluates_try_exec_and_exec() {
         script(&bin.join(program), "true\n");
         assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
         watcher.refresh();
-        match events.recv_timeout(PATIENCE).expect("no event arrived") {
+        match recv("an event", &events) {
             Event::Changed(e) => assert_eq!(e.visibility, visibility, "{program}"),
             other => panic!("unexpected event {other:?}"),
         }

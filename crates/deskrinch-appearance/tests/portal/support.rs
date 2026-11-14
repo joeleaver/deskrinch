@@ -7,6 +7,7 @@ use std::time::Duration;
 use deskrinch_appearance::{Appearance, Bus, Event, Preferences};
 use deskrinch_test_dbus::PrivateBus;
 use deskrinch_test_portal::{ActivatingBus, Methods, Setting, StandIn, Value};
+use deskrinch_test_wait::recv;
 
 /// A private bus for one test.
 pub(crate) fn bus() -> PrivateBus {
@@ -45,11 +46,10 @@ pub(crate) fn follow(bus: &PrivateBus) -> (Appearance, Receiver<Event>) {
     (appearance, events)
 }
 
-/// The next event, within a few seconds.
+/// The next event.
+#[track_caller]
 pub(crate) fn next(events: &Receiver<Event>) -> Event {
-    events
-        .recv_timeout(Duration::from_secs(5))
-        .expect("an event within 5 s")
+    recv("an event", events)
 }
 
 /// The next event, which must be the preferences.

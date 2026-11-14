@@ -15,7 +15,7 @@ use deskrinch_status_notifier::{
 };
 
 use crate::common::{PrivateBus, start};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::recv;
 
 /// Set in the child's environment, so that the ignored test runs only
 /// there.
@@ -182,9 +182,7 @@ impl Item {
     }
 
     fn next_call(&self) -> String {
-        self.lines
-            .recv_timeout(PATIENCE)
-            .expect("the ksni item reported no call in time")
+        recv("a call reported by the ksni item", &self.lines)
     }
 }
 

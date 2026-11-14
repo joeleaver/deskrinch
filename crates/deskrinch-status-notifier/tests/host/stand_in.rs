@@ -23,7 +23,7 @@ use zbus::{Connection, Message, MessageStream};
 
 use crate::common::{PrivateBus, call_watcher};
 use crate::stand_in_menu::{self, Layout, MenuCall, Menus};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::recv;
 
 /// A property value, from anything zbus can make a variant of.
 pub(crate) fn v<'a>(value: impl Into<Variant<'a>>) -> OwnedVariant {
@@ -144,9 +144,7 @@ impl StandIn {
 
     /// The next menu call it received.
     pub(crate) fn next_menu_call(&self) -> MenuCall {
-        self.menu_calls
-            .recv_timeout(PATIENCE)
-            .expect("the menu received no call in time")
+        recv("a call to the menu", &self.menu_calls)
     }
 
     /// The menu calls received so far.
@@ -211,9 +209,7 @@ impl StandIn {
 
     /// The next call it received.
     pub(crate) fn next_call(&self) -> Call {
-        self.calls
-            .recv_timeout(PATIENCE)
-            .expect("the item received no call in time")
+        recv("a call to the item", &self.calls)
     }
 
     /// That no call arrives for a moment.

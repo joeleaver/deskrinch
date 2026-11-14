@@ -10,7 +10,7 @@ use std::time::Duration;
 use deskrinch_status_notifier::{
     Bus, Config, Event, Host, Item, ItemId, Limits, Menu, MenuFailure,
 };
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::{PATIENCE, recv};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::wire::OwnedVariant;
@@ -74,9 +74,7 @@ pub(crate) struct Events(Receiver<Event>);
 
 impl Events {
     pub(crate) fn next(&self) -> Event {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("the host reported no event in time")
+        recv("an event from the host", &self.0)
     }
 
     pub(crate) fn added(&self) -> Arc<Item> {
@@ -227,9 +225,7 @@ impl WatcherSignals {
     }
 
     pub(crate) fn next(&self) -> WatcherSignal {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("no watcher signal arrived in time")
+        recv("a watcher signal", &self.0)
     }
 }
 
@@ -258,9 +254,7 @@ impl ListChanges {
     }
 
     pub(crate) fn next(&self) -> Vec<String> {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("no change of the item list was announced in time")
+        recv("a change of the item list", &self.0)
     }
 }
 
