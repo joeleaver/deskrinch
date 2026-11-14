@@ -4,7 +4,7 @@ use std::fs;
 
 use deskrinch_watch::Target;
 
-use crate::support::{Root, changed, quiet, watch, write};
+use crate::support::{Root, quiet, reported, watch, write};
 
 #[test]
 fn reports_changes_anywhere_in_a_tree() {
@@ -13,12 +13,12 @@ fn reports_changes_anywhere_in_a_tree() {
     fs::create_dir_all(&tree).unwrap();
     let (_watcher, events) = watch(vec![Target::Tree(tree.clone())]);
     write(&tree.join("foot.desktop"), "a");
-    changed(&events);
+    reported(&events);
     // A subdirectory created after the watch began.
     write(&tree.join("kde/org.kde.konsole.desktop"), "b");
-    changed(&events);
+    reported(&events);
     write(&tree.join("kde/org.kde.konsole.desktop"), "c");
-    changed(&events);
+    reported(&events);
     // Beside the tree is not in it.
     write(&root.join("share/icons/x.png"), "d");
     quiet(&events);
@@ -30,9 +30,9 @@ fn reports_a_tree_created_and_removed() {
     let tree = root.join("home/.local/share/applications");
     let (_watcher, events) = watch(vec![Target::Tree(tree.clone())]);
     write(&tree.join("foot.desktop"), "a");
-    changed(&events);
+    reported(&events);
     write(&tree.join("foot.desktop"), "b");
-    changed(&events);
+    reported(&events);
     fs::remove_dir_all(&tree).unwrap();
-    changed(&events);
+    reported(&events);
 }

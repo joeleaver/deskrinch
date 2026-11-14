@@ -2,7 +2,7 @@
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc::{self, Receiver};
+use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 
 use deskrinch_test_wait::{quiet_for, recv};
 use deskrinch_watch::{Event, Target, Timing, Watcher};
@@ -48,6 +48,24 @@ pub(crate) fn changed(events: &Receiver<Event>) {
     match recv("a change", events) {
         Event::Changed => {}
         Event::Error(error) => panic!("expected a change, got an error: {error:?}"),
+    }
+}
+
+/// Waits for what the writes just made to be reported: a change, then
+/// reports stopping. However the writes were spread in time (one report,
+/// or a burst split in two on a slow machine), it returns once nothing has
+/// come for [`Timing::settled`] after the last report, so a later claim
+/// starts from a watcher with nothing left to say. It fails only on an
+/// error, or on no change within the patience.
+pub(crate) fn reported(events: &Receiver<Event>) {
+    changed(events);
+    loop {
+        match events.recv_timeout(Timing::default().settled()) {
+            Ok(Event::Changed) => {}
+            Ok(Event::Error(error)) => panic!("expected changes, got an error: {error:?}"),
+            Err(RecvTimeoutError::Timeout) => return,
+            Err(RecvTimeoutError::Disconnected) => panic!("the watcher stopped"),
+        }
     }
 }
 
