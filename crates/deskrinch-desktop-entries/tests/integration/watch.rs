@@ -2,11 +2,11 @@
 
 use std::fs;
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use deskrinch_desktop_entries::{Event, Visibility, Watcher};
 
-use crate::support::{PATIENCE, environment, script, write};
+use crate::support::{environment, script, write};
+use deskrinch_test_wait::{quiet_for, recv};
 
 fn app(name: &str, extra: &str) -> String {
     format!("[Desktop Entry]\nType=Application\nName={name}\nExec=run\n{extra}")
@@ -14,12 +14,16 @@ fn app(name: &str, extra: &str) -> String {
 
 /// The next event, as `(kind, id, name)`.
 fn next(events: &Receiver<Event>) -> (String, String, String) {
-    match events.recv_timeout(PATIENCE).expect("no event arrived") {
-        Event::Added(e) => ("added".into(), e.entry.id.to_string(), e.entry.name.default),
+    match recv("an event", events) {
+        Event::Added(e) => (
+            "added".into(),
+            e.entry.id.to_string(),
+            e.entry.name.value.clone(),
+        ),
         Event::Changed(e) => (
             "changed".into(),
             e.entry.id.to_string(),
-            e.entry.name.default,
+            e.entry.name.value.clone(),
         ),
         Event::Removed(id) => ("removed".into(), id.to_string(), String::new()),
         Event::Error(error) => panic!("watch error: {error}"),
@@ -114,14 +118,32 @@ fn refresh_re_evaluates_try_exec_and_exec() {
         ("run", Visibility::Shown),
     ] {
         script(&bin.join(program), "true\n");
-        assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+        // A window: a rescan the install wrongly caused is not ordered
+        // against the refresh below, and would report the very visibility
+        // the refresh must.
+        quiet_for(
+            "nothing before the refresh",
+            &events,
+            deskrinch_watch::Timing::default().settled(),
+        );
         watcher.refresh();
-        match events.recv_timeout(PATIENCE).expect("no event arrived") {
+        match recv("an event", &events) {
             Event::Changed(e) => assert_eq!(e.visibility, visibility, "{program}"),
             other => panic!("unexpected event {other:?}"),
         }
     }
-    // A refresh that finds nothing new reports nothing.
+    // A refresh that finds nothing new reports nothing. Sentinel: the
+    // refresh is heard before the write below is seen, and one rescan's
+    // events go in ID order, so an entry whose ID sorts last is the first
+    // thing reported, whichever rescan reads it.
     watcher.refresh();
-    assert!(events.recv_timeout(Duration::from_millis(500)).is_err());
+    write(
+        &home,
+        "applications/zz-sentinel.desktop",
+        &app("Sentinel", ""),
+    );
+    match recv("an event", &events) {
+        Event::Added(e) => assert_eq!(e.entry.id.to_string(), "zz-sentinel.desktop"),
+        other => panic!("expected the sentinel's entry, got {other:?}"),
+    }
 }

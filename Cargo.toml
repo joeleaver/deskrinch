@@ -46,6 +46,7 @@ deskrinch-test-lifetime = { path = "crates/deskrinch-test-lifetime" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
 deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }
+deskrinch-test-wait = { path = "crates/deskrinch-test-wait" }
 deskrinch-theme = { path = "crates/deskrinch-theme" }
 deskrinch-timer = { path = "crates/deskrinch-timer" }
 deskrinch-untrusted = { path = "crates/deskrinch-untrusted" }
@@ -65,6 +66,8 @@ icu_locale_core = "2.4.0"
 icu_normalizer = "2.4.0"
 icu_properties = "2.4.0"
 icu_provider = { version = "2.4.0", default-features = false }
+# The version and formats rinch decodes pictures with.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
 jiff = { version = "0.2.42", default-features = false }
 jiff-icu = { version = "0.2.4", default-features = false }
 # A StatusNotifierItem implementation, only for the status-notifier host's

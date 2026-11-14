@@ -14,7 +14,8 @@ use std::sync::{Arc, Mutex};
 use deskrinch_desktop_entries::{Launched, Target, launch};
 use zbus::OwnedVariant;
 
-use crate::support::{PATIENCE, PrivateBus, entry, serve_all};
+use crate::support::{PrivateBus, entry, serve_all};
+use deskrinch_test_wait::PATIENCE;
 
 /// A stand-in for a `DBusActivatable` application.
 pub(crate) struct FakeApplication {

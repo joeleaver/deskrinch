@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+deskrinch-test-wait.workspace = true
 rustix = { workspace = true, features = ["event", "fs"] }
 thiserror.workspace = true
 wayland-client.workspace = true

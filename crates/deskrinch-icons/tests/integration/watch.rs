@@ -3,14 +3,11 @@
 use std::fs;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
 use deskrinch_icons::{Event, HICOLOR, Index, Watcher};
 
 use crate::support::{Fixture, found, theme_text};
-
-/// How long a test waits for an event before failing.
-const PATIENCE: Duration = Duration::from_secs(10);
+use deskrinch_test_wait::{quiet_for, recv};
 
 fn watch(f: &Fixture, theme: &str) -> (Watcher, Arc<Index>, Receiver<Event>) {
     let (sender, events) = mpsc::channel();
@@ -22,9 +19,9 @@ fn watch(f: &Fixture, theme: &str) -> (Watcher, Arc<Index>, Receiver<Event>) {
 }
 
 fn next(events: &Receiver<Event>) -> Arc<Index> {
-    match events.recv_timeout(PATIENCE) {
-        Ok(Event::Changed(index)) => index,
-        other => panic!("expected a new index, got {other:?}"),
+    match recv("a new index", events) {
+        Event::Changed(index) => index,
+        Event::Error(error) => panic!("expected a new index, got an error: {error:?}"),
     }
 }
 
@@ -42,10 +39,14 @@ fn until(events: &Receiver<Event>, wanted: impl Fn(&Index) -> bool) -> Arc<Index
     }
 }
 
+/// That nothing is reported past the watcher's longest delay.
+#[track_caller]
 fn nothing(events: &Receiver<Event>) {
-    if let Ok(event) = events.recv_timeout(Duration::from_millis(1500)) {
-        panic!("expected nothing, got {event:?}");
-    }
+    quiet_for(
+        "nothing reported",
+        events,
+        deskrinch_watch::Timing::default().settled(),
+    );
 }
 
 #[test]
@@ -97,6 +98,8 @@ fn delivers_nothing_for_changes_that_leave_the_index_alone() {
     f.icon("b0", HICOLOR, "48", "notes.txt");
     f.theme("b1", "unrelated", &theme_text("", &["48:48:Fixed"]));
     f.icon("b0", HICOLOR, "unlisted", "x.png");
+    // A window: a re-index those writes wrongly caused would be read in the
+    // same settled pass as any later change, which would hide it.
     nothing(&events);
     // Had anything above been delivered, it would arrive before this, and
     // be the next report.

@@ -3,23 +3,26 @@
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::sync::{Arc, Mutex, mpsc};
-use std::time::Duration;
 
+use deskrinch_test_wait::recv;
 use deskrinch_watch::{Target, Timing, Watcher};
 
-use crate::support::{Root, changed, quiet, watch, write};
+use crate::support::{Root, changed, quiet, reported, watch, write};
 
 #[test]
-fn reports_a_change_to_a_file_once_it_settles() {
+fn reports_changes_to_a_file_and_then_nothing_more() {
     let root = Root::new();
     let file = root.join("config.toml");
     write(&file, "a");
     let (_watcher, events) = watch(vec![Target::File(file.clone())]);
-    // A burst is one report.
+    // One report or several, as the writes fall in time (that a burst is
+    // one report is the debounce's unit tests' to show, with a clock they
+    // move); then nothing more.
     for text in ["b", "c", "d"] {
         write(&file, text);
     }
-    changed(&events);
+    reported(&events);
+    // Nothing comes once they have stopped (a quiet window: see `quiet`).
     quiet(&events);
 }
 
@@ -29,16 +32,16 @@ fn reports_creation_through_missing_directories_and_removal() {
     let file = root.join("home/.config/deskrinch/config.toml");
     let (_watcher, events) = watch(vec![Target::File(file.clone())]);
     write(&file, "a");
-    changed(&events);
+    reported(&events);
     // Now watched in its own directory.
     write(&file, "b");
-    changed(&events);
+    reported(&events);
     fs::remove_file(&file).unwrap();
-    changed(&events);
+    reported(&events);
     fs::remove_dir_all(root.join("home")).unwrap();
-    changed(&events);
+    reported(&events);
     write(&file, "c");
-    changed(&events);
+    reported(&events);
 }
 
 #[test]
@@ -50,7 +53,7 @@ fn reports_a_save_by_rename() {
     let temporary = root.join(".config.toml.tmp");
     fs::write(&temporary, "b").unwrap();
     fs::rename(&temporary, &file).unwrap();
-    changed(&events);
+    reported(&events);
 }
 
 #[test]
@@ -61,6 +64,8 @@ fn ignores_other_files_in_the_directory() {
     let (_watcher, events) = watch(vec![Target::File(file)]);
     write(&root.join("notes.txt"), "unrelated");
     assert_eq!(fs::read_to_string(root.join("config.toml")).unwrap(), "a");
+    // Nothing to follow it that a report could be told from: a quiet
+    // window (see `quiet`).
     quiet(&events);
 }
 
@@ -69,8 +74,9 @@ fn reports_a_change_when_asked_to_refresh() {
     let root = Root::new();
     let (watcher, events) = watch(vec![Target::File(root.join("config.toml"))]);
     watcher.refresh();
+    // A refresh is reported; that it is reported once is the debounce's
+    // unit tests' to show, by what the worker does next.
     changed(&events);
-    quiet(&events);
 }
 
 #[test]
@@ -85,7 +91,8 @@ fn watches_the_targets_it_is_given_next() {
     // Re-read under the new targets.
     changed(&events);
     write(&second, "b2");
-    changed(&events);
+    reported(&events);
+    // The old target is no longer watched: a quiet window (see `quiet`).
     write(&first, "a2");
     quiet(&events);
 }
@@ -110,7 +117,7 @@ fn may_be_dropped_by_its_own_subscriber() {
     .unwrap();
     *slot.lock().unwrap() = Some(watcher);
     write(&file, "a");
-    finished.recv_timeout(Duration::from_secs(10)).unwrap();
+    let () = recv("the watcher to be dropped by its own subscriber", &finished);
     assert!(slot.lock().unwrap().is_none());
 }
 
@@ -128,17 +135,18 @@ fn follows_a_link_and_sees_it_re_pointed() {
 
     // Editing the target, in a directory of its own.
     write(&first, "a2");
-    changed(&events);
+    reported(&events);
 
     // Re-pointing the link, as `ln -sfn` does: a new link renamed over it.
     let replacement = root.join("config/.config.toml.new");
     symlink(&second, &replacement).unwrap();
     fs::rename(&replacement, &file).unwrap();
-    changed(&events);
+    reported(&events);
 
     // Now the new target is watched, and the old one no longer concerns it.
     write(&second, "b2");
-    changed(&events);
+    reported(&events);
+    // The old target no longer concerns it: a quiet window (see `quiet`).
     write(&first, "a3");
     quiet(&events);
 }

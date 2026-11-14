@@ -65,6 +65,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
+mod clock;
 mod error;
 mod inotify;
 mod plan;
@@ -101,6 +102,16 @@ pub struct Timing {
     pub quiet: Duration,
     /// The longest a report waits during a continuous stream of changes.
     pub max_delay: Duration,
+}
+
+impl Timing {
+    /// How long after a change its report can still be on its way, with a
+    /// margin: half again the longest delay. For whoever must know that a
+    /// change caused no report, such as a test.
+    #[must_use]
+    pub fn settled(self) -> Duration {
+        self.max_delay + self.max_delay / 2
+    }
 }
 
 impl Default for Timing {

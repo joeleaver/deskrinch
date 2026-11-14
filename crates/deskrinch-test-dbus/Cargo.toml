@@ -20,5 +20,8 @@ thiserror.workspace = true
 # by `zbus::block_on`, so this crate's API needs no async runtime.
 zbus = { workspace = true, features = ["default-rt"] }
 
+[dev-dependencies]
+deskrinch-test-wait.workspace = true
+
 [lints]
 workspace = true

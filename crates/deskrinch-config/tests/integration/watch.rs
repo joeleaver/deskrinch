@@ -84,6 +84,9 @@ fn delivers_nothing_for_a_change_that_leaves_the_section_alone() {
         "# mine\n[panel]\nheight = 40\n[launcher]\nterminal = 'foot'\n",
     );
     write(&dirs.user().with_file_name("notes.txt"), "unrelated");
+    // A window, past the watcher's delay: whether those writes were seen is
+    // not observable, and the change below, read in the same settled reload,
+    // would hide what they caused.
     std::thread::sleep(Duration::from_millis(1500));
     // Had anything above been delivered, it would arrive before this.
     write(&dirs.user(), "[panel]\nheight = 41\n");

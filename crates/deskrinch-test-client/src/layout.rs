@@ -13,12 +13,13 @@
 //! tests a different layout.
 
 use std::fmt;
-use std::time::Instant;
 
 use deskrinch_test_wayland::Transform;
 
 use crate::outputs as wlroots;
-use crate::{Compositor, Error, OutputChange, PATIENCE, kscreen};
+use deskrinch_test_wait::{Deadline, PATIENCE, POLL};
+
+use crate::{Compositor, Error, OutputChange, kscreen};
 
 /// An output's mode: its size in physical pixels and its refresh rate.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -170,13 +171,13 @@ fn apply_and_wait(
     reached: impl Fn(&[OutputState]) -> bool,
 ) -> Result<(), Error> {
     apply(layout)?;
-    let deadline = Instant::now() + PATIENCE;
+    let deadline = Deadline::patience();
     loop {
         let now = outputs()?;
         if reached(&now) {
             return Ok(());
         }
-        if Instant::now() >= deadline {
+        if deadline.passed() {
             return Err(Error::LayoutNotReached {
                 differences: layout_differences(layout, &now)
                     .unwrap_or_else(|| "the outputs are as asked, but not as waited for".into()),
@@ -184,7 +185,7 @@ fn apply_and_wait(
                 applications: 1,
             });
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
+        std::thread::sleep(POLL);
     }
 }
 

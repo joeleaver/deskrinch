@@ -14,13 +14,12 @@ use std::time::{Duration, Instant};
 use deskrinch_shell::{Key as ShellKey, Modifier};
 use deskrinch_test_client::Compositor;
 use deskrinch_test_input::Key;
+use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually};
 use deskrinch_window_management::WindowManagement;
 use rustix::process::{Pid, Signal, kill_process};
 
 /// How long a desktop has to be ready: the first builds its components.
 pub(crate) const READY: Duration = Duration::from_mins(15);
-/// How long anything else is waited for.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(60);
 /// The launcher's name, object and interface on the desktop's bus.
 pub(crate) const LAUNCHER: &str = "org.deskrinch.Launcher";
 pub(crate) const LAUNCHER_PATH: &str = "/org/deskrinch/Launcher";
@@ -122,19 +121,20 @@ impl Desktop {
         self.wait_within(PATIENCE)
     }
 
-    /// Waits up to `patience` for it to end; how it did.
-    pub(crate) fn wait_within(&mut self, patience: Duration) -> ExitStatus {
-        let deadline = Instant::now() + patience;
+    /// Waits up to `bound` for it to end; how it did. For a desktop whose
+    /// command is itself a run of waits of the patience, which says so.
+    pub(crate) fn wait_within(&mut self, bound: Duration) -> ExitStatus {
+        let deadline = Deadline::after(bound);
         loop {
             if let Some(status) = self.child.try_wait().unwrap() {
                 return status;
             }
             assert!(
-                Instant::now() < deadline,
-                "the desktop did not end; it said:\n{}",
+                !deadline.passed(),
+                "waited {bound:?} for the desktop to end; it said:\n{}",
                 self.said()
             );
-            thread::sleep(Duration::from_millis(50));
+            thread::sleep(POLL);
         }
     }
 
@@ -152,10 +152,9 @@ impl Desktop {
     /// Waits until its session's root is gone: everything of the
     /// session has ended (the session removes it last).
     pub(crate) fn wait_for_root_gone(&self) {
-        until(
-            || !self.root.exists(),
-            "the nested session's directory to go",
-        );
+        eventually("the nested session's directory to go", || {
+            !self.root.exists()
+        });
     }
 
     /// What a failure needs said: the outer session's windows as
@@ -265,19 +264,12 @@ impl Drop for Desktop {
     }
 }
 
-/// Waits until `condition` holds, for at most [`PATIENCE`].
-pub(crate) fn until(condition: impl Fn() -> bool, what: &str) {
-    let deadline = Instant::now() + PATIENCE;
-    while !condition() {
-        assert!(Instant::now() < deadline, "waited in vain for {what}");
-        thread::sleep(Duration::from_millis(100));
-    }
-}
-
 /// The outer session's windows, as its window management lists them.
 pub(crate) fn outer_windows() -> deskrinch_window_management::WindowManager {
     let manager = deskrinch_window_management::connect(|_| {}).unwrap();
-    until(|| !manager.windows().is_empty(), "the desktop's window");
+    eventually("the desktop's window to open", || {
+        !manager.windows().is_empty()
+    });
     manager
 }
 

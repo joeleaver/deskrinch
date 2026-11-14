@@ -5,24 +5,19 @@
 //! `dbus-daemon` the test starts, whose configuration has no service
 //! directories, so nothing can be activated on it either.
 
-use std::collections::HashMap;
-use std::sync::Arc;
+use std::collections::{HashMap, HashSet};
 use std::sync::mpsc::{self, Receiver};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use deskrinch_notification_service::{
     Bus, Clock, Config, Event, ManualClock, NotificationId, Service,
 };
+use deskrinch_test_wait::{quiet_for, recv};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::{Connection, MatchRule, MessageStream, Variant};
-
-/// Long enough for a signal that should not come to have arrived.
-pub(crate) const QUIET: Duration = Duration::from_millis(200);
-
-/// How long a test waits for something that should happen.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
 /// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.
 pub(crate) struct PrivateBus(deskrinch_test_dbus::PrivateBus);
@@ -69,14 +64,32 @@ impl PrivateBus {
     }
 }
 
-/// The events a service reported, in order.
-pub(crate) struct Events(Receiver<Event>);
+/// The events a service reported, in order, but for those about the
+/// sentinels of [`Time`](crate::time::Time).
+pub(crate) struct Events {
+    events: Receiver<Event>,
+    sentinels: Mutex<HashSet<u32>>,
+}
 
 impl Events {
     pub(crate) fn next(&self) -> Event {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("the service reported no event in time")
+        loop {
+            let event = recv("an event from the service", &self.events);
+            let about = match &event {
+                Event::Shown(n) | Event::Replaced(n) => Some(n.id.get()),
+                Event::Closed { id, .. } => Some(id.get()),
+                _ => None,
+            };
+            let sentinels = self.sentinels.lock().unwrap();
+            if !about.is_some_and(|id| sentinels.contains(&id)) {
+                return event;
+            }
+        }
+    }
+
+    /// Leaves out, from now on, the events about the notification `id`.
+    pub(crate) fn leave_out(&self, id: u32) {
+        self.sentinels.lock().unwrap().insert(id);
     }
 
     pub(crate) fn next_shown(&self) -> Arc<deskrinch_notification_service::Notification> {
@@ -95,7 +108,11 @@ pub(crate) fn start_with(config: Config, clock: Arc<dyn Clock>) -> (Service, Eve
         let _sent = tx.send(event);
     })
     .unwrap();
-    (service, Events(rx))
+    let events = Events {
+        events: rx,
+        sentinels: Mutex::default(),
+    };
+    (service, events)
 }
 
 /// Starts a service on `bus` with a manual clock.
@@ -240,15 +257,12 @@ impl Signals {
     }
 
     pub(crate) fn next(&self) -> Signal {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("no signal arrived in time")
+        recv("a signal", &self.0)
     }
 
+    #[track_caller]
     pub(crate) fn none_within(&self, wait: Duration) {
-        if let Ok(signal) = self.0.recv_timeout(wait) {
-            panic!("unexpected signal {signal:?}");
-        }
+        quiet_for("no signal", &self.0, wait);
     }
 }
 

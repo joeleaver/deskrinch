@@ -8,14 +8,11 @@
 
 use std::collections::BTreeSet;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
 
+use deskrinch_test_wait::wait_for;
 use deskrinch_test_wayland::stand_in::{Arg, SERVER_ID, StandIn, message};
 use deskrinch_workspaces::{Client, Event, Group, connect_with};
 
-/// How long anything here waits.
-const PATIENCE: Duration = Duration::from_secs(30);
 /// The globals, as the stand-in lists them.
 const OUTPUT: u32 = 1;
 const MANAGER: u32 = 2;
@@ -44,20 +41,17 @@ fn last_heard(heard: &Mutex<Vec<Event>>) -> Option<Group> {
 }
 
 /// Waits until the group is heard of on `outputs`.
+#[track_caller]
 fn wait_outputs(heard: &Mutex<Vec<Event>>, outputs: &[&str]) {
     let wanted: BTreeSet<String> = outputs.iter().map(|&name| name.to_owned()).collect();
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    wait_for(&format!("the group to be on {wanted:?}"), || {
         let last = last_heard(heard);
         if last.as_ref().is_some_and(|group| group.outputs == wanted) {
-            return;
+            Ok(())
+        } else {
+            Err(last)
         }
-        assert!(
-            Instant::now() < deadline,
-            "waited for the group on {wanted:?}; last heard {last:?}"
-        );
-        thread::sleep(Duration::from_millis(10));
-    }
+    });
 }
 
 #[test]

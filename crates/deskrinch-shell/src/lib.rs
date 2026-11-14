@@ -12,9 +12,13 @@
 //! ```
 //! use deskrinch_shell::{COMPONENTS, Ready};
 //!
-//! // The launcher starts first, hidden, and is ready once it owns its name.
-//! let launcher = &COMPONENTS[0];
-//! assert_eq!(launcher.package, "deskrinch-launcher");
+//! // The wallpaper starts first; the launcher, hidden, is ready once it
+//! // owns its name.
+//! assert_eq!(COMPONENTS[0].package, "deskrinch-wallpaper");
+//! let launcher = COMPONENTS
+//!     .iter()
+//!     .find(|component| component.package == "deskrinch-launcher")
+//!     .unwrap();
 //! assert_eq!(launcher.ready, Ready::BusName("org.deskrinch.Launcher"));
 //! ```
 
@@ -41,10 +45,16 @@ pub enum Ready {
 
 /// The shell's components, in the order they start.
 ///
-/// The launcher comes first, hidden: it owns its name on the session bus,
-/// through which a key binding (or anything else) summons it. The panel
-/// follows.
+/// The wallpaper comes first, so that the desktop is not bare while the
+/// rest starts. The launcher follows, hidden: it owns its name on the
+/// session bus, through which a key binding (or anything else) summons it.
+/// The panel comes last.
 pub const COMPONENTS: &[Component] = &[
+    Component {
+        package: "deskrinch-wallpaper",
+        args: &[],
+        ready: Ready::Started,
+    },
     Component {
         package: "deskrinch-launcher",
         args: &[],

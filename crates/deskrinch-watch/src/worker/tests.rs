@@ -1,4 +1,5 @@
 use super::*;
+use deskrinch_test_wait::{PATIENCE, recv};
 use std::sync::Mutex;
 use std::sync::mpsc::RecvTimeoutError;
 
@@ -61,7 +62,12 @@ fn arm(limit: usize, targets: Vec<Target>) -> (Result<Armed, WatchError>, Sender
         waits,
         wake: wake.clone(),
     };
-    let armed = Armed::with_backend(Box::new(backend), targets, Timing::default());
+    let armed = Armed::with_parts(
+        Box::new(backend),
+        Box::new(System),
+        targets,
+        Timing::default(),
+    );
     (armed, wake)
 }
 
@@ -97,15 +103,11 @@ fn reports_the_watch_limit_when_the_backend_hits_it_later() {
             path: None,
         })]))
         .unwrap();
-    let timeout = Duration::from_secs(10);
     assert!(matches!(
-        received.recv_timeout(timeout).unwrap(),
+        recv("an event", &received),
         Event::Error(WatchError::WatchLimit { .. })
     ));
-    assert!(matches!(
-        received.recv_timeout(timeout).unwrap(),
-        Event::Changed
-    ));
+    assert!(matches!(recv("an event", &received), Event::Changed));
     drop(watcher);
 }
 
@@ -126,14 +128,13 @@ fn a_failing_backend_is_reported_once_and_the_thread_stops() {
             None,
         )))
         .unwrap();
-    let timeout = Duration::from_secs(10);
     assert!(matches!(
-        received.recv_timeout(timeout).unwrap(),
+        recv("an event", &received),
         Event::Error(WatchError::Backend { .. })
     ));
     // The thread has ended: its subscriber, and with it the sender, is gone.
     assert!(matches!(
-        received.recv_timeout(timeout),
+        received.recv_timeout(PATIENCE),
         Err(RecvTimeoutError::Disconnected)
     ));
     drop(watcher);

@@ -54,6 +54,12 @@ const NAMES: WatchFlags = WatchFlags::CREATE
     .union(WatchFlags::MOVED_FROM)
     .union(WatchFlags::MOVED_TO);
 /// Names, and the entries written or their attributes changed.
+///
+/// An entry written counts when its writer closes it (`CLOSE_WRITE`), not
+/// at each write (`MODIFY`, not asked for): an existing file rewritten in
+/// place through one open descriptor, however slowly, is one report, at
+/// close, and so is read whole. The truncation that starts such a rewrite
+/// is no event of its own. `deskrinch-config` relies on this.
 const ENTRIES: WatchFlags = NAMES
     .union(WatchFlags::CLOSE_WRITE)
     .union(WatchFlags::ATTRIB);

@@ -15,6 +15,14 @@
 //! - none of [`REAL_SESSION_VARIABLES`];
 //! - everything else as the caller has it (`PATH`, the locale, `TERM`,
 //!   `CARGO_*` and `RUST*` settings, ...).
+//!
+//! `HOME` is the backstop for what ignores the XDG variables. A program
+//! started from a file with a capability runs in secure mode, and KWin has
+//! one (`cap_sys_nice`). In secure mode Mesa reads `XDG_CACHE_HOME` and
+//! `MESA_SHADER_CACHE_DIR` through `secure_getenv`, gets nothing, and puts
+//! its shader cache under `$HOME/.cache`; with `HOME` unset, under the home
+//! of the user's passwd entry, the owner's own. So `HOME` under the
+//! session's root is what keeps KWin's shader cache in the session.
 
 use std::ffi::OsString;
 use std::fs::DirBuilder;

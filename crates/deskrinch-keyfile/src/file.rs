@@ -1,7 +1,7 @@
 //! Reading a key file into groups of `Key[locale]=value` lines.
 
 use crate::error::{Deviation, Report, SyntaxError};
-use crate::locale::Locale;
+use crate::locale::{Locale, candidate_texts, is_usable_key_locale};
 
 /// A parsed key file: its groups in file order, duplicates merged.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +44,44 @@ impl KeyFile {
     /// a comment, group or key, a malformed group or key name, or a key
     /// before the first group.
     pub fn parse(bytes: &[u8], deviations: &mut impl Report) -> Result<Self, SyntaxError> {
+        Self::parse_keeping(bytes, None, deviations)
+    }
+
+    /// [`parse`](Self::parse), keeping of each key only the line without a
+    /// locale and the lines whose locale can match one of `locales` by
+    /// [`Localized::get`](crate::Localized::get)'s rules: every other
+    /// translation is skipped as it is read, never allocated. A file may
+    /// carry dozens of languages, of which a session reads one or two. A
+    /// line whose locale is unusable (`de.UTF-8`, `[]`) is kept: it matches
+    /// nothing, and is reported as [`parse`](Self::parse) reports it.
+    ///
+    /// The result, deviations included, is exactly what [`parse`](Self::parse)
+    /// gives for the file with the skipped lines replaced by empty lines (so
+    /// that the other lines keep their numbers). What a skipped line alone
+    /// would have reported is therefore not reported: a repeated
+    /// translation, a nonstandard key name that appears only in skipped
+    /// lines, an invalid escape in a skipped value; and for a key whose only
+    /// lines are skipped translations, reading it reports what an absent key
+    /// reports, not a translation without an untranslated value.
+    ///
+    /// # Errors
+    ///
+    /// As [`parse`](Self::parse): a skipped line is still checked.
+    pub fn parse_for_locales(
+        bytes: &[u8],
+        locales: &[Locale],
+        deviations: &mut impl Report,
+    ) -> Result<Self, SyntaxError> {
+        Self::parse_keeping(bytes, Some(&candidate_texts(locales)), deviations)
+    }
+
+    /// Parses `bytes`, keeping a line with a usable locale only when
+    /// `wanted` is `None` or holds that locale as the line writes it.
+    fn parse_keeping(
+        bytes: &[u8],
+        wanted: Option<&[String]>,
+        deviations: &mut impl Report,
+    ) -> Result<Self, SyntaxError> {
         let mut groups: Vec<Group> = Vec::new();
         // The group the following keys belong to, as an index into `groups`.
         let mut current: Option<usize> = None;
@@ -73,10 +111,16 @@ impl KeyFile {
                 current = Some(open_group(&mut groups, name, deviations));
                 continue;
             }
-            let key = parse_key_line(line, number)?;
+            let key = KeyLine::split(line, number)?;
             let group =
                 &mut groups[current.ok_or(SyntaxError::KeyOutsideGroup { line: number })?];
-            group.add(key, deviations);
+            if let (Some(wanted), Some(locale)) = (wanted, key.locale)
+                && is_usable_key_locale(locale)
+                && !wanted.iter().any(|text| text == locale)
+            {
+                continue;
+            }
+            group.add(key.into_key(), deviations);
         }
         Ok(Self { groups })
     }
@@ -158,42 +202,65 @@ fn valid_group_name(name: &str) -> bool {
             .all(|c| !c.is_control() && c != '[' && c != ']')
 }
 
-/// Parses `Key[locale] = value`. Space around `=` is ignored.
-///
-/// The key name is checked as GLib checks it (`g_key_file_is_key_name`):
-/// not empty, no `=`, `[` or `]`, no space at either end, and an optional
-/// `[locale]` of letters, digits, `-`, `_`, `.` and `@`, ending the name. A
-/// name GLib refuses fails the file, as it does there.
-fn parse_key_line(line: &str, number: usize) -> Result<Key, SyntaxError> {
-    let invalid = || SyntaxError::InvalidLine { line: number };
-    let (left, value) = line.split_once('=').ok_or_else(invalid)?;
-    let left = left.trim_end();
-    let (name, locale) = match left.split_once('[') {
-        Some((name, rest)) => {
-            let locale = rest.strip_suffix(']').ok_or_else(invalid)?;
-            let allowed = |c: char| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '@');
-            if !locale.chars().all(allowed) {
-                return Err(invalid());
+/// A `Key[locale] = value` line, checked but not yet copied: its parts as
+/// the line writes them.
+struct KeyLine<'a> {
+    name: &'a str,
+    locale: Option<&'a str>,
+    raw: &'a str,
+}
+
+impl<'a> KeyLine<'a> {
+    /// Splits `Key[locale] = value`. Space around `=` is ignored.
+    ///
+    /// The key name is checked as GLib checks it (`g_key_file_is_key_name`):
+    /// not empty, no `=`, `[` or `]`, no space at either end, and an
+    /// optional `[locale]` of letters, digits, `-`, `_`, `.` and `@`, ending
+    /// the name. A name GLib refuses fails the file, as it does there.
+    fn split(line: &'a str, number: usize) -> Result<Self, SyntaxError> {
+        let invalid = || SyntaxError::InvalidLine { line: number };
+        let (left, value) = line.split_once('=').ok_or_else(invalid)?;
+        let left = left.trim_end();
+        let (name, locale) = match left.split_once('[') {
+            Some((name, rest)) => {
+                let locale = rest.strip_suffix(']').ok_or_else(invalid)?;
+                let allowed = |c: char| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '@');
+                if !locale.chars().all(allowed) {
+                    return Err(invalid());
+                }
+                (name, Some(locale))
             }
-            let locale = match Locale::parse(locale) {
-                // `Locale::parse` drops an encoding; a key's locale has
-                // none to drop.
-                Some(parsed) if !locale.contains('.') => KeyLocale::Some(parsed),
-                _ => KeyLocale::Unusable(locale.into()),
-            };
-            (name, locale)
+            None => (left, None),
+        };
+        let well_formed =
+            !name.is_empty() && name.trim() == name && !name.contains(['[', ']', '=']);
+        if !well_formed {
+            return Err(invalid());
         }
-        None => (left, KeyLocale::None),
-    };
-    let well_formed = !name.is_empty() && name.trim() == name && !name.contains(['[', ']', '=']);
-    if !well_formed {
-        return Err(invalid());
+        Ok(Self {
+            name,
+            locale,
+            raw: value.trim_start(),
+        })
     }
-    Ok(Key {
-        name: name.into(),
-        locale,
-        raw: value.trim_start().into(),
-    })
+
+    /// The line, copied.
+    fn into_key(self) -> Key {
+        let locale = match self.locale {
+            None => KeyLocale::None,
+            Some(text) => match Locale::parse(text) {
+                // `Locale::parse` drops an encoding; a key's locale has none
+                // to drop.
+                Some(parsed) if !text.contains('.') => KeyLocale::Some(parsed),
+                _ => KeyLocale::Unusable(text.into()),
+            },
+        };
+        Key {
+            name: self.name.into(),
+            locale,
+            raw: self.raw.into(),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -226,6 +293,150 @@ mod tests {
                 }
             ]
         );
+    }
+
+    const TRANSLATED: &str = "[A]\nName=Files\nName[de]=Dateien\nName[de_AT]=Dateien (AT)\n\
+                              Name[sr@latin]=Datoteke\nName[fr]=Fichiers\nName[de.UTF-8]=x\n\
+                              Comment[ja]=only\n";
+
+    fn kept(locales: &[&str]) -> Vec<String> {
+        let locales: Vec<Locale> = locales.iter().map(|l| Locale::parse(l).unwrap()).collect();
+        let file = KeyFile::parse_for_locales(
+            TRANSLATED.as_bytes(),
+            &locales,
+            &mut Vec::<Deviation>::new(),
+        )
+        .unwrap();
+        let group = file.group("A").unwrap();
+        group
+            .keys
+            .iter()
+            .map(|key| match &key.locale {
+                KeyLocale::None => key.name.clone(),
+                KeyLocale::Some(locale) => format!("{}[{locale}]", key.name),
+                KeyLocale::Unusable(text) => format!("{}[{text}]", key.name),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_translation_no_locale_asked_for_can_match_is_not_kept() {
+        // The unusable `de.UTF-8` is kept, so that it is reported as by
+        // `parse`; it can match nothing.
+        assert_eq!(kept(&["de_DE"]), ["Name", "Name[de]", "Name[de.UTF-8]"]);
+        assert_eq!(
+            kept(&["de_AT"]),
+            ["Name", "Name[de]", "Name[de_AT]", "Name[de.UTF-8]"]
+        );
+        assert_eq!(
+            kept(&["sr_RS@latin", "fr"]),
+            ["Name", "Name[sr@latin]", "Name[fr]", "Name[de.UTF-8]"]
+        );
+        assert_eq!(kept(&[]), ["Name", "Name[de.UTF-8]"]);
+    }
+
+    #[test]
+    fn an_unusable_locale_is_reported_as_by_the_whole_parse() {
+        let mut whole = Vec::<Deviation>::new();
+        KeyFile::parse(TRANSLATED.as_bytes(), &mut whole).unwrap();
+        let mut part = Vec::<Deviation>::new();
+        KeyFile::parse_for_locales(TRANSLATED.as_bytes(), &[], &mut part).unwrap();
+        assert_eq!(part, whole);
+    }
+
+    #[test]
+    fn what_is_kept_gives_the_value_the_whole_file_gives() {
+        let (whole, _) = parse(TRANSLATED);
+        for wanted in [
+            vec!["de_AT"],
+            vec!["sr_ME@latin"],
+            vec!["ja", "fr"],
+            vec!["en"],
+        ] {
+            let locales: Vec<Locale> = wanted.iter().map(|l| Locale::parse(l).unwrap()).collect();
+            let part = KeyFile::parse_for_locales(
+                TRANSLATED.as_bytes(),
+                &locales,
+                &mut Vec::<Deviation>::new(),
+            )
+            .unwrap();
+            let name = |file: &KeyFile| {
+                file.group("A")
+                    .unwrap()
+                    .localized("Name", &mut Vec::<Deviation>::new())
+                    .unwrap()
+                    .get(&locales)
+                    .clone()
+            };
+            assert_eq!(name(&part), name(&whole), "{wanted:?}");
+        }
+    }
+
+    /// A file whose French lines deviate in every way a skipped line can:
+    /// a repeated translation, a nonstandard key name seen only there, an
+    /// invalid escape, and a key with no untranslated value. The `\xff`
+    /// line keeps a line number to compare after the skipped ones.
+    const DEVIATING: &[u8] = b"[A]\nName=Files\nName[fr]=a\nName[fr]=b\nX_Odd[fr]=1\n\
+                               Name[fr_CA]=a\\q\nComment[fr]=c\nName[de]=Dateien\nX=\xff\n";
+
+    /// `DEVIATING` with the lines a German session skips replaced by empty
+    /// lines.
+    const DEVIATING_BLANKED: &[u8] = b"[A]\nName=Files\n\n\n\n\n\nName[de]=Dateien\nX=\xff\n";
+
+    #[test]
+    fn a_skipping_parse_is_the_whole_parse_of_the_file_without_the_skipped_lines() {
+        let locales = [Locale::parse("de_DE").unwrap()];
+        let (mut part_read, mut blanked_read) = (Vec::<Deviation>::new(), Vec::new());
+        let part = KeyFile::parse_for_locales(DEVIATING, &locales, &mut part_read).unwrap();
+        let blanked = KeyFile::parse(DEVIATING_BLANKED, &mut blanked_read).unwrap();
+        assert_eq!(part, blanked);
+        assert_eq!(part_read, blanked_read);
+        // Reading the keys reports the same too.
+        for key in ["Name", "Comment", "X_Odd"] {
+            let (mut from_part, mut from_blanked) = (Vec::<Deviation>::new(), Vec::new());
+            let a = part.group("A").unwrap().localized(key, &mut from_part);
+            let b = blanked
+                .group("A")
+                .unwrap()
+                .localized(key, &mut from_blanked);
+            assert_eq!((a, from_part), (b, from_blanked), "{key}");
+        }
+        // And what the whole file reports instead, for the record: each of
+        // these is gone.
+        let mut whole = Vec::<Deviation>::new();
+        let file = KeyFile::parse(DEVIATING, &mut whole).unwrap();
+        let group = file.group("A").unwrap();
+        assert!(group.localized("Comment", &mut whole).is_none());
+        assert!(group.localized("Name", &mut whole).is_some());
+        for gone in [
+            Deviation::DuplicateKey {
+                group: "A".into(),
+                key: "Name".into(),
+            },
+            Deviation::NonstandardKey {
+                group: "A".into(),
+                key: "X_Odd".into(),
+            },
+            Deviation::InvalidEscape {
+                group: "A".into(),
+                key: "Name".into(),
+            },
+            Deviation::TranslationWithoutDefault {
+                group: "A".into(),
+                key: "Comment".into(),
+            },
+        ] {
+            assert!(whole.contains(&gone), "{gone:?} in {whole:?}");
+            assert!(!part_read.contains(&gone), "{gone:?}");
+        }
+    }
+
+    #[test]
+    fn a_skipped_line_is_still_checked() {
+        let error =
+            KeyFile::parse_for_locales(b"[A]\nName[d e]=x\n", &[], &mut Vec::<Deviation>::new())
+                .unwrap_err();
+        assert_eq!(error, SyntaxError::InvalidLine { line: 2 });
     }
 
     #[test]

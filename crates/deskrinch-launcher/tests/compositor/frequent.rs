@@ -12,9 +12,10 @@ use std::process::Stdio;
 use deskrinch_desktop_entries::DesktopId;
 use deskrinch_start_record::{Store, now};
 use deskrinch_test_input::Key;
+use deskrinch_test_wait::comes_true;
 
 use crate::screen::{Shown, args, at_centre, bands, results_drawn};
-use crate::support::{eventually, in_nested_session, launcher, stays};
+use crate::support::{in_nested_session, launcher, stays};
 
 /// The record's directory under the test's.
 fn state(dir: &Path) -> PathBuf {
@@ -60,7 +61,7 @@ fn hide(shown: &mut Shown) {
 /// `count`.
 fn started(shown: &Shown, count: usize) -> Vec<Vec<String>> {
     assert!(
-        eventually(|| shown.started().len() >= count),
+        comes_true(|| shown.started().len() >= count),
         "{:?}",
         shown.started()
     );
@@ -80,7 +81,7 @@ fn a_started_application_is_first_when_shown_again() {
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     assert!(
-        eventually(|| shown
+        comes_true(|| shown
             .launcher
             .said("recorded a start of org.deskrinch.Plain.desktop")),
         "the start was not recorded\nthe launcher logged:\n{}",
@@ -155,7 +156,7 @@ fn turning_it_off_while_running_deletes_the_record_and_the_list() {
     let config = shown.dir().join("config/deskrinch/config.toml");
     fs::write(config, "[general]\nremember-starts = false\n").unwrap();
     assert!(
-        eventually(|| !record_file(shown.dir()).exists()),
+        comes_true(|| !record_file(shown.dir()).exists()),
         "the record was kept"
     );
     shown.show_again();

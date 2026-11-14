@@ -239,7 +239,7 @@ mod tests {
     use jiff::SignedDuration;
 
     use super::*;
-    use crate::test_patience::PATIENCE;
+    use deskrinch_test_wait::PATIENCE;
 
     /// The worker does not look for a change of zone from time to time: it
     /// blocks on the zone watch, with the timer and its stop signal, and

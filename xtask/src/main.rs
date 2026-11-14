@@ -129,6 +129,9 @@ enum Task {
         /// How many runs, each in a fresh session.
         #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=50))]
         runs: u32,
+        /// How many outputs each run's session has, 1280x720 each.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=8))]
+        outputs: u32,
         /// The renderer, through `RINCH_RENDERER` (unset: the caller's
         /// environment decides).
         #[arg(long, value_enum)]
@@ -226,6 +229,7 @@ impl Task {
             Self::Measure {
                 compositor,
                 runs,
+                outputs,
                 renderer,
                 expect_renderer,
                 shader_cache,
@@ -243,6 +247,7 @@ impl Task {
             } => measure::run(&measure::Request {
                 compositor,
                 runs,
+                outputs,
                 renderer,
                 expect_renderer,
                 shader_cache,
