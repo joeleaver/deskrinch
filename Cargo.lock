@@ -894,6 +894,7 @@ dependencies = [
 name = "deskrinch-clock"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "icu_datetime",
  "icu_locale_core",
  "icu_provider",
