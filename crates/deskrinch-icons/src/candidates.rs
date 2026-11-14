@@ -4,8 +4,9 @@
 
 use std::path::PathBuf;
 
-use crate::index::{Format, Index, Indexed, Location};
+use crate::index::{Format, Index, Indexed};
 use crate::lookup::{HICOLOR, Icon};
+use crate::table::Location;
 
 /// The files that could answer a request, best first, as
 /// [`Index::candidates`] gives them. Reading them reads no file.
@@ -63,10 +64,8 @@ impl<'a> Candidates<'a> {
                 let Some(theme) = self.themes.get(theme) else {
                     return;
                 };
-                let Some(found) = theme.icons.get(&self.names[name]) else {
-                    return;
-                };
-                let directory = |at: &Location| &theme.theme.directories[at.directory];
+                let found = theme.icons.get(&self.names[name]);
+                let directory = |at: &Location| &theme.theme.directories[at.directory()];
                 let (size, scale) = (self.size, self.scale);
                 let (mut exact, mut other): (Vec<Location>, Vec<Location>) = found
                     .iter()
@@ -76,12 +75,7 @@ impl<'a> Candidates<'a> {
                 exact.append(&mut other);
                 exact
             }
-            Stage::Unthemed { name } => self
-                .index
-                .unthemed
-                .get(&self.names[name])
-                .cloned()
-                .unwrap_or_default(),
+            Stage::Unthemed { name } => self.index.unthemed.get(&self.names[name]).to_vec(),
         };
         locations.reverse();
         self.pending = locations;
@@ -117,7 +111,7 @@ impl<'a> Candidates<'a> {
         };
         Icon {
             path,
-            format: at.format,
+            format: at.format(),
         }
     }
 }

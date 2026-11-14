@@ -52,8 +52,8 @@ Open the shell in a window on the real desktop, in a nested compositor.
 
 The nested compositor (KWin by default; sway or labwc) shows each of its
 outputs as a window on the desktop this runs under, and the shell's
-components run inside it: the launcher, hidden, then the panel. Ctrl+Alt+Space
-in the window summons the launcher.
+components run inside it: the wallpaper, the launcher (hidden), then the
+panel. Ctrl+Alt+Space in the window summons the launcher.
 
 Only the nested compositor is given the real display. Everything inside runs
 isolated as `cargo xtask session` describes: a fresh HOME and XDG directories

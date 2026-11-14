@@ -967,6 +967,7 @@ dependencies = [
  "deskrinch-test-wait",
  "deskrinch-watch",
  "deskrinch-xdg",
+ "hashbrown 0.17.1",
  "rustix",
  "tempfile",
  "thiserror 2.0.21",
@@ -1223,6 +1224,26 @@ version = "0.1.0"
 dependencies = [
  "png 0.18.1",
  "proptest",
+]
+
+[[package]]
+name = "deskrinch-wallpaper"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-appearance",
+ "deskrinch-component",
+ "deskrinch-settings",
+ "deskrinch-test-client",
+ "deskrinch-test-component",
+ "deskrinch-test-screen",
+ "deskrinch-test-wayland",
+ "deskrinch-theme",
+ "deskrinch-watch",
+ "deskrinch-xdg",
+ "image",
+ "rinch",
+ "tempfile",
+ "tracing",
 ]
 
 [[package]]
