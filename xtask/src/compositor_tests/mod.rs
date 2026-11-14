@@ -31,6 +31,7 @@
 mod args;
 mod bounded;
 mod build;
+mod leaks;
 pub(crate) mod renderers;
 mod repeat;
 pub(crate) mod selection;
@@ -257,22 +258,40 @@ fn run_in(
             Compositor::Sway | Compositor::Labwc => Ok(()),
         },
     )?;
+    let start = session.output_layout()?;
     let mut passed = true;
     for &(row, renderer) in runs {
         let (suite, binary) = (&SUITES[row], &binaries[&row]);
         let args = selection.args(suite).unwrap_or_default();
-        let Some(renderer) = renderer else {
-            println!("compositor-tests: {}", suite.target.name());
-            passed &= session.run_tests(binary, &args, &[])?;
-            continue;
+        let env = match renderer {
+            None => {
+                println!("compositor-tests: {}", suite.target.name());
+                Vec::new()
+            }
+            Some(renderer) => {
+                println!(
+                    "compositor-tests: {} with the {} renderer",
+                    suite.target.name(),
+                    renderer.env()
+                );
+                vec![(RENDERER_VARIABLE, renderer.env())]
+            }
         };
-        println!(
-            "compositor-tests: {} with the {} renderer",
-            suite.target.name(),
-            renderer.env()
-        );
-        let env = [(RENDERER_VARIABLE, renderer.env())];
         passed &= session.run_tests(binary, &args, &env)?;
+        // A suite that ends the session leaves no outputs to list.
+        if suite.ends_the_session() {
+            continue;
+        }
+        // A failure to list them is the session's, at this suite, not the
+        // run's: the other sessions still run.
+        let now = session.output_layout();
+        if let Some(said) = leaks::after_suite(&suite.target.name(), &start, now) {
+            // What runs after it would run on outputs it does not expect,
+            // or on a compositor that is gone.
+            eprintln!("compositor-tests: {said}");
+            passed = false;
+            break;
+        }
     }
     if !passed {
         eprintln!(
