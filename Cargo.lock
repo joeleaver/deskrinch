@@ -961,6 +961,7 @@ dependencies = [
  "deskrinch-keyfile",
  "deskrinch-watch",
  "deskrinch-xdg",
+ "hashbrown 0.17.1",
  "rustix",
  "tempfile",
  "thiserror 2.0.21",

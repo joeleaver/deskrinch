@@ -56,6 +56,9 @@ deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
 futures-core = "0.3.34"
 futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
+# The version the tree already locks; its keyed default hasher (foldhash),
+# for tables whose keys live outside them (`HashTable`).
+hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }
 icu_casemap = "2.4.0"
 icu_datetime = "2.4.0"
 icu_locale_core = "2.4.0"

@@ -6,8 +6,9 @@ use std::fmt::Write as _;
 use std::path::PathBuf;
 
 use super::*;
+use crate::builder::TableBuilder;
 use crate::candidates::names;
-use crate::index::{Indexed, Location};
+use crate::index::Indexed;
 use crate::theme::Theme;
 use crate::theme::tests::BIRCH;
 
@@ -25,7 +26,7 @@ fn index(theme: &str, themes: &[ThemeFixture<'_>], unthemed: &[(usize, &str)]) -
     let mut indexed = HashMap::new();
     for (name, text, files) in themes {
         let theme = Theme::parse(name, text.as_bytes(), &mut Vec::new()).unwrap();
-        let mut icons: HashMap<String, Vec<Location>> = HashMap::new();
+        let mut icons = TableBuilder::default();
         for (dir, base, file) in *files {
             let directory = theme
                 .directories
@@ -33,35 +34,22 @@ fn index(theme: &str, themes: &[ThemeFixture<'_>], unthemed: &[(usize, &str)]) -
                 .position(|d| d.path == *dir)
                 .unwrap();
             let (stem, format) = Format::split(file).unwrap();
-            icons.entry(stem.into()).or_default().push(Location {
-                directory,
-                base: *base,
-                format,
-            });
+            icons.push(stem, directory, *base, format);
         }
-        for at in icons.values_mut() {
-            at.sort();
-        }
+        let icons = icons.finish();
         indexed.insert((*name).to_owned(), Indexed { theme, icons });
     }
-    let mut loose: HashMap<String, Vec<Location>> = HashMap::new();
+    let mut loose = TableBuilder::default();
     for (base, file) in unthemed {
         let (stem, format) = Format::split(file).unwrap();
-        loose.entry(stem.into()).or_default().push(Location {
-            directory: 0,
-            base: *base,
-            format,
-        });
-    }
-    for at in loose.values_mut() {
-        at.sort();
+        loose.push(stem, 0, *base, format);
     }
     Index {
         search_path: BASES.iter().map(PathBuf::from).collect(),
         theme: theme.into(),
         consulted: Vec::new(),
         themes: indexed,
-        unthemed: loose,
+        unthemed: loose.finish(),
         problems: Vec::new(),
     }
 }

@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use crate::problem::Problem;
+use crate::table::{Location, NameTable};
 use crate::theme::Theme;
 
 /// An icon file's format: one of the three the specification allows in
@@ -65,8 +66,8 @@ pub struct Index {
     /// them, installed or not.
     pub(crate) consulted: Vec<String>,
     pub(crate) themes: HashMap<String, Indexed>,
-    /// Icons directly in a base directory.
-    pub(crate) unthemed: HashMap<String, Vec<Location>>,
+    /// Icons directly in a base directory, each at directory 0.
+    pub(crate) unthemed: NameTable,
     pub(crate) problems: Vec<Problem>,
 }
 
@@ -76,16 +77,7 @@ pub(crate) struct Indexed {
     pub(crate) theme: Theme,
     /// Each icon name's files, in lookup order: by directory (in the
     /// theme's order), then base directory, then format.
-    pub(crate) icons: HashMap<String, Vec<Location>>,
-}
-
-/// One icon file: in which of the theme's directories (unused for
-/// unthemed icons), under which base directory, in which format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) struct Location {
-    pub(crate) directory: usize,
-    pub(crate) base: usize,
-    pub(crate) format: Format,
+    pub(crate) icons: NameTable,
 }
 
 impl Index {
@@ -119,8 +111,8 @@ impl Index {
     /// the base directories.
     #[must_use]
     pub fn files(&self) -> usize {
-        let themed = self.themes.values().flat_map(|theme| theme.icons.values());
-        themed.chain(self.unthemed.values()).map(Vec::len).sum()
+        let themed = self.themes.values().map(|theme| &theme.icons);
+        themed.chain([&self.unthemed]).map(NameTable::files).sum()
     }
 
     /// What was wrong with the themes, in the order it was found.
@@ -131,20 +123,20 @@ impl Index {
 
     /// The path of the icon at `location` in `theme`.
     pub(crate) fn themed_path(&self, theme: &Indexed, name: &str, at: Location) -> PathBuf {
-        let directory = &theme.theme.directories[at.directory].path;
+        let directory = &theme.theme.directories[at.directory()].path;
         self.base(at)
             .join(&theme.theme.name)
             .join(directory)
-            .join(file_name(name, at.format))
+            .join(file_name(name, at.format()))
     }
 
     /// The path of the unthemed icon at `location`.
     pub(crate) fn unthemed_path(&self, name: &str, at: Location) -> PathBuf {
-        self.base(at).join(file_name(name, at.format))
+        self.base(at).join(file_name(name, at.format()))
     }
 
     fn base(&self, at: Location) -> &Path {
-        &self.search_path[at.base]
+        &self.search_path[at.base()]
     }
 }
 
