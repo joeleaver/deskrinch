@@ -30,6 +30,7 @@ use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE, Key};
 use deskrinch_test_screen::{KWIN_SCREENSHOT_INTERFACE, Rgba, Screen};
 use deskrinch_test_wait::{Deadline, PATIENCE, POLL, comes_true, eventually, wait_for};
 
+use crate::push::{push, push_until};
 use crate::support::{TestProfile, start};
 
 /// Set to the file the inside test writes its findings to: it runs only
@@ -47,17 +48,12 @@ const INSIDE_TAKES: Duration = PATIENCE.saturating_mul(3);
 /// measured (see [`open_overview_by_its_shortcut`]); also the window a
 /// shortcut that must do nothing is watched for.
 const SHOWN_WITHIN: Duration = Duration::from_secs(2);
-/// How long an edge or corner that must do nothing is watched after it is
-/// pushed: past KWin's `ElectricBorderDelay` (75 ms by default) and an
-/// effect's start. A place that must start something is waited for with the
-/// patience instead.
+/// How long an edge or corner that must do nothing is watched after its
+/// push: past KWin's `ElectricBorderDelay` (75 ms by default) and an
+/// effect's start. A negative claim, which a slow machine can pass falsely
+/// and a correct desktop can never fail; a place that must start something
+/// is pushed until it has, within the patience, instead.
 const ACTS_WITHIN: Duration = Duration::from_secs(1);
-/// How long the pointer keeps pushing against an edge: well past the time
-/// KWin waits there before it acts (`ElectricBorderDelay`, 75 ms by
-/// default).
-const PUSHING: Duration = Duration::from_millis(1500);
-/// How often a push repeats while it lasts, as a mouse's motion does.
-const PUSH_EVERY: Duration = Duration::from_millis(20);
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
@@ -278,32 +274,6 @@ fn wait_effects(what: &str, effects: impl Fn(&[String]) -> bool) -> Vec<String> 
     })
 }
 
-/// Pushes the pointer into `(x, y)` on `output`, at an edge or corner, as
-/// a hand on a mouse does: there, then on outwards in small motions for
-/// [`PUSHING`], which the compositor stops at the edge.
-fn push(input: &mut Input, output: &str, (x, y): (f64, f64), (width, height): (f64, f64)) {
-    // Outwards on each axis the point is at an edge of.
-    let outwards = |at: f64, end: f64| {
-        if at <= 0.0 {
-            -4.0
-        } else if at >= end - 1.0 {
-            4.0
-        } else {
-            0.0
-        }
-    };
-    let (dx, dy) = (outwards(x, width), outwards(y, height));
-    input.move_pointer(output, x, y).unwrap();
-    let pushing = Deadline::after(PUSHING);
-    while !pushing.passed() {
-        input.nudge_pointer(dx, dy).unwrap();
-        std::thread::sleep(PUSH_EVERY);
-    }
-    input
-        .move_pointer(output, width / 2.0, height / 2.0)
-        .unwrap();
-}
-
 /// Whether some pixel of `output`'s picture is [`SEEN`]: the window's
 /// thumbnail is drawn.
 fn shows_the_window(screen: &mut Screen, output: &str) -> bool {
@@ -431,8 +401,9 @@ fn inside_the_desktop_edges_and_the_overview() {
 /// (`size` logical pixels), checking after each that KWin still runs;
 /// what each started beyond `baseline`, by place, each ended again (an
 /// effect other than an edge's light by Escape). What `must_start` names
-/// for a place is waited for, within the patience; a place that must start
-/// nothing is watched for [`ACTS_WITHIN`].
+/// for a place is pushed for until it has started, within the patience; a
+/// place that must start nothing is pushed for
+/// [`PUSHING`](crate::push::PUSHING) and watched for [`ACTS_WITHIN`].
 fn sweep(
     input: &mut Input,
     output: &str,
@@ -454,7 +425,6 @@ fn sweep(
     ];
     let mut found = Vec::new();
     for (place, point) in places {
-        push(input, output, point, size);
         let beyond = || -> Vec<String> {
             active_effects()
                 .into_iter()
@@ -463,10 +433,12 @@ fn sweep(
         };
         let wanted = must_start(place);
         let started = if wanted.is_empty() {
+            push(input, output, point, size);
             std::thread::sleep(ACTS_WITHIN);
             beyond()
         } else {
-            wait_for(&format!("the {place} to start {wanted:?}"), || {
+            let what = format!("the {place} to start {wanted:?}");
+            push_until(input, output, (point, size), &what, || {
                 let started = beyond();
                 if wanted.iter().all(|w| started.iter().any(|e| e == w)) {
                     Ok(started)
