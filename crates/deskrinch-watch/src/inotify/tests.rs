@@ -2,7 +2,7 @@
 //! wakes it, and what does not.
 
 use super::*;
-use deskrinch_test_wait::{PATIENCE, QUIET};
+use deskrinch_test_wait::PATIENCE;
 use std::fs::{self, File};
 use std::io::{Read, Write};
 use std::os::unix::fs::{PermissionsExt, symlink};
@@ -24,6 +24,7 @@ fn root() -> (tempfile::TempDir, PathBuf) {
 
 /// The paths the next wait reads: changes that must come, waited for within
 /// the patience.
+#[track_caller]
 fn changed(inotify: &mut Inotify) -> Vec<PathBuf> {
     match inotify.wait(Some(PATIENCE)) {
         Wait::Changes(changes) => changes
@@ -36,6 +37,19 @@ fn changed(inotify: &mut Inotify) -> Vec<PathBuf> {
         Wait::Quiet => Vec::new(),
         other => panic!("{other:?}"),
     }
+}
+
+/// Makes the file `sentinel` and asserts that the next wait reads it and
+/// nothing else: the kernel queues a watch's events in order, so anything
+/// before it would be read first.
+#[track_caller]
+fn only(inotify: &mut Inotify, sentinel: &Path) {
+    fs::write(sentinel, "").unwrap();
+    let seen = changed(inotify);
+    assert!(
+        !seen.is_empty() && seen.iter().all(|path| path == sentinel),
+        "expected only {sentinel:?}, read {seen:?}"
+    );
 }
 
 /// A tree with a file and a subdirectory with a file, watched.
@@ -63,10 +77,8 @@ fn reading_and_listing_a_watched_tree_reads_no_event() {
         fs::read_dir(root.join("tree/sub")).unwrap().for_each(drop);
         fs::metadata(root.join("tree/a.desktop")).unwrap();
     }
-    assert!(
-        matches!(inotify.wait(Some(QUIET)), Wait::Quiet),
-        "reads woke the watch"
-    );
+    // Sentinel: a file made after the reads is the first thing read.
+    only(&mut inotify, &root.join("tree/zz-sentinel"));
 }
 
 #[test]
@@ -83,7 +95,9 @@ fn opening_files_in_a_directory_watched_for_a_name_reads_no_event() {
     // Written in place: a name already there, which a name's watch does not
     // follow.
     fs::write(root.join("share/mime.cache"), "y").unwrap();
-    assert!(matches!(inotify.wait(Some(QUIET)), Wait::Quiet));
+    // Sentinel: a new name, which the watch does follow, is the first thing
+    // read.
+    only(&mut inotify, &root.join("share/zz-sentinel"));
 }
 
 #[test]
@@ -201,7 +215,9 @@ fn the_waker_wakes_a_wait() {
     inotify.watch(&root, NAMES_ONLY).unwrap();
     (inotify.waker())();
     assert!(matches!(inotify.wait(Some(PATIENCE)), Wait::Woken));
-    assert!(matches!(inotify.wait(Some(QUIET)), Wait::Quiet), "once");
+    // Once. Sentinel: a wait reports the waker before the kernel's events,
+    // so a second wake would come before this file's change.
+    only(&mut inotify, &root.join("zz-sentinel"));
 }
 
 #[test]

@@ -7,7 +7,8 @@ use deskrinch_notification_service::{CloseReason, Event, OperationError};
 use zbus::Variant;
 
 use crate::common::{Client, PrivateBus, Signal, id, start};
-use deskrinch_test_wait::{QUIET, recv};
+use crate::time::Time;
+use deskrinch_test_wait::recv;
 
 #[test]
 fn replacement_keeps_the_id_and_emits_no_close() {
@@ -34,7 +35,11 @@ fn replacement_keeps_the_id_and_emits_no_close() {
         .map(|n| n.id.get())
         .collect();
     assert_eq!(live, [first, other], "the replacement kept its place");
-    signals.none_within(QUIET);
+    // No close for the replacement. Sentinel: the service sends a client's
+    // signals in the order it handles its calls and the handle's, so
+    // `other`'s close comes first.
+    service.handle().dismiss(id(other)).unwrap();
+    assert_eq!(signals.next(), Signal::Closed(other, 2));
 
     // An id that is no longer live makes a new notification with that id,
     // as the specification's return value requires.
@@ -52,6 +57,12 @@ fn expiry_follows_the_clock_without_sleeping() {
     let (service, events, clock) = start(&bus);
     let client = Client::new(&bus);
     let signals = &client.signals;
+    let time = Time {
+        client: &client,
+        clock: &clock,
+        handle: service.handle(),
+        events: &events,
+    };
     let short = client.simple(0, "short", "", 1000);
     let default = client.simple(0, "default", "", -1);
     let never = client.simple(0, "never", "", 0);
@@ -59,8 +70,7 @@ fn expiry_follows_the_clock_without_sleeping() {
         events.next_shown();
     }
 
-    clock.advance(Duration::from_millis(999));
-    signals.none_within(QUIET);
+    time.advance_quietly(Duration::from_millis(999));
     clock.advance(Duration::from_millis(1));
     assert_eq!(signals.next(), Signal::Closed(short, 1));
     assert_eq!(
@@ -72,13 +82,11 @@ fn expiry_follows_the_clock_without_sleeping() {
     );
 
     // The default timeout is five seconds.
-    clock.advance(Duration::from_millis(3999));
-    signals.none_within(QUIET);
+    time.advance_quietly(Duration::from_millis(3999));
     clock.advance(Duration::from_millis(1));
     assert_eq!(signals.next(), Signal::Closed(default, 1));
 
-    clock.advance(Duration::from_secs(3600));
-    signals.none_within(QUIET);
+    time.advance_quietly(Duration::from_secs(3600));
     let live: Vec<_> = service
         .handle()
         .notifications()
@@ -91,14 +99,19 @@ fn expiry_follows_the_clock_without_sleeping() {
 #[test]
 fn replacing_restarts_the_timer() {
     let bus = PrivateBus::start();
-    let (_service, _events, clock) = start(&bus);
+    let (service, events, clock) = start(&bus);
     let client = Client::new(&bus);
     let signals = &client.signals;
+    let time = Time {
+        client: &client,
+        clock: &clock,
+        handle: service.handle(),
+        events: &events,
+    };
     let n = client.simple(0, "a", "", 1000);
     clock.advance(Duration::from_millis(600));
     client.simple(n, "a2", "", 1000);
-    clock.advance(Duration::from_millis(600));
-    signals.none_within(QUIET);
+    time.advance_quietly(Duration::from_millis(600));
     clock.advance(Duration::from_millis(400));
     assert_eq!(signals.next(), Signal::Closed(n, 1));
 }
@@ -135,7 +148,12 @@ fn close_notification_closes_once() {
             "the specification's empty error"
         );
     }
-    signals.none_within(QUIET);
+    // No signal for the refused closes. Sentinel: a client's signals go in
+    // the order the service handles its calls, so this one's close comes
+    // first.
+    let sentinel = client.simple(0, "sentinel", "", 0);
+    client.close(sentinel).unwrap();
+    assert_eq!(signals.next(), Signal::Closed(sentinel, 3));
 }
 
 #[test]
@@ -196,8 +214,12 @@ fn a_resident_notification_stays_after_an_action() {
     let handle = service.handle();
     handle.invoke_action(id(n), "default", None).unwrap();
     assert_eq!(signals.next(), Signal::ActionInvoked(n, "default".into()));
-    signals.none_within(QUIET);
+    // Not closed. Sentinel: the action's signals were recorded together, so
+    // a close of its own would come before the dismissal's, and the
+    // dismissal would find it gone.
     assert!(handle.notification(id(n)).is_some());
+    handle.dismiss(id(n)).unwrap();
+    assert_eq!(signals.next(), Signal::Closed(n, 2));
 }
 
 #[test]

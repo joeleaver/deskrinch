@@ -183,6 +183,30 @@ pub fn quiet_for<T: Debug>(what: &str, values: &Receiver<T>, window: Duration) {
     }
 }
 
+/// Everything that arrives on `values`, in order, until nothing has for
+/// `window`: an open-ended set, which has no last member to wait for, so
+/// the window is the end. Each value's wait starts afresh.
+///
+/// # Panics
+///
+/// When the sender is gone before the window passes in quiet, with `what`
+/// and what had arrived: a closed channel is not a quiet one.
+#[must_use]
+#[track_caller]
+pub fn gathered<T: Debug>(what: &str, values: &Receiver<T>, window: Duration) -> Vec<T> {
+    let mut arrived = Vec::new();
+    loop {
+        match values.recv_timeout(window) {
+            Ok(value) => arrived.push(value),
+            Err(RecvTimeoutError::Timeout) => return arrived,
+            Err(RecvTimeoutError::Disconnected) => panic!(
+                "gathering {what}: the sender is gone, so the quiet is not known; \
+                 arrived: {arrived:#?}"
+            ),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
@@ -238,5 +262,28 @@ mod tests {
         let (sender, values) = mpsc::channel::<()>();
         drop(sender);
         let () = recv("nothing", &values);
+    }
+
+    #[test]
+    fn gathers_what_arrives_until_it_is_quiet() {
+        let (sender, values) = mpsc::channel();
+        for value in [1, 2, 3] {
+            sender.send(value).unwrap();
+        }
+        assert_eq!(
+            gathered("numbers", &values, Duration::from_millis(10)),
+            [1, 2, 3]
+        );
+        assert_eq!(gathered("numbers", &values, Duration::from_millis(10)), []);
+        drop(sender);
+    }
+
+    #[test]
+    #[should_panic(expected = "the sender is gone")]
+    fn a_closed_channel_is_not_a_quiet_one() {
+        let (sender, values) = mpsc::channel();
+        sender.send(1).unwrap();
+        drop(sender);
+        let _arrived = gathered("numbers", &values, PATIENCE);
     }
 }

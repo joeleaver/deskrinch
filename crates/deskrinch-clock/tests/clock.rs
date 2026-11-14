@@ -141,7 +141,8 @@ mod real_clock {
 
     /// How long a minutes clock is watched for a tick it should not make:
     /// longer than the second a clock that wrongly woke at each second
-    /// would take to tick, so that such a clock is seen.
+    /// would take to tick, so that such a clock is seen. A window by nature:
+    /// what it checks is when the clock wakes.
     const SECONDS_TICK_WINDOW: Duration = Duration::from_secs(2);
 
     #[test]

@@ -21,4 +21,6 @@ mod pause;
 #[cfg(test)]
 mod stop;
 #[cfg(test)]
+mod time;
+#[cfg(test)]
 mod wire;

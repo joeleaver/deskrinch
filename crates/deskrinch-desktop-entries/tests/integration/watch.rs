@@ -118,6 +118,9 @@ fn refresh_re_evaluates_try_exec_and_exec() {
         ("run", Visibility::Shown),
     ] {
         script(&bin.join(program), "true\n");
+        // A window: a rescan the install wrongly caused is not ordered
+        // against the refresh below, and would report the very visibility
+        // the refresh must.
         quiet_for(
             "nothing before the refresh",
             &events,
@@ -129,11 +132,18 @@ fn refresh_re_evaluates_try_exec_and_exec() {
             other => panic!("unexpected event {other:?}"),
         }
     }
-    // A refresh that finds nothing new reports nothing.
+    // A refresh that finds nothing new reports nothing. Sentinel: the
+    // refresh is heard before the write below is seen, and one rescan's
+    // events go in ID order, so an entry whose ID sorts last is the first
+    // thing reported, whichever rescan reads it.
     watcher.refresh();
-    quiet_for(
-        "nothing from an idle refresh",
-        &events,
-        deskrinch_watch::Timing::default().settled(),
+    write(
+        &home,
+        "applications/zz-sentinel.desktop",
+        &app("Sentinel", ""),
     );
+    match recv("an event", &events) {
+        Event::Added(e) => assert_eq!(e.entry.id.to_string(), "zz-sentinel.desktop"),
+        other => panic!("expected the sentinel's entry, got {other:?}"),
+    }
 }

@@ -42,6 +42,8 @@ fn killed_process() {
     .join()
     .unwrap();
     let dir = owned_dir().unwrap();
+    // A window: `join` returns when the thread's id is cleared, before the
+    // parent-death signal its exit sends, and nothing reports that signal.
     thread::sleep(Duration::from_millis(100));
     assert!(running(sleeper.id()), "the child ended with its thread");
     println!("{MARK} {} {}", sleeper.id(), dir.path().display());
