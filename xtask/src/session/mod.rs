@@ -68,7 +68,7 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::Duration;
 
@@ -93,6 +93,8 @@ pub(crate) use self::scaling::Scaling;
 use self::supervisor::Supervisor;
 #[cfg(test)]
 pub(crate) use self::supervisor::fake_root;
+#[cfg(test)]
+mod tests;
 pub(crate) use self::supervisor::{
     SUBCOMMAND as SUPERVISOR, check as check_root, run as supervise, supervised,
 };
@@ -209,14 +211,8 @@ impl Session {
             source,
         })?;
 
-        let mut command = compositor.command(&root, options)?;
-        isolate(&mut command, &root);
-        compositor.show_on(&mut command, display);
-        if let Some(desktop) = current_desktop {
-            command.env(CURRENT_DESKTOP, desktop);
-        }
+        let mut command = compositor_command(options, &root, bus.address())?;
         command
-            .env("DBUS_SESSION_BUS_ADDRESS", bus.address())
             .stdin(Stdio::null())
             .stdout(log)
             .stderr(log_err)
@@ -415,6 +411,22 @@ impl Session {
     pub(crate) fn bus_address(&self) -> &str {
         self.bus.address()
     }
+}
+
+/// The compositor's command for the session under `root`, as `options`
+/// say: the compositor's own, isolated (the session's `HOME` and XDG
+/// directories), shown on the display it is given, on the session's bus at
+/// `bus`.
+fn compositor_command(options: &Options<'_>, root: &Path, bus: &str) -> Result<Command, Error> {
+    let compositor = options.compositor;
+    let mut command = compositor.command(root, options)?;
+    isolate(&mut command, root);
+    compositor.show_on(&mut command, &options.display);
+    if let Some(desktop) = options.current_desktop {
+        command.env(CURRENT_DESKTOP, desktop);
+    }
+    command.env("DBUS_SESSION_BUS_ADDRESS", bus);
+    Ok(command)
 }
 
 impl Drop for Session {

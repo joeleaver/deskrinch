@@ -57,13 +57,15 @@ it. Only the project manager writes to Pimble.
   `.cargo/config.toml` includes.
 - **Test sessions are isolated from the real one.** A nested compositor, a
   test D-Bus bus, or anything that talks to session services runs only inside
-  an isolated session: its own `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME`,
-  `XDG_DATA_HOME`, `XDG_CACHE_HOME` and `XDG_STATE_HOME` under a temporary
-  directory, the real session's display and bus variables removed, a private
-  bus with service activation off (`crates/deskrinch-test-dbus`), and its own
-  process group, ended as a whole afterwards. Never plain `dbus-run-session`:
-  its default configuration activates the desktop portals and the secret
-  service, which then run against the real session.
+  an isolated session: its own `HOME` (the backstop for programs that
+  ignore the XDG variables, such as KWin's Mesa in secure mode),
+  `XDG_RUNTIME_DIR`, `XDG_CONFIG_HOME`, `XDG_DATA_HOME`, `XDG_CACHE_HOME`
+  and `XDG_STATE_HOME` under a temporary directory, the real session's
+  display and bus variables removed, a private bus with service activation
+  off (`crates/deskrinch-test-dbus`), and its own process group, ended as a
+  whole afterwards. Never plain `dbus-run-session`: its default
+  configuration activates the desktop portals and the secret service, which
+  then run against the real session.
   `cargo xtask session <kwin|sway|labwc> <program>` runs any command in such
   a session and is the way to do it; its code is `xtask/src/session/` on
   `crates/deskrinch-test-dbus`. In a rinch clone, rinch's own

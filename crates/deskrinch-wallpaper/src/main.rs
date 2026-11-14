@@ -54,17 +54,22 @@
 //!
 //! # Rendering
 //!
-//! rinch's software renderer (tiny-skia) is the default, for now and for a
-//! reason of its own: rinch's GPU renderer presents on the main thread in
-//! step with the compositor's frame callbacks, and stalls every window and
-//! all event handling when the compositor never shows one of the surfaces
-//! (rinch issue 2669, seen under sway with overlapping outputs; its fix is
-//! rinch PR 2674, in review). The default is to be chosen from a
-//! measurement once the tooling reads rinch's per-window frame lines; until
-//! then the hypothesis is that a wallpaper, drawing once per output and
-//! then sitting still, costs less in software than a GPU device and its
-//! buffers. The user overrides the choice with rinch's `RINCH_RENDERER`
-//! environment variable (`gpu`, `software`, `auto`).
+//! The wallpaper uses rinch's default renderer and adds no choice of its
+//! own, as the panel and the launcher do. The build has both of rinch's
+//! renderers, the GPU one (Vello on wgpu) and the software one
+//! (tiny-skia), and rinch chooses at run time: the GPU, falling back to
+//! software with a warning when the GPU will not start, and software where
+//! the only adapter is a CPU one (a software Vulkan driver such as
+//! lavapipe). The user overrides that with rinch's `RINCH_RENDERER`
+//! environment variable (`gpu`, `software` or `cpu`, `auto`).
+//!
+//! A known issue: with the GPU renderer, rinch issue 2669 can stall the
+//! wallpaper, every output's window and all its event handling, under a
+//! compositor that stops showing one of its surfaces. It has been seen
+//! under sway with two outputs at one position, and labwc is exposed the
+//! same way; under KWin with a current Mesa it cannot happen, because the
+//! driver paces presents without frame callbacks there. Its fix is rinch
+//! PR 2674, and it reaches deskrinch with a later rinch pin.
 
 mod picture;
 mod role;
@@ -90,9 +95,6 @@ fn main() {
     let home = dirs.home.clone();
     App::windowless(move |scope| wallpaper::wallpaper(scope, live, theme, home))
         .image_scheme(picture::SCHEME, picture::load)
-        // Software, for now: rinch issue 2669 (see the crate's
-        // "Rendering"); chosen again by measurement when the tooling can.
-        .renderer(Renderer::Software)
         .theme(first_theme)
         .run();
     if role::refused() {

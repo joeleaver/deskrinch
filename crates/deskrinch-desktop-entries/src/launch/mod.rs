@@ -18,7 +18,7 @@ use crate::entry::DesktopEntry;
 use crate::env::Environment;
 use crate::error::LaunchError;
 use crate::exec::{self, Fields, Target};
-use deskrinch_keyfile::Locale;
+use crate::icon::Icon;
 
 /// How long an application has to answer D-Bus activation, which may
 /// include starting it: the D-Bus default.
@@ -38,7 +38,6 @@ const TOKEN_VARIABLES: [&str; 2] = ["XDG_ACTIVATION_TOKEN", "DESKTOP_STARTUP_ID"
 /// scope (without a launcher name) whenever the session bus has systemd.
 #[derive(Debug, Clone)]
 pub struct LaunchContext {
-    locales: Vec<Locale>,
     session_bus: Option<String>,
     terminal: Option<Vec<OsString>>,
     activation_token: Option<String>,
@@ -98,12 +97,11 @@ pub enum DirectReason {
 }
 
 impl LaunchContext {
-    /// A context for the session `env` describes: its locales (for `%c`)
-    /// and its session bus.
+    /// A context for the session `env` describes: its session bus. (`%c`
+    /// is the entry's name as it was resolved for the session's locales.)
     #[must_use]
     pub fn new(env: &Environment) -> Self {
         Self {
-            locales: env.locales.clone(),
             session_bus: env.session_bus.clone(),
             terminal: None,
             activation_token: None,
@@ -245,11 +243,8 @@ pub fn launch(
     }
     let command = command.ok_or(LaunchError::NoCommand)?;
     let fields = Fields {
-        name: entry.name.get(&context.locales),
-        icon: entry
-            .icon
-            .as_ref()
-            .map(|icon| icon.get(&context.locales).as_os_str()),
+        name: &entry.name.value,
+        icon: entry.icon.as_ref().map(Icon::as_os_str),
         desktop_file: Some(&entry.path),
     };
     let lines = exec::expand(command, &fields, targets)?;
@@ -264,7 +259,7 @@ pub fn launch(
         None
     };
     let systemd = context.systemd();
-    let description = entry.name.get(&context.locales);
+    let description = &entry.name.value;
     lines
         .into_iter()
         .map(|line| {
