@@ -67,6 +67,7 @@ impl OutputState {
         Self {
             scale: change.scale.unwrap_or(self.scale),
             transform: change.transform.unwrap_or(self.transform),
+            position: change.position.unwrap_or(self.position),
             ..self.clone()
         }
     }
@@ -272,26 +273,7 @@ pub fn turn_output_off(name: &str) -> Result<RestoreOutputs, Error> {
     })
 }
 
-/// Moves the output named `name` of the nested compositor to `position`
-/// (logical pixels: another output's position puts the two at one place),
-/// every other output stated as it is, and returns once the compositor
-/// reports it there, with the guard that puts the whole layout back.
-///
-/// # Errors
-///
-/// As [`turn_output_off`].
-///
-/// # Panics
-///
-/// Outside a nested session, as [`Compositor::current`].
-pub fn move_output(name: &str, position: (i32, i32)) -> Result<RestoreOutputs, Error> {
-    change_with(name, |output| OutputState {
-        position,
-        ..output.clone()
-    })
-}
-
-/// Changes the scale or transform of the output named `name` of the nested
+/// Changes the scale, transform or position of the output named `name` of the nested
 /// compositor, every other output stated as it is, and returns once the
 /// compositor reports the change, with the guard that puts the whole layout
 /// back. The compositor may move the others meanwhile (labwc lays outputs
@@ -438,13 +420,19 @@ mod tests {
     fn a_change_keeps_what_it_does_not_name() {
         let before = output("A", 0);
         let turned = before.changed(OutputChange {
-            scale: None,
             transform: Some(Transform::Rotated90),
+            ..OutputChange::default()
         });
         assert_eq!(turned.transform, Transform::Rotated90);
         assert_eq!(turned.position, before.position);
         assert_eq!(turned.mode, before.mode);
         assert!((turned.scale - 1.0).abs() < f64::EPSILON);
+        let moved = before.changed(OutputChange {
+            position: Some((-640, 360)),
+            ..OutputChange::default()
+        });
+        assert_eq!(moved.position, (-640, 360));
+        assert_eq!(moved.transform, before.transform);
     }
 
     #[test]

@@ -8,7 +8,7 @@
 use std::panic::{self, AssertUnwindSafe};
 
 use deskrinch_test_client::{
-    Compositor, OutputChange, OutputState, change_output, layout_differences, move_output, outputs,
+    Compositor, OutputChange, OutputState, change_output, layout_differences, outputs,
     turn_output_off,
 };
 use deskrinch_test_wayland::Transform;
@@ -50,8 +50,8 @@ fn each_output_turned_and_put_back_leaves_the_layout_as_it_was() {
     let before = fresh();
     for output in &before {
         let quarter = OutputChange {
-            scale: None,
             transform: Some(Transform::Rotated90),
+            ..OutputChange::default()
         };
         let restore = change_output(&output.name, quarter).unwrap();
         let turned = outputs().unwrap();
@@ -76,7 +76,7 @@ fn each_output_scaled_and_put_back_leaves_the_layout_as_it_was() {
         };
         let scaled = OutputChange {
             scale: Some(other),
-            transform: None,
+            ..OutputChange::default()
         };
         let restore = change_output(&output.name, scaled).unwrap();
         let now = outputs().unwrap();
@@ -92,7 +92,11 @@ fn each_output_scaled_and_put_back_leaves_the_layout_as_it_was() {
 fn an_output_moved_onto_the_other_and_put_back_leaves_the_layout_as_it_was() {
     let before = fresh();
     let (first, second) = (&before[0], &before[1]);
-    let restore = move_output(&second.name, first.position).unwrap();
+    let onto = OutputChange {
+        position: Some(first.position),
+        ..OutputChange::default()
+    };
+    let restore = change_output(&second.name, onto).unwrap();
     let together = outputs().unwrap();
     let this = together.iter().find(|o| o.name == second.name).unwrap();
     assert_eq!(this.position, first.position, "{together:?}");

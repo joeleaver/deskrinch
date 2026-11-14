@@ -20,7 +20,7 @@
 //! the first presents to go through and still make several that would
 //! block.
 
-use deskrinch_test_client::{move_output, outputs};
+use deskrinch_test_client::{OutputChange, change_output, outputs};
 use deskrinch_test_screen::{Rgba, Screen};
 use deskrinch_test_wait::wait_for;
 
@@ -61,7 +61,11 @@ fn with_two_outputs_at_one_position_it_follows_its_settings_and_shows_them_apart
     wait_covered(BLUE);
     let layout = outputs().unwrap();
     assert_eq!(layout.len(), 2, "two outputs: {layout:?}");
-    let together = move_output(&layout[1].name, layout[0].position).unwrap();
+    let onto = OutputChange {
+        position: Some(layout[0].position),
+        ..OutputChange::default()
+    };
+    let together = change_output(&layout[1].name, onto).unwrap();
 
     // Which output the compositor still shows the wallpaper on: the one
     // that takes the first step's colour.
