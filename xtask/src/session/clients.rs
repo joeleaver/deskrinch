@@ -1,7 +1,7 @@
 //! A session's clients: the commands that run in it, and the ones it keeps
 //! and reaps as it ends.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -26,13 +26,13 @@ impl Session {
         &self,
         binary: &Path,
         filter: &[&str],
-        env: &[(&str, &str)],
+        env: &[(String, OsString)],
     ) -> Result<bool, Error> {
         let mut command = self.outside_client(binary.as_os_str());
         command
             .args(["--ignored", "--test-threads=1"])
             .args(filter)
-            .envs(env.iter().copied())
+            .envs(env.iter().map(|(name, value)| (name, value)))
             .env(
                 "DESKRINCH_TEST_SESSION_GROUP",
                 self.group.as_raw_nonzero().to_string(),

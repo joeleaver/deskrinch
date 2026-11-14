@@ -16,6 +16,8 @@
 //!   through it too, so a change of wording in rinch is caught in one
 //!   place. [`Watch`] keeps the main window's frames as it always did, and
 //!   every window's beside them.
+//! - [`programs`] hands a suite's tests the paths of the programs of other
+//!   packages it declared, which the runner built for it.
 //!
 //! Like the other test-support crates, it is for nested sessions only: the
 //! component it starts connects to whatever `WAYLAND_DISPLAY` and the
@@ -28,6 +30,7 @@
 mod component;
 pub mod log;
 pub mod perf;
+pub mod programs;
 mod watch;
 mod windows;
 
