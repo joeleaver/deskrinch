@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use deskrinch_shell::{Key as ShellKey, Modifier};
 use deskrinch_test_client::Compositor;
 use deskrinch_test_input::Key;
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::{eventually, wait_for};
 use deskrinch_window_management::WindowManagement;
 use rustix::process::{Pid, Signal, kill_process};
 
@@ -118,18 +118,9 @@ pub(crate) fn lines(stdout: impl std::io::Read + Send + 'static) -> Receiver<Str
 impl Desktop {
     /// Waits for it to end; how it did.
     pub(crate) fn wait(&mut self) -> ExitStatus {
-        let deadline = Instant::now() + PATIENCE;
-        loop {
-            if let Some(status) = self.child.try_wait().unwrap() {
-                return status;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "the desktop did not end; it said:\n{}",
-                self.said()
-            );
-            thread::sleep(Duration::from_millis(50));
-        }
+        wait_for("the desktop to end", || {
+            self.child.try_wait().unwrap().ok_or_else(|| self.said())
+        })
     }
 
     /// Sends it `signal`.
@@ -146,10 +137,9 @@ impl Desktop {
     /// Waits until its session's root is gone: everything of the
     /// session has ended (the session removes it last).
     pub(crate) fn wait_for_root_gone(&self) {
-        until(
-            || !self.root.exists(),
-            "the nested session's directory to go",
-        );
+        eventually("the nested session's directory to go", || {
+            !self.root.exists()
+        });
     }
 
     /// What a failure needs said: the outer session's windows as
@@ -259,19 +249,10 @@ impl Drop for Desktop {
     }
 }
 
-/// Waits until `condition` holds, for at most [`PATIENCE`].
-pub(crate) fn until(condition: impl Fn() -> bool, what: &str) {
-    let deadline = Instant::now() + PATIENCE;
-    while !condition() {
-        assert!(Instant::now() < deadline, "waited in vain for {what}");
-        thread::sleep(Duration::from_millis(100));
-    }
-}
-
 /// The outer session's windows, as its window management lists them.
 pub(crate) fn outer_windows() -> deskrinch_window_management::WindowManager {
     let manager = deskrinch_window_management::connect(|_| {}).unwrap();
-    until(|| !manager.windows().is_empty(), "the desktop's window");
+    eventually("the desktop's window", || !manager.windows().is_empty());
     manager
 }
 

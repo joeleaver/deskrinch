@@ -1,15 +1,13 @@
 //! Switching: through the crate, seen by the compositor; and by the
 //! compositor's own means, seen through the crate.
 
-use std::time::{Duration, Instant};
-
 use deskrinch_test_client::{Paint, TestClient};
 use deskrinch_test_input::{Input, Key};
 use deskrinch_test_screen::{Rgba, Screen};
 use deskrinch_workspaces::{Action, WorkspaceState, Workspaces};
 
 use crate::support::{Compositor, Watcher, compositor, kwin, set_up};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::eventually;
 
 /// A colour nothing else in a session has.
 const MARK: Rgba = Rgba::opaque(201, 17, 143);
@@ -24,15 +22,11 @@ fn marked(screen: &mut Screen) -> bool {
 
 /// Waits until [`MARK`] is on screen (`shown`) or nowhere on it.
 fn wait_marked(screen: &mut Screen, shown: bool) {
-    let deadline = Instant::now() + PATIENCE;
-    while marked(screen) != shown {
-        assert!(
-            Instant::now() < deadline,
-            "the window on the first workspace is {} the screen",
-            if shown { "not on" } else { "still on" }
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+    let what = format!(
+        "the window on the first workspace {} the screen",
+        if shown { "on" } else { "off" }
+    );
+    eventually(&what, || marked(screen) == shown);
 }
 
 #[test]

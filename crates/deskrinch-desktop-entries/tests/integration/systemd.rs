@@ -8,8 +8,9 @@
 use std::path::Path;
 
 use deskrinch_desktop_entries::{Environment, LaunchContext, Launched, Placement, launch};
+use deskrinch_test_wait::eventually;
 
-use crate::support::{entry, recorded, recorder, wait_for};
+use crate::support::{entry, recorded, recorder};
 
 /// The last line of `/proc/<pid>/cgroup`: the unified hierarchy's path.
 fn cgroup(text: &str) -> &str {
@@ -57,7 +58,7 @@ fn a_launch_and_its_children_land_in_a_real_transient_scope() {
     stop(&bus, unit);
     for process in [pid.to_string(), record["child"][0].clone()] {
         let proc = format!("/proc/{process}");
-        wait_for(|| (!Path::new(&proc).exists()).then_some(()));
+        eventually(&format!("{proc} gone"), || !Path::new(&proc).exists());
     }
 }
 

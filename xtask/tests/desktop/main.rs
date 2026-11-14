@@ -16,18 +16,15 @@ mod desktop {
     use std::fs::{self, File};
     use std::path::Path;
     use std::process::Stdio;
-    use std::thread;
-    use std::time::{Duration, Instant};
 
     use deskrinch_shell::LAUNCHER_CHORD;
     use deskrinch_test_input::{Input, Key};
-    use deskrinch_test_wait::PATIENCE;
+    use deskrinch_test_wait::{eventually, wait_for};
     use deskrinch_window_management::{Action, WindowManagement, WindowState};
     use rustix::process::Signal;
 
     use super::support::{
         TestProfile, desktop_command, environment, files, key, modifier_key, outer_windows, start,
-        until,
     };
 
     #[test]
@@ -63,19 +60,17 @@ mod desktop {
         // The chord goes to the window with the keyboard focus: typed before
         // the outer compositor says the desktop's window has it, it would go
         // nowhere.
-        let deadline = Instant::now() + PATIENCE;
-        while !windows
-            .windows()
-            .iter()
-            .any(|shown| shown.id == window && shown.state.contains(WindowState::ACTIVE))
-        {
-            assert!(
-                Instant::now() < deadline,
-                "the desktop's window never had the keyboard focus: {}",
-                desktop.state(&windows)
-            );
-            thread::sleep(Duration::from_millis(100));
-        }
+        wait_for("the desktop's window to have the keyboard focus", || {
+            let focused = windows
+                .windows()
+                .iter()
+                .any(|shown| shown.id == window && shown.state.contains(WindowState::ACTIVE));
+            if focused {
+                Ok(())
+            } else {
+                Err(desktop.state(&windows))
+            }
+        });
         let modifiers: Vec<Key> = LAUNCHER_CHORD
             .modifiers
             .iter()
@@ -85,15 +80,13 @@ mod desktop {
         input
             .press_with(&modifiers, key(LAUNCHER_CHORD.key))
             .unwrap();
-        let deadline = Instant::now() + PATIENCE;
-        while !desktop.launcher_shown() {
-            assert!(
-                Instant::now() < deadline,
-                "the chord did not show the launcher: {}",
-                desktop.state(&windows)
-            );
-            thread::sleep(Duration::from_millis(100));
-        }
+        wait_for("the chord to show the launcher", || {
+            if desktop.launcher_shown() {
+                Ok(())
+            } else {
+                Err(desktop.state(&windows))
+            }
+        });
 
         desktop.signal(Signal::TERM);
         let status = desktop.wait();
@@ -181,10 +174,9 @@ mod desktop {
         let seen = dir.path().join("seen");
         let script = format!("cat \"$HOME/mark\" > '{}'; sleep 600", seen.display());
         let mut second = start(&options, &["sh", "-c", &script]);
-        until(
-            || fs::read_to_string(&seen).is_ok_and(|text| text.ends_with('\n')),
-            "the second desktop to read its home",
-        );
+        eventually("the second desktop to read its home", || {
+            fs::read_to_string(&seen).is_ok_and(|text| text.ends_with('\n'))
+        });
         assert_eq!(fs::read_to_string(&seen).unwrap(), "kept\n");
 
         let stderr = dir.path().join("third");
@@ -220,7 +212,7 @@ mod desktop {
             written.display()
         );
         let mut killed = start(&options, &["sh", "-c", &script]);
-        until(|| written.exists(), "the desktop to write its profile");
+        eventually("the desktop to write its profile", || written.exists());
         let before = files(&profile.dir);
         killed.signal(Signal::KILL);
         assert_eq!(killed.wait().code(), None, "killed");

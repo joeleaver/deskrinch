@@ -5,12 +5,12 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
 use deskrinch_test_component::{Component, Renderer};
 use deskrinch_test_screen::{Image, Screen};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
 /// How long the screen must not change to count as still.
 const STILL: Duration = Duration::from_millis(500);
@@ -150,7 +150,7 @@ impl Pictures {
     /// machine is, and a picture taken during the fade would count the
     /// whole fade as the panel's.
     pub(crate) fn still(screen: &mut Screen) -> Self {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         let mut last = Self::take(screen);
         loop {
             std::thread::sleep(STILL);
@@ -158,7 +158,10 @@ impl Pictures {
             if now == last {
                 return now;
             }
-            assert!(Instant::now() < deadline, "the screen did not keep still");
+            assert!(
+                !deadline.passed(),
+                "waited {PATIENCE:?} for the screen to keep still"
+            );
             last = now;
         }
     }
@@ -228,26 +231,20 @@ fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
 ///
 /// When that is not so within [`PATIENCE`], saying how it is instead.
 pub(crate) fn wait_band(screen: &mut Screen, before: &Pictures, band: Band) -> (String, Pictures) {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    wait_for(&format!("the panel at {band:?}"), || {
         let now = Pictures::still(screen);
-        let why = wrong(before, &now, band);
-        let Some(why) = why else {
-            let shown = before
-                .0
-                .iter()
-                .zip(&now.0)
-                .find(|((_, was), (_, is))| was != is)
-                .map(|((name, _), _)| name.clone())
-                .unwrap();
-            return (shown, now);
-        };
-        assert!(
-            Instant::now() < deadline,
-            "the panel is not at {band:?}: {why}"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+        if let Some(why) = wrong(before, &now, band) {
+            return Err(why);
+        }
+        let shown = before
+            .0
+            .iter()
+            .zip(&now.0)
+            .find(|((_, was), (_, is))| was != is)
+            .map(|((name, _), _)| name.clone())
+            .unwrap();
+        Ok((shown, now))
+    })
 }
 
 /// The whole scale of the output named `name`, as a client learns it.

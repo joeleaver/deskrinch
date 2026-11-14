@@ -6,8 +6,8 @@
 //! machine, paid in full only by a test that would otherwise hang.
 //!
 //! - [`Deadline`]: a point to give up at, carrying the wait it bounds.
-//! - [`wait_for`] and [`eventually`]: polling, every [`POLL`], where
-//!   nothing signals the change.
+//! - [`wait_for`], [`eventually`] and [`comes_true`]: polling, every
+//!   [`POLL`], where nothing signals the change.
 //! - [`recv`]: the next value on a channel, where something does.
 //!
 //! When the patience runs out each panics with what was waited for and,
@@ -114,6 +114,23 @@ pub fn eventually(what: &str, mut check: impl FnMut() -> bool) {
     }
 }
 
+/// Whether `check` comes to hold within [`PATIENCE`], polled; for a test
+/// that must end what it started before it asserts, or that says more than
+/// [`eventually`] can when it fails.
+#[must_use]
+pub fn comes_true(mut check: impl FnMut() -> bool) -> bool {
+    let deadline = Deadline::patience();
+    loop {
+        if check() {
+            return true;
+        }
+        if deadline.passed() {
+            return false;
+        }
+        thread::sleep(POLL);
+    }
+}
+
 /// The next value on `values`, waited for at most [`PATIENCE`].
 ///
 /// # Panics
@@ -159,6 +176,7 @@ mod tests {
         });
         assert_eq!(value, 3);
         eventually("true", || true);
+        assert!(comes_true(|| true));
         let (sender, values) = mpsc::channel();
         sender.send(7).unwrap();
         assert_eq!(recv("seven", &values), 7);

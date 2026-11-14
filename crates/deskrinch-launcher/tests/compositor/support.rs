@@ -8,7 +8,7 @@ use deskrinch_bus::Bus;
 use deskrinch_launcher::NAME;
 use deskrinch_test_client::Compositor;
 use deskrinch_test_component::{Component, Renderer};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::comes_true;
 
 /// How long a test watches for something that must not happen.
 pub(crate) const QUIET: Duration = Duration::from_secs(2);
@@ -43,7 +43,7 @@ impl Launcher {
             component: Some(run(command)),
         };
         assert!(
-            eventually(|| owner_pid() == Some(launcher.id())),
+            comes_true(|| owner_pid() == Some(launcher.id())),
             "the launcher did not take its name"
         );
         launcher
@@ -87,7 +87,7 @@ impl Drop for Launcher {
     fn drop(&mut self) {
         // Killed and reaped; its name goes with it, for the next test.
         drop(self.component.take());
-        assert!(eventually(|| owner_pid().is_none()));
+        assert!(comes_true(|| owner_pid().is_none()));
     }
 }
 
@@ -139,18 +139,6 @@ pub(crate) fn owner_pid() -> Option<u32> {
             .ok()?;
         reply.body().deserialize::<u32>().ok()
     })
-}
-
-/// Whether `done` comes true within [`PATIENCE`].
-pub(crate) fn eventually(mut done: impl FnMut() -> bool) -> bool {
-    let deadline = Instant::now() + PATIENCE;
-    while Instant::now() < deadline {
-        if done() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(50));
-    }
-    done()
 }
 
 /// Whether `holds` stays true for [`QUIET`].

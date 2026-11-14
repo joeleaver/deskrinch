@@ -1206,6 +1206,9 @@ dependencies = [
 [[package]]
 name = "deskrinch-timer"
 version = "0.1.0"
+dependencies = [
+ "deskrinch-test-wait",
+]
 
 [[package]]
 name = "deskrinch-untrusted"

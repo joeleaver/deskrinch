@@ -5,6 +5,7 @@ use std::task::{Wake, Waker};
 use std::thread;
 
 use super::*;
+use deskrinch_test_wait::eventually;
 
 /// Runs `future` on this thread, parking between polls.
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -102,15 +103,6 @@ fn a_dropped_future_is_never_woken_and_leaves_nothing_behind() {
     assert_eq!(timer.shared.held(), (0, 0));
     thread::sleep(Duration::from_millis(1500));
     assert_eq!(count.0.load(Ordering::SeqCst), 0);
-}
-
-/// Waits until `done` holds, failing after a generous limit.
-fn eventually(what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + Duration::from_secs(10);
-    while !done() {
-        assert!(Instant::now() < deadline, "{what}");
-        thread::sleep(ms(5));
-    }
 }
 
 #[test]
