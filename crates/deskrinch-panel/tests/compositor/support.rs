@@ -12,8 +12,14 @@ use deskrinch_test_component::{Component, Renderer};
 use deskrinch_test_screen::{Image, Screen};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
-/// How long the screen must not change to count as still.
-const STILL: Duration = Duration::from_millis(500);
+/// How long the screen must not change to count as still: a stability
+/// window, not a quiet one. It must outlast the longest close animation
+/// KWin runs by default, so that two equal captures this far apart cannot
+/// both fall inside one: the fading popups' fade-out, `animationTime(150) * 4`
+/// = 600 ms at the default animation speed a fresh session has (KWin 6.6,
+/// `effects/fadingpopups/contents/code/main.js`; its window scale effect
+/// takes 200 ms, `effects/scale`). sway and labwc animate nothing.
+const STILL: Duration = Duration::from_millis(600);
 
 /// The panel binary Cargo built.
 const PANEL: &str = env!("CARGO_BIN_EXE_deskrinch-panel");
