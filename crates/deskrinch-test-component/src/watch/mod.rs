@@ -19,7 +19,7 @@ use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 
 use crate::log::{self, Adapter};
-use crate::perf::{self, PerfLine, PerfWindow};
+use crate::perf::{self, PerfWindow};
 use crate::windows::{Mark, SinceMark, WindowState, Windows};
 
 /// How many of the last lines are kept.
@@ -40,8 +40,6 @@ pub enum Presented {
 /// What the program has written so far.
 #[derive(Debug, Default)]
 struct Seen {
-    frames: u64,
-    first_frame: Option<Instant>,
     adapter: Option<Adapter>,
     software: bool,
     tail: VecDeque<String>,
@@ -50,6 +48,23 @@ struct Seen {
     /// Every window's frames, from the per-window lines.
     windows: Windows,
     closed: u8,
+}
+
+impl Seen {
+    /// The main window's record, the one home of its frames.
+    fn main(&self) -> Option<&WindowState> {
+        self.windows.get(PerfWindow::Main)
+    }
+
+    /// The main window's presented frames.
+    fn main_frames(&self) -> u64 {
+        self.main().map_or(0, |main| main.frames)
+    }
+
+    /// When the main window's first frame was presented.
+    fn main_first_frame(&self) -> Option<Instant> {
+        self.main().and_then(|main| main.first_frame)
+    }
 }
 
 /// The shared record of a program's output, filled by one reader thread
@@ -91,17 +106,8 @@ impl Watch {
     fn line(&self, line: &str) {
         let (seen, changed) = &*self.seen;
         let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
-        let perf = perf::parse(line);
-        if let Some(perf) = &perf {
-            if let PerfLine::Frame {
-                window: PerfWindow::Main,
-                ..
-            } = perf
-            {
-                seen.frames += 1;
-                seen.first_frame.get_or_insert_with(Instant::now);
-            }
-            seen.windows.record(perf, Instant::now());
+        if let Some(perf) = perf::parse(line) {
+            seen.windows.record(&perf, Instant::now());
         } else if log::presents_with_software(line) {
             seen.software = true;
         } else if seen.adapter.is_none() {
@@ -123,7 +129,7 @@ impl Watch {
         let deadline = Instant::now() + timeout;
         let mut guard = seen.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
-            if let Some(at) = guard.first_frame {
+            if let Some(at) = guard.main_first_frame() {
                 return Some(at);
             }
             let now = Instant::now();
@@ -146,7 +152,7 @@ impl Watch {
         let deadline = Instant::now() + timeout;
         let mut guard = seen.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
-            if guard.frames > frames {
+            if guard.main_frames() > frames {
                 return true;
             }
             let now = Instant::now();
@@ -210,10 +216,7 @@ impl Watch {
     /// counted in [`frames`](Self::frames), and never its first frame.
     #[must_use]
     pub fn prepared(&self) -> u64 {
-        self.lock()
-            .windows
-            .get(PerfWindow::Main)
-            .map_or(0, |main| main.prepared)
+        self.lock().main().map_or(0, |main| main.prepared)
     }
 
     /// Waits up to `timeout` for a prepared frame of the main window after
@@ -222,9 +225,7 @@ impl Watch {
     #[must_use]
     pub fn wait_prepared_after(&self, prepared: u64, timeout: Duration) -> bool {
         self.wait_until(timeout, |seen| {
-            seen.windows
-                .get(PerfWindow::Main)
-                .is_some_and(|main| main.prepared > prepared)
+            seen.main().is_some_and(|main| main.prepared > prepared)
         })
     }
 
@@ -286,7 +287,7 @@ impl Watch {
     #[must_use]
     pub fn presented(&self) -> Option<Presented> {
         let seen = self.lock();
-        if seen.first_frame.is_none() {
+        if seen.main_first_frame().is_none() {
             None
         } else if seen.software {
             Some(Presented::Software)
@@ -298,13 +299,13 @@ impl Watch {
     /// Whether the first frame has come.
     #[must_use]
     pub fn has_first_frame(&self) -> bool {
-        self.lock().first_frame.is_some()
+        self.lock().main_first_frame().is_some()
     }
 
     /// The frames counted so far.
     #[must_use]
     pub fn frames(&self) -> u64 {
-        self.lock().frames
+        self.lock().main_frames()
     }
 
     /// The adapter wgpu logged, if it did.
