@@ -5,7 +5,7 @@ use std::task::{Wake, Waker};
 use std::thread;
 
 use super::*;
-use deskrinch_test_wait::{PATIENCE, QUIET, eventually};
+use deskrinch_test_wait::{PATIENCE, eventually};
 
 /// Runs `future` on this thread, parking between polls.
 fn block_on<F: Future>(future: F) -> F::Output {
@@ -85,14 +85,46 @@ fn deadlines_fire_in_order() {
     sleeps.clear();
 }
 
+/// A sleep due just after another, polled while both are far off: the
+/// thread wakes deadlines in order, so once this one is woken, the other's
+/// deadline has been dealt with.
+struct Later {
+    _sleep: Sleep,
+    count: Arc<Count>,
+}
+
+impl Later {
+    /// Due just after `due`, a second or so out.
+    fn than(timer: &Timer, due: Instant) -> Self {
+        let count = Arc::new(Count::default());
+        let waker = Waker::from(Arc::clone(&count));
+        let mut sleep = timer.sleep_until(due + ms(1));
+        assert_eq!(
+            Pin::new(&mut sleep).poll(&mut Context::from_waker(&waker)),
+            Poll::Pending
+        );
+        Self {
+            _sleep: sleep,
+            count,
+        }
+    }
+
+    #[track_caller]
+    fn woken(&self) {
+        eventually("a later sleep to be woken", || {
+            self.count.0.load(Ordering::SeqCst) >= 1
+        });
+    }
+}
+
 #[test]
 fn a_dropped_future_is_never_woken_and_leaves_nothing_behind() {
     let timer = Timer::start().unwrap();
     let count = Arc::new(Count::default());
     let waker = Waker::from(Arc::clone(&count));
     // A second out, so a stall cannot make the first poll ready.
-    let deadline = Duration::from_secs(1);
-    let mut sleep = timer.sleep(deadline);
+    let due = Instant::now() + Duration::from_secs(1);
+    let mut sleep = timer.sleep_until(due);
     assert_eq!(
         Pin::new(&mut sleep).poll(&mut Context::from_waker(&waker)),
         Poll::Pending
@@ -100,8 +132,10 @@ fn a_dropped_future_is_never_woken_and_leaves_nothing_behind() {
     assert_eq!(timer.shared.held(), (1, 1));
     drop(sleep);
     assert_eq!(timer.shared.held(), (0, 0));
-    // Watched past the dropped sleep's deadline, by half again.
-    thread::sleep(deadline + deadline / 2);
+    let later = Later::than(&timer, due);
+    // Sentinel: the thread wakes deadlines in order, so once a later one
+    // is woken, the dropped sleep's deadline has passed without a wake.
+    later.woken();
     assert_eq!(count.0.load(Ordering::SeqCst), 0);
 }
 
@@ -110,14 +144,17 @@ fn a_polled_sleep_is_woken_once_when_its_deadline_passes() {
     let timer = Timer::start().unwrap();
     let count = Arc::new(Count::default());
     let waker = Waker::from(Arc::clone(&count));
-    let mut sleep = timer.sleep(Duration::from_secs(1));
+    let due = Instant::now() + Duration::from_secs(1);
+    let mut sleep = timer.sleep_until(due);
+    let later = Later::than(&timer, due);
     let mut cx = Context::from_waker(&waker);
     assert_eq!(Pin::new(&mut sleep).poll(&mut cx), Poll::Pending);
     eventually("the sleep to be woken", || {
         count.0.load(Ordering::SeqCst) >= 1
     });
-    // And only once: a second wake would follow at once.
-    thread::sleep(QUIET);
+    // And only once. Sentinel: the thread wakes deadlines in order, so a
+    // second wake for this deadline would come before a later one's.
+    later.woken();
     assert_eq!(count.0.load(Ordering::SeqCst), 1);
     assert_eq!(Pin::new(&mut sleep).poll(&mut cx), Poll::Ready(()));
 }
@@ -198,13 +235,21 @@ fn many_sleeps_share_one_thread() {
 fn the_thread_ends_with_the_last_handle_and_future() {
     let timer = Timer::start().unwrap();
     let clone = timer.clone();
-    let sleep = clone.sleep(ms(10_000));
+    let count = Arc::new(Count::default());
+    let waker = Waker::from(Arc::clone(&count));
+    let mut sleep = clone.sleep(ms(100));
+    assert_eq!(
+        Pin::new(&mut sleep).poll(&mut Context::from_waker(&waker)),
+        Poll::Pending
+    );
     let weak: Weak<Shared> = Arc::downgrade(&timer.shared);
     drop(timer);
     drop(clone);
-    // The sleep keeps the thread.
-    thread::sleep(QUIET);
-    assert!(weak.upgrade().is_some());
+    // The sleep keeps the thread. Sentinel: only the thread wakes a sleep,
+    // so the sleep woken shows the thread outlived every handle.
+    eventually("the sleep to be woken", || {
+        count.0.load(Ordering::SeqCst) >= 1
+    });
     drop(sleep);
     eventually("the timer's thread to end", || weak.upgrade().is_none());
 }
