@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_test_client::Compositor;
-use deskrinch_test_component::{Component, Renderer, log};
+use deskrinch_test_component::{Component, Mark, Renderer, log};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use deskrinch_test_wait::{PATIENCE, wait_for};
 
@@ -56,12 +56,11 @@ pub(crate) struct Wallpaper {
 }
 
 impl Wallpaper {
-    /// Starts the wallpaper with the run's renderer, and returns once rinch
-    /// has said what it presents with, having checked that it is the run's
-    /// renderer. What it draws is the screen's to show: rinch now writes a
-    /// frame line per window (`[PERF] window <id> frame N:`), which
-    /// `deskrinch-test-component` does not read yet, so its frames are not
-    /// counted from its output.
+    /// Starts the wallpaper with the run's renderer, and returns once each
+    /// of the session's outputs has a window that has presented its first
+    /// frame (rinch's per-window frame lines, `[PERF] window <id> frame N:`),
+    /// having checked that the run's renderer presented them. What the
+    /// windows show is the screen's to tell.
     pub(crate) fn start() -> Self {
         let renderer = Renderer::of_run();
         let component = Component::start(Command::new(WALLPAPER), renderer).unwrap();
@@ -89,7 +88,34 @@ impl Wallpaper {
             renderer.env(),
             watch.tail()
         );
+        let outputs = Screen::connect().unwrap().outputs().len();
+        assert!(
+            watch.wait_first_frames(outputs, PATIENCE).is_some(),
+            "the wallpaper did not present a frame in each of {outputs} windows; its windows: \
+             {:?}",
+            watch.windows()
+        );
         Self { component }
+    }
+
+    /// Every window's frames now, to count from.
+    pub(crate) fn mark(&self) -> Mark {
+        self.component.watch().mark()
+    }
+
+    /// Waits until each of the wallpaper's open windows has presented a frame
+    /// since `mark`.
+    pub(crate) fn wait_each_window_drew_since(&self, mark: &Mark) {
+        let watch = self.component.watch();
+        wait_for("every window to draw since the mark", || {
+            let since = watch.since(mark);
+            let drew = watch.windows().iter().all(|open| {
+                since
+                    .iter()
+                    .any(|s| s.window == open.window && s.frames > 0)
+            });
+            if drew { Ok(()) } else { Err(since) }
+        });
     }
 
     /// Waits until the wallpaper has said something in which `says` is.
@@ -110,7 +136,7 @@ impl Wallpaper {
         let errored = self
             .component
             .watch()
-            .wait_for_line(Duration::ZERO, |line| line.contains(" ERROR "));
+            .wait_for_line(Duration::ZERO, log::is_error);
         assert!(
             !errored,
             "the wallpaper logged an error; its last lines:\n{}",
