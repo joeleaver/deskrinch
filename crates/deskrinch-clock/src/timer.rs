@@ -102,16 +102,40 @@ mod tests {
     use super::*;
     use jiff::SignedDuration;
 
+    use crate::test_patience::PATIENCE;
+
+    /// Waits until the kernel says `timer` has fired, as the clock's worker
+    /// does, within [`PATIENCE`].
+    fn wait_fired(timer: &WallTimer) {
+        let mut fds = [rustix::event::PollFd::new(
+            timer,
+            rustix::event::PollFlags::IN,
+        )];
+        let patience = Timespec {
+            tv_sec: PATIENCE.as_secs().try_into().unwrap(),
+            tv_nsec: 0,
+        };
+        assert_eq!(
+            rustix::event::poll(&mut fds, Some(&patience)).unwrap(),
+            1,
+            "the timer did not fire within {PATIENCE:?}"
+        );
+    }
+
     #[test]
-    fn expires_at_a_wall_clock_instant() {
+    fn expires_at_a_wall_clock_instant_and_not_before() {
         let timer = WallTimer::new().unwrap();
         assert_eq!(timer.read().unwrap(), Fired::Pending);
+        // An hour ahead: pending, however slow the machine.
+        let later = Timestamp::now() + SignedDuration::from_hours(1);
+        assert_eq!(timer.arm(later).unwrap(), Fired::Pending);
+        assert_eq!(timer.read().unwrap(), Fired::Pending);
+        // A moment ahead: it fires, and not before its instant.
         let at = Timestamp::now() + SignedDuration::from_millis(50);
         assert_eq!(timer.arm(at).unwrap(), Fired::Pending);
-        assert_eq!(timer.read().unwrap(), Fired::Pending);
-        std::thread::sleep(std::time::Duration::from_millis(80));
+        wait_fired(&timer);
+        assert!(Timestamp::now() >= at, "fired before {at}");
         assert_eq!(timer.read().unwrap(), Fired::Expired);
-        assert!(Timestamp::now() >= at);
     }
 
     #[test]
@@ -121,15 +145,7 @@ mod tests {
             .arm(Timestamp::now() - SignedDuration::from_secs(1))
             .unwrap();
         // The kernel fires it from its timer interrupt, a moment later.
-        let mut fds = [rustix::event::PollFd::new(
-            &timer,
-            rustix::event::PollFlags::IN,
-        )];
-        let timeout = Timespec {
-            tv_sec: 1,
-            tv_nsec: 0,
-        };
-        assert_eq!(rustix::event::poll(&mut fds, Some(&timeout)).unwrap(), 1);
+        wait_fired(&timer);
         assert_eq!(timer.read().unwrap(), Fired::Expired);
     }
 }
