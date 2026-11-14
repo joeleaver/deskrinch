@@ -130,7 +130,7 @@ fn startup(
 
 /// Records the process's memory: its status sizes, Pss, the resident set by
 /// what is mapped, and GPU memory.
-fn memory(run: &mut Run, pid: u32, program: &str) -> Result<(), Error> {
+pub(crate) fn memory(run: &mut Run, pid: u32, program: &str) -> Result<(), Error> {
     let settled = sample(pid, program)?;
     for field in procfs::STATUS_FIELDS {
         let value = settled.status.get(field).copied().unwrap_or(0);

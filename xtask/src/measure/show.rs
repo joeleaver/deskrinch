@@ -9,6 +9,9 @@
 //! Callgrind counts in that span. The dismiss command hides it again, and
 //! it is left to settle before the next show.
 //!
+//! Before the first show, the program's memory is read once, hidden and
+//! settled (CPU time only; under Callgrind memory says nothing).
+//!
 //! The first show is the cold one: the first window the process makes.
 //! Each later one is a show after a hide, which re-creates the window.
 //! The summon command's own cost (a second process) is not counted.
@@ -75,6 +78,9 @@ pub(crate) fn measure(
     let result = (|| {
         settle_hidden(&mut child, &watch, program, timing.first_frame)?;
         let mut run = Run::default();
+        // What it holds hidden, settled, before the first show: with a
+        // window it prepared, what preparing costs.
+        probe::memory(&mut run, child.id(), program)?;
         for show in 1..=summons.shows {
             let (cpu, wall) = one_show(&mut child, &watch, ask, program, timing, summons)?;
             run.push(
