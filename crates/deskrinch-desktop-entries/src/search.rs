@@ -49,7 +49,7 @@
 use crate::entry::DesktopEntry;
 use crate::exec;
 use crate::fold::fold;
-use crate::translated::{Keywords, Translated};
+use crate::translated::Translated;
 
 /// How a field matched, best first.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -132,7 +132,7 @@ pub fn search<'a>(
                         .max()?;
                     Some((Coverage::AllTerms, worst))
                 })?;
-            let sort_name = fold(&entry.name.text);
+            let sort_name = fold(&entry.name.value);
             let found = Match {
                 entry,
                 coverage,
@@ -157,13 +157,13 @@ pub fn search<'a>(
 /// An entry's searchable fields, folded.
 fn fields(entry: &DesktopEntry) -> Vec<(MatchField, String)> {
     let mut fields = Vec::new();
-    for text in entry.name.texts() {
-        fields.push((MatchField::Name, fold(text)));
+    for name in entry.name.values() {
+        fields.push((MatchField::Name, fold(name)));
     }
-    for text in entry.generic_name.iter().flat_map(Translated::texts) {
-        fields.push((MatchField::GenericName, fold(text)));
+    for generic in entry.generic_name.iter().flat_map(Translated::values) {
+        fields.push((MatchField::GenericName, fold(generic)));
     }
-    for keyword in entry.keywords.iter().flat_map(Keywords::all) {
+    for keyword in entry.keywords.iter().flat_map(Translated::values).flatten() {
         fields.push((MatchField::Keyword, fold(keyword)));
     }
     let program = entry

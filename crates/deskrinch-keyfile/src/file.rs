@@ -52,9 +52,17 @@ impl KeyFile {
     /// [`Localized::get`](crate::Localized::get)'s rules: every other
     /// translation is skipped as it is read, never allocated. A file may
     /// carry dozens of languages, of which a session reads one or two. A
-    /// line whose locale is unusable (`de.UTF-8`, `[]`) is kept, so that it
-    /// is reported as with [`parse`](Self::parse); what a skipped line
-    /// deviates in otherwise (a repeated translation) is not reported.
+    /// line whose locale is unusable (`de.UTF-8`, `[]`) is kept: it matches
+    /// nothing, and is reported as [`parse`](Self::parse) reports it.
+    ///
+    /// The result, deviations included, is exactly what [`parse`](Self::parse)
+    /// gives for the file with the skipped lines replaced by empty lines (so
+    /// that the other lines keep their numbers). What a skipped line alone
+    /// would have reported is therefore not reported: a repeated
+    /// translation, a nonstandard key name that appears only in skipped
+    /// lines, an invalid escape in a skipped value; and for a key whose only
+    /// lines are skipped translations, reading it reports what an absent key
+    /// reports, not a translation without an untranslated value.
     ///
     /// # Errors
     ///
@@ -361,6 +369,65 @@ mod tests {
                     .clone()
             };
             assert_eq!(name(&part), name(&whole), "{wanted:?}");
+        }
+    }
+
+    /// A file whose French lines deviate in every way a skipped line can:
+    /// a repeated translation, a nonstandard key name seen only there, an
+    /// invalid escape, and a key with no untranslated value. The `\xff`
+    /// line keeps a line number to compare after the skipped ones.
+    const DEVIATING: &[u8] = b"[A]\nName=Files\nName[fr]=a\nName[fr]=b\nX_Odd[fr]=1\n\
+                               Name[fr_CA]=a\\q\nComment[fr]=c\nName[de]=Dateien\nX=\xff\n";
+
+    /// `DEVIATING` with the lines a German session skips replaced by empty
+    /// lines.
+    const DEVIATING_BLANKED: &[u8] = b"[A]\nName=Files\n\n\n\n\n\nName[de]=Dateien\nX=\xff\n";
+
+    #[test]
+    fn a_skipping_parse_is_the_whole_parse_of_the_file_without_the_skipped_lines() {
+        let locales = [Locale::parse("de_DE").unwrap()];
+        let (mut part_read, mut blanked_read) = (Vec::<Deviation>::new(), Vec::new());
+        let part = KeyFile::parse_for_locales(DEVIATING, &locales, &mut part_read).unwrap();
+        let blanked = KeyFile::parse(DEVIATING_BLANKED, &mut blanked_read).unwrap();
+        assert_eq!(part, blanked);
+        assert_eq!(part_read, blanked_read);
+        // Reading the keys reports the same too.
+        for key in ["Name", "Comment", "X_Odd"] {
+            let (mut from_part, mut from_blanked) = (Vec::<Deviation>::new(), Vec::new());
+            let a = part.group("A").unwrap().localized(key, &mut from_part);
+            let b = blanked
+                .group("A")
+                .unwrap()
+                .localized(key, &mut from_blanked);
+            assert_eq!((a, from_part), (b, from_blanked), "{key}");
+        }
+        // And what the whole file reports instead, for the record: each of
+        // these is gone.
+        let mut whole = Vec::<Deviation>::new();
+        let file = KeyFile::parse(DEVIATING, &mut whole).unwrap();
+        let group = file.group("A").unwrap();
+        assert!(group.localized("Comment", &mut whole).is_none());
+        assert!(group.localized("Name", &mut whole).is_some());
+        for gone in [
+            Deviation::DuplicateKey {
+                group: "A".into(),
+                key: "Name".into(),
+            },
+            Deviation::NonstandardKey {
+                group: "A".into(),
+                key: "X_Odd".into(),
+            },
+            Deviation::InvalidEscape {
+                group: "A".into(),
+                key: "Name".into(),
+            },
+            Deviation::TranslationWithoutDefault {
+                group: "A".into(),
+                key: "Comment".into(),
+            },
+        ] {
+            assert!(whole.contains(&gone), "{gone:?} in {whole:?}");
+            assert!(!part_read.contains(&gone), "{gone:?}");
         }
     }
 

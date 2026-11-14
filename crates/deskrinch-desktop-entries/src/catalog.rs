@@ -270,7 +270,7 @@ mod tests {
     fn names(catalog: &Catalog) -> Vec<(String, String)> {
         catalog
             .iter()
-            .map(|e| (e.entry.id.to_string(), e.entry.name.text.clone()))
+            .map(|e| (e.entry.id.to_string(), e.entry.name.value.clone()))
             .collect()
     }
 

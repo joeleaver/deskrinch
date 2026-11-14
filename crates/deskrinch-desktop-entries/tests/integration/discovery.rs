@@ -56,7 +56,7 @@ fn applies_precedence_ids_and_hidden_across_directories() {
 
     let ids: Vec<_> = catalog.iter().map(|e| e.entry.id.to_string()).collect();
     assert_eq!(ids, ["editor.desktop", "kde-konsole.desktop"]);
-    let name = |i: &str| catalog.get(&id(i)).unwrap().entry.name.text.clone();
+    let name = |i: &str| catalog.get(&id(i)).unwrap().entry.name.value.clone();
     assert_eq!(name("editor.desktop"), "Home Editor");
     assert_eq!(name("kde-konsole.desktop"), "Konsole");
     assert!(catalog.problems().is_empty());
@@ -82,7 +82,7 @@ fn skips_unusable_files_and_warns_about_deviant_ones() {
 
     // The unusable override falls through to the system entry; the
     // deviant file is listed, with a warning.
-    let name = |i: &str| catalog.get(&id(i)).unwrap().entry.name.text.clone();
+    let name = |i: &str| catalog.get(&id(i)).unwrap().entry.name.value.clone();
     assert_eq!(name("a.desktop"), "System A");
     assert_eq!(name("binary.desktop"), "B");
     let problems: Vec<_> = catalog

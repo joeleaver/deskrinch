@@ -243,7 +243,7 @@ pub fn launch(
     }
     let command = command.ok_or(LaunchError::NoCommand)?;
     let fields = Fields {
-        name: &entry.name.text,
+        name: &entry.name.value,
         icon: entry.icon.as_ref().map(Icon::as_os_str),
         desktop_file: Some(&entry.path),
     };
@@ -259,7 +259,7 @@ pub fn launch(
         None
     };
     let systemd = context.systemd();
-    let description = &entry.name.text;
+    let description = &entry.name.value;
     lines
         .into_iter()
         .map(|line| {

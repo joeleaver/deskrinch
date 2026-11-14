@@ -12,8 +12,8 @@
 //! - A [`DesktopEntry`] is one parsed `.desktop` file, named by its
 //!   [`DesktopId`], parsed for the environment's locales: each translated key
 //!   keeps the value for them, chosen by the specification's locale matching
-//!   ([`Translated`] for the names people search by, which keep the
-//!   untranslated text too), and the translations for other locales are
+//!   ([`Translated`] for the names and keywords people search by, which keep
+//!   the untranslated value too), and the translations for other locales are
 //!   never read.
 //! - A [`Catalog`] is every installed entry, one per ID, each shared (`Arc`)
 //!   by everything that holds the catalog, with the
@@ -86,5 +86,5 @@ pub use launch::{
     DirectReason, LaunchContext, Launched, Placement, XDG_TERMINAL_EXEC, default_terminal, launch,
 };
 pub use search::{Coverage, Match, MatchField, MatchKind, search};
-pub use translated::{Keywords, Translated};
+pub use translated::Translated;
 pub use watch::{Event, Watcher};

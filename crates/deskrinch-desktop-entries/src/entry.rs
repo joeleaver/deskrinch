@@ -8,7 +8,7 @@ use deskrinch_keyfile::{Group, KeyFile, Locale, Localized, LocalizedString};
 use crate::deviation::Deviation;
 use crate::error::ParseError;
 use crate::icon::{self, Icon};
-use crate::translated::{self, Keywords, Translated};
+use crate::translated::{self, Translated};
 
 /// The group every desktop entry file starts with.
 const MAIN_GROUP: &str = "Desktop Entry";
@@ -84,9 +84,9 @@ pub struct DesktopEntry {
     /// The entry's type and the keys only that type has.
     pub kind: EntryKind,
     /// `Name`; `Unnamed` when the file has none.
-    pub name: Translated,
+    pub name: Translated<String>,
     /// `GenericName`, such as "Web Browser".
-    pub generic_name: Option<Translated>,
+    pub generic_name: Option<Translated<String>>,
     /// `Comment`, a tooltip.
     pub comment: Option<String>,
     /// `Icon`: a name or an absolute path, as GLib reads it (see
@@ -105,9 +105,11 @@ pub struct DesktopEntry {
     /// `Categories`.
     pub categories: Vec<String>,
     /// `Keywords`, for searching.
-    pub keywords: Option<Keywords>,
-    /// How the file deviates from the specification, in the order found.
-    /// Empty for a conforming file.
+    pub keywords: Option<Translated<Vec<String>>>,
+    /// How what was read of the file for the session's locales deviates from
+    /// the specification, in the order found: the translations for other
+    /// locales are not read (see [`DesktopEntry::parse`]). Empty for a
+    /// conforming file.
     pub deviations: Vec<Deviation>,
 }
 
@@ -175,11 +177,16 @@ impl DesktopEntry {
     /// session whose preferred locales are `locales` (best first): each
     /// translated key keeps its value for them, chosen by the
     /// specification's matching, and the translations for other locales are
-    /// skipped as the file is read.
+    /// skipped as the file is read
+    /// ([`KeyFile::parse_for_locales`](deskrinch_keyfile::KeyFile::parse_for_locales)).
     ///
     /// The file is read as GLib reads it: what breaks the specification but
     /// GLib accepts is accepted and listed in
-    /// [`deviations`](DesktopEntry::deviations).
+    /// [`deviations`](DesktopEntry::deviations). The entry, deviations
+    /// included, is exactly what parsing the file with the skipped lines
+    /// replaced by empty lines gives: a deviation only a skipped line would
+    /// show is not listed, and a `Name` with only translations into other
+    /// locales is a missing `Name`.
     ///
     /// # Errors
     ///
@@ -229,8 +236,8 @@ impl DesktopEntry {
                 .map(|value| Translated::resolve(value, locales)),
             comment: main
                 .localized("Comment", d)
-                .map(|value| translated::resolve(value, locales)),
-            icon: icon::read(main, d).map(|value| translated::resolve(value, locales)),
+                .map(|value| translated::session_value(value, locales)),
+            icon: icon::read(main, d).map(|value| translated::session_value(value, locales)),
             hidden: main.boolean("Hidden", d),
             no_display: main.boolean("NoDisplay", d),
             only_show_in: main.list("OnlyShowIn", d),
@@ -238,7 +245,7 @@ impl DesktopEntry {
             categories: main.list("Categories", d),
             keywords: main
                 .localized_list("Keywords", d)
-                .map(|value| Keywords::resolve(value, locales)),
+                .map(|value| Translated::resolve(value, locales)),
             deviations,
         })
     }
@@ -305,8 +312,8 @@ fn parse_application(
             continue;
         };
         actions.push(Action {
-            name: translated::resolve(name(group, d), locales),
-            icon: icon::read(group, d).map(|value| translated::resolve(value, locales)),
+            name: translated::session_value(name(group, d), locales),
+            icon: icon::read(group, d).map(|value| translated::session_value(value, locales)),
             exec: read_exec(group, dbus_activatable, d),
             id,
         });

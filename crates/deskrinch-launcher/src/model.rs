@@ -272,7 +272,7 @@ fn rows<'a>(entries: impl IntoIterator<Item = &'a DesktopEntry>, query: &str) ->
 fn row(entry: &DesktopEntry) -> Row {
     Row {
         id: entry.id.clone(),
-        name: entry.name.text.clone(),
+        name: entry.name.value.clone(),
         icon: entry.icon.clone(),
     }
 }

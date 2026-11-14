@@ -250,7 +250,7 @@ impl Starter {
                     .get()
                     .iter()
                     .find(|e| e.entry.id == id)
-                    .map(|e| e.entry.clone())
+                    .map(Arc::clone)
                 else {
                     return;
                 };

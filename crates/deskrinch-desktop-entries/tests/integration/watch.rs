@@ -18,12 +18,12 @@ fn next(events: &Receiver<Event>) -> (String, String, String) {
         Event::Added(e) => (
             "added".into(),
             e.entry.id.to_string(),
-            e.entry.name.text.clone(),
+            e.entry.name.value.clone(),
         ),
         Event::Changed(e) => (
             "changed".into(),
             e.entry.id.to_string(),
-            e.entry.name.text.clone(),
+            e.entry.name.value.clone(),
         ),
         Event::Removed(id) => ("removed".into(), id.to_string(), String::new()),
         Event::Error(error) => panic!("watch error: {error}"),

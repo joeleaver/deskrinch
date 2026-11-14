@@ -6,78 +6,52 @@
 
 use deskrinch_keyfile::{Locale, Localized};
 
-/// A `Name` or `GenericName`: the text shown in the session's locales, and
-/// the untranslated text when that is another. Search matches both, so
-/// that an application is found by its untranslated name in a translated
-/// session too.
+/// A translated key people search by (`Name`, `GenericName`, `Keywords`):
+/// its value for the session's locales, and the untranslated value when
+/// that is another. Search matches both, so that an application is found by
+/// its untranslated name in a translated session too.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Translated {
-    /// The text for the session's locales: a translation, or the
-    /// untranslated text when none matches.
-    pub text: String,
-    /// The untranslated text, when [`text`](Self::text) is a translation
+pub struct Translated<T> {
+    /// The value for the session's locales: a translation, or the
+    /// untranslated value when none matches.
+    pub value: T,
+    /// The untranslated value, when [`value`](Self::value) is a translation
     /// that differs from it.
-    pub untranslated: Option<String>,
+    pub untranslated: Option<T>,
 }
 
-impl Translated {
-    /// `value`'s text for `locales`, keeping the untranslated text beside
-    /// a translation that differs from it.
-    pub(crate) fn resolve(value: Localized<String>, locales: &[Locale]) -> Self {
-        match value.translation(locales) {
-            Some(translation) if *translation != value.default => Self {
-                text: translation.clone(),
-                untranslated: Some(value.default),
+impl<T: Clone + PartialEq> Translated<T> {
+    /// `localized`'s value for `locales`, keeping the untranslated value
+    /// beside a translation that differs from it.
+    pub(crate) fn resolve(localized: Localized<T>, locales: &[Locale]) -> Self {
+        match localized.translation(locales) {
+            Some(translation) if *translation != localized.default => Self {
+                value: translation.clone(),
+                untranslated: Some(localized.default),
             },
             _ => Self {
-                text: value.default,
+                value: localized.default,
                 untranslated: None,
             },
         }
     }
+}
 
-    /// The texts search matches: the shown one, then the untranslated one
+impl<T> Translated<T> {
+    /// The values search matches: the session's, then the untranslated one
     /// when it is another.
-    pub fn texts(&self) -> impl Iterator<Item = &str> {
-        std::iter::once(self.text.as_str()).chain(self.untranslated.as_deref())
+    pub fn values(&self) -> impl Iterator<Item = &T> {
+        std::iter::once(&self.value).chain(self.untranslated.as_ref())
     }
 }
 
-/// `Keywords`: the list for the session's locales, when one of them has
-/// its own, and the untranslated list. Search matches both, as for names.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Keywords {
-    /// The list of the first of the session's locales that has one; `None`
-    /// when none has.
-    pub best: Option<Vec<String>>,
-    /// The untranslated list.
-    pub default: Vec<String>,
-}
-
-impl Keywords {
-    /// `value`'s lists for `locales`.
-    pub(crate) fn resolve(value: Localized<Vec<String>>, locales: &[Locale]) -> Self {
-        Self {
-            best: value.translation(locales).cloned(),
-            default: value.default,
-        }
-    }
-
-    /// Every keyword search matches: the best list's, then the
-    /// untranslated list's, each list once.
-    pub fn all(&self) -> impl Iterator<Item = &str> {
-        self.best
-            .iter()
-            .flatten()
-            .chain(&self.default)
-            .map(String::as_str)
-    }
-}
-
-/// `value` for `locales`, alone: for what only the session's text of is
-/// ever read (a comment, an icon, an action's name and icon).
-pub(crate) fn resolve<T: Clone>(value: Localized<T>, locales: &[Locale]) -> T {
-    value.translation(locales).cloned().unwrap_or(value.default)
+/// `localized`'s value for `locales`, alone: for a key only the session's
+/// value of is ever read (a comment, an icon, an action's name and icon).
+pub(crate) fn session_value<T: Clone>(localized: Localized<T>, locales: &[Locale]) -> T {
+    localized
+        .translation(locales)
+        .cloned()
+        .unwrap_or(localized.default)
 }
 
 #[cfg(test)]
@@ -90,15 +64,15 @@ mod tests {
 
     /// A value with translations for every form of `sr`, and `de`.
     fn sample() -> Localized<String> {
-        let mut value = Localized::new("default".to_owned());
+        let mut localized = Localized::new("default".to_owned());
         for key in ["sr", "sr_RS", "sr@latin", "sr_RS@latin", "de"] {
-            value.translations.push((locale(key), key.to_owned()));
+            localized.translations.push((locale(key), key.to_owned()));
         }
-        value
+        localized
     }
 
     #[test]
-    fn the_resolved_text_is_the_one_get_gives() {
+    fn the_resolved_value_is_the_one_get_gives() {
         for wanted in [
             vec![locale("sr_RS@latin")],
             vec![locale("sr_RS")],
@@ -110,43 +84,53 @@ mod tests {
             vec![locale("fr"), locale("de_DE")],
             vec![],
         ] {
-            let value = sample();
-            let expected = value.get(&wanted).clone();
-            assert_eq!(
-                Translated::resolve(value.clone(), &wanted).text,
-                expected,
-                "{wanted:?}"
-            );
-            assert_eq!(resolve(value, &wanted), expected, "{wanted:?}");
+            let localized = sample();
+            let expected = localized.get(&wanted).clone();
+            let resolved = Translated::resolve(localized.clone(), &wanted);
+            assert_eq!(resolved.value, expected, "{wanted:?}");
+            assert_eq!(session_value(localized, &wanted), expected, "{wanted:?}");
         }
     }
 
     #[test]
-    fn the_untranslated_text_is_kept_beside_a_translation_that_differs() {
+    fn the_untranslated_value_is_kept_beside_a_translation_that_differs() {
         let translated = Translated::resolve(sample(), &[locale("de")]);
         assert_eq!(translated.untranslated.as_deref(), Some("default"));
-        assert_eq!(translated.texts().collect::<Vec<_>>(), ["de", "default"]);
+        assert_eq!(translated.values().collect::<Vec<_>>(), ["de", "default"]);
         let untranslated = Translated::resolve(sample(), &[locale("fr")]);
         assert_eq!(untranslated.untranslated, None);
-        assert_eq!(untranslated.texts().collect::<Vec<_>>(), ["default"]);
-        let mut same = Localized::new("Files".to_owned());
-        same.translations.push((locale("de"), "Files".to_owned()));
-        assert_eq!(
-            Translated::resolve(same, &[locale("de")]).untranslated,
-            None
-        );
+        assert_eq!(untranslated.values().collect::<Vec<_>>(), ["default"]);
     }
 
     #[test]
-    fn keywords_keep_the_best_list_and_the_untranslated_one_once_each() {
-        let mut value = Localized::new(vec!["edit".to_owned()]);
-        value
+    fn a_translation_equal_to_the_untranslated_value_is_kept_once() {
+        let mut name = Localized::new("Files".to_owned());
+        name.translations.push((locale("de"), "Files".to_owned()));
+        assert_eq!(
+            Translated::resolve(name, &[locale("de")]).untranslated,
+            None
+        );
+        let mut keywords = Localized::new(vec!["files".to_owned()]);
+        keywords
+            .translations
+            .push((locale("de"), vec!["files".to_owned()]));
+        let resolved = Translated::resolve(keywords, &[locale("de")]);
+        assert_eq!(resolved.values().count(), 1);
+    }
+
+    #[test]
+    fn keywords_keep_the_session_s_list_and_the_untranslated_one() {
+        let mut keywords = Localized::new(vec!["edit".to_owned()]);
+        keywords
             .translations
             .push((locale("de"), vec!["bearbeiten".to_owned()]));
-        let german = Keywords::resolve(value.clone(), &[locale("de_DE")]);
-        assert_eq!(german.all().collect::<Vec<_>>(), ["bearbeiten", "edit"]);
-        let french = Keywords::resolve(value, &[locale("fr")]);
-        assert_eq!(french.best, None);
-        assert_eq!(french.all().collect::<Vec<_>>(), ["edit"]);
+        let german = Translated::resolve(keywords.clone(), &[locale("de_DE")]);
+        assert_eq!(
+            german.values().flatten().collect::<Vec<_>>(),
+            ["bearbeiten", "edit"]
+        );
+        let french = Translated::resolve(keywords, &[locale("fr")]);
+        assert_eq!(french.untranslated, None);
+        assert_eq!(french.values().flatten().collect::<Vec<_>>(), ["edit"]);
     }
 }

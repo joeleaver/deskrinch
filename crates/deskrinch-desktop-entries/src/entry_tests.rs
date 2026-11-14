@@ -43,9 +43,9 @@ fn parses_an_application() {
     )
     .unwrap();
     assert_eq!(entry.deviations, []);
-    assert_eq!(entry.name.text, "Bearbeiter");
+    assert_eq!(entry.name.value, "Bearbeiter");
     assert_eq!(entry.name.untranslated.as_deref(), Some("Editor"));
-    assert_eq!(entry.generic_name.unwrap().text, "Text Editor");
+    assert_eq!(entry.generic_name.unwrap().value, "Text Editor");
     assert_eq!(entry.comment.as_deref(), Some("Edit"));
     assert_eq!(
         entry.icon.unwrap(),
@@ -55,8 +55,11 @@ fn parses_an_application() {
     assert_eq!(entry.only_show_in, ["KDE", "GNOME"]);
     assert_eq!(entry.categories, ["Utility", "TextEditor"]);
     let keywords = entry.keywords.unwrap();
-    assert_eq!(keywords.default, ["text", "notes"]);
-    assert_eq!(keywords.best, Some(vec!["Text".to_owned()]));
+    assert_eq!(keywords.value, ["Text"]);
+    assert_eq!(
+        keywords.untranslated,
+        Some(vec!["text".to_owned(), "notes".to_owned()])
+    );
     let EntryKind::Application(app) = entry.kind else {
         panic!("not an application");
     };
@@ -125,15 +128,45 @@ const TRANSLATED: &str = "[Desktop Entry]\nType=Application\nExec=x\n\
     Comment=Browse\nComment[fr]=Parcourir\nKeywords=files;\nKeywords[fr]=fichiers;\n";
 
 #[test]
+fn an_entry_is_what_the_file_without_its_skipped_lines_gives() {
+    // Only a French name, in a German session: the French line is skipped,
+    // and the entry is that of the file with it blanked, a missing `Name`.
+    let german = [Locale::parse("de_DE").unwrap()];
+    let only_french = "[Desktop Entry]\nType=Application\nName[fr]=Fichiers\nExec=x\n";
+    let blanked = "[Desktop Entry]\nType=Application\n\nExec=x\n";
+    let entry = parse_for(only_french, &german).unwrap();
+    assert_eq!(entry, parse_for(blanked, &german).unwrap());
+    let missing_name = Deviation::MissingKey {
+        group: MAIN_GROUP.into(),
+        key: "Name",
+    };
+    assert_eq!(entry.deviations, [missing_name]);
+    assert_eq!(entry.name.value, UNNAMED);
+    // In a French session the line is read, and the whole file's deviation
+    // is reported instead: a translation without an untranslated value.
+    let french = parse_for(only_french, &[Locale::parse("fr").unwrap()]).unwrap();
+    assert_eq!(
+        french.deviations,
+        [Deviation::KeyFile(
+            deskrinch_keyfile::Deviation::TranslationWithoutDefault {
+                group: MAIN_GROUP.into(),
+                key: "Name".into(),
+            }
+        )]
+    );
+    assert_eq!(french.name.value, "Fichiers");
+}
+
+#[test]
 fn a_value_for_a_locale_not_asked_for_is_not_kept() {
     let entry = parse_for(TRANSLATED, &[Locale::parse("de_DE").unwrap()]).unwrap();
     let kept = format!("{entry:?}");
     for french in ["Fichiers", "Parcourir", "fichiers"] {
         assert!(!kept.contains(french), "{french} kept: {kept}");
     }
-    assert_eq!(entry.name.text, "Dateien");
+    assert_eq!(entry.name.value, "Dateien");
     assert_eq!(entry.comment.as_deref(), Some("Browse"));
-    assert_eq!(entry.keywords.unwrap().best, None);
+    assert_eq!(entry.keywords.unwrap().untranslated, None);
 }
 
 #[test]
@@ -157,6 +190,6 @@ fn the_resolved_name_is_the_one_the_whole_file_gives() {
     ] {
         let locales: Vec<Locale> = wanted.iter().map(|l| Locale::parse(l).unwrap()).collect();
         let entry = parse_for(TRANSLATED, &locales).unwrap();
-        assert_eq!(&entry.name.text, name.get(&locales), "{wanted:?}");
+        assert_eq!(&entry.name.value, name.get(&locales), "{wanted:?}");
     }
 }
