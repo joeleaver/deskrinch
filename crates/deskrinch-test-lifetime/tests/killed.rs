@@ -10,18 +10,16 @@ use std::io::{BufRead as _, BufReader, Read as _};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_test_lifetime::{owned_dir, running, spawn};
+use deskrinch_test_wait::eventually;
 
 /// Set in the child's environment, so that the ignored test runs only
 /// there.
 const CHILD: &str = "DESKRINCH_TEST_LIFETIME_CHILD";
 /// What the child prints before what it reports.
 const MARK: &str = "killed-process:";
-
-/// How long a child of a killed process may take to be gone.
-const GONE_WITHIN: Duration = Duration::from_secs(1);
 
 /// The process to kill; not a test of its own.
 #[test]
@@ -78,11 +76,9 @@ fn a_killed_process_takes_its_child_and_leaves_its_directory() {
     process.kill().unwrap();
     process.wait().unwrap();
 
-    let deadline = Instant::now() + GONE_WITHIN;
-    while running(pid) {
-        assert!(Instant::now() < deadline, "the child outlived its process");
-        thread::sleep(Duration::from_millis(10));
-    }
+    // Gone, not gone quickly: the kernel kills it as its parent dies, but it
+    // still has to be scheduled to exit, which a loaded machine can delay.
+    eventually("the child gone with its process", || !running(pid));
     // Its directory stays until the next process makes one.
     assert!(dir.is_dir());
     let _mine = owned_dir().unwrap();

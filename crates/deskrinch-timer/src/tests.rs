@@ -78,11 +78,7 @@ fn deadlines_fire_in_order() {
             sleep
         })
         .collect();
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while order.lock().unwrap().len() < 4 {
-        assert!(Instant::now() < deadline, "not every sleep was woken");
-        thread::sleep(ms(10));
-    }
+    eventually("every sleep woken", || order.lock().unwrap().len() == 4);
     assert_eq!(*order.lock().unwrap(), [0, 10, 20, 30]);
     sleeps.clear();
 }
@@ -205,9 +201,5 @@ fn the_thread_ends_with_the_last_handle_and_future() {
     thread::sleep(ms(30));
     assert!(weak.upgrade().is_some());
     drop(sleep);
-    let deadline = Instant::now() + Duration::from_secs(5);
-    while weak.upgrade().is_some() {
-        assert!(Instant::now() < deadline, "the timer's thread did not end");
-        thread::sleep(ms(5));
-    }
+    eventually("the timer's thread ended", || weak.upgrade().is_none());
 }

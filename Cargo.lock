@@ -910,6 +910,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-config",
  "deskrinch-settings",
+ "deskrinch-test-wait",
  "deskrinch-xdg",
  "rinch",
  "serde",
@@ -1119,6 +1120,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-lifetime",
+ "deskrinch-test-wait",
  "futures-core",
  "rustix",
  "tempfile",
@@ -1144,6 +1146,7 @@ dependencies = [
 name = "deskrinch-test-lifetime"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "rustix",
  "tempfile",
 ]

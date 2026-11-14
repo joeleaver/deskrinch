@@ -16,8 +16,8 @@ mod session {
     use std::fs;
     use std::path::Path;
     use std::process::{Child, Command, Output, Stdio};
-    use std::time::{Duration, Instant};
 
+    use deskrinch_test_wait::wait_for;
     use rustix::process::{Pid, Signal, kill_process, test_kill_process};
 
     /// The compositor to test with.
@@ -88,20 +88,13 @@ mod session {
     }
 
     fn wait_for_file(path: &Path) -> String {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
-            if let Ok(text) = fs::read_to_string(path)
-                && text.ends_with('\n')
-            {
-                return text;
-            }
-            assert!(
-                Instant::now() < deadline,
-                "{} never appeared",
-                path.display()
-            );
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        wait_for(
+            &format!("{} written", path.display()),
+            || match fs::read_to_string(path) {
+                Ok(text) if text.ends_with('\n') => Ok(text),
+                other => Err(other.map_err(|error| error.kind())),
+            },
+        )
     }
 
     #[test]
@@ -351,9 +344,6 @@ mod session {
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn a_killed_xtask_takes_its_session_with_it() {
-        /// How long the session may take to be gone: the supervisor gives
-        /// the group five seconds to end on `SIGTERM` before `SIGKILL`.
-        const GONE_WITHIN: Duration = Duration::from_secs(20);
         let dir = tempfile::tempdir().unwrap();
         let report = dir.path().join("report");
         let script = format!(
@@ -381,7 +371,9 @@ mod session {
         xtask.kill().unwrap();
         xtask.wait().unwrap();
 
-        let deadline = Instant::now() + GONE_WITHIN;
+        // Gone within the patience: the supervisor gives the group five
+        // seconds to end on `SIGTERM` before `SIGKILL`, the floor of how
+        // long it can take.
         let left = || {
             let mut left: Vec<String> = session
                 .iter()
@@ -396,10 +388,10 @@ mod session {
             }
             left
         };
-        while !left().is_empty() {
-            assert!(Instant::now() < deadline, "left running: {:?}", left());
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        wait_for("the session gone", || {
+            let left = left();
+            if left.is_empty() { Ok(()) } else { Err(left) }
+        });
     }
 
     #[test]

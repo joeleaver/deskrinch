@@ -3,10 +3,10 @@
 
 use std::ffi::OsString;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use deskrinch_config::{Section, Settings};
 use deskrinch_settings::panel::{Edge, PanelSettings};
+use deskrinch_test_wait::wait_for;
 use deskrinch_xdg::BaseDirs;
 use serde::{Deserialize, Serialize};
 
@@ -40,14 +40,7 @@ fn write(root: &Path, text: &str) {
 
 /// The change `live` holds for the UI, once one arrives.
 fn next<T: Settings>(live: &LiveSettings<T>) -> T {
-    let deadline = Instant::now() + Duration::from_secs(5);
-    loop {
-        if let Some(settings) = live.pending() {
-            return settings;
-        }
-        assert!(Instant::now() < deadline, "no change delivered");
-        std::thread::sleep(Duration::from_millis(20));
-    }
+    wait_for("a change delivered", || live.pending().ok_or("none yet"))
 }
 
 #[test]
