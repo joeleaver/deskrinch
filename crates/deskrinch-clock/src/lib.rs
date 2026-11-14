@@ -25,8 +25,12 @@
 //! # Waking at the right time
 //!
 //! A clock showing hours and minutes wakes once a minute, at the instant
-//! the minute turns over, and at no other time. It must also show the right
-//! time within a second of each event that breaks a naive timer:
+//! the minute turns over, and at no other time. It also reacts to each
+//! event that breaks a naive timer as soon as the kernel reports it,
+//! without waiting for its next boundary: its thread blocks on the timer,
+//! the zone watch and its stop signal together, and wakes for whichever
+//! the kernel makes ready. How soon that is on a given machine is the
+//! scheduler's doing, not the clock's (a measurement, not a promise):
 //!
 //! | Event | What a monotonic sleep does | What this clock does |
 //! |---|---|---|
@@ -42,8 +46,8 @@
 //! expiry and `TFD_TIMER_CANCEL_ON_SET` (see the `timer` module for the
 //! details, and `timerfd_create(2)`). `CLOCK_REALTIME_ALARM` would also
 //! wake a suspended machine, which a clock on screen has no business doing.
-//! Polling the clock every second would be right within a second but
-//! would wake 60 times as often.
+//! Polling the clock every second would catch each event within a second
+//! of its time slice, but would wake 60 times as often.
 //!
 //! # Formatting
 //!
@@ -76,6 +80,8 @@ mod env;
 mod error;
 mod format;
 mod locale;
+#[cfg(test)]
+mod test_patience;
 #[cfg(test)]
 mod test_zones;
 mod ticker;
