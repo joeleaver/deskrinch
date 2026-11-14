@@ -15,8 +15,11 @@
 //! not an assertion. Every wait has [`PATIENCE`], which only keeps a
 //! broken clock from hanging the run.
 //!
-//! One speed bound stays, because the crate promises it:
-//! [`ZONE_CHANGE_SHOWN_WITHIN`].
+//! That a change of zone is shown at once is claimed where time is the
+//! test's to set: the ticker model ticks with the time the change was
+//! heard (`ticker`'s `a_time_zone_change_ticks_in_the_new_zone`), and the
+//! worker blocks on the zone watch rather than looking for it from time to
+//! time (`clock`'s `a_zone_change_wakes_a_waiting_worker_by_itself`).
 
 // The patience the timer's unit tests share.
 #[path = "../src/test_patience.rs"]
@@ -31,7 +34,7 @@ mod real_clock {
     use std::sync::mpsc::{self, Receiver, RecvTimeoutError, TryRecvError};
     use std::time::Duration;
 
-    use deskrinch_clock::jiff::{SignedDuration, Timestamp, tz::TimeZone};
+    use deskrinch_clock::jiff::{Timestamp, tz::TimeZone};
     use deskrinch_clock::{
         Cause, Clock, ClockError, Environment, Event, Precision, Tick, next_boundary,
     };
@@ -39,13 +42,6 @@ mod real_clock {
     use crate::test_patience::PATIENCE;
 
     const ZONEINFO: &str = "/usr/share/zoneinfo";
-
-    /// How soon after the time zone changes the clock shows it, by the
-    /// time its tick carries: the crate promises the right time within a
-    /// second of a time zone change (its documentation, "Waking at the
-    /// right time"), which it keeps by watching the zone with inotify
-    /// instead of waiting for the next boundary.
-    const ZONE_CHANGE_SHOWN_WITHIN: SignedDuration = SignedDuration::from_secs(1);
 
     fn env(localtime: &Path) -> Environment {
         Environment {
@@ -174,7 +170,7 @@ mod real_clock {
     }
 
     #[test]
-    fn shows_a_time_zone_change_within_a_second() {
+    fn shows_a_time_zone_change() {
         let dir = tempfile::tempdir().unwrap();
         let localtime = dir.path().join("localtime");
         set_zone(&localtime, "Europe/Berlin");
@@ -185,13 +181,15 @@ mod real_clock {
         let changed = Timestamp::now();
         set_zone(&localtime, "Asia/Tokyo");
         let tick = tick_of(&events, Cause::TimeZoneChanged);
+        let received = Timestamp::now();
         assert_eq!(tick.now.time_zone().iana_name(), Some("Asia/Tokyo"));
         assert_eq!(tick.now.offset().seconds(), 9 * 3600);
-        // By the time the tick carries: when the clock read it.
-        let shown = tick.now.timestamp().duration_since(changed);
+        // The time it is: not before the change, nor after it was received.
+        let now = tick.now.timestamp();
+        assert!(now >= changed, "{now} is before the change, {changed}");
         assert!(
-            shown <= ZONE_CHANGE_SHOWN_WITHIN,
-            "showed the change {shown:#} after it, more than {ZONE_CHANGE_SHOWN_WITHIN:#}"
+            now <= received,
+            "{now} is after it was received, {received}"
         );
     }
 
