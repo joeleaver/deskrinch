@@ -18,6 +18,8 @@
 //!   (`org.deskrinch.Launcher`: `Toggle`, `Show`, `Hide`, `ForgetStarts`),
 //!   whose name makes it one per session.
 //! - [`send`]: the other end, what `deskrinch-launcher toggle` uses.
+//! - [`Preparation`]: when the hidden launcher has rinch prepare its window
+//!   for the next show, so that the show pays only for presenting.
 //!
 //! # The process
 //!
@@ -92,10 +94,12 @@
 
 mod client;
 mod model;
+mod prepare;
 mod service;
 mod visibility;
 
 pub use client::{Answer, ClientError, Request, send};
 pub use model::{Action, FREQUENT, Input, Model, ROWS, Row, frequent};
+pub use prepare::{Drawn, Preparation};
 pub use service::{INTERFACE, NAME, PATH, ServeError, Service};
 pub use visibility::Visibility;

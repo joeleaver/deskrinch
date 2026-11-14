@@ -16,6 +16,9 @@
 //!   the launcher is hidden, so that its rows are built before the next
 //!   show, and only at the next hide while it is shown. The first, made
 //!   with the window, is the model's from the start.
+//! - While hidden, the window is prepared for its next show (rinch styles,
+//!   lays out and paints it without presenting) at start and whenever what
+//!   that show draws changes: see [`prepare_while_hidden`].
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -23,13 +26,14 @@ use std::sync::Arc;
 use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{DesktopEntry, Environment};
-use deskrinch_launcher::{Action, Input, Model, Visibility, frequent};
+use deskrinch_icons::Index;
+use deskrinch_launcher::{Action, Drawn, Input, Model, Preparation, Visibility, frequent};
 use deskrinch_settings::general::GeneralSettings;
 use deskrinch_start_record::Record;
-use deskrinch_theme::Theme;
+use deskrinch_theme::{Scheme, Theme};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
-use rinch::windows::{hide_current_window, show_current_window};
+use rinch::windows::{hide_current_window, prepare_current_window, show_current_window};
 
 use crate::start::start;
 use crate::starts::{Held, Starts};
@@ -158,7 +162,39 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
     }
 
     hide_when_left(starter, model);
+    prepare_while_hidden(model, index, applied.scheme, shown);
     content
+}
+
+/// Has rinch prepare the hidden window for its next show whenever what that
+/// show draws changes while the launcher is hidden, the first time
+/// included ([`Preparation`]): the frequent applications (which the
+/// installed applications, the record of starts and `[general]` make), the
+/// icon theme's index, and the look. The request is queued and runs on the
+/// event loop's next turn, after this turn's changes are in the document.
+fn prepare_while_hidden(
+    model: Signal<Model>,
+    index: Signal<Option<Arc<Index>>>,
+    look: Memo<Scheme>,
+    shown: Signal<bool>,
+) {
+    let drawn = Memo::new(move || Drawn {
+        rows: model.with(|m| m.frequent().to_vec()),
+        icons: index.get(),
+        look: look.get(),
+    });
+    let mut preparation = Preparation::default();
+    Effect::new(move || {
+        let drawn = drawn.get();
+        let changes = preparation.wants(drawn, untracked(|| shown.get()));
+        if !changes.is_empty() {
+            tracing::info!(
+                "preparing the hidden window for its next show: {} changed",
+                changes.join(", ")
+            );
+            prepare_current_window();
+        }
+    });
 }
 
 /// Leaving the launcher (another window took the keyboard, or an

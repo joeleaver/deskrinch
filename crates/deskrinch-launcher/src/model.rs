@@ -100,6 +100,13 @@ impl Model {
         &self.rows
     }
 
+    /// The applications an empty query shows from the next
+    /// [`clear`](Self::clear): what a hidden launcher's next show draws.
+    #[must_use]
+    pub fn frequent(&self) -> &[Row] {
+        &self.frequent
+    }
+
     /// The index of the selected row; `None` when there are no rows.
     #[must_use]
     pub fn selected(&self) -> Option<usize> {
