@@ -31,6 +31,7 @@
 //! which makes rinch write a line after every presented frame.
 
 mod callgrind;
+mod environment;
 mod gpu;
 mod granting;
 mod output;
@@ -44,6 +45,7 @@ mod state;
 mod system;
 mod window;
 
+pub(crate) use environment::parse_env;
 pub(crate) use renderer::{Expected, Renderer};
 pub(crate) use show::Summons;
 
@@ -52,6 +54,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use self::environment::{environment, environment_set};
 use self::granting::Grant;
 use self::renderer::check_renderer;
 use self::window::Stimulus;
@@ -116,6 +119,10 @@ name, or as --component PACKAGE names it) is granted what deskrinch-shell
 grants that component, as the desktop grants it; anything else is granted
 nothing. Each run's notes say what was granted, or why nothing.
 
+--env KEY=VALUE (repeatable) sets a variable in the measured program's own
+environment, such as MALLOC_ARENA_MAX=1, so that the program KWin sees and
+grants is the program; the header and each run's notes say what was set.
+
 Each run keeps the program's whole output in a file its notes name. A run
 whose program logged an error fails, printing the lines: a program that
 says it is broken is not measured. --allow-errors measures it anyway, with
@@ -174,6 +181,8 @@ pub(crate) struct Request {
     /// file name is not that package's (a copied binary); under KWin it is
     /// granted what `deskrinch-shell` grants that component.
     pub(crate) component: Option<String>,
+    /// With `--env`: variables set on the measured program, after its own.
+    pub(crate) env: Vec<(String, String)>,
 }
 
 impl Request {
@@ -206,6 +215,7 @@ impl Request {
             window: None,
             allow_errors: false,
             component: None,
+            env: Vec::new(),
         }
     }
 }
@@ -262,6 +272,9 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         })?;
         output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
         run.note("granted", grant.note());
+        if let Some(set) = environment_set(request) {
+            run.note("environment set", set);
+        }
         runs.push(run);
     }
     println!("{}", header(request));
@@ -364,27 +377,6 @@ fn asked(session: &Session, request: &Request, cache: Option<&Path>, args: &[OsS
     command
 }
 
-/// The measured program's environment: rinch's frame lines, wgpu's
-/// adapter line, the renderer and the shader cache asked for.
-fn environment(command: &mut Command, request: &Request, cache: Option<&Path>) {
-    let callers_log = std::env::var("RUST_LOG").ok();
-    command
-        .env("RINCH_PERF", "1")
-        .env(
-            "RUST_LOG",
-            deskrinch_test_component::log::rust_log(callers_log.as_deref()),
-        )
-        .env("NO_COLOR", "1");
-    if let Some(renderer) = request.renderer {
-        command.env("RINCH_RENDERER", renderer.env());
-    }
-    match cache {
-        Some(dir) => command.env("MESA_SHADER_CACHE_DIR", dir),
-        // The session's own cache, empty: never one the caller set.
-        None => command.env_remove("MESA_SHADER_CACHE_DIR"),
-    };
-}
-
 /// What was measured, where and how.
 fn header(request: &Request) -> String {
     let args: Vec<String> = request
@@ -392,7 +384,7 @@ fn header(request: &Request) -> String {
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    format!(
+    let header = format!(
         "Measured: {} {}\n\
          Compositor: {} (nested, headless, {} output(s); {})\n\
          Renderer: {}; shader cache: {}; {}\n\
@@ -433,5 +425,9 @@ fn header(request: &Request) -> String {
             (None, false) => "settle and idle windows as asked",
         },
         system::describe(),
-    )
+    );
+    match environment_set(request) {
+        Some(set) => format!("{header}\nEnvironment set: {set}"),
+        None => header,
+    }
 }
