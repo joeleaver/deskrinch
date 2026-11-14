@@ -282,9 +282,12 @@ fn run_in(
         if suite.ends_the_session() {
             continue;
         }
-        let now = session.output_layout()?;
-        if let Some(said) = leaks::left_changed(&suite.target.name(), &start, &now) {
-            // What runs after it would run on outputs it does not expect.
+        // A failure to list them is the session's, at this suite, not the
+        // run's: the other sessions still run.
+        let now = session.output_layout();
+        if let Some(said) = leaks::after_suite(&suite.target.name(), &start, now) {
+            // What runs after it would run on outputs it does not expect,
+            // or on a compositor that is gone.
             eprintln!("compositor-tests: {said}");
             passed = false;
             break;
