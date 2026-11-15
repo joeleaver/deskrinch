@@ -95,11 +95,13 @@
 mod client;
 mod model;
 mod prepare;
+mod said;
 mod service;
 mod visibility;
 
 pub use client::{Answer, ClientError, Request, send};
 pub use model::{Action, FREQUENT, Input, Model, ROWS, Row, frequent};
 pub use prepare::{Change, Drawn, PREPARING, Preparation, preparing};
+pub use said::{FIELD_HAS_KEYBOARD, QUERY_AT_HIDE, query_at_hide};
 pub use service::{INTERFACE, NAME, PATH, ServeError, Service};
 pub use visibility::Visibility;

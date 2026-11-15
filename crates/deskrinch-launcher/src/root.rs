@@ -10,6 +10,9 @@
 //!   window losing the keyboard while shown.
 //! - Hiding clears the model, so the next show starts with an empty query
 //!   and the frequent applications as its results.
+//! - It says in its log when its field has the keyboard, once per show, and
+//!   how long its query was at each hide, in the words of the library's
+//!   `said` module: see [`say_when_the_field_has_the_keyboard`].
 //! - The frequent applications follow the record of starts, the installed
 //!   applications and `[general]` `remember-starts` (which the record's
 //!   thread follows too). A change to them reaches the model at once while
@@ -29,7 +32,8 @@ use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{CatalogEntry, Environment};
 use deskrinch_icons::Index;
 use deskrinch_launcher::{
-    Action, Drawn, Input, Model, Preparation, Visibility, frequent, preparing,
+    Action, Drawn, FIELD_HAS_KEYBOARD, Input, Model, Preparation, Visibility, frequent, preparing,
+    query_at_hide,
 };
 use deskrinch_settings::general::GeneralSettings;
 use deskrinch_start_record::Record;
@@ -136,6 +140,7 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
     // field (a window made shown too), hiding empties the model. On the
     // desktop `focus()` posts a request the runtime applies on its next
     // turn, once the field is mounted and the window is up.
+    say_when_the_field_has_the_keyboard(field.clone(), shown);
     {
         if made_shown {
             field.focus();
@@ -152,7 +157,11 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
                 field.focus();
             } else {
                 hide_current_window();
-                untracked(|| model.update(Model::clear));
+                untracked(|| {
+                    let chars = model.with(|m| m.query().chars().count());
+                    tracing::info!("{}", query_at_hide(chars));
+                    model.update(Model::clear);
+                });
             }
         });
     }
@@ -186,6 +195,28 @@ fn prepare_while_hidden(
         if !changes.is_empty() {
             tracing::info!("{}", preparing(&changes));
             prepare_current_window();
+        }
+    });
+}
+
+/// Writes [`FIELD_HAS_KEYBOARD`] once per show, when the window has the
+/// keyboard and `field` is the element holding it: a key typed after the
+/// line reaches the field. With the window focused and the field not, it
+/// writes nothing (`said.rs` says why the field is usually focused first).
+fn say_when_the_field_has_the_keyboard(field: NodeHandle, shown: Signal<bool>) {
+    let mut said = false;
+    Effect::new(move || {
+        let focused = window_focused();
+        if !shown.get() {
+            said = false;
+            return;
+        }
+        let field_focused = field
+            .active_element()
+            .is_some_and(|active| active.node_id() == field.node_id());
+        if focused && field_focused && !said {
+            said = true;
+            tracing::info!("{FIELD_HAS_KEYBOARD}");
         }
     });
 }
