@@ -5,17 +5,21 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
 use deskrinch_test_component::{Component, Renderer};
 use deskrinch_test_screen::{Image, Screen};
+use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
-/// How long something that should happen gets: generous, since a loaded
-/// machine runs nested compositors slowly.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(60);
-/// How long the screen must not change to count as still.
-const STILL: Duration = Duration::from_millis(500);
+/// How long the screen must not change to count as still: a stability
+/// window, not a quiet one. It must outlast the longest close animation
+/// KWin runs by default, so that two equal captures this far apart cannot
+/// both fall inside one: the fading popups' fade-out, `animationTime(150) * 4`
+/// = 600 ms at the default animation speed a fresh session has (KWin 6.6,
+/// `effects/fadingpopups/contents/code/main.js`; its window scale effect
+/// takes 200 ms, `effects/scale`). sway and labwc animate nothing.
+const STILL: Duration = Duration::from_millis(600);
 
 /// The panel binary Cargo built.
 const PANEL: &str = env!("CARGO_BIN_EXE_deskrinch-panel");
@@ -75,9 +79,13 @@ impl Panel {
         Self::start_with(Self::command())
     }
 
-    /// The command that starts the panel binary, for a test to add to.
+    /// The command that starts the panel binary, for a test to add to. The
+    /// panel logs its own `info` lines too: where it is placed when it
+    /// moves.
     pub(crate) fn command() -> Command {
-        Command::new(PANEL)
+        let mut command = Command::new(PANEL);
+        command.env("RUST_LOG", "warn,deskrinch_panel=info");
+        command
     }
 
     /// [`start`](Self::start), with `command` (from
@@ -94,6 +102,29 @@ impl Panel {
     /// The panel's last lines of output, for a failure to show.
     pub(crate) fn log(&self) -> String {
         self.component.watch().tail()
+    }
+
+    /// Waits until the panel has said it is placed along `edge`, `height`
+    /// high ([`deskrinch_panel::placed`], written by its main thread when it
+    /// applies the change); `Err` with its last lines when it does not. Any
+    /// line it has written counts, so a test that asks for a placement it
+    /// has had before is answered by the earlier line.
+    pub(crate) fn wait_placed(&self, edge: Edge, height: u32) -> Result<(), String> {
+        let edge = match edge {
+            Edge::Top => deskrinch_settings::panel::Edge::Top,
+            Edge::Bottom => deskrinch_settings::panel::Edge::Bottom,
+        };
+        let height = deskrinch_settings::panel::Height::try_from(height).unwrap();
+        let line = deskrinch_panel::placed(edge, height);
+        let watch = self.component.watch();
+        if watch.wait_for_line(PATIENCE, |said| said.contains(&line)) {
+            Ok(())
+        } else {
+            Err(format!(
+                "it did not say {line:?}; its last lines:\n{}",
+                watch.tail()
+            ))
+        }
     }
 
     /// Waits until the panel has reported a mistake in its settings whose
@@ -166,9 +197,10 @@ impl Pictures {
     /// [`STILL`] apart. What the last test showed may still be going: KWin
     /// fades a closed window or panel out, the more slowly the busier the
     /// machine is, and a picture taken during the fade would count the
-    /// whole fade as the panel's.
+    /// whole fade as the panel's. A window, since nothing reports a fade's
+    /// end: two pictures alike are the only sign of it.
     pub(crate) fn still(screen: &mut Screen) -> Self {
-        let deadline = Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         let mut last = Self::take(screen);
         loop {
             std::thread::sleep(STILL);
@@ -176,7 +208,10 @@ impl Pictures {
             if now == last {
                 return now;
             }
-            assert!(Instant::now() < deadline, "the screen did not keep still");
+            assert!(
+                !deadline.passed(),
+                "waited {PATIENCE:?} for the screen to keep still"
+            );
             last = now;
         }
     }
@@ -246,26 +281,20 @@ fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
 ///
 /// When that is not so within [`PATIENCE`], saying how it is instead.
 pub(crate) fn wait_band(screen: &mut Screen, before: &Pictures, band: Band) -> (String, Pictures) {
-    let deadline = Instant::now() + PATIENCE;
-    loop {
+    wait_for(&format!("the panel to be at {band:?}"), || {
         let now = Pictures::still(screen);
-        let why = wrong(before, &now, band);
-        let Some(why) = why else {
-            let shown = before
-                .0
-                .iter()
-                .zip(&now.0)
-                .find(|((_, was), (_, is))| was != is)
-                .map(|((name, _), _)| name.clone())
-                .unwrap();
-            return (shown, now);
-        };
-        assert!(
-            Instant::now() < deadline,
-            "the panel is not at {band:?}: {why}"
-        );
-        std::thread::sleep(Duration::from_millis(100));
-    }
+        if let Some(why) = wrong(before, &now, band) {
+            return Err(why);
+        }
+        let shown = before
+            .0
+            .iter()
+            .zip(&now.0)
+            .find(|((_, was), (_, is))| was != is)
+            .map(|((name, _), _)| name.clone())
+            .unwrap();
+        Ok((shown, now))
+    })
 }
 
 /// The whole scale of the output named `name`, as a client learns it.

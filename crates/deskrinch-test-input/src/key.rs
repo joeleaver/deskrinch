@@ -25,6 +25,9 @@ impl Key {
     pub const RIGHT: Self = Self(106);
     /// Down.
     pub const DOWN: Self = Self(108);
+    /// F12: no test types it, so a session may bind it to a compositor's
+    /// own action (labwc's sessions switch to the next workspace with it).
+    pub const F12: Self = Self(88);
     /// The left Control.
     pub const LEFT_CTRL: Self = Self(29);
     /// The left Shift.
@@ -106,5 +109,19 @@ mod tests {
         for c in ['A', '!', 'é', '\n'] {
             assert_eq!(Key::typing(c), None, "{c:?}");
         }
+    }
+
+    #[test]
+    fn named_keys_are_their_evdev_codes() {
+        // KEY_ESC, KEY_ENTER, KEY_F12 in linux/input-event-codes.h.
+        assert_eq!(Key::ESCAPE.code(), 1);
+        assert_eq!(Key::ENTER.code(), 28);
+        assert_eq!(Key::F12.code(), 88);
+        assert!(
+            (b'a'..=b'z')
+                .chain(b'0'..=b'9')
+                .all(|c| Key::typing(char::from(c)) != Some(Key::F12)),
+            "nothing typed is F12"
+        );
     }
 }

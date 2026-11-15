@@ -1,7 +1,7 @@
 //! The measured program's own output: kept, whole, in a file for every run
 //! (named in the run's notes), and read for errors. A program that logged
-//! at error level said it is broken (a taskbar that could not reach the
-//! window list, say), and a measurement of it is not one: the run fails,
+//! at error level said it is broken (it could not reach something it
+//! needs, say), and a measurement of it is not one: the run fails,
 //! with the lines, unless `--allow-errors`, which keeps them in the notes.
 
 use std::fs;

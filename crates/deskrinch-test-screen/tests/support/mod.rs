@@ -1,14 +1,9 @@
 //! What the compositor tests share: the picture they put on screen, and
 //! comparing a capture with it.
 
-use std::time::Duration;
-
 use deskrinch_test_client::{Paint, TestClient, TestWindow};
 use deskrinch_test_screen::{CaptureError, Image, Rgba, Screen};
-
-/// How long a test waits for the screen to show a window: generous, since
-/// a loaded machine runs nested compositors slowly.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(60);
+use deskrinch_test_wait::PATIENCE;
 
 /// Four colours no compositor draws by itself: a picture whose orientation,
 /// size and position the capture must all get right.

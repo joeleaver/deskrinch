@@ -15,9 +15,9 @@ use std::time::{Duration, Instant};
 use deskrinch_test_client::{Compositor, TestWindow};
 use deskrinch_test_input::Button;
 use deskrinch_test_screen::Image;
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_window_management::{Action, WindowManagement};
 
-use crate::support::PATIENCE;
 use crate::taskbar::{App, Bar, GREEN, MAGENTA, RED, window_of};
 
 /// Opens a window of `app` and makes it the active one, through a

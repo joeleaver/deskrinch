@@ -10,16 +10,11 @@ use std::time::Duration;
 use deskrinch_status_notifier::{
     Bus, Config, Event, Host, Item, ItemId, Limits, Menu, MenuFailure,
 };
+use deskrinch_test_wait::{Deadline, PATIENCE, QUIET, gathered, quiet_for, recv};
 use futures_core::Stream as _;
 use zbus::message::Type;
 use zbus::wire::OwnedVariant;
 use zbus::{Connection, MatchRule, Message, MessageStream};
-
-/// Long enough for an event that should not come to have arrived.
-pub(crate) const QUIET: Duration = Duration::from_millis(300);
-
-/// How long a test waits for something that should happen.
-pub(crate) const PATIENCE: Duration = Duration::from_secs(10);
 
 /// How long a test that a stalled host would hang ([`within`]) may take:
 /// several waits of [`PATIENCE`] in a row.
@@ -76,9 +71,7 @@ pub(crate) struct Events(Receiver<Event>);
 
 impl Events {
     pub(crate) fn next(&self) -> Event {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("the host reported no event in time")
+        recv("an event from the host", &self.0)
     }
 
     pub(crate) fn added(&self) -> Arc<Item> {
@@ -116,15 +109,24 @@ impl Events {
         }
     }
 
+    /// That no event arrives for [`QUIET`]; see [`quiet_for`](Self::quiet_for).
+    #[track_caller]
     pub(crate) fn quiet(&self) {
         self.quiet_for(QUIET);
     }
 
     /// That no event arrives for `time`.
+    ///
+    /// A window, not a sentinel: no later event of the host's is sure to
+    /// come after what a use of this watches for. Whatever the host could
+    /// wrongly report comes of a read, and the tracker's reads finish in no
+    /// order it states (they run in a `FuturesUnordered`); and the tracker
+    /// takes owner changes, item signals and finished reads by turns
+    /// (`poll_sources`), in no order it states either. A use with another
+    /// reason says so where it is.
+    #[track_caller]
     pub(crate) fn quiet_for(&self, time: Duration) {
-        if let Ok(event) = self.0.recv_timeout(time) {
-            panic!("unexpected event {event:?}");
-        }
+        quiet_for("no event", &self.0, time);
     }
 }
 
@@ -229,9 +231,7 @@ impl WatcherSignals {
     }
 
     pub(crate) fn next(&self) -> WatcherSignal {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("no watcher signal arrived in time")
+        recv("a watcher signal", &self.0)
     }
 }
 
@@ -260,9 +260,7 @@ impl ListChanges {
     }
 
     pub(crate) fn next(&self) -> Vec<String> {
-        self.0
-            .recv_timeout(PATIENCE)
-            .expect("no change of the item list was announced in time")
+        recv("a change of the item list", &self.0)
     }
 }
 
@@ -348,15 +346,17 @@ impl MenuMatches {
                 live.remove(at);
             }
         };
-        let deadline = std::time::Instant::now() + PATIENCE;
+        let deadline = Deadline::patience();
         while !settled(&live) {
-            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let left = deadline.left();
             match self.calls.recv_timeout(left) {
                 Ok(call) => apply(&mut live, call),
                 Err(_) => break,
             }
         }
-        while let Ok(call) = self.calls.recv_timeout(QUIET) {
+        // A window: this gathers an open-ended set, which has no last
+        // member to wait for.
+        for call in gathered("match rule calls", &self.calls, QUIET) {
             apply(&mut live, call);
         }
         live.clone()
@@ -393,9 +393,9 @@ impl ReadDestinations {
                 Err(_) => return seen,
             }
         }
-        while let Ok(destination) = self.0.recv_timeout(QUIET) {
-            seen.push(destination);
-        }
+        // A window: this gathers an open-ended set, which has no last
+        // member to wait for.
+        seen.extend(gathered("read destinations", &self.0, QUIET));
         seen
     }
 }

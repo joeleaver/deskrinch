@@ -13,8 +13,9 @@
 //!   named in `DBUS_SESSION_BUS_ADDRESS` for the compositor and every client.
 //! - Ready when the compositor's Wayland socket is open and it owns the
 //!   D-Bus names it registers at startup ([`Compositor::bus_names`]: KWin's
-//!   services; none for sway and labwc), each waited for within
-//!   [`STARTUP`].
+//!   services; none for sway and labwc), each waited for within the tests'
+//!   patience (`deskrinch_test_wait::PATIENCE`): a compositor that exits
+//!   meanwhile fails the start at once, so only a hung one waits it out.
 //! - For KWin, also: `CI` removed from KWin's environment (KWin's virtual
 //!   backend takes it to mean KWin's own CI and then looks only at
 //!   `/dev/dri/card1`; GitHub's runners set it), and KWin's own statement of
@@ -51,7 +52,9 @@ mod compositing;
 mod compositor;
 mod display;
 mod ending;
+mod gpu;
 pub(crate) mod interrupt;
+mod layout;
 mod leftovers;
 mod outputs;
 mod render_nodes;
@@ -65,12 +68,13 @@ use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ExitStatus, Stdio};
+use std::process::{Child, Command, ExitStatus, Stdio};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_test_dbus::session::isolate;
 use deskrinch_test_dbus::{NameError, PrivateBus};
+use deskrinch_test_wait::{Deadline, PATIENCE};
 use rustix::process::Pid;
 use tempfile::TempDir;
 
@@ -79,6 +83,7 @@ use self::ending::{end_group, kill_leftovers};
 pub(crate) use self::clients::ClientId;
 pub(crate) use self::compositor::Compositor;
 pub(crate) use self::display::{Binding, Display, Home, Options};
+pub(crate) use self::gpu::{Gpu, VARIABLE as GPU_VARIABLE};
 pub(crate) use self::leftovers::Leftover;
 pub(crate) use self::outputs::Outputs;
 pub(crate) use self::render_nodes::RenderNodes;
@@ -88,6 +93,8 @@ pub(crate) use self::scaling::Scaling;
 use self::supervisor::Supervisor;
 #[cfg(test)]
 pub(crate) use self::supervisor::fake_root;
+#[cfg(test)]
+mod tests;
 pub(crate) use self::supervisor::{
     SUBCOMMAND as SUPERVISOR, check as check_root, run as supervise, supervised,
 };
@@ -105,10 +112,10 @@ const ROOT_PARENT: &str = "/tmp";
 /// What a session's root is named, before tempfile's random part.
 const ROOT_PREFIX: &str = "deskrinch-session-";
 
-/// How long a compositor has to open its socket.
-const STARTUP: Duration = Duration::from_secs(20);
-/// How often to look again while waiting.
-const POLL: Duration = Duration::from_millis(50);
+/// The slice of a wait between two looks at whether a process still runs
+/// (and at an interrupt): a wait that also watches a process looks at it
+/// this often. One home for xtask's session and desktop.
+pub(crate) const POLL: Duration = Duration::from_millis(50);
 
 /// A running nested compositor.
 #[derive(Debug)]
@@ -127,6 +134,8 @@ pub(crate) struct Session {
     group: Pid,
     socket: String,
     current_desktop: Option<OsString>,
+    /// Whether its clients may use the machine's GPU; they are told.
+    gpu: Gpu,
     keep: bool,
     ended: bool,
     /// Ends the session should xtask die without ending it; released once
@@ -136,16 +145,21 @@ pub(crate) struct Session {
 
 impl Session {
     /// Starts `compositor` rendering with `renderer`, with `outputs`, in a
-    /// new isolated, headless session ([`Options::headless`]), after
-    /// `prepare` has set up the session's data directory (`XDG_DATA_HOME`).
+    /// new isolated, headless session ([`Options::headless`]) whose clients
+    /// may use the GPU as `gpu` says, after `prepare` has set up the
+    /// session's data directory (`XDG_DATA_HOME`).
     pub(crate) fn start(
         compositor: Compositor,
         renderer: CompositorRenderer,
         outputs: Outputs,
         current_desktop: Option<&OsStr>,
+        gpu: Gpu,
         prepare: impl FnOnce(&Path) -> Result<(), Error>,
     ) -> Result<Self, Error> {
-        let options = Options::headless(compositor, renderer, outputs, current_desktop);
+        let options = Options {
+            gpu,
+            ..Options::headless(compositor, renderer, outputs, current_desktop)
+        };
         Self::start_with(&options, prepare)
     }
 
@@ -163,6 +177,9 @@ impl Session {
             ref display,
             ref home,
             bindings,
+            gpu,
+            // labwc reads it from `options`.
+            workspace_tests_fixture: _,
         } = *options;
         interrupt::install()?;
         interrupt::check()?;
@@ -194,14 +211,8 @@ impl Session {
             source,
         })?;
 
-        let mut command = compositor.command(&root, options)?;
-        isolate(&mut command, &root);
-        compositor.show_on(&mut command, display);
-        if let Some(desktop) = current_desktop {
-            command.env(CURRENT_DESKTOP, desktop);
-        }
+        let mut command = compositor_command(options, &root, bus.address())?;
         command
-            .env("DBUS_SESSION_BUS_ADDRESS", bus.address())
             .stdin(Stdio::null())
             .stdout(log)
             .stderr(log_err)
@@ -227,6 +238,7 @@ impl Session {
             group,
             socket: String::new(),
             current_desktop: current_desktop.map(ToOwned::to_owned),
+            gpu,
             keep: false,
             ended: false,
             supervisor: Some(supervisor),
@@ -333,7 +345,7 @@ impl Session {
     /// Waits for the compositor's Wayland socket and returns its name.
     fn wait_for_socket(&mut self) -> Result<String, Error> {
         let runtime = self.root.join("run");
-        let deadline = Instant::now() + STARTUP;
+        let deadline = Deadline::patience();
         loop {
             interrupt::check()?;
             if let Some(socket) = compositor::wayland_socket(&runtime) {
@@ -346,7 +358,7 @@ impl Session {
                     log: self.log(),
                 });
             }
-            if Instant::now() >= deadline {
+            if deadline.passed() {
                 return Err(Error::CompositorTimedOut {
                     compositor: self.compositor.name(),
                     log: self.log(),
@@ -356,22 +368,36 @@ impl Session {
         }
     }
 
-    /// Waits until the compositor owns each of its [`Compositor::bus_names`].
-    fn wait_for_bus_names(&self) -> Result<(), Error> {
+    /// Waits until the compositor owns each of its [`Compositor::bus_names`];
+    /// a compositor that exits meanwhile fails at once.
+    fn wait_for_bus_names(&mut self) -> Result<(), Error> {
         for &name in self.compositor.bus_names() {
-            self.bus
-                .wait_for_name(name, STARTUP)
-                .map_err(|source| Error::CompositorNotReady {
-                    compositor: self.compositor.name(),
-                    name,
-                    hint: self.compositor.missing_name_hint(name),
-                    source: Box::new(source),
-                    log: self.log(),
-                })?;
-            interrupt::check()?;
+            let deadline = Deadline::patience();
+            loop {
+                interrupt::check()?;
+                let waited = self.bus.wait_for_name(name, POLL);
+                let Err(source) = waited else { break };
+                if let Ok(Some(status)) = self.child.try_wait() {
+                    return Err(Error::CompositorExited {
+                        compositor: self.compositor.name(),
+                        status,
+                        log: self.log(),
+                    });
+                }
+                if deadline.passed() {
+                    return Err(Error::CompositorNotReady {
+                        compositor: self.compositor.name(),
+                        name,
+                        hint: self.compositor.missing_name_hint(name),
+                        source: Box::new(source),
+                        log: self.log(),
+                    });
+                }
+            }
         }
         if self.compositor.checks_opengl(&self.display) {
-            self.check_kwin_compositing(STARTUP)?;
+            // KWin owns its names by now: a dead one answers at once.
+            self.check_kwin_compositing(PATIENCE)?;
         }
         Ok(())
     }
@@ -385,6 +411,22 @@ impl Session {
     pub(crate) fn bus_address(&self) -> &str {
         self.bus.address()
     }
+}
+
+/// The compositor's command for the session under `root`, as `options`
+/// say: the compositor's own, isolated (the session's `HOME` and XDG
+/// directories), shown on the display it is given, on the session's bus at
+/// `bus`.
+fn compositor_command(options: &Options<'_>, root: &Path, bus: &str) -> Result<Command, Error> {
+    let compositor = options.compositor;
+    let mut command = compositor.command(root, options)?;
+    isolate(&mut command, root);
+    compositor.show_on(&mut command, &options.display);
+    if let Some(desktop) = options.current_desktop {
+        command.env(CURRENT_DESKTOP, desktop);
+    }
+    command.env("DBUS_SESSION_BUS_ADDRESS", bus);
+    Ok(command)
 }
 
 impl Drop for Session {

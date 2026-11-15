@@ -3,6 +3,14 @@
 //! The manager creates a handle per toplevel; the handle reports properties
 //! and then `done`, which marks a consistent state, so changes are staged
 //! until `done`. `closed` ends the toplevel.
+//!
+//! # Releasing
+//!
+//! Every toplevel's handle is destroyed (`destroy`), then the manager is
+//! told to `stop`, after which it takes no request. The compositor may
+//! still announce toplevels until it sends `finished`, after which it
+//! destroys the manager: those are destroyed as they arrive. The state is
+//! dropped once `finished` has come.
 
 use wayland_client::globals::GlobalList;
 use wayland_client::protocol::wl_seat::WlSeat;
@@ -14,7 +22,7 @@ use wayland_protocols_wlr::foreign_toplevel::v1::client::zwlr_foreign_toplevel_m
     self, ZwlrForeignToplevelManagerV1,
 };
 
-use super::{State, WindowHandle};
+use super::{Backend, State, WindowHandle};
 use crate::capabilities::{Action, Actions, Capabilities, Protocol};
 use crate::error::{ActionError, ConnectError, EndReason};
 use crate::model::Change;
@@ -111,7 +119,11 @@ impl Dispatch<ZwlrForeignToplevelManagerV1, ()> for State {
                     state.track(id, WindowHandle::Wlr(toplevel));
                 }
             }
-            zwlr_foreign_toplevel_manager_v1::Event::Finished => state.end(EndReason::Finished),
+            zwlr_foreign_toplevel_manager_v1::Event::Finished => match &mut state.backend {
+                // The `stop` a release sent is answered: nothing more comes.
+                Backend::Released(remaining) => remaining.finished(),
+                _ => state.end(EndReason::Finished),
+            },
             _ => {}
         }
     }

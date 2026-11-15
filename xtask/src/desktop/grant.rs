@@ -1,6 +1,6 @@
 //! The restricted interfaces the shell's components use, granted to them
-//! under KWin before they start ([`crate::grant`]). Without them, the
-//! panel's taskbar would find no window list and stay empty.
+//! under KWin before they start ([`crate::grant`]). A component that uses
+//! nothing restricted is granted nothing, and no file is written for it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -39,10 +39,14 @@ mod tests {
             })
             .collect();
         install(&binaries, data.path()).unwrap();
-        let installed = data
-            .path()
-            .join("applications/org.deskrinch.shell.deskrinch-panel.desktop");
-        assert!(installed.is_file());
+        // One file for each component that uses something restricted.
+        let installed =
+            std::fs::read_dir(data.path().join("applications")).map_or(0, Iterator::count);
+        let restricted = COMPONENTS
+            .iter()
+            .filter(|component| !component.wayland_grants.is_empty())
+            .count();
+        assert_eq!(installed, restricted);
         assert!(install(&BTreeMap::new(), data.path()).is_err());
     }
 }

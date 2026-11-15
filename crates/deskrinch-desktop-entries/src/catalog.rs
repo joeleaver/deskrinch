@@ -4,6 +4,7 @@
 use std::collections::BTreeMap;
 use std::collections::btree_map::Entry as MapEntry;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::entry::{DesktopEntry, DesktopId};
 use crate::env::Environment;
@@ -29,7 +30,8 @@ pub enum Visibility {
 }
 
 /// An entry in the catalog, with its visibility in the environment it was
-/// scanned in.
+/// scanned in. Immutable once built, and shared (`Arc`) by everything that
+/// holds the catalog: a change replaces an entry, never edits it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CatalogEntry {
     /// The entry.
@@ -75,7 +77,7 @@ pub struct CatalogEntry {
 /// `TryExec`; [`crate::Watcher::refresh`] rescans on demand.
 #[derive(Debug, Clone, Default)]
 pub struct Catalog {
-    entries: BTreeMap<DesktopId, CatalogEntry>,
+    entries: BTreeMap<DesktopId, Arc<CatalogEntry>>,
     problems: Vec<Problem>,
 }
 
@@ -130,7 +132,7 @@ impl Catalog {
             .filter_map(|(id, entry)| {
                 let entry = entry?;
                 let visibility = visibility(&entry, &env.current_desktops, &program_exists);
-                Some((id, CatalogEntry { entry, visibility }))
+                Some((id, Arc::new(CatalogEntry { entry, visibility })))
             })
             .collect();
         Self { entries, problems }
@@ -138,12 +140,12 @@ impl Catalog {
 
     /// The entry with this ID.
     #[must_use]
-    pub fn get(&self, id: &DesktopId) -> Option<&CatalogEntry> {
+    pub fn get(&self, id: &DesktopId) -> Option<&Arc<CatalogEntry>> {
         self.entries.get(id)
     }
 
     /// Every entry, shown or not, in ID order.
-    pub fn iter(&self) -> impl Iterator<Item = &CatalogEntry> {
+    pub fn iter(&self) -> impl Iterator<Item = &Arc<CatalogEntry>> {
         self.entries.values()
     }
 
@@ -175,8 +177,23 @@ impl Catalog {
         &self.problems
     }
 
-    pub(crate) fn entries(&self) -> &BTreeMap<DesktopId, CatalogEntry> {
+    pub(crate) fn entries(&self) -> &BTreeMap<DesktopId, Arc<CatalogEntry>> {
         &self.entries
+    }
+
+    /// This catalog, holding `older`'s `Arc` in place of every entry equal
+    /// to the one `older` has for its ID: after a rescan, an entry that did
+    /// not change stays the one allocation everything already shares.
+    #[must_use]
+    pub(crate) fn reusing(mut self, older: &Catalog) -> Self {
+        for (id, entry) in &mut self.entries {
+            if let Some(old) = older.entries.get(id)
+                && old == entry
+            {
+                *entry = Arc::clone(old);
+            }
+        }
+        self
     }
 }
 
@@ -240,7 +257,7 @@ mod tests {
         let text = format!("[Desktop Entry]\nType=Application\nName={origin}\nExec=x\n{extra}");
         let id = DesktopId::new(id).unwrap();
         let path = format!("/{origin}/{id}").into();
-        DesktopEntry::parse(id, path, &text).unwrap()
+        DesktopEntry::parse(id, path, &text, &[]).unwrap()
     }
 
     fn env(desktops: &[&str]) -> Environment {
@@ -253,8 +270,42 @@ mod tests {
     fn names(catalog: &Catalog) -> Vec<(String, String)> {
         catalog
             .iter()
-            .map(|e| (e.entry.id.to_string(), e.entry.name.default.clone()))
+            .map(|e| (e.entry.id.to_string(), e.entry.name.value.clone()))
             .collect()
+    }
+
+    fn built(entries: impl IntoIterator<Item = DesktopEntry>) -> Catalog {
+        Catalog::build(entries.into_iter().map(Ok), &env(&[]), |_| true)
+    }
+
+    #[test]
+    fn a_rebuild_keeps_the_unchanged_entries_shared_and_replaces_the_changed_one() {
+        let older = built([
+            entry("a.desktop", "home", ""),
+            entry("b.desktop", "home", ""),
+            entry("c.desktop", "home", ""),
+        ]);
+        let newer = built([
+            entry("a.desktop", "home", ""),
+            entry("b.desktop", "home", "Comment=changed\n"),
+            entry("c.desktop", "home", ""),
+        ])
+        .reusing(&older);
+        let shared = |id: &str| {
+            let id = DesktopId::new(id).unwrap();
+            Arc::ptr_eq(older.get(&id).unwrap(), newer.get(&id).unwrap())
+        };
+        assert!(shared("a.desktop") && shared("c.desktop"));
+        assert!(!shared("b.desktop"));
+        let events = crate::watch::diff(&older, &newer);
+        assert_eq!(events.len(), 1, "{events:?}");
+        let crate::watch::Event::Changed(changed) = &events[0] else {
+            panic!("{events:?}");
+        };
+        assert!(Arc::ptr_eq(
+            changed,
+            newer.get(&DesktopId::new("b.desktop").unwrap()).unwrap()
+        ));
     }
 
     #[test]
@@ -347,7 +398,7 @@ mod tests {
     fn raw(id: &str, body: &str) -> DesktopEntry {
         let text = format!("[Desktop Entry]\nType=Application\nName=N\n{body}");
         let path = format!("/s/{id}").into();
-        DesktopEntry::parse(DesktopId::new(id).unwrap(), path, &text).unwrap()
+        DesktopEntry::parse(DesktopId::new(id).unwrap(), path, &text, &[]).unwrap()
     }
 
     #[test]

@@ -12,21 +12,26 @@
 mod support;
 
 #[cfg(test)]
+mod edges;
+
+#[cfg(test)]
+mod push;
+
+#[cfg(test)]
 mod desktop {
     use std::fs::{self, File};
     use std::path::Path;
     use std::process::Stdio;
-    use std::thread;
-    use std::time::{Duration, Instant};
 
     use deskrinch_shell::LAUNCHER_CHORD;
     use deskrinch_test_input::{Input, Key};
+    use deskrinch_test_wait::{eventually, wait_for};
     use deskrinch_window_management::{Action, WindowManagement, WindowState};
     use rustix::process::Signal;
 
     use super::support::{
-        PATIENCE, TestProfile, desktop_command, environment, files, key, modifier_key,
-        outer_windows, start, start_logging, until,
+        TestProfile, desktop_command, environment, files, key, modifier_key, outer_windows, start,
+        start_logging,
     };
 
     #[test]
@@ -54,10 +59,14 @@ mod desktop {
         // Under KWin only what the shell grants the panel lets it see the
         // window list; sway and labwc restrict none.
         let mut desktop = start_logging("deskrinch_panel=info");
-        until(
-            || desktop.said().contains("following the windows through"),
-            "the panel to follow the windows",
-        );
+        wait_for("the panel to follow the windows", || {
+            let said = desktop.said();
+            if said.contains("following the windows through") {
+                Ok(())
+            } else {
+                Err(said)
+            }
+        });
         let said = desktop.said();
         assert!(!said.contains("the taskbar shows none"), "{said}");
         desktop.signal(Signal::TERM);
@@ -80,19 +89,17 @@ mod desktop {
         // The chord goes to the window with the keyboard focus: typed before
         // the outer compositor says the desktop's window has it, it would go
         // nowhere.
-        let deadline = Instant::now() + PATIENCE;
-        while !windows
-            .windows()
-            .iter()
-            .any(|shown| shown.id == window && shown.state.contains(WindowState::ACTIVE))
-        {
-            assert!(
-                Instant::now() < deadline,
-                "the desktop's window never had the keyboard focus: {}",
-                desktop.state(&windows)
-            );
-            thread::sleep(Duration::from_millis(100));
-        }
+        wait_for("the desktop's window to have the keyboard focus", || {
+            let focused = windows
+                .windows()
+                .iter()
+                .any(|shown| shown.id == window && shown.state.contains(WindowState::ACTIVE));
+            if focused {
+                Ok(())
+            } else {
+                Err(desktop.state(&windows))
+            }
+        });
         let modifiers: Vec<Key> = LAUNCHER_CHORD
             .modifiers
             .iter()
@@ -102,15 +109,13 @@ mod desktop {
         input
             .press_with(&modifiers, key(LAUNCHER_CHORD.key))
             .unwrap();
-        let deadline = Instant::now() + PATIENCE;
-        while !desktop.launcher_shown() {
-            assert!(
-                Instant::now() < deadline,
-                "the chord did not show the launcher: {}",
-                desktop.state(&windows)
-            );
-            thread::sleep(Duration::from_millis(100));
-        }
+        wait_for("the chord to show the launcher", || {
+            if desktop.launcher_shown() {
+                Ok(())
+            } else {
+                Err(desktop.state(&windows))
+            }
+        });
 
         desktop.signal(Signal::TERM);
         let status = desktop.wait();
@@ -198,10 +203,9 @@ mod desktop {
         let seen = dir.path().join("seen");
         let script = format!("cat \"$HOME/mark\" > '{}'; sleep 600", seen.display());
         let mut second = start(&options, &["sh", "-c", &script]);
-        until(
-            || fs::read_to_string(&seen).is_ok_and(|text| text.ends_with('\n')),
-            "the second desktop to read its home",
-        );
+        eventually("the second desktop to read its home", || {
+            fs::read_to_string(&seen).is_ok_and(|text| text.ends_with('\n'))
+        });
         assert_eq!(fs::read_to_string(&seen).unwrap(), "kept\n");
 
         let stderr = dir.path().join("third");
@@ -237,7 +241,7 @@ mod desktop {
             written.display()
         );
         let mut killed = start(&options, &["sh", "-c", &script]);
-        until(|| written.exists(), "the desktop to write its profile");
+        eventually("the desktop to write its profile", || written.exists());
         let before = files(&profile.dir);
         killed.signal(Signal::KILL);
         assert_eq!(killed.wait().code(), None, "killed");
@@ -246,8 +250,15 @@ mod desktop {
         // The supervisor removed the session's links, not what they lead to:
         // every file is still there (a compositor may still rewrite its own
         // configuration as it ends), and what the command wrote is intact.
+        // The caches aside, `cache` and the home's `.cache`: what a program
+        // writes there it may rename or drop at any time (a shader cache's
+        // temporary file, renamed as the program was killed), and losing it
+        // loses nothing. KWin's Mesa writes its shader cache in the home's
+        // (KWin runs in secure mode for its file capability, where Mesa
+        // ignores `XDG_CACHE_HOME`; see `deskrinch_test_dbus::session`).
         let after = files(&profile.dir);
-        for path in before.keys() {
+        let cached = |path: &Path| path.starts_with("cache") || path.starts_with("home/.cache");
+        for path in before.keys().filter(|path| !cached(path)) {
             assert!(after.contains_key(path), "{} is gone", path.display());
         }
         assert_eq!(after[Path::new("home/mark")], b"kept\n");

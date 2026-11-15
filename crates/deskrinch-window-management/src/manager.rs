@@ -63,6 +63,7 @@ pub struct WindowManager {
 pub fn connect(subscriber: impl Fn(Event) + Send + 'static) -> Result<WindowManager, ConnectError> {
     let client = Client::connect().map_err(|error| match error {
         ClientError::Connect(error) => ConnectError::Connect(error),
+        ClientError::Globals(error) => ConnectError::Globals(error),
         ClientError::Thread(error) => ConnectError::Thread(error),
     })?;
     connect_with(&client, subscriber)

@@ -98,7 +98,6 @@ fn main() {
         theme,
         installed: Installed::start(&env),
         icons: Icons::start(SearchPath::new(&base_dirs)),
-        locales: env.locales,
     };
     App::new(move |scope| panel::panel(scope, parts))
         .window_props(window)

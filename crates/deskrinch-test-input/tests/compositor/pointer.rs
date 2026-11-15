@@ -105,6 +105,22 @@ fn the_pointer_reaches_the_window_at_the_point_on_every_output() {
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn a_nudge_moves_the_pointer_by_as_much_from_where_it_is() {
+    Compositor::current();
+    let mut input = Input::connect().unwrap();
+    let client = TestClient::connect().unwrap();
+    let windows = fullscreen_on_each(&client);
+    let (name, window, _) = &windows[0];
+    reach(&mut input, window, name, (100.0, 80.0));
+    let mark = window.pointer_mark();
+    input.nudge_pointer(12.0, 7.0).unwrap();
+    window
+        .wait_pointer_at_since(mark, 112.0, 87.0)
+        .unwrap_or_else(|error| panic!("{error}: {:?}", window.pointer_events()));
+}
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn a_click_presses_and_releases_the_button_where_the_pointer_is() {
     Compositor::current();
     let mut input = Input::connect().unwrap();

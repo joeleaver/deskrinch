@@ -3,12 +3,12 @@
 use std::fmt;
 use std::path::{Component, Path, PathBuf};
 
-use deskrinch_keyfile::{Group, KeyFile};
-use deskrinch_keyfile::{Localized, LocalizedList, LocalizedString};
+use deskrinch_keyfile::{Group, KeyFile, Locale, Localized, LocalizedString};
 
 use crate::deviation::Deviation;
 use crate::error::ParseError;
 use crate::icon::{self, Icon};
+use crate::translated::{self, Translated};
 
 /// The group every desktop entry file starts with.
 const MAIN_GROUP: &str = "Desktop Entry";
@@ -69,7 +69,8 @@ impl fmt::Display for DesktopId {
     }
 }
 
-/// A parsed desktop entry.
+/// A parsed desktop entry, its translated keys resolved for the locales it
+/// was parsed for ([`DesktopEntry::parse`]).
 ///
 /// `Icon` is read as an [`Icon`]: a name or an absolute path. Looking it up
 /// in an icon theme is not this crate's job.
@@ -83,14 +84,14 @@ pub struct DesktopEntry {
     /// The entry's type and the keys only that type has.
     pub kind: EntryKind,
     /// `Name`; `Unnamed` when the file has none.
-    pub name: LocalizedString,
+    pub name: Translated<String>,
     /// `GenericName`, such as "Web Browser".
-    pub generic_name: Option<LocalizedString>,
+    pub generic_name: Option<Translated<String>>,
     /// `Comment`, a tooltip.
-    pub comment: Option<LocalizedString>,
+    pub comment: Option<String>,
     /// `Icon`: a name or an absolute path, as GLib reads it (see
-    /// [`Icon`]); unresolved.
-    pub icon: Option<Localized<Icon>>,
+    /// [`Icon`]); not looked up.
+    pub icon: Option<Icon>,
     /// `Hidden`: the entry is deleted, and hides entries of the same ID
     /// further down the search path.
     pub hidden: bool,
@@ -104,9 +105,11 @@ pub struct DesktopEntry {
     /// `Categories`.
     pub categories: Vec<String>,
     /// `Keywords`, for searching.
-    pub keywords: Option<LocalizedList>,
-    /// How the file deviates from the specification, in the order found.
-    /// Empty for a conforming file.
+    pub keywords: Option<Translated<Vec<String>>>,
+    /// How what was read of the file for the session's locales deviates from
+    /// the specification, in the order found: the translations for other
+    /// locales are not read (see [`DesktopEntry::parse`]). Empty for a
+    /// conforming file.
     pub deviations: Vec<Deviation>,
 }
 
@@ -160,21 +163,30 @@ pub struct Action {
     /// The action's identifier, as listed in `Actions`.
     pub id: String,
     /// `Name`; `Unnamed` when the group has none.
-    pub name: LocalizedString,
+    pub name: String,
     /// `Icon`, read as the entry's is. GLib does not read actions' icons;
     /// the same rules apply here.
-    pub icon: Option<Localized<Icon>>,
+    pub icon: Option<Icon>,
     /// `Exec`. Absent when the application is `DBusActivatable`, or when
     /// the group leaves it out.
     pub exec: Option<String>,
 }
 
 impl DesktopEntry {
-    /// Parses the contents of the file at `path`, whose ID is `id`.
+    /// Parses the contents of the file at `path`, whose ID is `id`, for a
+    /// session whose preferred locales are `locales` (best first): each
+    /// translated key keeps its value for them, chosen by the
+    /// specification's matching, and the translations for other locales are
+    /// skipped as the file is read
+    /// ([`KeyFile::parse_for_locales`](deskrinch_keyfile::KeyFile::parse_for_locales)).
     ///
     /// The file is read as GLib reads it: what breaks the specification but
     /// GLib accepts is accepted and listed in
-    /// [`deviations`](DesktopEntry::deviations).
+    /// [`deviations`](DesktopEntry::deviations). The entry, deviations
+    /// included, is exactly what parsing the file with the skipped lines
+    /// replaced by empty lines gives: a deviation only a skipped line would
+    /// show is not listed, and a `Name` with only translations into other
+    /// locales is a missing `Name`.
     ///
     /// # Errors
     ///
@@ -185,9 +197,10 @@ impl DesktopEntry {
         id: DesktopId,
         path: PathBuf,
         contents: impl AsRef<[u8]>,
+        locales: &[Locale],
     ) -> Result<Self, ParseError> {
         let mut deviations = Vec::new();
-        let file = KeyFile::parse(contents.as_ref(), &mut deviations)?;
+        let file = KeyFile::parse_for_locales(contents.as_ref(), locales, &mut deviations)?;
         if file.first_group() != Some(MAIN_GROUP) {
             return Err(ParseError::MissingDesktopEntryGroup);
         }
@@ -200,7 +213,7 @@ impl DesktopEntry {
             .ok_or(ParseError::MissingKey { key: "Type" })?
             .as_str()
         {
-            "Application" => EntryKind::Application(parse_application(&file, main, d)),
+            "Application" => EntryKind::Application(parse_application(&file, main, locales, d)),
             "Link" => EntryKind::Link {
                 url: main
                     .string("URL", d)
@@ -217,16 +230,22 @@ impl DesktopEntry {
             id,
             path,
             kind,
-            name: name(main, d),
-            generic_name: main.localized("GenericName", d),
-            comment: main.localized("Comment", d),
-            icon: icon::read(main, d),
+            name: Translated::resolve(name(main, d), locales),
+            generic_name: main
+                .localized("GenericName", d)
+                .map(|value| Translated::resolve(value, locales)),
+            comment: main
+                .localized("Comment", d)
+                .map(|value| translated::session_value(value, locales)),
+            icon: icon::read(main, d).map(|value| translated::session_value(value, locales)),
             hidden: main.boolean("Hidden", d),
             no_display: main.boolean("NoDisplay", d),
             only_show_in: main.list("OnlyShowIn", d),
             not_show_in: main.list("NotShowIn", d),
             categories: main.list("Categories", d),
-            keywords: main.localized_list("Keywords", d),
+            keywords: main
+                .localized_list("Keywords", d)
+                .map(|value| Translated::resolve(value, locales)),
             deviations,
         })
     }
@@ -276,7 +295,12 @@ fn read_exec(
     exec
 }
 
-fn parse_application(file: &KeyFile, main: &Group, d: &mut Vec<Deviation>) -> Application {
+fn parse_application(
+    file: &KeyFile,
+    main: &Group,
+    locales: &[Locale],
+    d: &mut Vec<Deviation>,
+) -> Application {
     let dbus_activatable = main.boolean("DBusActivatable", d);
     let exec = read_exec(main, dbus_activatable, d);
     let mut actions = Vec::new();
@@ -288,8 +312,8 @@ fn parse_application(file: &KeyFile, main: &Group, d: &mut Vec<Deviation>) -> Ap
             continue;
         };
         actions.push(Action {
-            name: name(group, d),
-            icon: icon::read(group, d),
+            name: translated::session_value(name(group, d), locales),
+            icon: icon::read(group, d).map(|value| translated::session_value(value, locales)),
             exec: read_exec(group, dbus_activatable, d),
             id,
         });

@@ -1,11 +1,30 @@
-//! Managers sharing one connection (`connect_with`), each on a queue and
-//! thread of its own: both hear the compositor, and one going away leaves
-//! the other working.
+//! Managers sharing one connection (`connect_with`), each on a queue of its
+//! own, both dispatched by the client's one thread: both hear the
+//! compositor, and one going away leaves the other working, and tells the
+//! compositor to stop.
 
 use deskrinch_test_client::TestClient;
-use deskrinch_window_management::{Client, WindowManagement};
+use deskrinch_window_management::{Client, StateCounts, WindowManagement};
 
 use crate::support::{Compositor, Watcher, unique_app_id};
+use deskrinch_test_wait::wait_for;
+
+/// Waits until `client`'s states are as `wanted`, ignoring the events
+/// discarded; panics with what they are otherwise.
+#[track_caller]
+fn wait_states(client: &Client, attached: usize, releasing: usize) -> StateCounts {
+    wait_for(
+        &format!("{attached} states attached and {releasing} releasing"),
+        || {
+            let states = client.states();
+            if (states.attached, states.releasing) == (attached, releasing) {
+                Ok(states)
+            } else {
+                Err(states)
+            }
+        },
+    )
+}
 
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
@@ -28,10 +47,16 @@ fn managers_on_one_connection_both_hear_every_window() {
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn dropping_one_manager_leaves_the_other_on_the_connection() {
-    Compositor::current();
+    let compositor = Compositor::current();
     let client = Client::connect().unwrap();
     let kept = Watcher::connect_with(&client);
     drop(Watcher::connect_with(&client));
+    match compositor {
+        // Stopped, `finished` heard, every handle destroyed: gone.
+        Compositor::Sway | Compositor::Labwc => wait_states(&client, 1, 0),
+        // KWin's manager has no destructor: kept, its events thrown away.
+        Compositor::Kwin => wait_states(&client, 1, 1),
+    };
     let app_id = unique_app_id("survivor");
     let test = TestClient::connect().unwrap();
     let _window = test.open("Survivor", &app_id).unwrap();

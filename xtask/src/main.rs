@@ -59,20 +59,7 @@ enum Task {
     /// reaches the real desktop session. Needs `dbus-daemon`, and
     /// `kwin_wayland` (with `kscreen-doctor`), `sway` and `labwc` for those
     /// compositors.
-    CompositorTests {
-        /// The compositors to run in; all of them when none is given.
-        #[arg(value_enum)]
-        compositors: Vec<session::Compositor>,
-        /// The renderers the suites that draw run with: `software`; `gpu`
-        /// (failing where the machine has no GPU); or `all`, software and,
-        /// where the machine has a GPU, the GPU. Under sway and labwc the
-        /// GPU pass runs in a session of its own whose compositor renders on
-        /// the GPU too (wlroots' pixman renderer, which every other session
-        /// has, offers nothing the GPU renderer can present on). The run
-        /// says which it chose, and why.
-        #[arg(long, value_enum, default_value = "all")]
-        renderer: compositor_tests::renderers::Choice,
-    },
+    CompositorTests(compositor_tests::Args),
     /// Run a command in an isolated, nested, headless compositor session.
     #[command(long_about = run_in_session::long_about())]
     Session {
@@ -113,6 +100,12 @@ enum Task {
         /// it renders on it.
         #[arg(long, value_enum, default_value = "software")]
         compositor_renderer: session::CompositorRenderer,
+        /// Run as on a machine without a GPU: the session's programs are told
+        /// the run uses none (`DESKRINCH_SESSION_GPU=none`), as `cargo xtask
+        /// compositor-tests --renderer software` tells them, so that `cargo
+        /// xtask desktop` inside composites in software as it does in CI.
+        #[arg(long)]
+        no_gpu: bool,
         /// The compositor to run.
         #[arg(value_enum)]
         compositor: session::Compositor,
@@ -137,6 +130,9 @@ enum Task {
         /// How many runs, each in a fresh session.
         #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=50))]
         runs: u32,
+        /// How many outputs each run's session has, 1280x720 each.
+        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=8))]
+        outputs: u32,
         /// The renderer, through `RINCH_RENDERER` (unset: the caller's
         /// environment decides).
         #[arg(long, value_enum)]
@@ -189,6 +185,17 @@ enum Task {
         /// by the end.
         #[arg(long, value_name = "APP_ID", conflicts_with = "summon")]
         window: Option<String>,
+        /// The program opens this many windows (one per output, say): read
+        /// each from rinch's per-window lines instead of the main window's.
+        /// Start-up ends at the last one's first frame; a run fails if the
+        /// count differs or a window closes or opens after start-up.
+        #[arg(
+            long,
+            value_name = "N",
+            conflicts_with = "summon",
+            value_parser = clap::value_parser!(u32).range(1..=16)
+        )]
+        windows: Option<u32>,
         /// The shell component the program is (its package, such as
         /// deskrinch-panel), when its file name is not the package's: under
         /// KWin it is granted what deskrinch-shell grants that component. A
@@ -250,16 +257,14 @@ impl Task {
         match self {
             Self::FileLength => file_length::run(root),
             Self::CiPackages { packages } => ci_packages::run(&packages),
-            Self::CompositorTests {
-                compositors,
-                renderer,
-            } => compositor_tests::run(root, &compositors, renderer),
+            Self::CompositorTests(args) => compositor_tests::run(root, &args),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Desktop(args) => desktop::run(root, &args),
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
             Self::Measure {
                 compositor,
                 runs,
+                outputs,
                 renderer,
                 expect_renderer,
                 shader_cache,
@@ -272,6 +277,7 @@ impl Task {
                 dismiss,
                 shows,
                 window,
+                windows,
                 component,
                 allow_errors,
                 env,
@@ -281,6 +287,7 @@ impl Task {
             } => measure::run(&measure::Request {
                 compositor,
                 runs,
+                outputs,
                 renderer,
                 expect_renderer,
                 shader_cache,
@@ -298,6 +305,7 @@ impl Task {
                     .zip(dismiss)
                     .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
                 window,
+                windows,
                 component,
                 allow_errors,
                 env,
@@ -309,6 +317,7 @@ impl Task {
                 keep,
                 current_desktop,
                 compositor_renderer,
+                no_gpu,
                 compositor,
                 program,
                 args,
@@ -322,6 +331,7 @@ impl Task {
                 },
                 keep,
                 current_desktop,
+                gpu: session::Gpu::from_allowed(!no_gpu),
                 program,
                 args,
             }),

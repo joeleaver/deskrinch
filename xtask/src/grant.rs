@@ -2,9 +2,9 @@
 //! ([`Component::wayland_grants`]): KWin offers a restricted interface only
 //! to an executable whose installed desktop file grants it
 //! (`deskrinch-kwin-access`). Every xtask that starts a component under
-//! KWin (`desktop`, `measure`) installs its grant through here, and
-//! `compositor-tests` takes the panel's from the same list; sway and labwc
-//! restrict nothing.
+//! KWin (`desktop`, `measure`, and `compositor-tests` for a suite's
+//! programs) installs its grant through here; sway and labwc restrict
+//! nothing.
 
 use std::path::Path;
 
@@ -95,9 +95,18 @@ pub(crate) fn describe(component: &Component, executable: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use deskrinch_shell::{LAUNCHER, PANEL};
+    use deskrinch_shell::{LAUNCHER, PANEL, Ready};
 
     use super::*;
+
+    /// A component that uses a restricted interface, as one of the shell's
+    /// will.
+    const RESTRICTED: Component = Component {
+        package: "deskrinch-restricted",
+        args: &[],
+        ready: Ready::Started,
+        wayland_grants: &["org_kde_plasma_window_management"],
+    };
 
     #[test]
     fn a_component_is_its_package_s_binary_or_named() {
@@ -114,22 +123,21 @@ mod tests {
     }
 
     #[test]
-    fn grants_each_component_what_it_uses_and_nothing_to_the_others() {
-        let executable = Path::new("/build/release/deskrinch-launcher");
-        assert!(entry(&LAUNCHER, executable).unwrap().is_none());
-        let panel = entry(&PANEL, Path::new("/build/release/deskrinch-panel"))
-            .unwrap()
-            .unwrap();
+    fn grants_a_component_what_it_uses_and_nothing_to_one_that_uses_nothing() {
+        let launcher = Path::new("/build/release/deskrinch-launcher");
+        assert!(entry(&LAUNCHER, launcher).unwrap().is_none());
+        let executable = Path::new("/build/release/deskrinch-restricted");
+        let restricted = entry(&RESTRICTED, executable).unwrap().unwrap();
         assert_eq!(
-            panel.file_name(),
-            "org.deskrinch.shell.deskrinch-panel.desktop"
+            restricted.file_name(),
+            "org.deskrinch.shell.deskrinch-restricted.desktop"
         );
-        let contents = panel.contents();
+        let contents = restricted.contents();
         assert!(
-            contents.contains("Exec=/build/release/deskrinch-panel"),
+            contents.contains("Exec=/build/release/deskrinch-restricted"),
             "{contents}"
         );
-        for interface in PANEL.wayland_grants {
+        for interface in RESTRICTED.wayland_grants {
             assert!(contents.contains(interface), "{contents}");
         }
     }
@@ -137,22 +145,22 @@ mod tests {
     #[test]
     fn installs_a_grant_only_where_there_is_one() {
         let data = tempfile::tempdir().unwrap();
-        let executable = Path::new("/build/release/deskrinch-panel");
-        assert!(install(&PANEL, executable, data.path()).unwrap());
+        let executable = Path::new("/build/release/deskrinch-restricted");
+        assert!(install(&RESTRICTED, executable, data.path()).unwrap());
         assert!(
             data.path()
-                .join("applications/org.deskrinch.shell.deskrinch-panel.desktop")
+                .join("applications/org.deskrinch.shell.deskrinch-restricted.desktop")
                 .is_file()
         );
-        assert!(!install(&LAUNCHER, executable, data.path()).unwrap());
+        assert!(!install(&PANEL, executable, data.path()).unwrap());
     }
 
     #[test]
     fn a_grant_is_described_with_its_executable() {
         assert_eq!(
-            describe(&PANEL, Path::new("/tmp/measure/panel-after")),
-            "org_kde_plasma_window_management to /tmp/measure/panel-after, as deskrinch-shell \
-             grants deskrinch-panel"
+            describe(&RESTRICTED, Path::new("/tmp/measure/restricted")),
+            "org_kde_plasma_window_management to /tmp/measure/restricted, as deskrinch-shell \
+             grants deskrinch-restricted"
         );
     }
 }

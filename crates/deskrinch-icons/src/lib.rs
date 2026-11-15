@@ -54,11 +54,14 @@
 //!
 //! [Icon Theme Specification]: https://specifications.freedesktop.org/icon-theme/latest/
 
+mod builder;
 mod candidates;
 mod index;
+mod listing;
 mod load;
 mod lookup;
 mod problem;
+mod table;
 mod theme;
 mod watch;
 

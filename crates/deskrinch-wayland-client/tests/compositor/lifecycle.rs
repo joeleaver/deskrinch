@@ -4,24 +4,30 @@ use std::sync::{Arc, Mutex};
 
 use deskrinch_wayland_client::{AttachError, Client};
 
-use crate::support::{OnDone, Probe, attach, bounded, client_threads, eventually, nested};
+use deskrinch_test_wait::eventually;
+
+use crate::support::{OnDone, Probe, attach, bounded, nested, thread_alive};
 
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_thread_ends_with_the_last_handle() {
     nested();
-    let before = client_threads();
     let client = Client::connect().unwrap();
-    // The thread names itself once it runs.
-    eventually("the client's thread named", || {
-        client_threads() == before + 1
-    });
     let attached = attach(&client);
-    // The client handle goes first: the attachment keeps the thread.
+    // This client's own thread, by the id its setup took there: no other
+    // client's thread can be mistaken for it.
+    let ours = attached.record.lock().unwrap().thread.expect("setup ran");
+    // The client handle goes first: the attachment keeps the thread. A
+    // live thread is always listed.
     drop(client);
-    assert_eq!(client_threads(), before + 1);
+    assert!(thread_alive(ours), "the attachment keeps the thread");
     bounded("detaching the last state", move || drop(attached));
-    eventually("the client's thread gone", || client_threads() == before);
+    // The last handle's drop joins the thread, but a joined thread may still
+    // be listed for a moment: the kernel wakes the joiner when the thread
+    // releases its memory, and takes it out of the task list only later, as
+    // it finishes exiting. That the drop joins is the client's own business;
+    // this sees the thread gone.
+    eventually("the client's thread to end", || !thread_alive(ours));
 }
 
 #[test]
@@ -34,7 +40,7 @@ fn a_panicking_handler_ends_every_state_once() {
     client.display().sync(&panicking.queue, OnDone::Panic);
     panicking.attachment.flush().unwrap();
     for record in [&panicking.record, &bystander.record] {
-        eventually("every state ended", || {
+        eventually("every state to end", || {
             !record.lock().unwrap().ends.is_empty()
         });
         let ends = record.lock().unwrap().ends.clone();
@@ -72,7 +78,7 @@ fn a_handle_dropped_inside_its_own_handler_does_not_deadlock() {
         .expect("still held: the answer cannot come before the flush")
         .flush()
         .unwrap();
-    eventually("the handle dropped by its handler", || {
+    eventually("the handle to be dropped by its handler", || {
         held.lock().unwrap().is_none()
     });
     // The client goes on: another state attaches and is dispatched.

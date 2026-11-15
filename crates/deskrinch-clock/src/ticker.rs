@@ -186,9 +186,13 @@ mod tests {
         let at = ts("2026-11-10T13:05:00Z");
         let (mut ticker, first) = Ticker::start(named("Europe/Berlin"), Precision::Minutes, at);
         assert_eq!(local(&first), "2026-11-10T14:05:00");
-        let tick = ticker.change_zone(named("Asia/Tokyo"), at).unwrap();
+        // At once: a change the clock hears inside the minute ticks with
+        // the time it heard it, not at the next boundary.
+        let heard = ts("2026-11-10T13:05:20.5Z");
+        let tick = ticker.change_zone(named("Asia/Tokyo"), heard).unwrap();
         assert_eq!(tick.cause, Cause::TimeZoneChanged);
-        assert_eq!(local(&tick), "2026-11-10T22:05:00");
+        assert_eq!(tick.now.timestamp(), heard);
+        assert_eq!(local(&tick), "2026-11-10T22:05:20.5");
         // The same offset under another name is still a change of zone.
         let tick = ticker.change_zone(named("Asia/Seoul"), at).unwrap();
         assert_eq!(local(&tick), "2026-11-10T22:05:00");

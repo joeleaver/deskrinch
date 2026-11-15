@@ -4,6 +4,15 @@
 //! backend asks for the window object, which then reports its properties and
 //! `initial_state`. After `initial_state` every property event stands alone,
 //! so it is announced at once. `unmapped` ends the window.
+//!
+//! # Releasing
+//!
+//! Every window object is destroyed (`destroy`, since version 4; this
+//! backend binds 13 or newer). `org_kde_plasma_window_management` has no
+//! destructor and no `stop`: it stays alive and keeps sending (each window
+//! announced, the stacking order on every change of focus, show-desktop)
+//! for as long as the connection lasts. A released state asks for no window
+//! and is never dropped: its events are dispatched and thrown away.
 
 use wayland_client::globals::GlobalList;
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
@@ -110,6 +119,10 @@ impl Dispatch<OrgKdePlasmaWindowManagement, ()> for State {
         // Stacking order, show-desktop and the deprecated id-only `window`
         // event are not modelled.
         if let org_kde_plasma_window_management::Event::WindowWithUuid { uuid, .. } = event {
+            // Released: a window announced now is not asked for at all.
+            if state.is_released() {
+                return;
+            }
             let id = WindowId::next();
             let window = manager.get_window_by_uuid(uuid, qh, id);
             state.track(id, WindowHandle::Plasma(window));

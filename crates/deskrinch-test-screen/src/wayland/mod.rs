@@ -6,7 +6,8 @@ mod wlr;
 
 use std::time::Duration;
 
-use deskrinch_test_wayland::{Deadline, Globals, ShmBuffer, WaitError, dispatch_until, roundtrip};
+use deskrinch_test_wait::Deadline;
+use deskrinch_test_wayland::{Globals, ShmBuffer, WaitError, dispatch_until, roundtrip};
 use wayland_client::protocol::wl_buffer::{self, WlBuffer};
 use wayland_client::protocol::wl_output::{self, WlOutput};
 use wayland_client::protocol::wl_shm::{self, WlShm};
@@ -17,7 +18,8 @@ use crate::Transform;
 use crate::buffer::Layout;
 use crate::error::{CaptureError, ConnectError};
 use crate::image::Image;
-use crate::screen::{CONNECT_PATIENCE, Method};
+use crate::screen::Method;
+use deskrinch_test_wait::PATIENCE;
 
 /// The `wl_output` version that names outputs.
 const OUTPUT_NAMES: u32 = 4;
@@ -82,7 +84,7 @@ impl Wayland {
             &connection,
             &mut queue,
             &mut state,
-            Deadline::after(CONNECT_PATIENCE),
+            Deadline::after(PATIENCE),
         )
         .map_err(ConnectError::Wait)?;
         let qh = queue.handle();
@@ -109,7 +111,7 @@ impl Wayland {
             &connection,
             &mut queue,
             &mut state,
-            Deadline::after(CONNECT_PATIENCE),
+            Deadline::after(PATIENCE),
         )
         .map_err(ConnectError::Wait)?;
         Ok(Self {

@@ -18,11 +18,12 @@ use std::time::{Duration, Instant};
 use deskrinch_test_client::TestClient;
 use deskrinch_test_input::{Button, Input};
 use deskrinch_test_screen::{Image, Rgba, Screen};
+use deskrinch_test_wait::PATIENCE;
 use deskrinch_window_management::{Event, WindowId, WindowManager};
 use tempfile::TempDir;
 
 use crate::support::{
-    Band, Edge, PATIENCE, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
+    Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
 

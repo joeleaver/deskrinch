@@ -1,7 +1,7 @@
 //! A session's clients: the commands that run in it, and the ones it keeps
 //! and reaps as it ends.
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
@@ -26,13 +26,13 @@ impl Session {
         &self,
         binary: &Path,
         filter: &[&str],
-        env: &[(&str, &str)],
+        env: &[(String, OsString)],
     ) -> Result<bool, Error> {
         let mut command = self.outside_client(binary.as_os_str());
         command
             .args(["--ignored", "--test-threads=1"])
             .args(filter)
-            .envs(env.iter().copied())
+            .envs(env.iter().map(|(name, value)| (name, value)))
             .env(
                 "DESKRINCH_TEST_SESSION_GROUP",
                 self.group.as_raw_nonzero().to_string(),
@@ -49,7 +49,8 @@ impl Session {
     /// from the real session; pointed at this compositor
     /// (`WAYLAND_DISPLAY`, and sway's `SWAYSOCK`) and at the session's bus
     /// (`DBUS_SESSION_BUS_ADDRESS`); told the session's directory
-    /// (`DESKRINCH_SESSION_DIR`); with standard input closed; and in the
+    /// (`DESKRINCH_SESSION_DIR`), and whether the run uses no GPU
+    /// ([`Gpu`](super::Gpu)); with standard input closed; and in the
     /// session's process group, so that whatever it leaves running ends with
     /// the session.
     ///
@@ -77,6 +78,7 @@ impl Session {
             .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
             .envs(self.compositor.client_env(&self.root.join("run")))
             .stdin(Stdio::null());
+        self.gpu.tell(&mut command);
         if let Some(desktop) = &self.current_desktop {
             command.env(CURRENT_DESKTOP, desktop);
         }

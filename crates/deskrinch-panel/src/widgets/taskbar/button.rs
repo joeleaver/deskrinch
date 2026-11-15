@@ -5,7 +5,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deskrinch_applications::{Applications, icon_scale, path_of};
-use deskrinch_desktop_entries::Locale;
 use deskrinch_icons::Index;
 use deskrinch_taskbar::{Button, Form, Input, PointerButton};
 use deskrinch_window_management::WindowId;
@@ -14,13 +13,12 @@ use rinch::prelude::*;
 use crate::widgets::taskbar::follow::{Buttons, Following};
 
 /// What the buttons' icons come from, which the panel provides as a
-/// context: the installed applications, the icon theme's index, and the
-/// user's locales, which an entry's `Icon` may be translated into.
-#[derive(Clone)]
+/// context: the installed applications, whose entries hold each `Icon` as
+/// the session's locales have it, and the icon theme's index.
+#[derive(Clone, Copy)]
 pub(crate) struct AppIcons {
     pub(crate) applications: Signal<Arc<Applications>>,
     pub(crate) index: Signal<Option<Arc<Index>>>,
-    pub(crate) locales: Arc<Vec<Locale>>,
 }
 
 /// The sizes a button comes in, in logical pixels.
@@ -126,7 +124,6 @@ fn icon_view(
     let AppIcons {
         applications,
         index,
-        locales,
     } = icons;
     let path = Memo::new(move || {
         let index = index.get()?;
@@ -135,9 +132,8 @@ fn icon_view(
         applications.with(|applications| {
             let icon = applications
                 .for_app_id(&app_id)
-                .and_then(|entry| entry.icon.as_ref())
-                .map(|icon| icon.get(&locales).clone());
-            path_of(&index, icon.as_ref(), size, scale)
+                .and_then(|entry| entry.icon.as_ref());
+            path_of(&index, icon, size, scale)
         })
     });
     let square = format!("width: {size}px; height: {size}px; flex: none;");

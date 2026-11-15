@@ -32,23 +32,7 @@ impl Locale {
     /// language and give `None`, as does an empty or malformed name.
     #[must_use]
     pub fn parse(name: &str) -> Option<Self> {
-        let (rest, modifier) = match name.split_once('@') {
-            Some((rest, modifier)) => (rest, Some(modifier)),
-            None => (name, None),
-        };
-        let rest = rest.split_once('.').map_or(rest, |(rest, _encoding)| rest);
-        let (lang, country) = match rest.split_once('_') {
-            Some((lang, country)) => (lang, Some(country)),
-            None => (rest, None),
-        };
-        let valid =
-            |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric());
-        if !valid(lang) || lang == "C" || lang == "POSIX" {
-            return None;
-        }
-        if country.is_some_and(|c| !valid(c)) || modifier.is_some_and(|m| !valid(m)) {
-            return None;
-        }
+        let (lang, country, modifier) = parts(name)?;
         Some(Self {
             lang: lang.to_owned(),
             country: country.map(str::to_owned),
@@ -97,6 +81,54 @@ impl fmt::Display for Locale {
     }
 }
 
+/// A POSIX locale name's language, country and modifier, its encoding
+/// dropped, as [`Locale::parse`] reads them; `None` for `C`, `POSIX`, and
+/// an empty or malformed name.
+fn parts(name: &str) -> Option<(&str, Option<&str>, Option<&str>)> {
+    let (rest, modifier) = match name.split_once('@') {
+        Some((rest, modifier)) => (rest, Some(modifier)),
+        None => (name, None),
+    };
+    let rest = rest.split_once('.').map_or(rest, |(rest, _encoding)| rest);
+    let (lang, country) = match rest.split_once('_') {
+        Some((lang, country)) => (lang, Some(country)),
+        None => (rest, None),
+    };
+    let valid = |part: &str| !part.is_empty() && part.chars().all(|c| c.is_ascii_alphanumeric());
+    if !valid(lang) || lang == "C" || lang == "POSIX" {
+        return None;
+    }
+    if country.is_some_and(|c| !valid(c)) || modifier.is_some_and(|m| !valid(m)) {
+        return None;
+    }
+    Some((lang, country, modifier))
+}
+
+/// Whether a key's locale, as the key writes it, is one a lookup can match:
+/// a locale without an encoding. Any other (`de.UTF-8`, an empty `[]`) is
+/// unusable, which the key file reports.
+pub(crate) fn is_usable_key_locale(text: &str) -> bool {
+    !text.contains('.') && parts(text).is_some()
+}
+
+/// The locales, as a key writes them (`sr_RS@latin`), that a key may carry
+/// to match one of `locales`: each one's candidates, by the specification's
+/// order, each once. A key whose locale is none of these can never be what
+/// [`Localized::get`] chooses for `locales`.
+pub(crate) fn candidate_texts(locales: &[Locale]) -> Vec<String> {
+    let mut texts: Vec<String> = Vec::new();
+    for text in locales
+        .iter()
+        .flat_map(Locale::candidates)
+        .map(|candidate| candidate.to_string())
+    {
+        if !texts.contains(&text) {
+            texts.push(text);
+        }
+    }
+    texts
+}
+
 /// A value with its translations: a `localestring` key, or a list of them.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Localized<T> {
@@ -118,6 +150,12 @@ impl<T> Localized<T> {
     /// The value for the first of `locales` that has one, by the
     /// specification's matching order, or the unlocalised value.
     pub fn get(&self, locales: &[Locale]) -> &T {
+        self.translation(locales).unwrap_or(&self.default)
+    }
+
+    /// The translation [`get`](Self::get) chooses for `locales`; `None`
+    /// when it would give the unlocalised value.
+    pub fn translation(&self, locales: &[Locale]) -> Option<&T> {
         locales
             .iter()
             .flat_map(Locale::candidates)
@@ -127,7 +165,6 @@ impl<T> Localized<T> {
                     .find(|(locale, _)| *locale == wanted)
                     .map(|(_, value)| value)
             })
-            .unwrap_or(&self.default)
     }
 
     /// Every value: the unlocalised one, then the translations.
@@ -195,6 +232,28 @@ mod tests {
             .translations
             .push((locale("sr@latin"), "sr@latin".into()));
         assert_eq!(value.get(&[locale("sr")]), "default");
+    }
+
+    #[test]
+    fn the_translation_is_what_get_chooses_unless_it_is_the_default() {
+        let value = sample();
+        assert_eq!(
+            value
+                .translation(&[locale("sr_ME@latin")])
+                .map(String::as_str),
+            Some("sr@latin")
+        );
+        assert_eq!(value.translation(&[locale("fr_FR")]), None);
+        assert_eq!(value.translation(&[]), None);
+    }
+
+    #[test]
+    fn the_candidates_are_written_as_keys_write_their_locales() {
+        assert_eq!(
+            candidate_texts(&[locale("sr_RS.UTF-8@latin"), locale("de_DE"), locale("sr")]),
+            ["sr_RS@latin", "sr_RS", "sr@latin", "sr", "de_DE", "de"]
+        );
+        assert_eq!(candidate_texts(&[]), Vec::<String>::new());
     }
 
     #[test]

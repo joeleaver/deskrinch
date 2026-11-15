@@ -42,6 +42,20 @@ mod measure {
             .unwrap()
     }
 
+    /// The note of what the stand-in, `sh`, was granted under the compositor
+    /// tested with: under KWin, which restricts interfaces, the warning that
+    /// `sh` is none of the shell's components; elsewhere, that the
+    /// compositor restricts nothing.
+    fn granted_to_sh() -> String {
+        match compositor().as_str() {
+            "kwin" => "granted: NOTHING: sh is not one of the shell's components by its file \
+                       name; if it is one, --component PACKAGE names it, and it is granted as \
+                       the shell grants it"
+                .to_owned(),
+            other => format!("granted: nothing: {other} restricts nothing"),
+        }
+    }
+
     /// A script line that records, in `dir`, the stand-in's own pid and its
     /// session's directory; with `child`, it also starts a background
     /// process for the session to end, and records its pid.
@@ -110,10 +124,11 @@ mod measure {
             // Each run's notes.
             "idle wake-ups by thread: ",
             "the program's output: ",
-            "granted: nothing",
         ] {
             assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
         }
+        let granted = granted_to_sh();
+        assert!(stdout.contains(&granted), "no {granted:?} in:\n{stdout}");
         assert_session_ended(dir.path());
     }
 
@@ -213,6 +228,52 @@ mod measure {
 
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn the_state_is_seeded_before_the_program_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let seed = dir.path().join("seed");
+        fs::create_dir_all(seed.join("deskrinch")).unwrap();
+        let seeded = "version = 1\n[[start]]\nid = \"a.desktop\"\nscore = 2.0\nlast = 5\n";
+        fs::write(seed.join("deskrinch/starts.toml"), seeded).unwrap();
+        // The stand-in copies what it finds at its start, then draws.
+        let script = format!(
+            "{}cp \"$XDG_STATE_HOME/deskrinch/starts.toml\" {found}; \
+             echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600",
+            record(dir.path(), false),
+            found = dir.path().join("found").display()
+        );
+        let seed = seed.display().to_string();
+        let output = measure(&["--state", &seed], &script);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert_eq!(
+            fs::read_to_string(dir.path().join("found")).unwrap(),
+            seeded
+        );
+        let note = format!("state seeded from {seed}");
+        assert!(stdout.contains(&note), "no {note:?} in:\n{stdout}");
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_state_that_is_not_a_directory_fails_before_any_session() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("file");
+        fs::write(&file, "").unwrap();
+        for state in [file, dir.path().join("missing")] {
+            let started = dir.path().join("started");
+            let script = format!("touch {}; exec sleep 600", started.display());
+            let output = measure(&["--state", &state.display().to_string()], &script);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            assert!(!output.status.success(), "{stderr}");
+            assert!(stderr.contains("read the state to seed"), "{stderr}");
+            assert!(!started.exists(), "the program was started");
+        }
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn a_window_opened_for_the_idle_window_is_named_and_counted() {
         let dir = tempfile::tempdir().unwrap();
         let script = format!(
@@ -277,52 +338,6 @@ mod measure {
             "a report was printed for a run without its window:\n{stdout}"
         );
         assert_session_ended(dir.path());
-    }
-
-    #[test]
-    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
-    fn the_state_is_seeded_before_the_program_starts() {
-        let dir = tempfile::tempdir().unwrap();
-        let seed = dir.path().join("seed");
-        fs::create_dir_all(seed.join("deskrinch")).unwrap();
-        let seeded = "version = 1\n[[start]]\nid = \"a.desktop\"\nscore = 2.0\nlast = 5\n";
-        fs::write(seed.join("deskrinch/starts.toml"), seeded).unwrap();
-        // The stand-in copies what it finds at its start, then draws.
-        let script = format!(
-            "{}cp \"$XDG_STATE_HOME/deskrinch/starts.toml\" {found}; \
-             echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600",
-            record(dir.path(), false),
-            found = dir.path().join("found").display()
-        );
-        let seed = seed.display().to_string();
-        let output = measure(&["--state", &seed], &script);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        assert!(output.status.success(), "{stdout}\n{stderr}");
-        assert_eq!(
-            fs::read_to_string(dir.path().join("found")).unwrap(),
-            seeded
-        );
-        let note = format!("state seeded from {seed}");
-        assert!(stdout.contains(&note), "no {note:?} in:\n{stdout}");
-        assert_session_ended(dir.path());
-    }
-
-    #[test]
-    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
-    fn a_state_that_is_not_a_directory_fails_before_any_session() {
-        let dir = tempfile::tempdir().unwrap();
-        let file = dir.path().join("file");
-        fs::write(&file, "").unwrap();
-        for state in [file, dir.path().join("missing")] {
-            let started = dir.path().join("started");
-            let script = format!("touch {}; exec sleep 600", started.display());
-            let output = measure(&["--state", &state.display().to_string()], &script);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(!output.status.success(), "{stderr}");
-            assert!(stderr.contains("read the state to seed"), "{stderr}");
-            assert!(!started.exists(), "the program was started");
-        }
     }
 
     #[test]

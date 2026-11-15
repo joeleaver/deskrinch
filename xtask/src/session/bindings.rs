@@ -10,17 +10,14 @@
 //! with its `_launch` action.
 
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use deskrinch_bus::Bus;
+use deskrinch_test_wait::Deadline;
 
 use super::display::Binding;
 use super::{Compositor, POLL, Session};
 use crate::error::Error;
-
-/// How long kglobalacceld has to register the bindings: it may build KDE's
-/// service cache first.
-const REGISTERED: Duration = Duration::from_secs(60);
 
 impl Session {
     /// Waits until the compositor has each of `bindings` in force.
@@ -30,10 +27,12 @@ impl Session {
         }
         for binding in bindings {
             let path = component_path(&binding.id);
-            let deadline = Instant::now() + REGISTERED;
+            // Within the patience: kglobalacceld may build KDE's service
+            // cache first.
+            let deadline = Deadline::patience();
             while !launch_registered(self.bus.address(), &path) {
                 super::interrupt::check()?;
-                if Instant::now() >= deadline {
+                if deadline.passed() {
                     return Err(Error::BindingNotInForce {
                         compositor: self.compositor.name(),
                         binding: binding.id.clone(),

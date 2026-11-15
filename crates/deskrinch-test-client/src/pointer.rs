@@ -167,7 +167,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When it does not within [`PATIENCE`](crate::PATIENCE).
+    /// When it does not within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn wait_pointer(
         &self,
         what: &str,
@@ -181,7 +181,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When it is not within [`PATIENCE`](crate::PATIENCE).
+    /// When it is not within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn wait_pointer_at(&self, x: f64, y: f64) -> Result<(), Error> {
         self.wait_pointer(&format!("the pointer at ({x}, {y})"), |events| {
             position(events) == Some((x, y))
@@ -202,7 +202,7 @@ impl TestWindow {
     ///
     /// # Errors
     ///
-    /// When it does not within [`PATIENCE`](crate::PATIENCE).
+    /// When it does not within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn wait_pointer_at_since(&self, mark: PointerMark, x: f64, y: f64) -> Result<(), Error> {
         self.wait_pointer(&format!("the pointer at ({x}, {y}) again"), |events| {
             at_since(events, mark, (x, y))

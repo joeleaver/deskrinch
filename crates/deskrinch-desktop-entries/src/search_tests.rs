@@ -1,21 +1,28 @@
+use deskrinch_keyfile::Locale;
+
 use super::*;
 use crate::entry::DesktopId;
 
 fn app(id: &str, name: &str, extra: &str) -> DesktopEntry {
+    app_for(id, name, extra, &[])
+}
+
+/// [`app`], parsed for a session in `locales`.
+fn app_for(id: &str, name: &str, extra: &str, locales: &[Locale]) -> DesktopEntry {
     let text = format!("[Desktop Entry]\nType=Application\nName={name}\nExec=run-{id}\n{extra}");
     let id = DesktopId::new(format!("{id}.desktop")).unwrap();
-    DesktopEntry::parse(id, "/x".into(), &text).unwrap()
+    DesktopEntry::parse(id, "/x".into(), &text, locales).unwrap()
 }
 
 fn ranked(entries: &[DesktopEntry], query: &str) -> Vec<String> {
-    search(entries, query, &[])
+    search(entries, query)
         .iter()
         .map(|m| m.entry.id.app_id().to_owned())
         .collect()
 }
 
 fn how(entries: &[DesktopEntry], query: &str) -> (Coverage, MatchKind, MatchField) {
-    let found = search(entries, query, &[]);
+    let found = search(entries, query);
     (found[0].coverage, found[0].kind, found[0].field)
 }
 
@@ -86,11 +93,28 @@ fn ignores_case_and_diacritics_and_trims() {
 
 #[test]
 fn matches_translations_and_the_untranslated_value() {
-    let entries = [app("files", "Files", "Name[de]=Dateien\n")];
     let de = [Locale::parse("de").unwrap()];
-    assert_eq!(search(&entries, "dat", &de).len(), 1);
-    assert_eq!(search(&entries, "fil", &de).len(), 1);
-    assert_eq!(search(&entries, "dat", &[]), []);
+    let german = [app_for("files", "Files", "Name[de]=Dateien\n", &de)];
+    assert_eq!(search(&german, "dat").len(), 1);
+    assert_eq!(search(&german, "fil").len(), 1);
+    let untranslated = [app("files", "Files", "Name[de]=Dateien\n")];
+    assert_eq!(search(&untranslated, "dat"), []);
+}
+
+#[test]
+fn matches_the_translated_and_the_untranslated_keywords() {
+    let de = [Locale::parse("de_DE").unwrap()];
+    let extra = "Keywords=edit;\nKeywords[de]=bearbeiten;\n";
+    let german = [app_for("text", "Text", extra, &de)];
+    for query in ["bearb", "edi"] {
+        assert_eq!(
+            how(&german, query),
+            (Coverage::Whole, MatchKind::Prefix, MatchField::Keyword),
+            "{query}"
+        );
+    }
+    let untranslated = [app("text", "Text", extra)];
+    assert_eq!(search(&untranslated, "bearb"), []);
 }
 
 #[test]

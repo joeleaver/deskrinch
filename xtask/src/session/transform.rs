@@ -33,21 +33,6 @@ impl OutputTransform {
         self.0 == Transform::Normal
     }
 
-    /// Its name for `kscreen-doctor`'s `rotation` (`KScreen` calls a quarter
-    /// turn counter-clockwise "left").
-    pub(crate) fn kscreen_name(self) -> &'static str {
-        match self.0 {
-            Transform::Normal => "none",
-            Transform::Rotated90 => "left",
-            Transform::Rotated180 => "inverted",
-            Transform::Rotated270 => "right",
-            Transform::Flipped => "flipped",
-            Transform::Flipped90 => "flipped90",
-            Transform::Flipped180 => "flipped180",
-            Transform::Flipped270 => "flipped270",
-        }
-    }
-
     /// Its name for sway's `output … transform`, whose rotations are
     /// clockwise: sway's `90` is `wl_output`'s 270.
     pub(crate) fn sway_name(self) -> &'static str {
@@ -114,7 +99,6 @@ mod tests {
     fn each_tool_gets_its_own_name() {
         let ninety = OutputTransform(Transform::Rotated90);
         assert_eq!(ninety.sway_name(), "270");
-        assert_eq!(ninety.kscreen_name(), "left");
         assert_eq!(
             OutputTransform(Transform::Flipped90).sway_name(),
             "flipped-270"

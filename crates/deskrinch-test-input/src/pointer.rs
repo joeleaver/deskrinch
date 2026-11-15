@@ -37,6 +37,28 @@ impl Input {
         self.settle()
     }
 
+    /// Moves the pointer by `(dx, dy)` logical pixels from where it is, as a
+    /// mouse does: a motion the compositor may stop at an output's edge,
+    /// which is how a pointer is pushed against a screen edge, beyond the
+    /// last pixel a point can name.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::NoPointer`] when the compositor cannot make one; otherwise
+    /// as [`press`](Self::press).
+    pub fn nudge_pointer(&mut self, dx: f64, dy: f64) -> Result<(), Error> {
+        let time = self.time();
+        match &self.backend {
+            Backend::Wlroots { pointer, .. } => {
+                let pointer = pointer.as_ref().ok_or(Error::NoPointer)?;
+                pointer.motion(time, dx, dy);
+                pointer.frame();
+            }
+            Backend::Kwin(fake) => fake.pointer_motion(dx, dy),
+        }
+        self.settle()
+    }
+
     /// Presses `button` where the pointer is, and holds it until
     /// [`release_button`](Self::release_button), or until this `Input` is
     /// dropped, which releases it.

@@ -71,6 +71,15 @@ pub(crate) enum Error {
         /// The test target.
         name: &'static str,
     },
+    /// The compositor tests' suites or test asked for cannot run.
+    #[error(transparent)]
+    Selection(#[from] crate::compositor_tests::selection::SelectionError),
+    /// A repeat's directory already holds something.
+    #[error(
+        "{} is not empty: each repeat writes its runs' output to a directory of its own",
+        .0.display()
+    )]
+    RepeatIntoNotEmpty(PathBuf),
     /// A key binding's program is not an absolute path.
     #[error("a key binding must run an absolute path, not {}", .0.display())]
     BindingNotAbsolute(PathBuf),
@@ -96,8 +105,8 @@ pub(crate) enum Error {
     /// A test binary cannot be granted what KWin restricts.
     #[error("could not write a test binary's desktop file")]
     DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),
-    /// The nested compositor exited before opening its socket.
-    #[error("{compositor} exited ({status}) before opening its socket; its log:\n{log}")]
+    /// The nested compositor exited before it was ready.
+    #[error("{compositor} exited ({status}) before it was ready; its log:\n{log}")]
     CompositorExited {
         /// The compositor.
         compositor: &'static str,
@@ -266,6 +275,18 @@ pub(crate) enum Error {
         /// Its last lines of output.
         output: String,
     },
+    /// The measured program's windows were not those `--windows` expects:
+    /// too few presented in time, too many, two of one name, or they
+    /// changed after start-up.
+    #[error("{program}: {source}\nIts last output:\n{output}")]
+    MeasuredWindows {
+        /// The program.
+        program: String,
+        /// What was wrong.
+        source: crate::measure::WindowsError,
+        /// Its last lines of output.
+        output: String,
+    },
     /// The measured program's `/proc` entry went away while it was read.
     #[error("{program} went away while it was measured")]
     MeasuredGone {
@@ -279,7 +300,7 @@ pub(crate) enum Error {
         /// What happened instead.
         why: String,
     },
-    /// `--component` named no component of the shell.
+    /// A component named no component of the shell.
     #[error("{name} is not one of the shell's components ({known})")]
     UnknownComponent {
         /// The name given.

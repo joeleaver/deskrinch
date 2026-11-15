@@ -11,14 +11,12 @@ use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
-use deskrinch_test_wayland::{Deadline, WaitError, dispatch_until, roundtrip};
+use deskrinch_test_wait::Deadline;
+use deskrinch_test_wayland::{WaitError, dispatch_until, roundtrip};
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle};
 
 use super::DesktopError;
-
-/// How long the compositor has to list its globals.
-const PATIENCE: Duration = Duration::from_secs(20);
 
 /// The outputs a compositor has, by global name.
 #[derive(Debug, Default)]
@@ -71,7 +69,8 @@ impl Window {
             &connection,
             &mut queue,
             &mut outputs,
-            Deadline::after(PATIENCE),
+            // A compositor that is gone fails the roundtrip at once.
+            Deadline::patience(),
         )
         .map_err(|error| watch(error.into()))?;
         Ok(Self {

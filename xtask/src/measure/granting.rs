@@ -2,9 +2,9 @@
 //! grants it, when it is one of the shell's components (by its file name,
 //! or as `--component` names it), installed through [`crate::grant`] into
 //! each session's data directory before the compositor starts; nothing
-//! otherwise, for a reason each run's notes give. A measured panel is then
-//! the panel that ships, following the window list, rather than one whose
-//! taskbar gave up at its start.
+//! otherwise, for a reason each run's notes give. A measured component is
+//! then granted what it is granted on the desktop, and works as it does
+//! there.
 //!
 //! KWin grants by the executable it sees (`/proc/<pid>/exe`). Under
 //! `--instructions` that is not the program but Valgrind's Callgrind tool,
@@ -45,12 +45,19 @@ pub(crate) enum Grant {
 impl Grant {
     /// What `request`'s program is granted, or why nothing.
     pub(crate) fn of(request: &Request) -> Result<Self, Error> {
+        let program = Path::new(&request.program);
+        let component = crate::grant::component(program, request.component.as_deref())?;
+        Self::decide(request, component)
+    }
+
+    /// What `request`'s program is granted as `component`, the shell's
+    /// component it is, if any.
+    fn decide(request: &Request, component: Option<&'static Component>) -> Result<Self, Error> {
         if request.compositor != Compositor::Kwin {
             return Ok(Self::Unrestricted(request.compositor));
         }
         let program = Path::new(&request.program);
-        let Some(component) = crate::grant::component(program, request.component.as_deref())?
-        else {
+        let Some(component) = component else {
             return Ok(Self::NotAComponent(
                 program
                     .file_name()
@@ -182,7 +189,7 @@ fn is_callgrind_tool(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use deskrinch_shell::{LAUNCHER, PANEL};
+    use deskrinch_shell::{LAUNCHER, PANEL, Ready};
 
     use super::*;
 
@@ -203,47 +210,70 @@ mod tests {
         }
     }
 
+    /// A component that uses a restricted interface, as one of the shell's
+    /// will.
+    const RESTRICTED: Component = Component {
+        package: "deskrinch-restricted",
+        args: &[],
+        ready: Ready::Started,
+        wayland_grants: &["org_kde_plasma_window_management"],
+    };
+
     #[test]
     fn a_component_is_granted_under_kwin_and_the_rest_say_why_not() {
         let sh = resolve(OsStr::new("sh")).unwrap();
         let sh = sh.to_str().unwrap();
-        let grant = |program, component, compositor| {
-            Grant::of(&request(program, component, compositor)).unwrap()
+        let decide = |component, compositor| {
+            Grant::decide(&request(sh, None, compositor), component).unwrap()
         };
         assert_eq!(
-            grant(sh, Some("deskrinch-panel"), Compositor::Kwin),
+            decide(Some(&RESTRICTED), Compositor::Kwin),
             Grant::Granted {
-                component: &PANEL,
+                component: &RESTRICTED,
                 executable: PathBuf::from(sh),
             }
         );
-        // A copy of the panel, renamed: the case that cost a series.
-        let not_a_component = grant("/tmp/measure/panel-after", None, Compositor::Kwin);
-        assert_eq!(not_a_component, Grant::NotAComponent("panel-after".into()));
-        assert!(not_a_component.note().contains("--component PACKAGE"));
-        let launcher = grant(sh, Some("deskrinch-launcher"), Compositor::Kwin);
+        let launcher = decide(Some(&LAUNCHER), Compositor::Kwin);
         assert_eq!(launcher, Grant::NothingRestricted(&LAUNCHER));
         assert_eq!(
             launcher.note(),
             "nothing: deskrinch-launcher uses nothing restricted"
         );
         for compositor in [Compositor::Sway, Compositor::Labwc] {
-            let unrestricted = grant(sh, Some("deskrinch-panel"), compositor);
+            let unrestricted = decide(Some(&RESTRICTED), compositor);
             assert_eq!(unrestricted, Grant::Unrestricted(compositor));
             assert!(unrestricted.note().ends_with("restricts nothing"));
         }
     }
 
     #[test]
+    fn a_program_is_found_as_a_component_by_its_name_or_by_component() {
+        let of =
+            |program, component| Grant::of(&request(program, component, Compositor::Kwin)).unwrap();
+        // A copy of the panel, renamed: the case that cost a series.
+        let not_a_component = of("/tmp/measure/panel-after", None);
+        assert_eq!(not_a_component, Grant::NotAComponent("panel-after".into()));
+        assert!(not_a_component.note().contains("--component PACKAGE"));
+        assert_eq!(
+            of("/tmp/measure/panel-after", Some("deskrinch-panel")),
+            Grant::NothingRestricted(&PANEL)
+        );
+        assert_eq!(
+            of("/build/release/deskrinch-panel", None),
+            Grant::NothingRestricted(&PANEL)
+        );
+    }
+
+    #[test]
     fn the_note_says_what_was_granted_and_to_what() {
         let granted = Grant::Granted {
-            component: &PANEL,
-            executable: PathBuf::from("/tmp/measure/panel-after"),
+            component: &RESTRICTED,
+            executable: PathBuf::from("/tmp/measure/restricted"),
         };
         assert!(
             granted
                 .note()
-                .starts_with("org_kde_plasma_window_management to /tmp/measure/panel-after")
+                .starts_with("org_kde_plasma_window_management to /tmp/measure/restricted")
         );
     }
 

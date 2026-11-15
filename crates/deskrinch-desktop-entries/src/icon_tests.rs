@@ -8,22 +8,22 @@ use crate::entry::{DesktopEntry, DesktopId};
 
 const MAIN: &str = "Desktop Entry";
 
-/// An application whose `Icon` lines are `icon`, and its deviations.
-fn read(icon: &str) -> (Option<Localized<Icon>>, Vec<Deviation>) {
+/// An application whose `Icon` lines are `icon`, and its deviations, for an
+/// untranslated session.
+fn read(icon: &str) -> (Option<Icon>, Vec<Deviation>) {
+    read_for(icon, &[])
+}
+
+/// [`read`], for a session in `locales`.
+fn read_for(icon: &str, locales: &[Locale]) -> (Option<Icon>, Vec<Deviation>) {
     let text = format!("[Desktop Entry]\nType=Application\nName=A\nExec=true\n{icon}\n");
     let id = DesktopId::new("a.desktop").unwrap();
-    let entry = DesktopEntry::parse(id, "/a.desktop".into(), text).unwrap();
+    let entry = DesktopEntry::parse(id, "/a.desktop".into(), text, locales).unwrap();
     (entry.icon, entry.deviations)
 }
 
 fn default(icon: &str) -> Option<Icon> {
-    with_deviations(icon).0
-}
-
-/// The unlocalised icon, and the deviations.
-fn with_deviations(icon: &str) -> (Option<Icon>, Vec<Deviation>) {
-    let (icon, deviations) = read(icon);
-    (icon.map(|icon| icon.default), deviations)
+    read(icon).0
 }
 
 fn name(name: &str) -> Icon {
@@ -40,14 +40,11 @@ fn extension(value: &str) -> Deviation {
 #[test]
 fn reads_a_name_and_an_absolute_path() {
     assert_eq!(
-        with_deviations("Icon=accessories-text-editor"),
+        read("Icon=accessories-text-editor"),
         (Some(name("accessories-text-editor")), vec![])
     );
     let (icon, deviations) = read("Icon=/opt/app/share/app.png");
-    assert_eq!(
-        icon.unwrap().default,
-        Icon::Path("/opt/app/share/app.png".into())
-    );
+    assert_eq!(icon.unwrap(), Icon::Path("/opt/app/share/app.png".into()));
     // A path keeps its extension: it names the file.
     assert_eq!(deviations, []);
 }
@@ -57,11 +54,7 @@ fn strips_each_image_extension_glib_strips() {
     for extension_ in [".png", ".xpm", ".svg"] {
         let value = format!("firefox{extension_}");
         let (icon, deviations) = read(&format!("Icon={value}"));
-        assert_eq!(
-            icon.map(|icon| icon.default),
-            Some(name("firefox")),
-            "{value}"
-        );
+        assert_eq!(icon, Some(name("firefox")), "{value}");
         assert_eq!(deviations, [extension(&value)]);
     }
     // Only the last extension, and only these three, exactly as written:
@@ -75,7 +68,7 @@ fn strips_each_image_extension_glib_strips() {
 #[test]
 fn keeps_a_name_with_a_dot_whole() {
     assert_eq!(
-        with_deviations("Icon=org.gnome.Nautilus"),
+        read("Icon=org.gnome.Nautilus"),
         (Some(name("org.gnome.Nautilus")), vec![])
     );
 }
@@ -90,7 +83,7 @@ fn reads_an_empty_value_as_no_icon() {
 #[test]
 fn reads_a_relative_path_as_a_name_as_glib_does() {
     let (icon, deviations) = read("Icon=icons/app.png");
-    assert_eq!(icon.map(|icon| icon.default), Some(name("icons/app")));
+    assert_eq!(icon, Some(name("icons/app")));
     assert_eq!(
         deviations,
         [
@@ -105,23 +98,19 @@ fn reads_a_relative_path_as_a_name_as_glib_does() {
 
 #[test]
 fn reads_each_translation_and_action_icons_the_same_way() {
-    let (icon, _) = read("Icon=app.png\nIcon[de]=app-de.svg\nIcon[fr]=");
-    let icon = icon.unwrap();
+    let lines = "Icon=app.png\nIcon[de]=app-de.svg\nIcon[fr]=";
     let de = Locale::parse("de").unwrap();
     let fr = Locale::parse("fr").unwrap();
-    assert_eq!(icon.get(&[de]), &Icon::Name("app-de".into()));
+    assert_eq!(read_for(lines, &[de]).0, Some(Icon::Name("app-de".into())));
     // The empty French translation is dropped: French falls back.
-    assert_eq!(icon.get(&[fr]), &Icon::Name("app".into()));
+    assert_eq!(read_for(lines, &[fr]).0, Some(Icon::Name("app".into())));
 
     let text = "[Desktop Entry]\nType=Application\nName=A\nExec=true\nActions=new;\n\
                 [Desktop Action new]\nName=New\nExec=true\nIcon=new.xpm\n";
     let id = DesktopId::new("a.desktop").unwrap();
-    let entry = DesktopEntry::parse(id, "/a.desktop".into(), text).unwrap();
+    let entry = DesktopEntry::parse(id, "/a.desktop".into(), text, &[]).unwrap();
     let action = &entry.application().unwrap().actions[0];
-    assert_eq!(
-        action.icon.as_ref().unwrap().default,
-        Icon::Name("new".into())
-    );
+    assert_eq!(*action.icon.as_ref().unwrap(), Icon::Name("new".into()));
     assert_eq!(
         entry.deviations,
         [Deviation::IconExtension {

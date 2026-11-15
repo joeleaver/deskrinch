@@ -14,9 +14,13 @@
 //! ```
 //! use deskrinch_shell::{COMPONENTS, Ready};
 //!
-//! // The launcher starts first, hidden, and is ready once it owns its name.
-//! let launcher = &COMPONENTS[0];
-//! assert_eq!(launcher.package, "deskrinch-launcher");
+//! // The wallpaper starts first; the launcher, hidden, is ready once it
+//! // owns its name.
+//! assert_eq!(COMPONENTS[0].package, "deskrinch-wallpaper");
+//! let launcher = COMPONENTS
+//!     .iter()
+//!     .find(|component| component.package == "deskrinch-launcher")
+//!     .unwrap();
 //! assert_eq!(launcher.ready, Ready::BusName("org.deskrinch.Launcher"));
 //! ```
 
@@ -46,6 +50,14 @@ pub enum Ready {
     Started,
 }
 
+/// The wallpaper. It uses nothing restricted.
+pub const WALLPAPER: Component = Component {
+    package: "deskrinch-wallpaper",
+    args: &[],
+    ready: Ready::Started,
+    wayland_grants: &[],
+};
+
 /// The launcher: hidden at first, it owns its name on the session bus,
 /// through which a key binding (or anything else) summons it. It uses
 /// nothing restricted.
@@ -56,20 +68,19 @@ pub const LAUNCHER: Component = Component {
     wayland_grants: &[],
 };
 
-/// The panel. Its taskbar follows the window list: under KWin through
-/// `org_kde_plasma_window_management`, which KWin offers only to the
-/// programs it grants it (the wlroots compositors' window-list protocol is
-/// not restricted).
+/// The panel. It uses nothing restricted.
 pub const PANEL: Component = Component {
     package: "deskrinch-panel",
     args: &[],
     ready: Ready::Started,
-    wayland_grants: &["org_kde_plasma_window_management"],
+    wayland_grants: &[],
 };
 
-/// The shell's components, in the order they start: the launcher, then the
-/// panel.
-pub const COMPONENTS: &[Component] = &[LAUNCHER, PANEL];
+/// The shell's components, in the order they start.
+///
+/// The wallpaper comes first, so that the desktop is not bare while the
+/// rest starts. The launcher follows, hidden. The panel comes last.
+pub const COMPONENTS: &[Component] = &[WALLPAPER, LAUNCHER, PANEL];
 
 /// A modifier of a key binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -141,15 +152,6 @@ mod tests {
     }
 
     #[test]
-    fn the_launcher_chord_holds_each_modifier_once() {
-        let mut modifiers = LAUNCHER_CHORD.modifiers.to_vec();
-        modifiers.sort_unstable();
-        modifiers.dedup();
-        assert_eq!(modifiers.len(), LAUNCHER_CHORD.modifiers.len());
-        assert_ne!(modifiers, []);
-    }
-
-    #[test]
     fn each_grant_is_named_once() {
         for component in COMPONENTS {
             let mut grants = component.wayland_grants.to_vec();
@@ -158,6 +160,15 @@ mod tests {
             assert_eq!(grants.len(), component.wayland_grants.len());
             assert!(grants.iter().all(|grant| !grant.is_empty()));
         }
+    }
+
+    #[test]
+    fn the_launcher_chord_holds_each_modifier_once() {
+        let mut modifiers = LAUNCHER_CHORD.modifiers.to_vec();
+        modifiers.sort_unstable();
+        modifiers.dedup();
+        assert_eq!(modifiers.len(), LAUNCHER_CHORD.modifiers.len());
+        assert_ne!(modifiers, []);
     }
 
     #[test]

@@ -58,7 +58,7 @@ mod tests {
     fn entry(id: &str, extra: &str) -> DesktopEntry {
         let text = format!("[Desktop Entry]\nType=Application\nName={id}\nExec=true\n{extra}");
         let id = DesktopId::new(format!("{id}.desktop")).unwrap();
-        DesktopEntry::parse(id, "/x".into(), &text).unwrap()
+        DesktopEntry::parse(id, "/x".into(), &text, &[]).unwrap()
     }
 
     fn found<'a>(entries: &'a [DesktopEntry], app_id: &str) -> Option<&'a str> {

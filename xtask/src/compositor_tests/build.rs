@@ -39,35 +39,22 @@ pub(super) struct Target {
     pub(super) backend: Backend,
 }
 
-/// A binary of a package, by its `[[bin]]` name: a program a suite's tests
-/// start (the panel), which `cargo test` builds with them.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Bin {
-    /// The package.
-    pub(super) package: &'static str,
-    /// The `[[bin]]` name.
-    pub(super) bin: &'static str,
-}
-
-/// The executables of the builds: the test targets' and the programs',
-/// each in the order asked.
-#[derive(Debug)]
-pub(super) struct Built {
-    pub(super) tests: Vec<PathBuf>,
-    pub(super) programs: Vec<PathBuf>,
+impl Target {
+    /// Its name, as the run prints it and `--suite` takes it: the package
+    /// and the test, and "on libwayland" when built with it.
+    pub(super) fn name(self) -> String {
+        let on = match self.backend {
+            Backend::Rust => "",
+            Backend::System => " on libwayland",
+        };
+        format!("{} {}{on}", self.package, self.test)
+    }
 }
 
 /// Builds `targets`, one `cargo test --no-run` per backend, and returns
-/// their binaries, and those of `programs` (their packages' own binaries,
-/// which the same builds make), in the same order. A program is where the
-/// last build that made it put it: a later build replaces it there.
-pub(super) fn test_binaries(
-    root: &Path,
-    targets: &[Target],
-    programs: &[Bin],
-) -> Result<Built, Error> {
+/// their binaries, in the same order.
+pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<PathBuf>, Error> {
     let mut binaries: Vec<Option<PathBuf>> = vec![None; targets.len()];
-    let mut found: Vec<Option<PathBuf>> = vec![None; programs.len()];
     for backend in [Backend::Rust, Backend::System] {
         let built: Vec<(usize, Target)> = targets
             .iter()
@@ -87,28 +74,8 @@ pub(super) fn test_binaries(
                 },
             )?);
         }
-        for (program, at) in programs.iter().zip(&mut found) {
-            if let Some(path) =
-                cargo_messages::executable(&messages, program.package, program.bin, Kind::Bin)
-            {
-                *at = Some(path);
-            }
-        }
     }
-    let programs = programs
-        .iter()
-        .zip(found)
-        .map(|(program, path)| {
-            path.ok_or(Error::MissingTestBinary {
-                package: program.package,
-                name: program.bin,
-            })
-        })
-        .collect::<Result<_, _>>()?;
-    Ok(Built {
-        tests: binaries.into_iter().flatten().collect(),
-        programs,
-    })
+    Ok(binaries.into_iter().flatten().collect())
 }
 
 /// Builds `targets` with `backend` in one `cargo test --no-run`; Cargo's
@@ -143,6 +110,47 @@ fn build(
         });
     }
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Builds each of `packages`' binary of the same name (the programs the
+/// chosen suites declare) in one `cargo build`, and returns their
+/// executables, in the same order. A test target's build makes its own
+/// package's binaries only, so another package's needs a build of its own.
+pub(super) fn programs(root: &Path, packages: &[&'static str]) -> Result<Vec<PathBuf>, Error> {
+    if packages.is_empty() {
+        return Ok(Vec::new());
+    }
+    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
+    let mut command = Command::new(&cargo);
+    command.current_dir(root).arg("build");
+    for package in packages {
+        command.args(["--package", package, "--bin", package]);
+    }
+    let output = command
+        .args(["--locked", "--message-format=json-render-diagnostics"])
+        .stderr(Stdio::inherit())
+        .output()
+        .map_err(|source| Error::Spawn {
+            program: "cargo".into(),
+            source,
+        })?;
+    if !output.status.success() {
+        return Err(Error::BuildFailed {
+            status: output.status,
+        });
+    }
+    let messages = String::from_utf8_lossy(&output.stdout);
+    packages
+        .iter()
+        .map(|&package| {
+            cargo_messages::executable(&messages, package, package, Kind::Bin).ok_or(
+                Error::MissingTestBinary {
+                    package,
+                    name: package,
+                },
+            )
+        })
+        .collect()
 }
 
 /// The executable of `target` in Cargo's JSON messages.

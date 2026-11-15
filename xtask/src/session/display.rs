@@ -12,7 +12,7 @@ use std::path::{Path, PathBuf};
 use deskrinch_shell::Chord;
 use deskrinch_test_dbus::session::{self, SESSION_DIRS};
 
-use super::{Compositor, CompositorRenderer, Outputs};
+use super::{Compositor, CompositorRenderer, Gpu, Outputs};
 use crate::error::Error;
 
 /// Where the compositor shows its outputs.
@@ -143,11 +143,22 @@ pub(crate) struct Options<'a> {
     pub(crate) home: Home,
     /// Its key bindings.
     pub(crate) bindings: &'a [Binding],
+    /// Whether the compositor gets the workspace tests' fixture: under
+    /// labwc, four workspaces switched without the on-screen popup, and F12
+    /// bound to the next one. Test sessions only: F12 is a key real
+    /// applications use, and a binding takes it from every window. KWin's
+    /// tests make their desktops themselves, and sway has no workspaces to
+    /// configure, so it changes nothing there.
+    pub(crate) workspace_tests_fixture: bool,
+    /// Whether the session's clients may use the machine's GPU; they are
+    /// told ([`Gpu`]).
+    pub(crate) gpu: Gpu,
 }
 
 impl<'a> Options<'a> {
-    /// A headless session of `compositor`, with a fresh home and no key
-    /// bindings: what the tests and `cargo xtask session` run.
+    /// A headless session of `compositor`, with a fresh home, no key
+    /// bindings and the workspace tests' fixture: what the tests and
+    /// `cargo xtask session` run.
     pub(crate) fn headless(
         compositor: Compositor,
         renderer: CompositorRenderer,
@@ -162,6 +173,8 @@ impl<'a> Options<'a> {
             display: Display::Headless,
             home: Home::Fresh,
             bindings: &[],
+            workspace_tests_fixture: true,
+            gpu: Gpu::Machine,
         }
     }
 }

@@ -1,16 +1,20 @@
 //! The test binaries `cargo xtask compositor-tests` runs, and where.
 
+use deskrinch_shell::Component;
 use deskrinch_test_wayland::Transform;
 
-use super::build::{Backend, Bin, Target};
+use super::build::{Backend, Target};
 use crate::session::{Compositor, Outputs, Scale};
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
+const TEST_CLIENT: &str = "deskrinch-test-client";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
 const PANEL: &str = "deskrinch-panel";
+const WALLPAPER: &str = "deskrinch-wallpaper";
 const WAYLAND_CLIENT: &str = "deskrinch-wayland-client";
+const WORKSPACES: &str = "deskrinch-workspaces";
 const XTASK: &str = "xtask";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
@@ -72,23 +76,12 @@ pub(super) struct Grant {
     pub(super) dbus: &'static [&'static str],
 }
 
-/// A program a suite's tests start, and what KWin grants it: one desktop
-/// file for its binary, as for a test binary.
-#[derive(Debug)]
-pub(super) struct Program {
-    pub(super) bin: Bin,
-    pub(super) grant: Grant,
-}
-
 /// A test binary and how it runs.
 #[derive(Debug)]
 pub(super) struct Suite {
     pub(super) target: Target,
     /// What KWin grants it; nothing for a binary that checks a refusal.
     pub(super) grant: Option<Grant>,
-    /// The programs its tests start that KWin must grant something (the
-    /// panel, for its taskbar's window list).
-    pub(super) programs: &'static [Program],
     /// The compositors it runs under: what it tests exists only there.
     pub(super) compositors: &'static [Compositor],
     /// The sessions it runs in, by how their outputs are.
@@ -97,16 +90,52 @@ pub(super) struct Suite {
     /// tests ([`super::renderers`]), told which in
     /// `DESKRINCH_TEST_RENDERER`.
     pub(super) renders: bool,
+    /// The shell components its tests start that are not of its own crate
+    /// (the panel, for the wallpaper's layering test): built with its tests,
+    /// granted what the shell grants them, and handed to its tests by path
+    /// ([`deskrinch_test_component::programs`]).
+    pub(super) programs: &'static [&'static Component],
     /// The libtest arguments it runs with.
     pub(super) filter: &'static [&'static str],
+}
+
+impl Suite {
+    /// Whether it is the row that ends the session (the window-management
+    /// tests of [`SESSION_END`]), after which nothing of it is left.
+    pub(super) fn ends_the_session(&self) -> bool {
+        self.filter == [SESSION_END]
+    }
 }
 
 /// The module of the window-management tests that ends the session, so
 /// runs last, on its own.
 pub(super) const SESSION_END: &str = "session_end::";
 
+/// The workspace tests that need a compositor with no workspace protocol
+/// (sway), and those that change KWin's desktops by KWin's own interface.
+const UNSUPPORTED: &str = "unsupported::";
+const KWIN_DESKTOPS: &str = "desktops::";
+/// The workspace tests that share a connection with window management.
+const SHARED: &str = "shared::";
+
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 13] = [
+pub(super) const SUITES: [Suite; 19] = [
+    // The test client's output changes, first: that every change to the
+    // session's outputs is put back exactly, which the suites after it
+    // rely on.
+    Suite {
+        target: Target {
+            package: TEST_CLIENT,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &[],
+    },
     Suite {
         target: Target {
             package: WINDOW_MANAGEMENT,
@@ -247,21 +276,80 @@ pub(super) const SUITES: [Suite; 13] = [
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
-        // The panel's taskbar follows the window list: the panel binary is
-        // granted what the shell grants it (`deskrinch-shell`).
-        programs: &[Program {
-            bin: Bin {
-                package: deskrinch_shell::PANEL.package,
-                bin: deskrinch_shell::PANEL.package,
-            },
-            grant: Grant {
-                id: "org.deskrinch.PanelUnderTest",
-                name: "deskrinch panel under test",
-                wayland: deskrinch_shell::PANEL.wayland_grants,
-                dbus: &[],
-            },
-        }],
+        programs: &[],
         filter: &[],
+    },
+    // The wallpaper's real binary, checked by the screen on every output; the
+    // panel, declared as its program, built with it and handed to its tests,
+    // is started over it. Not in the flipped pass, for the panel's reason: a
+    // full output of one colour is the same mirrored.
+    Suite {
+        target: Target {
+            package: WALLPAPER,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.WallpaperTests",
+            name: "deskrinch wallpaper tests",
+            wayland: &[],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
+        compositors: ALL,
+        passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
+        renders: true,
+        programs: &[&deskrinch_shell::PANEL],
+        filter: &[],
+    },
+    // The workspaces. KWin offers its virtual-desktop protocol ungranted, so
+    // the grant lists only what the tests also use: window management on a
+    // shared connection, and screenshots. labwc's workspaces are fixed by
+    // its configuration (four), so KWin's `desktops::` tests do not run
+    // there; sway offers no workspace protocol, which `unsupported::`
+    // checks, alone.
+    Suite {
+        target: Target {
+            package: WORKSPACES,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.WorkspacesTests",
+            name: "deskrinch workspaces tests",
+            wayland: &[deskrinch_window_management::KWIN_INTERFACE],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
+        compositors: KWIN,
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &["--skip", UNSUPPORTED],
+    },
+    Suite {
+        target: Target {
+            package: WORKSPACES,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: &[Compositor::Labwc],
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &["--skip", UNSUPPORTED, "--skip", KWIN_DESKTOPS],
+    },
+    Suite {
+        target: Target {
+            package: WORKSPACES,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: &[Compositor::Sway],
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &[UNSUPPORTED],
     },
     // The shared connection's one thread: states attached and detached from
     // several threads at once, and how the thread and its states end.
@@ -337,6 +425,26 @@ pub(super) const SUITES: [Suite; 13] = [
         renders: false,
         programs: &[],
         filter: &["--skip", SESSION_END],
+    },
+    // The workspaces' shared-connection tests on libwayland too: they share
+    // one connection with window management.
+    Suite {
+        target: Target {
+            package: WORKSPACES,
+            test: "compositor",
+            backend: Backend::System,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.WorkspacesTestsLibwayland",
+            name: "deskrinch workspaces tests on libwayland",
+            wayland: &[deskrinch_window_management::KWIN_INTERFACE],
+            dbus: &[],
+        }),
+        compositors: &[Compositor::Kwin, Compositor::Labwc],
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &[SHARED],
     },
     // Last: it ends the session.
     Suite {

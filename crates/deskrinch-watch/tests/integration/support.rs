@@ -3,13 +3,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver};
-use std::time::Duration;
 
+use deskrinch_test_wait::{gathered, quiet_for, recv};
 use deskrinch_watch::{Event, Target, Timing, Watcher};
 use tempfile::TempDir;
-
-/// How long a test waits for an event before failing.
-const PATIENCE: Duration = Duration::from_secs(10);
 
 /// A temporary root, resolved (the system's temporary directory may be
 /// reached through a link).
@@ -48,16 +45,37 @@ pub(crate) fn write(path: &Path, text: &str) {
 
 /// Waits for the next report, which must be a change.
 pub(crate) fn changed(events: &Receiver<Event>) {
-    match events.recv_timeout(PATIENCE) {
-        Ok(Event::Changed) => {}
-        other => panic!("expected a change, got {other:?}"),
+    match recv("a change", events) {
+        Event::Changed => {}
+        Event::Error(error) => panic!("expected a change, got an error: {error:?}"),
     }
 }
 
-/// Asserts that nothing is reported for a while: long enough for a
-/// change to have settled and been reported.
-pub(crate) fn quiet(events: &Receiver<Event>) {
-    if let Ok(event) = events.recv_timeout(Duration::from_millis(1500)) {
-        panic!("expected nothing, got {event:?}");
+/// Waits for what the writes just made to be reported: a change, then
+/// reports stopping. However the writes were spread in time (one report,
+/// or a burst split in two on a slow machine), it returns once nothing has
+/// come for [`Timing::settled`] after the last report, so a later claim
+/// starts from a watcher with nothing left to say. It fails only on an
+/// error, or on no change within the patience.
+pub(crate) fn reported(events: &Receiver<Event>) {
+    changed(events);
+    for event in gathered("further reports", events, Timing::default().settled()) {
+        if let Event::Error(error) = event {
+            panic!("expected changes, got an error: {error:?}");
+        }
     }
+}
+
+/// Asserts that nothing is reported for long enough for a change to have
+/// settled and been reported: past the watcher's longest delay.
+///
+/// A quiet window, kept where no ordered check can stand in for it: an
+/// [`Event::Changed`] carries nothing that tells which write it reports, so
+/// a later write's report could not be told from a wrong one. It cannot
+/// fail because the machine is slow: it starts after the writes are made
+/// and their reports have stopped ([`reported`]), and a slow machine only
+/// delays a wrong report into it.
+#[track_caller]
+pub(crate) fn quiet(events: &Receiver<Event>) {
+    quiet_for("nothing reported", events, Timing::default().settled());
 }

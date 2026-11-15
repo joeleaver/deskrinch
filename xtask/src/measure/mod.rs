@@ -28,7 +28,9 @@
 //! first show cold and each later one after a hide.
 //!
 //! The first frame is rinch's: the program is run with `RINCH_PERF=1`,
-//! which makes rinch write a line after every presented frame.
+//! which makes rinch write a line after every presented frame. It is the
+//! main window's, or with `--windows N` the last of N windows' first frames
+//! ([`windows`]).
 
 mod callgrind;
 mod environment;
@@ -44,10 +46,12 @@ mod smaps;
 mod state;
 mod system;
 mod window;
+mod windows;
 
 pub(crate) use environment::parse_env;
 pub(crate) use renderer::{Expected, Renderer};
 pub(crate) use show::Summons;
+pub(crate) use windows::WindowsError;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -58,9 +62,10 @@ use self::environment::{environment, environment_set};
 use self::granting::Grant;
 use self::renderer::check_renderer;
 use self::window::Stimulus;
+use self::windows::Expect;
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, CompositorRenderer, Outputs, RenderNodes, Session};
+use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, RenderNodes, Session};
 
 /// `cargo xtask measure --help`: what is measured, and how.
 pub(crate) const LONG_ABOUT: &str = "\
@@ -135,6 +140,22 @@ of DIR's contents, such as the launcher's record of starts
 (deskrinch/starts.toml); the report says the state was seeded, and from
 where. A DIR that is not a readable directory fails before any session.
 
+--windows N measures a program that opens N windows (the wallpaper opens
+one per output: --outputs 2 --windows 2), from rinch's per-window lines;
+without it the main window's frames are read, as always. Start-up ends when
+each of the N windows has presented a first frame, and \"CPU to first frame\"
+runs to the last of them. Each window, named by its title and output, gets
+the process's CPU (and, apart, the wall time) when its first frame came:
+cumulative, work for every window included, not what that window cost, as
+a line under those rows says. The idle window's frames are given per
+window and in all. A run fails, with no report, when fewer than N windows
+present within --first-frame-timeout (naming each window seen), when more
+than N are open, when two have one name, and when a window closes or opens
+after start-up (an output turned off and on again): measuring a program
+whose windows change is outside what measure does, since its start-up and
+idle figures would mix windows. N is given, never taken from --outputs:
+how many windows a program opens per output is its own. Not with --summon.
+
 Needs valgrind and callgrind_control for --instructions.";
 
 /// The state of the GPU driver's shader cache at each start.
@@ -152,6 +173,8 @@ pub(crate) enum ShaderCache {
 pub(crate) struct Request {
     pub(crate) compositor: Compositor,
     pub(crate) runs: u32,
+    /// How many outputs each run's session has.
+    pub(crate) outputs: u32,
     pub(crate) renderer: Option<Renderer>,
     /// With `--expect-renderer`: the renderer every run must have presented
     /// with, or the task fails naming what did.
@@ -174,6 +197,9 @@ pub(crate) struct Request {
     /// With `--window`: the app id of a window opened at the idle window's
     /// start and kept open to its end.
     pub(crate) window: Option<String>,
+    /// With `--windows`: how many windows the program opens, each read from
+    /// rinch's per-window lines, instead of its main window.
+    pub(crate) windows: Option<u32>,
     /// `--allow-errors`: measure a program that logged errors, with the
     /// lines in the run's notes, instead of failing the run.
     pub(crate) allow_errors: bool,
@@ -199,6 +225,7 @@ impl Request {
         Self {
             compositor: Compositor::Kwin,
             runs: 1,
+            outputs: 1,
             renderer: None,
             expect_renderer: None,
             shader_cache: ShaderCache::Cold,
@@ -212,6 +239,7 @@ impl Request {
             args: Vec::new(),
             summons: None,
             window: None,
+            windows: None,
             allow_errors: false,
             component: None,
             env: Vec::new(),
@@ -253,7 +281,14 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                     let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
                     show::measure(command, &ask, &program, timing, summons).map(drop)
                 }
-                None => probe::measure(command, &program, timing, &Stimulus::none()).map(drop),
+                None => probe::measure(
+                    command,
+                    &program,
+                    timing,
+                    &Stimulus::none(),
+                    Expect::of(request.windows),
+                )
+                .map(drop),
             }
         })?;
     }
@@ -300,11 +335,12 @@ fn measure_run(
 ) -> Result<report::Run, Error> {
     let ask = |args: &[OsString]| asked(session, request, cache, args);
     let stimulus = || Stimulus::of(session, request.window.as_deref());
+    let expect = Expect::of(request.windows);
     if !request.instructions {
         let command = client(session, request, cache);
         return match &request.summons {
             Some(summons) => show::measure(command, &ask, program, timing, summons),
-            None => probe::measure(command, program, timing, &stimulus()),
+            None => probe::measure(command, program, timing, &stimulus(), expect),
         };
     }
     let dir = request.profiles.as_ref().map_or_else(
@@ -327,7 +363,7 @@ fn measure_run(
         Some(summons) => {
             show::measure_instructions(command, &control, &ask, program, &out, timing, summons)
         }
-        None => callgrind::measure(command, control, program, &out, timing, &stimulus()),
+        None => callgrind::measure(command, control, program, &out, timing, &stimulus(), expect),
     }
 }
 
@@ -341,8 +377,10 @@ fn in_session<T>(
     let session = Session::start(
         request.compositor,
         request.compositor_renderer(),
-        Outputs::plain(1),
+        Outputs::plain(request.outputs),
         None,
+        // The program measured chooses its renderer as asked.
+        Gpu::Machine,
         |data_home| grant.install(data_home),
     )?;
     let result = match &request.state {
@@ -383,12 +421,13 @@ fn header(request: &Request) -> String {
         .collect();
     let header = format!(
         "Measured: {} {}\n\
-         Compositor: {} (nested, headless; {})\n\
+         Compositor: {} (nested, headless, {} output(s); {})\n\
          Renderer: {}; shader cache: {}; {}\n\
          Machine: {}",
         request.program.to_string_lossy(),
         args.join(" "),
         request.compositor.name(),
+        request.outputs,
         match (request.compositor, request.compositor_renderer()) {
             (Compositor::Kwin, _) => "it composites with the GPU through EGL".to_owned(),
             (_, CompositorRenderer::Gpu) => format!(
@@ -422,6 +461,12 @@ fn header(request: &Request) -> String {
         },
         system::describe(),
     );
+    let header = match request.windows {
+        Some(n) => {
+            format!("{header}\nWindows: {n} expected; start-up ends at the last one's first frame")
+        }
+        None => header,
+    };
     match environment_set(request) {
         Some(set) => format!("{header}\nEnvironment set: {set}"),
         None => header,
