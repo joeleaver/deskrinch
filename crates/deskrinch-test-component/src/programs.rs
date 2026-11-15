@@ -1,5 +1,6 @@
-//! The programs a suite's tests start that are not of their own crate
-//! (the panel, for the wallpaper's layering test). A suite declares them
+//! The shell components a suite's tests start (the panel, for the
+//! wallpaper's layering test, and for the panel's own tests, where its
+//! taskbar needs what the shell grants it). A suite declares them
 //! (its `programs`, in `xtask/src/compositor_tests/suites.rs`), and
 //! `cargo xtask compositor-tests` builds them with its tests and hands each
 //! one's path to them through the environment ([`environment`]); a test

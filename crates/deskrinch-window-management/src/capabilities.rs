@@ -60,6 +60,13 @@ bitflags::bitflags! {
     }
 }
 
+impl From<Action> for Actions {
+    /// The set holding `action` alone.
+    fn from(action: Action) -> Self {
+        action.flag()
+    }
+}
+
 /// The protocol a connection speaks, for diagnostics. Code should branch on
 /// [`Capabilities`], not on this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -113,6 +120,20 @@ impl Capabilities {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn each_action_converts_to_its_own_flag() {
+        let flags: Vec<Actions> = Action::ALL.into_iter().map(Actions::from).collect();
+        assert_eq!(
+            flags,
+            [
+                Actions::ACTIVATE,
+                Actions::MINIMIZE,
+                Actions::RESTORE,
+                Actions::CLOSE
+            ]
+        );
+    }
 
     #[test]
     fn supports_reads_the_action_set() {
