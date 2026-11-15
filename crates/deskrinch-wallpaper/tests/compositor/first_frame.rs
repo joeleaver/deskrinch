@@ -1,7 +1,10 @@
 //! Each of the wallpaper's windows draws its first frame at its output's
-//! scale: rinch starts a layer surface at the scale of the output it asks
-//! for (rinch 2652), so on a scaled output there is no first frame at scale
-//! 1 followed by one at the output's.
+//! scale: on a scaled output there is no first frame at scale 1 followed by
+//! one at the output's. A guard of a property every component relies on,
+//! which already held before rinch 2652: KWin, sway and labwc tell a layer
+//! surface its scale before its first configure (rinch's commit e54c72b7
+//! says so of the layer-surface case), and this test passed in every
+//! session on rinch 78528484f as on ac657148a.
 //!
 //! What a frame was drawn at is read from rinch's own account of it: the
 //! `surface_px` counter of each window's first `[PERF] window <id> frame`
