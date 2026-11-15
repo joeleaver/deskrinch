@@ -19,11 +19,20 @@
 //! session's data directory, built from the interface constants of the
 //! crates that binary uses (KWin's checks stay on). Each `kwin_not_granted`
 //! binary checks that a binary without one is refused. A suite's programs (the
-//! shell components its tests start that are not of its own crate) are built
-//! with it, granted what the shell grants them, and handed to its tests by
-//! path ([`deskrinch_test_component::programs`]). The window-management
+//! shell components its tests start that are not of its own crate) are
+//! granted what the shell grants them, and handed to its tests by path
+//! ([`deskrinch_test_component::programs`]). The window-management
 //! `session_end` tests end the session under a connected manager, so they
 //! run last.
+//!
+//! The components are built apart from the tests, by the one build of them
+//! all ([`crate::components`]), whatever suites run, and the run keeps its
+//! own copy of each ([`run_dir`]). Not with the tests: one invocation
+//! unifies features over everything it builds, the test crates'
+//! dev-dependencies included, and the suites would then start components
+//! nobody builds for use. Not only those the chosen suites declare: a build
+//! of some gives a component another unit than a build of all, and the unit
+//! a suite starts would depend on which suites were chosen.
 //!
 //! A run can be narrowed to some suites, and to one test of one suite
 //! ([`selection`]), and repeated in fresh sessions ([`repeat`]). A run that
@@ -37,6 +46,7 @@ mod build;
 mod leaks;
 pub(crate) mod renderers;
 mod repeat;
+mod run_dir;
 pub(crate) mod selection;
 mod suites;
 
@@ -49,9 +59,11 @@ use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_component::{RENDERER_VARIABLE, Renderer, programs};
 
 use self::build::Target;
+use self::run_dir::RunDir;
 use self::selection::Selection;
 use self::suites::{Pass, SUITES};
 use crate::Outcome;
+use crate::components::{self, Profile};
 use crate::error::Error;
 use crate::session::{Compositor, CompositorRenderer, Gpu, Session};
 
@@ -117,24 +129,21 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
 }
 
 /// What a run built: the chosen suites' test binaries, by their rows in
-/// [`SUITES`], and the programs they declare, by package.
+/// [`SUITES`], and every component, by package, kept in the run's own
+/// directory for as long as the run lasts.
 struct Built {
     tests: BTreeMap<usize, PathBuf>,
     programs: BTreeMap<&'static str, PathBuf>,
+    _kept: RunDir,
 }
 
-/// Builds the chosen suites' test binaries and the programs they declare.
+/// Builds the chosen suites' test binaries, then every component
+/// ([`crate::components::build`]), kept in the run's own directory.
 fn build(root: &Path, selection: &Selection) -> Result<Built, Error> {
     let mut targets: Vec<Target> = Vec::new();
-    let mut programs: Vec<&'static str> = Vec::new();
     for &row in selection.rows() {
         if !targets.contains(&SUITES[row].target) {
             targets.push(SUITES[row].target);
-        }
-        for program in SUITES[row].programs {
-            if !programs.contains(&program.package) {
-                programs.push(program.package);
-            }
         }
     }
     let built = build::test_binaries(root, &targets)?;
@@ -148,12 +157,27 @@ fn build(root: &Path, selection: &Selection) -> Result<Built, Error> {
             (row, built[at.unwrap_or_default()].clone())
         })
         .collect();
-    let programs = programs
+    let built = components::build(root, Profile::Dev)?;
+    let keeping = |source| Error::Io {
+        what: "keep the components for the run".into(),
+        source,
+    };
+    let any = built
+        .values()
+        .next()
+        .ok_or(components::BuildError::Missing {
+            package: deskrinch_shell::COMPONENTS[0].package,
+        })?;
+    let kept = RunDir::beside(any).map_err(keeping)?;
+    let programs = built
         .iter()
-        .copied()
-        .zip(build::programs(root, &programs)?)
-        .collect();
-    Ok(Built { tests, programs })
+        .map(|(&package, binary)| Ok((package, kept.keep(binary).map_err(keeping)?)))
+        .collect::<Result<_, Error>>()?;
+    Ok(Built {
+        tests,
+        programs,
+        _kept: kept,
+    })
 }
 
 /// The compositor tests `binary` has, as it lists them.

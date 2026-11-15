@@ -14,7 +14,6 @@
 //! `SIGINT`, `SIGTERM` or `SIGHUP`, or when the command given after `--`
 //! exits; should it be killed, the session's supervisor ends the session.
 
-mod build;
 mod ending;
 mod grant;
 mod guard;
@@ -34,6 +33,7 @@ use deskrinch_test_wait::{Deadline, PATIENCE};
 use self::ending::{Followed, follow, run_until_ended};
 use self::profile::Profile;
 use crate::Outcome;
+use crate::components;
 use crate::error::Error;
 use crate::session::{
     Binding, ClientId, Compositor, CompositorRenderer, Display, GPU_VARIABLE, Gpu, Home, Options,
@@ -166,12 +166,6 @@ pub(crate) enum DesktopError {
         /// By what.
         why: &'static str,
     },
-    /// `cargo` could not build the components.
-    #[error("building the shell's components failed ({status})")]
-    BuildFailed {
-        /// How `cargo` exited.
-        status: ExitStatus,
-    },
     /// `cargo` built a component but did not report its binary.
     #[error("cargo reported no binary for {package}")]
     MissingBinary {
@@ -214,7 +208,21 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         .as_deref()
         .map(|name| Profile::open(root, name))
         .transpose()?;
-    let binaries = build::binaries(root, args.debug)?;
+    let build = if args.debug {
+        components::Profile::Dev
+    } else {
+        components::Profile::Release
+    };
+    eprintln!(
+        "desktop: building {} ({})",
+        components::packages().join(", "),
+        if args.debug {
+            "unoptimised, as --debug asks"
+        } else {
+            "release; --debug builds them unoptimised"
+        }
+    );
+    let binaries = components::build(root, build)?;
     let id = [LAUNCHER_TOGGLE.package]
         .iter()
         .chain(LAUNCHER_TOGGLE.args)

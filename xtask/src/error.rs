@@ -102,6 +102,9 @@ pub(crate) enum Error {
     /// `cargo xtask desktop` could not run.
     #[error(transparent)]
     Desktop(#[from] crate::desktop::DesktopError),
+    /// The shell's components could not be built.
+    #[error(transparent)]
+    Components(#[from] crate::components::BuildError),
     /// A test binary cannot be granted what KWin restricts.
     #[error("could not write a test binary's desktop file")]
     DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),

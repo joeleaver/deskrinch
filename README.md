@@ -382,10 +382,14 @@ What the nested desktop does not have:
 ### Measuring what a component costs
 
 `cargo xtask measure` starts a rinch program (a shell component, a rinch
-example) in fresh isolated sessions, one per run, and reports what it costs:
+example) in fresh isolated sessions, one per run, and reports what it costs.
+`cargo xtask build-components` builds the shell's components the one way
+the desktop and the compositor tests build them, all of them in one `cargo
+build` (`--release` for Cargo's release profile), and prints each package
+and its binary's path, so what is measured is what runs:
 
 ```sh
-cargo build --release -p deskrinch-panel
+cargo xtask build-components --release
 cargo xtask measure target/release/deskrinch-panel
 cargo xtask measure --shader-cache warm --renderer gpu target/release/deskrinch-panel
 cargo xtask measure --instructions --runs 1 target/release/deskrinch-panel
