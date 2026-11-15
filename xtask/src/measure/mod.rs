@@ -33,10 +33,12 @@
 //! main window's, or with `--windows N` the last of N windows' first frames
 //! ([`windows`]).
 
+mod args;
 mod callgrind;
 mod environment;
 mod gpu;
 mod granting;
+mod help;
 mod output;
 mod probe;
 mod procfs;
@@ -46,13 +48,19 @@ mod show;
 mod smaps;
 mod state;
 mod system;
+mod typing;
 mod window;
 mod windows;
 
-pub(crate) use environment::parse_env;
-pub(crate) use renderer::{Expected, Renderer};
-pub(crate) use show::Summons;
+pub(crate) use args::Args;
+pub(crate) use help::LONG_ABOUT;
+pub(crate) use typing::TypingError;
 pub(crate) use windows::WindowsError;
+
+use self::environment::parse_env;
+use self::renderer::{Expected, Renderer};
+use self::show::Summons;
+use self::typing::{QueryLine, Typing, parse_text};
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -67,102 +75,6 @@ use self::windows::Expect;
 use crate::Outcome;
 use crate::error::Error;
 use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, RenderNodes, Session};
-
-/// `cargo xtask measure --help`: what is measured, and how.
-pub(crate) const LONG_ABOUT: &str = "\
-Measure what a rinch program (a shell component) costs, in isolated sessions.
-
-Each run starts the program as the only client of a fresh nested compositor
-(the session `cargo xtask session` describes) with RINCH_PERF=1, and reports:
-  - CPU time (user+system) up to its first presented frame, in all and per
-    thread, threads that ended before it included;
-  - memory once settled: Rss, Pss, anonymous, file, shmem and swap; the
-    resident set by what is mapped (the Vulkan driver, LLVM, fonts, GTK, the
-    program's binary, the heap); and GPU memory from the DRM fdinfo, which is
-    not in Rss;
-  - over an idle window: CPU time per minute, wake-ups and preemptions per
-    second, frames, and CPU per frame; and, in each run's notes, the
-    threads that woke most in it, by name;
-  - the renderer that presented: rinch's software renderer, or the GPU
-    renderer on the adapter wgpu chose, marked when that is a software
-    Vulkan driver.
-
---instructions runs the program under Valgrind's Callgrind and reports
-instructions to the first frame, in the idle window, and per frame: the
-deterministic figure, for a loaded machine. The idle window begins --settle
-seconds after the first frame there too, and each run notes the
-instructions of the settle, kept out of the window. Without it, CPU time is the
-figure to compare; wall time is printed apart, beside the load average, and
-is not comparable.
-
-Each session starts with an empty shader cache (--shader-cache cold);
---shader-cache warm fills one with an unmeasured start first and keeps it,
-outside the sessions, for every run.
-
-Under sway and labwc the compositor renders with pixman and offers no dmabuf,
-so wgpu would offer only a software Vulkan driver (lavapipe), which rinch's
-default renderer declines for its software renderer. --renderer gpu under
-sway or labwc therefore gets a session whose compositor renders on the GPU
-(wlroots' GLES2 renderer on the GPU's render node), and fails where the
-machine has none. KWin composites with the GPU either way.
-
---summon ARGS --dismiss ARGS measures showing instead of starting: the
-program starts hidden, settles, and is shown --shows times by running it
-again with the summon arguments, hidden again with the dismiss arguments
-after each show. Each show reports CPU time (or with --instructions the
-instructions) from the summon command to the first frame after it, the
-first show cold, each later one after a hide. The summon command's own
-process is not counted. Settled means its threads ran almost nothing and
-rinch prepared no frame for its hidden window over a second; the prepared
-frames before each show are reported, and with --instructions each hide
-too, from the dismiss command to settled, with its prepared frames. Memory
-is read once, hidden and settled, before the first show (without
---instructions); the idle window is not measured.
-
---window APP_ID opens one window with that app id in the session at the
-idle window's start (once it has had its first configure and drawn), and
-keeps it open to its end: the idle figures then include what it costs the
-program, and the report also prints the idle window's wake-ups and frames
-as totals. A run with it minus one without is the cost of a window
-appearing plus what a window held open costs over the window. A run fails
-if the window cannot be opened or is gone by the end.
-
-Under KWin a program that is one of the shell's components (by its file
-name, or as --component PACKAGE names it) is granted what deskrinch-shell
-grants that component, as the desktop grants it; anything else is granted
-nothing. Each run's notes say what was granted, or why nothing.
-
---env KEY=VALUE (repeatable) sets a variable in the measured program's own
-environment, such as MALLOC_ARENA_MAX=1, so that the program KWin sees and
-grants is the program; the header and each run's notes say what was set.
-
-Each run keeps the program's whole output in a file its notes name. A run
-whose program logged an error fails, printing the lines: a program that
-says it is broken is not measured. --allow-errors measures it anyway, with
-the lines in the notes.
-
---state DIR starts each run's state directory (XDG_STATE_HOME) with a copy
-of DIR's contents, such as the launcher's record of starts
-(deskrinch/starts.toml); the report says the state was seeded, and from
-where. A DIR that is not a readable directory fails before any session.
-
---windows N measures a program that opens N windows (the wallpaper opens
-one per output: --outputs 2 --windows 2), from rinch's per-window lines;
-without it the main window's frames are read, as always. Start-up ends when
-each of the N windows has presented a first frame, and \"CPU to first frame\"
-runs to the last of them. Each window, named by its title and output, gets
-the process's CPU (and, apart, the wall time) when its first frame came:
-cumulative, work for every window included, not what that window cost, as
-a line under those rows says. The idle window's frames are given per
-window and in all. A run fails, with no report, when fewer than N windows
-present within --first-frame-timeout (naming each window seen), when more
-than N are open, when two have one name, and when a window closes or opens
-after start-up (an output turned off and on again): measuring a program
-whose windows change is outside what measure does, since its start-up and
-idle figures would mix windows. N is given, never taken from --outputs:
-how many windows a program opens per output is its own. Not with --summon.
-
-Needs valgrind and callgrind_control for --instructions.";
 
 /// The state of the GPU driver's shader cache at each start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -260,6 +172,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     }
     let program = request.program.to_string_lossy().into_owned();
     let grant = Grant::of(request)?;
+    let typist = typist_executable()?;
     // A warm cache lives outside the sessions, for as long as this task.
     let cache_dir = (request.shader_cache == ShaderCache::Warm)
         .then(|| {
@@ -280,12 +193,13 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
             settle: Duration::ZERO,
             idle: Duration::ZERO,
         };
-        in_session(request, &grant, |session| {
+        in_session(request, &grant, &typist, |session| {
             let command = client(session, request, Some(dir));
             match &request.summons {
                 Some(summons) => {
                     let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
-                    show::measure(command, &ask, &program, timing, summons).map(drop)
+                    let typist = || typist_client(session, &typist);
+                    show::measure(command, &ask, &typist, &program, timing, summons).map(drop)
                 }
                 None => probe::measure(
                     command,
@@ -307,8 +221,9 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let mut runs = Vec::new();
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
-        let mut run = in_session(request, &grant, |session| {
-            measure_run(request, session, index, cache, &program, timing)
+        let mut run = in_session(request, &grant, &typist, |session| {
+            let typist = || typist_client(session, &typist);
+            measure_run(request, session, index, cache, &program, timing, &typist)
         })?;
         output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
         run.note("granted", grant.note());
@@ -330,7 +245,8 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
 
 /// Measures run `index` of `program` in `session` as `request` asks: under
 /// Callgrind with `--instructions`, else from `/proc`; its shows with
-/// `--summon`, else its start and idle window.
+/// `--summon`, else its start and idle window; `typist` makes `--type`'s
+/// typist.
 fn measure_run(
     request: &Request,
     session: &Session,
@@ -338,6 +254,7 @@ fn measure_run(
     cache: Option<&Path>,
     program: &str,
     timing: probe::Timing,
+    typist: &dyn Fn() -> Command,
 ) -> Result<report::Run, Error> {
     let ask = |args: &[OsString]| asked(session, request, cache, args);
     let stimulus = || Stimulus::of(session, request.window.as_deref());
@@ -345,7 +262,7 @@ fn measure_run(
     if !request.instructions {
         let command = client(session, request, cache);
         return match &request.summons {
-            Some(summons) => show::measure(command, &ask, program, timing, summons),
+            Some(summons) => show::measure(command, &ask, typist, program, timing, summons),
             None => probe::measure(command, program, timing, &stimulus(), expect),
         };
     }
@@ -366,20 +283,23 @@ fn measure_run(
     command.args(&request.args);
     let control = || session.client("callgrind_control".as_ref());
     match &request.summons {
-        Some(summons) => {
-            show::measure_instructions(command, &control, &ask, program, &out, timing, summons)
-        }
+        Some(summons) => show::measure_instructions(
+            command, &control, &ask, typist, program, &out, timing, summons,
+        ),
         None => callgrind::measure(command, control, program, &out, timing, &stimulus(), expect),
     }
 }
 
 /// Runs `measure` in a fresh session, which is ended afterwards whatever
-/// the outcome.
+/// the outcome. Under KWin the program is granted `grant`, and with
+/// `--type` the typist, run from `typist`, the keyboard KWin restricts.
 fn in_session<T>(
     request: &Request,
     grant: &Grant,
+    typist: &Path,
     measure: impl FnOnce(&Session) -> Result<T, Error>,
 ) -> Result<T, Error> {
+    let types = request.summons.as_ref().is_some_and(|s| s.typing.is_some());
     let session = Session::start(
         request.compositor,
         request.compositor_renderer(),
@@ -387,7 +307,13 @@ fn in_session<T>(
         None,
         // The program measured chooses its renderer as asked.
         Gpu::Machine,
-        |data_home| grant.install(data_home),
+        |data_home| {
+            grant.install(data_home)?;
+            if types && request.compositor == Compositor::Kwin {
+                crate::grant::install_entry(&crate::typist::grant(typist)?, data_home)?;
+            }
+            Ok(())
+        },
     )?;
     let result = match &request.state {
         Some(state) => state::seed(state, &session.root().join("state")),
@@ -415,6 +341,24 @@ fn asked(session: &Session, request: &Request, cache: Option<&Path>, args: &[OsS
     let mut command = session.client(&request.program);
     environment(&mut command, request, cache);
     command.args(args);
+    command
+}
+
+/// This binary, which is `--type`'s typist run as `cargo xtask type`, with
+/// links resolved: the executable KWin sees, and grants.
+fn typist_executable() -> Result<PathBuf, Error> {
+    std::env::current_exe()
+        .and_then(std::fs::canonicalize)
+        .map_err(|source| Error::Io {
+            what: "find xtask's own executable, the typist".into(),
+            source,
+        })
+}
+
+/// The typist, `executable type`, as a client of `session`.
+fn typist_client(session: &Session, executable: &Path) -> Command {
+    let mut command = session.client(executable.as_os_str());
+    command.arg("type");
     command
 }
 
@@ -471,6 +415,13 @@ fn header(request: &Request) -> String {
         Some(n) => {
             format!("{header}\nWindows: {n} expected; start-up ends at the last one's first frame")
         }
+        None => header,
+    };
+    let header = match request.summons.as_ref().and_then(|s| s.typing.as_ref()) {
+        Some(typing) => format!(
+            "{header}\nTyped after each show: {:?}, a key at a time, each to settled",
+            typing.text
+        ),
         None => header,
     };
     match environment_set(request) {
