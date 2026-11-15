@@ -15,8 +15,15 @@ use crate::error::Error;
 
 impl Session {
     /// Every output of the session, on or off, as the compositor reports
-    /// it.
-    pub(crate) fn output_layout(&self) -> Result<Vec<OutputState>, Error> {
+    /// it. A compositor that has exited is reported as that, with its
+    /// status and its log ([`Session::unless_exited`]), not as the listing
+    /// it failed.
+    pub(crate) fn output_layout(&mut self) -> Result<Vec<OutputState>, Error> {
+        let listed = self.list_outputs();
+        listed.map_err(|error| self.unless_exited(error))
+    }
+
+    fn list_outputs(&self) -> Result<Vec<OutputState>, Error> {
         let failed = |source| Error::OutputSetup {
             compositor: self.compositor.name(),
             what: "list the outputs".to_owned(),

@@ -15,8 +15,12 @@
 //!   it.
 //! - [`stand_in`]: a stand-in compositor on a socket pair, for what a real
 //!   one cannot be made to do on cue.
+//! - [`connect_when_accepting`] and [`connect_once`]: connecting to a
+//!   compositor's socket by path, a refusal told apart from a compositor
+//!   that has exited.
 
 mod color;
+mod connect;
 mod globals;
 mod memory;
 mod shm;
@@ -25,6 +29,7 @@ mod transform;
 mod wait;
 
 pub use color::Rgba;
+pub use connect::{Connecting, connect_once, connect_when_accepting};
 pub use globals::{BindError, Global, Globals};
 pub use memory::memory_file;
 pub use shm::{ShmBuffer, ShmError};

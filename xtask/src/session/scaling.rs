@@ -29,8 +29,14 @@ pub(crate) enum Scaling {
 impl Session {
     /// Puts every output at `outputs`' scale and transform, where the
     /// compositor did not start with them, then checks what every output
-    /// reports.
-    pub(super) fn set_up_outputs(&self, outputs: Outputs) -> Result<(), Error> {
+    /// reports. A failure from a compositor that has exited meanwhile is
+    /// reported as its exit ([`Session::unless_exited`]).
+    pub(super) fn set_up_outputs(&mut self, outputs: Outputs) -> Result<(), Error> {
+        let set_up = self.set_up_and_check(outputs);
+        set_up.map_err(|error| self.unless_exited(error))
+    }
+
+    fn set_up_and_check(&self, outputs: Outputs) -> Result<(), Error> {
         if !outputs.is_plain() {
             match self.compositor.scaling() {
                 Scaling::StartUp => {}

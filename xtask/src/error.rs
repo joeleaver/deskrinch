@@ -97,7 +97,7 @@ pub(crate) enum Error {
         /// The binding's id.
         binding: String,
         /// The compositor's output so far.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// `cargo xtask desktop` could not run.
     #[error(transparent)]
@@ -113,7 +113,7 @@ pub(crate) enum Error {
         /// How it exited.
         status: ExitStatus,
         /// What it printed.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// The session's private D-Bus bus could not start.
     #[error("could not start the session's D-Bus bus")]
@@ -166,7 +166,7 @@ pub(crate) enum Error {
         /// Why waiting for it ended.
         source: Box<deskrinch_test_dbus::NameError>,
         /// What it printed.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// The nested compositor could not be asked how it runs.
     #[error("could not read {what} from {compositor}; its log:\n{log}")]
@@ -178,7 +178,7 @@ pub(crate) enum Error {
         /// Why asking failed.
         source: Box<zbus::Error>,
         /// What it printed.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// The nested compositor started in a state the session cannot use.
     #[error("{why} ({compositor} says \"{line}\"); its log:\n{log}")]
@@ -190,7 +190,7 @@ pub(crate) enum Error {
         /// The compositor's own line that says so.
         line: String,
         /// What it printed.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// A session was to render on the GPU, and the machine has none.
     #[error("the compositor was to render on the GPU, but this machine has none: {nodes}")]
@@ -208,7 +208,7 @@ pub(crate) enum Error {
         /// Why it failed.
         source: Box<deskrinch_test_client::Error>,
         /// What it printed.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// The nested compositor's outputs are not as asked.
     #[error("{compositor} did not take {asked}: {outputs}; its log:\n{log}")]
@@ -220,7 +220,7 @@ pub(crate) enum Error {
         /// The outputs not as asked, and how they are.
         outputs: String,
         /// What it printed.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// The program that sets the outputs' scale failed.
     #[error(
@@ -234,7 +234,7 @@ pub(crate) enum Error {
         /// What it printed.
         output: String,
         /// What the compositor printed.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// `ci-packages` was run outside a CI job: it installs packages with
     /// `sudo`, which nothing may do on a developer's machine.
@@ -243,13 +243,18 @@ pub(crate) enum Error {
          (GITHUB_ACTIONS=true); install what you need yourself"
     )]
     NotInCi,
-    /// The nested compositor did not open its socket in time.
-    #[error("{compositor} did not open its socket in time; its log:\n{log}")]
+    /// The nested compositor did not accept a connection on its socket in
+    /// time, while it ran.
+    #[error(
+        "{compositor} did not accept a connection on its socket in time ({why}); its log:\n{log}"
+    )]
     CompositorTimedOut {
         /// The compositor.
         compositor: &'static str,
+        /// The last thing seen: no socket, or the last refusal.
+        why: String,
         /// What it printed.
-        log: String,
+        log: crate::session::CompositorLog,
     },
     /// The measured program exited before the measurement was done.
     #[error("{program} exited ({status}) while it was measured; its last output:\n{output}")]
