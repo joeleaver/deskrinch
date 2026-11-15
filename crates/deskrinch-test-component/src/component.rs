@@ -171,7 +171,7 @@ impl Component {
 
     /// Waits for its first frame, then for its saying which renderer
     /// presented it; returns that. A component that has not presented
-    /// within [`PATIENCE`](PATIENCE) is taken to be hung; one that ends first fails
+    /// within [`PATIENCE`] is taken to be hung; one that ends first fails
     /// at once.
     ///
     /// # Errors

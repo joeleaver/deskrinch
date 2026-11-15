@@ -275,6 +275,18 @@ pub(crate) enum Error {
         /// Its last lines of output.
         output: String,
     },
+    /// The measured program's windows were not those `--windows` expects:
+    /// too few presented in time, too many, two of one name, or they
+    /// changed after start-up.
+    #[error("{program}: {source}\nIts last output:\n{output}")]
+    MeasuredWindows {
+        /// The program.
+        program: String,
+        /// What was wrong.
+        source: crate::measure::WindowsError,
+        /// Its last lines of output.
+        output: String,
+    },
     /// The measured program's `/proc` entry went away while it was read.
     #[error("{program} went away while it was measured")]
     MeasuredGone {
