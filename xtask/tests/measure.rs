@@ -4,8 +4,8 @@
 //! the report's sections, the errors for a program that exits or never draws,
 //! and that each session is ended afterwards. Nothing here asserts on time.
 //!
-//! The Callgrind path (`--instructions`) is not tested here: it needs
-//! Valgrind, which CI does not install.
+//! The Callgrind path (`--instructions`) is tested apart, in
+//! `tests/measure_callgrind.rs`: it needs Valgrind.
 //!
 //! Ignored by a plain `cargo test`, because they need a compositor
 //! installed; they start only isolated sessions of their own, so they are
@@ -40,6 +40,20 @@ mod measure {
             .stdin(Stdio::null())
             .output()
             .unwrap()
+    }
+
+    /// The note of what the stand-in, `sh`, was granted under the compositor
+    /// tested with: under KWin, which restricts interfaces, the warning that
+    /// `sh` is none of the shell's components; elsewhere, that the
+    /// compositor restricts nothing.
+    fn granted_to_sh() -> String {
+        match compositor().as_str() {
+            "kwin" => "granted: NOTHING: sh is not one of the shell's components by its file \
+                       name; if it is one, --component PACKAGE names it, and it is granted as \
+                       the shell grants it"
+                .to_owned(),
+            other => format!("granted: nothing: {other} restricts nothing"),
+        }
     }
 
     /// A script line that records, in `dir`, the stand-in's own pid and its
@@ -107,9 +121,14 @@ mod measure {
             "wall time to first frame",
             "load average at the first frame",
             "renderer: software (no GPU adapter logged)",
+            // Each run's notes.
+            "idle wake-ups by thread: ",
+            "the program's output: ",
         ] {
             assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
         }
+        let granted = granted_to_sh();
+        assert!(stdout.contains(&granted), "no {granted:?} in:\n{stdout}");
         assert_session_ended(dir.path());
     }
 
@@ -251,5 +270,144 @@ mod measure {
             assert!(stderr.contains("read the state to seed"), "{stderr}");
             assert!(!started.exists(), "the program was started");
         }
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_window_opened_for_the_idle_window_is_named_and_counted() {
+        let dir = tempfile::tempdir().unwrap();
+        let script = format!(
+            "{}echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600",
+            record(dir.path(), false)
+        );
+        let output = measure(&["--window", "org.deskrinch.MeasuredWindow"], &script);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        for section in [
+            "window: a window with app id org.deskrinch.MeasuredWindow opened at the idle \
+             window's start",
+            "wake-ups in the idle window (voluntary switches)",
+            "frames in the idle window",
+        ] {
+            assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
+        }
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_window_gone_before_the_idle_window_ends_fails_the_run() {
+        let dir = tempfile::tempdir().unwrap();
+        let compositor = match compositor().as_str() {
+            "kwin" => "kwin_wayland",
+            other => other,
+        }
+        .to_owned();
+        // After its first frame the stand-in ends its own session's
+        // compositor (the session's processes share one group), so the
+        // window's connection ends inside the idle window.
+        let script = format!(
+            "{}echo '[PERF] frame 1: style 0.10ms' >&2; sleep 1; \
+             kill $(pgrep -g $(ps -o pgid= $$ | tr -d ' ') -x {compositor}); exec sleep 600",
+            record(dir.path(), false)
+        );
+        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .args([
+                "measure",
+                "--compositor",
+                &self::compositor(),
+                "--runs",
+                "1",
+            ])
+            .args(["--settle", "0", "--idle", "4"])
+            .args(["--window", "org.deskrinch.MeasuredWindow"])
+            .args(["sh", "-c", &script])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stdout}\n{stderr}");
+        assert!(
+            stderr.contains("was gone by the end of the idle window"),
+            "{stderr}"
+        );
+        assert!(
+            !stdout.contains("idle CPU per minute"),
+            "a report was printed for a run without its window:\n{stdout}"
+        );
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn the_environment_asked_for_reaches_the_program_and_is_named() {
+        let dir = tempfile::tempdir().unwrap();
+        let found = dir.path().join("found");
+        let script = format!(
+            "{}echo \"$MEASURE_ASKED\" > {}; echo '[PERF] frame 1: style 0.10ms' >&2; \
+             exec sleep 600",
+            record(dir.path(), false),
+            found.display()
+        );
+        let output = measure(&["--env", "MEASURE_ASKED=a=b"], &script);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert_eq!(fs::read_to_string(&found).unwrap(), "a=b\n");
+        assert!(
+            stdout.contains("Environment set: MEASURE_ASKED=a=b"),
+            "{stdout}"
+        );
+        assert!(
+            stdout.contains("environment set: MEASURE_ASKED=a=b"),
+            "{stdout}"
+        );
+        assert_session_ended(dir.path());
+    }
+
+    /// A stand-in that logs an error as a component does, then draws.
+    fn logs_an_error(dir: &Path) -> String {
+        format!(
+            "{}echo '2026-11-13T21:18:32Z ERROR deskrinch_component::report: the taskbar shows \
+             none' >&2; echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600",
+            record(dir, false)
+        )
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_program_that_logged_an_error_is_not_measured() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = measure(&[], &logs_an_error(dir.path()));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stdout}\n{stderr}");
+        assert!(stderr.contains("logged 1 error(s)"), "{stderr}");
+        assert!(stderr.contains("the taskbar shows none"), "{stderr}");
+        assert!(stderr.contains("--allow-errors"), "{stderr}");
+        assert!(
+            !stdout.contains("idle CPU per minute"),
+            "a report was printed for it:\n{stdout}"
+        );
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn allowed_errors_are_measured_and_noted() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = measure(&["--allow-errors"], &logs_an_error(dir.path()));
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        assert!(stdout.contains("idle CPU per minute"), "{stdout}");
+        assert!(
+            stdout.contains("errors the program logged (1): "),
+            "{stdout}"
+        );
+        assert!(stdout.contains("the taskbar shows none"), "{stdout}");
+        assert_session_ended(dir.path());
     }
 }

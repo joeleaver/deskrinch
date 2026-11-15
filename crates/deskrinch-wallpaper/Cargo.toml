@@ -29,6 +29,9 @@ rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 tracing.workspace = true
 
 [dev-dependencies]
+# The panel, which the layering test starts over the wallpaper, by its
+# package as the shell names it.
+deskrinch-shell.workspace = true
 deskrinch-test-wait.workspace = true
 # The compositor tests: the session's outputs, turned, and turned off and
 # on; the wallpaper started and watched; the screen captured.

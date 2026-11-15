@@ -30,6 +30,7 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::callgrind;
+use super::output;
 use super::probe::{self, Timing};
 use super::procfs::{self, ThreadSample};
 use super::report::{Run, Unit};
@@ -104,7 +105,7 @@ pub(crate) fn measure(
         Ok(run)
     })();
     probe::stop(&mut child);
-    result
+    output::with_output(result, &watch)
 }
 
 /// Measures each show's instructions: `command` runs the program under
@@ -162,7 +163,7 @@ pub(crate) fn measure_instructions(
         Ok(run)
     })();
     probe::stop(&mut child);
-    result
+    output::with_output(result, &watch)
 }
 
 /// Records the main window's prepared frames so far, before show `show`.

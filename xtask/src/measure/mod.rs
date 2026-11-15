@@ -11,7 +11,7 @@
 //!   set by what is mapped ([`smaps`]), and GPU memory, which is not in the
 //!   resident set ([`gpu`]).
 //! - **Idle**: over a window, CPU time, wake-ups and preemptions per second,
-//!   frames, and CPU per frame.
+//!   frames, and CPU per frame; each run notes which threads woke most.
 //! - The renderer that presented: rinch's software renderer, or the GPU
 //!   renderer on the adapter wgpu chose, flagged when that is a software
 //!   driver.
@@ -32,15 +32,22 @@
 //! which makes rinch write a line after every presented frame.
 
 mod callgrind;
+mod environment;
 mod gpu;
+mod granting;
+mod output;
 mod probe;
 mod procfs;
+mod renderer;
 mod report;
 mod show;
 mod smaps;
 mod state;
 mod system;
+mod window;
 
+pub(crate) use environment::parse_env;
+pub(crate) use renderer::{Expected, Renderer};
 pub(crate) use show::Summons;
 
 use std::ffi::OsString;
@@ -48,6 +55,10 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
+use self::environment::{environment, environment_set};
+use self::granting::Grant;
+use self::renderer::check_renderer;
+use self::window::Stimulus;
 use crate::Outcome;
 use crate::error::Error;
 use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, RenderNodes, Session};
@@ -65,14 +76,17 @@ Each run starts the program as the only client of a fresh nested compositor
     program's binary, the heap); and GPU memory from the DRM fdinfo, which is
     not in Rss;
   - over an idle window: CPU time per minute, wake-ups and preemptions per
-    second, frames, and CPU per frame;
+    second, frames, and CPU per frame; and, in each run's notes, the
+    threads that woke most in it, by name;
   - the renderer that presented: rinch's software renderer, or the GPU
     renderer on the adapter wgpu chose, marked when that is a software
     Vulkan driver.
 
 --instructions runs the program under Valgrind's Callgrind and reports
 instructions to the first frame, in the idle window, and per frame: the
-deterministic figure, for a loaded machine. Without it, CPU time is the
+deterministic figure, for a loaded machine. The idle window begins --settle
+seconds after the first frame there too, and each run notes the
+instructions of the settle, kept out of the window. Without it, CPU time is the
 figure to compare; wall time is printed apart, beside the load average, and
 is not comparable.
 
@@ -100,99 +114,34 @@ too, from the dismiss command to settled, with its prepared frames. Memory
 is read once, hidden and settled, before the first show (without
 --instructions); the idle window is not measured.
 
+--window APP_ID opens one window with that app id in the session at the
+idle window's start (once it has had its first configure and drawn), and
+keeps it open to its end: the idle figures then include what it costs the
+program, and the report also prints the idle window's wake-ups and frames
+as totals. A run with it minus one without is the cost of a window
+appearing plus what a window held open costs over the window. A run fails
+if the window cannot be opened or is gone by the end.
+
+Under KWin a program that is one of the shell's components (by its file
+name, or as --component PACKAGE names it) is granted what deskrinch-shell
+grants that component, as the desktop grants it; anything else is granted
+nothing. Each run's notes say what was granted, or why nothing.
+
+--env KEY=VALUE (repeatable) sets a variable in the measured program's own
+environment, such as MALLOC_ARENA_MAX=1, so that the program KWin sees and
+grants is the program; the header and each run's notes say what was set.
+
+Each run keeps the program's whole output in a file its notes name. A run
+whose program logged an error fails, printing the lines: a program that
+says it is broken is not measured. --allow-errors measures it anyway, with
+the lines in the notes.
+
 --state DIR starts each run's state directory (XDG_STATE_HOME) with a copy
 of DIR's contents, such as the launcher's record of starts
 (deskrinch/starts.toml); the report says the state was seeded, and from
 where. A DIR that is not a readable directory fails before any session.
 
 Needs valgrind and callgrind_control for --instructions.";
-
-/// Which renderer the program is told to use, through rinch's
-/// `RINCH_RENDERER`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum Renderer {
-    /// rinch's choice (the GPU, falling back to software).
-    Auto,
-    /// The GPU renderer (Vello on wgpu).
-    Gpu,
-    /// The software renderer (tiny-skia).
-    Software,
-}
-
-impl Renderer {
-    fn env(self) -> &'static str {
-        match self {
-            Self::Auto => "auto",
-            Self::Gpu => "gpu",
-            Self::Software => "software",
-        }
-    }
-}
-
-/// The renderer `--expect-renderer` requires to have presented.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
-pub(crate) enum Expected {
-    /// rinch's software renderer.
-    Software,
-    /// rinch's GPU renderer, on a GPU (not a software Vulkan driver).
-    Gpu,
-}
-
-impl Expected {
-    fn renderer(self) -> deskrinch_test_component::Renderer {
-        match self {
-            Self::Software => deskrinch_test_component::Renderer::Software,
-            Self::Gpu => deskrinch_test_component::Renderer::Gpu,
-        }
-    }
-}
-
-/// Whether every run presented with `expected`; says which did not, and
-/// with what.
-fn check_renderer(expected: Expected, runs: &[report::Run]) -> Outcome {
-    let wrong: Vec<String> = runs
-        .iter()
-        .enumerate()
-        .filter(|(_, run)| {
-            !run.presented
-                .as_ref()
-                .is_some_and(|presented| expected.renderer().presented(presented))
-        })
-        .map(|(index, run)| {
-            format!(
-                "run {}: {}",
-                index + 1,
-                presented_name(run.presented.as_ref())
-            )
-        })
-        .collect();
-    if wrong.is_empty() {
-        println!("measure: every run presented with the {expected:?} renderer, as expected");
-        Outcome::Passed
-    } else {
-        eprintln!(
-            "measure: expected the {expected:?} renderer to present, but {}",
-            wrong.join("; ")
-        );
-        Outcome::Failed
-    }
-}
-
-/// What a run's program said presented.
-fn presented_name(presented: Option<&deskrinch_test_component::Presented>) -> String {
-    use deskrinch_test_component::Presented;
-    match presented {
-        None => "it did not say which renderer presented".to_owned(),
-        Some(Presented::Software) => "rinch's software renderer presented".to_owned(),
-        Some(Presented::Gpu(adapter)) if adapter.is_software() => format!(
-            "the GPU renderer presented on {}, a software Vulkan driver",
-            adapter.name
-        ),
-        Some(Presented::Gpu(adapter)) => {
-            format!("the GPU renderer presented on {}", adapter.name)
-        }
-    }
-}
 
 /// The state of the GPU driver's shader cache at each start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -230,6 +179,18 @@ pub(crate) struct Request {
     /// With `--summon`: the program starts hidden, and each show is measured
     /// instead of the start.
     pub(crate) summons: Option<Summons>,
+    /// With `--window`: the app id of a window opened at the idle window's
+    /// start and kept open to its end.
+    pub(crate) window: Option<String>,
+    /// `--allow-errors`: measure a program that logged errors, with the
+    /// lines in the run's notes, instead of failing the run.
+    pub(crate) allow_errors: bool,
+    /// With `--component`: the shell component the program is, when its
+    /// file name is not that package's (a copied binary); under KWin it is
+    /// granted what `deskrinch-shell` grants that component.
+    pub(crate) component: Option<String>,
+    /// With `--env`: variables set on the measured program, after its own.
+    pub(crate) env: Vec<(String, String)>,
 }
 
 impl Request {
@@ -239,6 +200,32 @@ impl Request {
     fn compositor_renderer(&self) -> CompositorRenderer {
         CompositorRenderer::for_client(self.compositor, self.renderer == Some(Renderer::Gpu))
     }
+
+    /// A request for `program` with every option at its default, for tests.
+    #[cfg(test)]
+    pub(crate) fn new(program: OsString) -> Self {
+        Self {
+            compositor: Compositor::Kwin,
+            runs: 1,
+            outputs: 1,
+            renderer: None,
+            expect_renderer: None,
+            shader_cache: ShaderCache::Cold,
+            settle: Duration::ZERO,
+            idle: Duration::ZERO,
+            first_frame_timeout: Duration::ZERO,
+            instructions: false,
+            profiles: None,
+            state: None,
+            program,
+            args: Vec::new(),
+            summons: None,
+            window: None,
+            allow_errors: false,
+            component: None,
+            env: Vec::new(),
+        }
+    }
 }
 
 /// Runs the measurement and prints its report.
@@ -247,6 +234,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         state::check(state)?;
     }
     let program = request.program.to_string_lossy().into_owned();
+    let grant = Grant::of(request)?;
     // A warm cache lives outside the sessions, for as long as this task.
     let cache_dir = (request.shader_cache == ShaderCache::Warm)
         .then(|| {
@@ -267,14 +255,14 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
             settle: Duration::ZERO,
             idle: Duration::ZERO,
         };
-        in_session(request, |session| {
+        in_session(request, &grant, |session| {
             let command = client(session, request, Some(dir));
             match &request.summons {
                 Some(summons) => {
                     let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
                     show::measure(command, &ask, &program, timing, summons).map(drop)
                 }
-                None => probe::measure(command, &program, timing).map(drop),
+                None => probe::measure(command, &program, timing, &Stimulus::none()).map(drop),
             }
         })?;
     }
@@ -283,47 +271,18 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         settle: request.settle,
         idle: request.idle,
     };
+    let kept = output::Kept::new()?;
     let mut runs = Vec::new();
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
-        let run = in_session(request, |session| {
-            if request.instructions {
-                let dir = request.profiles.as_ref().map_or_else(
-                    || session.root().join("callgrind"),
-                    |dir| dir.join(format!("run-{index}")),
-                );
-                std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
-                    what: format!("create {}", dir.display()),
-                    source,
-                })?;
-                let out = dir.join("callgrind.out");
-                let mut command = session.client("valgrind".as_ref());
-                command
-                    .args(callgrind::valgrind_args(&out))
-                    .arg(&request.program);
-                environment(&mut command, request, cache);
-                command.args(&request.args);
-                let control = || session.client("callgrind_control".as_ref());
-                match &request.summons {
-                    Some(summons) => {
-                        let ask = |args: &[OsString]| asked(session, request, cache, args);
-                        show::measure_instructions(
-                            command, &control, &ask, &program, &out, timing, summons,
-                        )
-                    }
-                    None => callgrind::measure(command, control, &program, &out, timing),
-                }
-            } else {
-                let command = client(session, request, cache);
-                match &request.summons {
-                    Some(summons) => {
-                        let ask = |args: &[OsString]| asked(session, request, cache, args);
-                        show::measure(command, &ask, &program, timing, summons)
-                    }
-                    None => probe::measure(command, &program, timing),
-                }
-            }
+        let mut run = in_session(request, &grant, |session| {
+            measure_run(request, session, index, cache, &program, timing)
         })?;
+        output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
+        run.note("granted", grant.note());
+        if let Some(set) = environment_set(request) {
+            run.note("environment set", set);
+        }
         runs.push(run);
     }
     println!("{}", header(request));
@@ -337,10 +296,55 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     }
 }
 
+/// Measures run `index` of `program` in `session` as `request` asks: under
+/// Callgrind with `--instructions`, else from `/proc`; its shows with
+/// `--summon`, else its start and idle window.
+fn measure_run(
+    request: &Request,
+    session: &Session,
+    index: u32,
+    cache: Option<&Path>,
+    program: &str,
+    timing: probe::Timing,
+) -> Result<report::Run, Error> {
+    let ask = |args: &[OsString]| asked(session, request, cache, args);
+    let stimulus = || Stimulus::of(session, request.window.as_deref());
+    if !request.instructions {
+        let command = client(session, request, cache);
+        return match &request.summons {
+            Some(summons) => show::measure(command, &ask, program, timing, summons),
+            None => probe::measure(command, program, timing, &stimulus()),
+        };
+    }
+    let dir = request.profiles.as_ref().map_or_else(
+        || session.root().join("callgrind"),
+        |dir| dir.join(format!("run-{index}")),
+    );
+    std::fs::create_dir_all(&dir).map_err(|source| Error::Io {
+        what: format!("create {}", dir.display()),
+        source,
+    })?;
+    let out = dir.join("callgrind.out");
+    let mut command = session.client("valgrind".as_ref());
+    command
+        .args(callgrind::valgrind_args(&out))
+        .arg(&request.program);
+    environment(&mut command, request, cache);
+    command.args(&request.args);
+    let control = || session.client("callgrind_control".as_ref());
+    match &request.summons {
+        Some(summons) => {
+            show::measure_instructions(command, &control, &ask, program, &out, timing, summons)
+        }
+        None => callgrind::measure(command, control, program, &out, timing, &stimulus()),
+    }
+}
+
 /// Runs `measure` in a fresh session, which is ended afterwards whatever
 /// the outcome.
 fn in_session<T>(
     request: &Request,
+    grant: &Grant,
     measure: impl FnOnce(&Session) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let session = Session::start(
@@ -350,7 +354,7 @@ fn in_session<T>(
         None,
         // The program measured chooses its renderer as asked.
         Gpu::Machine,
-        |_| Ok(()),
+        |data_home| grant.install(data_home),
     )?;
     let result = match &request.state {
         Some(state) => state::seed(state, &session.root().join("state")),
@@ -381,27 +385,6 @@ fn asked(session: &Session, request: &Request, cache: Option<&Path>, args: &[OsS
     command
 }
 
-/// The measured program's environment: rinch's frame lines, wgpu's
-/// adapter line, the renderer and the shader cache asked for.
-fn environment(command: &mut Command, request: &Request, cache: Option<&Path>) {
-    let callers_log = std::env::var("RUST_LOG").ok();
-    command
-        .env("RINCH_PERF", "1")
-        .env(
-            "RUST_LOG",
-            deskrinch_test_component::log::rust_log(callers_log.as_deref()),
-        )
-        .env("NO_COLOR", "1");
-    if let Some(renderer) = request.renderer {
-        command.env("RINCH_RENDERER", renderer.env());
-    }
-    match cache {
-        Some(dir) => command.env("MESA_SHADER_CACHE_DIR", dir),
-        // The session's own cache, empty: never one the caller set.
-        None => command.env_remove("MESA_SHADER_CACHE_DIR"),
-    };
-}
-
 /// What was measured, where and how.
 fn header(request: &Request) -> String {
     let args: Vec<String> = request
@@ -409,7 +392,7 @@ fn header(request: &Request) -> String {
         .iter()
         .map(|arg| arg.to_string_lossy().into_owned())
         .collect();
-    format!(
+    let header = format!(
         "Measured: {} {}\n\
          Compositor: {} (nested, headless, {} output(s); {})\n\
          Renderer: {}; shader cache: {}; {}\n\
@@ -450,66 +433,9 @@ fn header(request: &Request) -> String {
             (None, false) => "settle and idle windows as asked",
         },
         system::describe(),
-    )
-}
-
-#[cfg(test)]
-mod tests {
-    use deskrinch_test_component::Presented;
-    use deskrinch_test_component::log::Adapter;
-
-    use super::*;
-
-    fn run(presented: Option<Presented>) -> report::Run {
-        report::Run {
-            presented,
-            ..report::Run::default()
-        }
-    }
-
-    fn gpu(device_type: &str) -> Presented {
-        Presented::Gpu(Adapter {
-            name: "llvmpipe".into(),
-            driver: "llvmpipe".into(),
-            driver_info: String::new(),
-            device_type: device_type.into(),
-            backend: "Vulkan".into(),
-        })
-    }
-
-    #[test]
-    fn every_run_must_present_with_the_renderer_expected() {
-        let software = [
-            run(Some(Presented::Software)),
-            run(Some(Presented::Software)),
-        ];
-        assert_eq!(
-            check_renderer(Expected::Software, &software),
-            Outcome::Passed
-        );
-        assert_eq!(check_renderer(Expected::Gpu, &software), Outcome::Failed);
-        let mixed = [run(Some(Presented::Software)), run(None)];
-        assert_eq!(check_renderer(Expected::Software, &mixed), Outcome::Failed);
-        // A software Vulkan driver is not the GPU.
-        assert_eq!(
-            check_renderer(Expected::Gpu, &[run(Some(gpu("Cpu")))]),
-            Outcome::Failed
-        );
-        assert_eq!(
-            check_renderer(Expected::Gpu, &[run(Some(gpu("DiscreteGpu")))]),
-            Outcome::Passed
-        );
-    }
-
-    #[test]
-    fn says_what_presented_instead() {
-        assert_eq!(
-            presented_name(Some(&gpu("Cpu"))),
-            "the GPU renderer presented on llvmpipe, a software Vulkan driver"
-        );
-        assert_eq!(
-            presented_name(None),
-            "it did not say which renderer presented"
-        );
+    );
+    match environment_set(request) {
+        Some(set) => format!("{header}\nEnvironment set: {set}"),
+        None => header,
     }
 }
