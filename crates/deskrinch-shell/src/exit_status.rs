@@ -15,3 +15,7 @@
 /// restart limit ends them; at a logout the session stops the components
 /// itself.
 pub const DISPLAY_LOST: u8 = 69;
+
+/// What a component says, in one line, as it ends with [`DISPLAY_LOST`]:
+/// the line its starter, or a reader of its log, finds.
+pub const DISPLAY_LOST_LINE: &str = "the display went away; ending";

@@ -27,7 +27,9 @@
 //!
 //! - **The app closed:** success.
 //! - **Its display went away** (the compositor exited, crashed or dropped
-//!   the connection): one line saying so, and
+//!   the connection): one warning saying so
+//!   ([`DISPLAY_LOST_LINE`](deskrinch_shell::exit_status::DISPLAY_LOST_LINE)),
+//!   and
 //!   [`DISPLAY_LOST`](deskrinch_shell::exit_status::DISPLAY_LOST), which
 //!   its starter reads as a failure to restart after.
 //! - **Any other error of the event loop:** reported, and a failure.
@@ -52,7 +54,7 @@
 
 use std::process::ExitCode;
 
-use deskrinch_shell::exit_status::DISPLAY_LOST;
+use deskrinch_shell::exit_status::{DISPLAY_LOST, DISPLAY_LOST_LINE};
 use rinch::prelude::{NodeHandle, RenderScope};
 
 /// rinch's application builder, as [`new`] and [`windowless`] return it.
@@ -105,7 +107,8 @@ where
     match app.try_run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) if error.is_display_lost() => {
-            tracing::info!("the display went away; ending: {error}");
+            // A warning: shown under the components' default filter.
+            tracing::warn!("{DISPLAY_LOST_LINE}: {error}");
             ExitCode::from(DISPLAY_LOST)
         }
         Err(error) => {
