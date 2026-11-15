@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_test_client::Compositor;
-use deskrinch_test_component::{Component, Mark, Renderer, log};
+use deskrinch_test_component::{Component, Mark, Renderer, Watch, log};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use deskrinch_test_wait::{PATIENCE, wait_for};
 
@@ -96,6 +96,11 @@ impl Wallpaper {
             watch.windows()
         );
         Self { component }
+    }
+
+    /// What the wallpaper has written, as its watch keeps it.
+    pub(crate) fn watch(&self) -> &Watch {
+        self.component.watch()
     }
 
     /// Its last lines, for a failure's message.
