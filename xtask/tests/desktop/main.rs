@@ -231,6 +231,57 @@ mod desktop {
         assert!(profile.dir.join("home/mark").exists(), "the home is kept");
     }
 
+    /// Whether `path`, relative to a profile, is a lock `KConfig` holds only
+    /// while it writes the configuration file beside it, and so comes and
+    /// goes by itself: KWin rewrites `kglobalshortcutsrc` whenever its
+    /// shortcuts change.
+    ///
+    /// From the sources of what is installed here: `KConfig` 6.24's
+    /// `KConfig::sync` locks the file it writes for as long as it writes it,
+    /// through a `QLockFile` at the file's path with `.lock` added
+    /// (`KConfigIniBackendPathDevice::lockFile`,
+    /// `src/core/kconfiginibackendreader_p.h`), which `unlock` removes. Qt
+    /// 6.10's `QLockFile::tryLock` (`src/corelib/io/qlockfile.cpp`), removing
+    /// a stale lock, holds a second lock at that lock's path with `.rmlock`
+    /// added for a moment. Configuration files are the profile's `config`
+    /// (its `XDG_CONFIG_HOME`).
+    fn transient_kconfig_lock(path: &Path) -> bool {
+        if !path.starts_with("config") {
+            return false;
+        }
+        let Some(name) = path.file_name().and_then(|name| name.to_str()) else {
+            return false;
+        };
+        name.strip_suffix(".lock.rmlock")
+            .or_else(|| name.strip_suffix(".lock"))
+            .is_some_and(|file| !file.is_empty())
+    }
+
+    #[test]
+    fn only_a_kconfig_lock_beside_a_configuration_file_is_transient() {
+        for lock in [
+            "config/kglobalshortcutsrc.lock",
+            "config/kglobalshortcutsrc.lock.rmlock",
+            "config/kdedefaults/kwinrc.lock",
+        ] {
+            assert!(transient_kconfig_lock(Path::new(lock)), "{lock}");
+        }
+        for kept in [
+            // The configuration files themselves.
+            "config/kglobalshortcutsrc",
+            "config/kwinrc",
+            // Ending in the same letters, elsewhere or without the dot.
+            "data/state.lock",
+            "home/.local/share/x.lock",
+            "config/clock",
+            // The profile's own lock, which says whether it is free.
+            ".lock",
+            "config/.lock",
+        ] {
+            assert!(!transient_kconfig_lock(Path::new(kept)), "{kept}");
+        }
+    }
+
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn a_killed_desktop_leaves_its_profile_whole_and_free() {
@@ -259,9 +310,15 @@ mod desktop {
         // loses nothing. KWin's Mesa writes its shader cache in the home's
         // (KWin runs in secure mode for its file capability, where Mesa
         // ignores `XDG_CACHE_HOME`; see `deskrinch_test_dbus::session`).
+        // And KConfig's locks, which exist only while a configuration file is
+        // written ([`transient_kconfig_lock`]). A lock the killed compositor
+        // left does not keep the next desktop from its configuration: Qt
+        // takes a lock whose process is gone as stale and removes it, as the
+        // next desktop below shows.
         let after = files(&profile.dir);
         let cached = |path: &Path| path.starts_with("cache") || path.starts_with("home/.cache");
-        for path in before.keys().filter(|path| !cached(path)) {
+        let whole = |path: &&std::path::PathBuf| !cached(path) && !transient_kconfig_lock(path);
+        for path in before.keys().filter(whole) {
             assert!(after.contains_key(path), "{} is gone", path.display());
         }
         assert_eq!(after[Path::new("home/mark")], b"kept\n");
