@@ -1,0 +1,18 @@
+[package]
+name = "deskrinch-taskbar"
+description = "The taskbar's model, without a UI: which windows have a button, in what order and how marked, what a click on one asks of the compositor, and which buttons fit."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# A click on a button: a press and a release of one button on it.
+deskrinch-gestures.workspace = true
+# Window states, actions and why a connection ended.
+deskrinch-window-management.workspace = true
+
+[lints]
+workspace = true

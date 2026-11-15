@@ -126,13 +126,40 @@ impl Launcher {
         }
     }
 
-    /// Waits, within the patience, for the hidden launcher to settle: a
-    /// [`STAYS_FOR`] window in which rinch prepares nothing for it. `Err`
-    /// with its last lines if it presents a frame meanwhile, or never
-    /// settles.
+    /// Waits, within the patience, for the hidden launcher to settle: first
+    /// for it to have prepared at least once, then a [`STAYS_FOR`] window in
+    /// which rinch prepares nothing more for it. A launcher that has prepared
+    /// nothing is not settled but not yet started: its first preparation is
+    /// its UI's first turn, which on a loaded machine can come seconds after
+    /// the process starts, and a change made before it is folded into that
+    /// first request ("nothing was prepared before") instead of named.
+    ///
+    /// What remains is covered by the window, not by an ordered event: after
+    /// the first preparation, the catalog, the record of starts and the icon
+    /// index each still land on the UI thread a turn later, each with a
+    /// request of its own, and nothing the launcher says or answers marks
+    /// its start complete.
+    ///
+    /// `Err` with its last lines if it presents a frame meanwhile, or never
+    /// prepares or settles.
     pub(crate) fn wait_settled_hidden(&self) -> Result<(), String> {
         let watch = self.component().watch();
         let deadline = Deadline::patience();
+        while self.prepared() == 0 {
+            if self.frames() > 0 {
+                return Err(format!(
+                    "the hidden launcher presented; its last lines:\n{}",
+                    watch.tail()
+                ));
+            }
+            if deadline.passed() {
+                return Err(format!(
+                    "the hidden launcher never prepared; its last lines:\n{}",
+                    watch.tail()
+                ));
+            }
+            std::thread::sleep(POLL);
+        }
         while !deadline.passed() {
             let prepared = self.prepared();
             if stays(|| self.prepared() == prepared && self.frames() == 0) {
