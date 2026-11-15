@@ -19,7 +19,7 @@ use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 /// = 600 ms at the default animation speed a fresh session has (KWin 6.6,
 /// `effects/fadingpopups/contents/code/main.js`; its window scale effect
 /// takes 200 ms, `effects/scale`). sway and labwc animate nothing.
-const STILL: Duration = Duration::from_millis(600);
+pub(crate) const STILL: Duration = Duration::from_millis(600);
 
 /// The panel binary: this suite declares the panel as one of its programs,
 /// so that it is granted what the shell grants it, and runs it from the

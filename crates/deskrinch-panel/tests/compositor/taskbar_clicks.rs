@@ -10,12 +10,10 @@
 //! dimmed), where the compositor has a minimized state: sway has none, and
 //! ignores the request.
 
-use std::time::{Duration, Instant};
-
 use deskrinch_test_client::{Compositor, TestWindow};
 use deskrinch_test_input::Button;
 use deskrinch_test_screen::Image;
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::eventually;
 use deskrinch_window_management::{Action, WindowManagement};
 
 use crate::taskbar::{App, Bar, GREEN, MAGENTA, RED, window_of};
@@ -29,16 +27,6 @@ fn open_active(bar: &Bar, app: App, title: &str) -> TestWindow {
     manager.perform(id, Action::Activate).unwrap();
     window.wait_keyboard().unwrap();
     window
-}
-
-/// Waits until `done`, checked every 50 ms; panics naming `what` when it
-/// is not so within [`PATIENCE`].
-fn wait_until(what: &str, done: impl Fn() -> bool) {
-    let deadline = Instant::now() + PATIENCE;
-    while !done() {
-        assert!(Instant::now() < deadline, "{what} did not happen");
-        std::thread::sleep(Duration::from_millis(50));
-    }
 }
 
 #[test]
@@ -86,7 +74,7 @@ fn a_middle_click_asks_the_window_to_close() {
     let green = open_active(&bar, GREEN, "Green");
     let icon = bar.wait_button(RED);
     bar.click(icon, Button::MIDDLE);
-    wait_until("the close request", || red.close_requested());
+    eventually("the close request", || red.close_requested());
     assert!(!green.close_requested(), "only the window clicked");
     // The window obeyed, as an application would, without breaking the
     // protocol: its connection still opens windows.

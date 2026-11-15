@@ -11,19 +11,19 @@
 //! since on a headless wlroots seat they are the seat's only ones, and a
 //! window mapped without a keyboard gets no keyboard focus.
 
+use std::fmt;
 use std::fs;
 use std::path::Path;
-use std::time::{Duration, Instant};
 
 use deskrinch_test_client::TestClient;
 use deskrinch_test_input::{Button, Input};
 use deskrinch_test_screen::{Image, Rgba, Screen};
-use deskrinch_test_wait::PATIENCE;
+use deskrinch_test_wait::{recv, wait_for};
 use deskrinch_window_management::{Event, WindowId, WindowManager};
 use tempfile::TempDir;
 
 use crate::support::{
-    Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
+    Band, Edge, Panel, Pictures, STILL, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
 
@@ -108,36 +108,35 @@ impl Bar {
     /// panics, with what the panel logged, when none comes.
     pub(crate) fn see(&mut self, what: &str, accept: impl Fn(&Self, &Image) -> bool) -> Image {
         let output = self.output.clone();
-        let deadline = Instant::now() + PATIENCE;
-        loop {
+        wait_for(what, || {
             let image = self.screen.capture(&output).unwrap();
             if accept(self, &image) {
-                return image;
+                Ok(image)
+            } else {
+                Err(Unseen {
+                    output: output.clone(),
+                    log: self.panel.log(),
+                })
             }
-            assert!(
-                Instant::now() < deadline,
-                "{what}: not seen on {output}\nthe panel logged:\n{}",
-                self.panel.log()
-            );
-            std::thread::sleep(Duration::from_millis(100));
-        }
+        })
     }
 
     /// `part` of the panel's output once it is still: the same in two
-    /// captures half a second apart.
+    /// captures [`STILL`] apart. Nothing reports the end of a change the
+    /// compositor animates, so two pictures alike are the only sign of it.
     pub(crate) fn settled<T: PartialEq>(&mut self, part: impl Fn(&Image) -> T) -> T {
         let output = self.output.clone();
-        let deadline = Instant::now() + PATIENCE;
         let mut last = part(&self.screen.capture(&output).unwrap());
-        loop {
-            std::thread::sleep(Duration::from_millis(500));
+        wait_for(&format!("{output} to keep still"), || {
+            std::thread::sleep(STILL);
             let now = part(&self.screen.capture(&output).unwrap());
             if now == last {
-                return now;
+                Ok(now)
+            } else {
+                last = now;
+                Err("changed again")
             }
-            assert!(Instant::now() < deadline, "{output} did not keep still");
-            last = now;
-        }
+        })
     }
 
     /// Where `app`'s button's icon is drawn at full colour in `image`:
@@ -241,10 +240,21 @@ pub(crate) fn window_of(app_id: &str) -> (WindowManager, WindowId) {
         }
     })
     .expect("connect to the compositor's window management");
-    let id = events
-        .recv_timeout(PATIENCE)
-        .unwrap_or_else(|error| panic!("the window of {app_id}: {error}"));
+    let id = recv(&format!("the window of {app_id}"), &events);
     (manager, id)
+}
+
+/// What a capture that was not yet what a test waited for leaves to show:
+/// the output looked at, and what the panel logged.
+struct Unseen {
+    output: String,
+    log: String,
+}
+
+impl fmt::Debug for Unseen {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "not on {}; the panel logged:\n{}", self.output, self.log)
+    }
 }
 
 /// Whether `a` is within [`TOLERANCE`] of `b` in each colour channel.
