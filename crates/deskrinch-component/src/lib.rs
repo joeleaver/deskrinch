@@ -1,6 +1,9 @@
 //! What every deskrinch shell component process (the panel, the launcher,
 //! ...) does the same way, on rinch.
 //!
+//! - [`app`]: the component's rinch `App`, made the same way for each
+//!   ([`app::new`], [`app::windowless`]): rinch's DevTools keys off, unless
+//!   the build has the `debug` feature.
 //! - [`report`]: logging through `tracing`, with the filter and format
 //!   rinch's window uses, set up before anything is reported
 //!   ([`report::init`]); errors with their causes, and configuration
@@ -37,6 +40,7 @@
 //! # };
 //! ```
 
+pub mod app;
 mod configuration;
 #[cfg(test)]
 mod configuration_tests;

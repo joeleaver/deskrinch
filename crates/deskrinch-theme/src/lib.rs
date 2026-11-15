@@ -26,7 +26,7 @@
 //! let configuration = Configuration::start(&BaseDirs::from_process());
 //! let theme = Theme::start(&configuration, Bus::Session);
 //! let first = theme.initial();
-//! // App::new(..).theme(first), and in the root component:
+//! // deskrinch_component::app::new(..).theme(first), and in the root component:
 //! # let _ = |_scope: &mut RenderScope| {
 //! let applied = theme.apply();
 //! # };

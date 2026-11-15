@@ -62,7 +62,6 @@ use deskrinch_component::{Configuration, report};
 use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
-use rinch::prelude::*;
 
 fn main() {
     // Before the configuration is read, so that its diagnostics are shown.
@@ -72,7 +71,7 @@ fn main() {
     let theme = Theme::start(&configuration, Bus::Session);
     let window = surface::window_props(surface::Placement::of(&live.initial));
     let first_theme = theme.initial();
-    App::new(move |scope| panel::panel(scope, live, theme))
+    deskrinch_component::app::new(move |scope| panel::panel(scope, live, theme))
         .window_props(window)
         .theme(first_theme)
         .run();

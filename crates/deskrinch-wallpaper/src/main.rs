@@ -74,7 +74,6 @@ use deskrinch_component::{Configuration, report};
 use deskrinch_settings::wallpaper::WallpaperSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
-use rinch::prelude::*;
 
 fn main() {
     // Before the configuration is read, so that its diagnostics are shown.
@@ -85,10 +84,12 @@ fn main() {
     let theme = Theme::start(&configuration, Bus::Session);
     let first_theme = theme.initial();
     let home = dirs.home.clone();
-    App::windowless(move |scope| wallpaper::wallpaper(scope, live, theme, home))
-        .image_scheme(picture::SCHEME, picture::load)
-        .theme(first_theme)
-        .run();
+    deskrinch_component::app::windowless(move |scope| {
+        wallpaper::wallpaper(scope, live, theme, home)
+    })
+    .image_scheme(picture::SCHEME, picture::load)
+    .theme(first_theme)
+    .run();
     if role::refused() {
         std::process::exit(1);
     }
