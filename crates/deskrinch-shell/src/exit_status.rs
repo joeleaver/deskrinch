@@ -6,7 +6,8 @@
 /// Wayland compositor it was a client of exited, crashed or dropped its
 /// connection. sysexits' `EX_UNAVAILABLE` ("a service is unavailable").
 ///
-/// It is neither 0 nor rinch's 1 on purpose. It is a failure, so a starter
+/// It is neither 0 nor rinch's 1 on purpose. It is a failure under the
+/// restart policy ([`Exit::of`](crate::restart::Exit::of)), so a starter
 /// that restarts on failure starts the component again: under KWin,
 /// `kwin_wayland_wrapper` restarts a crashed `kwin_wayland` on the same
 /// socket, and the component, started again, connects to the new one. A
