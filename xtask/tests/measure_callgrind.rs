@@ -67,29 +67,33 @@ mod measure_callgrind {
     #[test]
     #[ignore = "needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn each_show_and_each_hide_reads_its_own_dump() {
-        // The stand-in starts hidden and prepares once. A summon (a file it
-        // watches) makes it count to 2,000 and present a frame; a dismiss
-        // makes it count to 60,000 and prepare a frame. So each hide does
-        // far more work than each show: a row that read the other's dump
-        // would turn the comparison round. The shell stays, for Callgrind
-        // to dump.
+        // The stand-in starts hidden and prepares once. A summon makes it
+        // count to 2,000 and present a frame; a dismiss makes it count to
+        // 60,000 and prepare a frame. So each hide does far more work than
+        // each show: a row that read the other's dump would turn the
+        // comparison round. Summon and dismiss write a word into a FIFO the
+        // stand-in reads, so that idle it waits without running: a polling
+        // loop would fork, which under Callgrind costs more than a settled
+        // program may. The shell stays, for Callgrind to dump.
         let dir = tempfile::tempdir().unwrap();
-        let (show, hide) = (dir.path().join("show"), dir.path().join("hide"));
+        let fifo = dir.path().join("asked");
+        let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
+        assert!(made.success(), "mkfifo: {made}");
         let summon = dir.path().join("summon.sh");
-        fs::write(&summon, format!("touch {}\n", show.display())).unwrap();
+        fs::write(&summon, format!("echo show > {}\n", fifo.display())).unwrap();
         let dismiss = dir.path().join("dismiss.sh");
-        fs::write(&dismiss, format!("touch {}\n", hide.display())).unwrap();
+        fs::write(&dismiss, format!("echo hide > {}\n", fifo.display())).unwrap();
         let script = format!(
-            "echo '[PERF] prepared 1: a' >&2; n=0; p=1; while :; do \
-             if [ -e {show} ]; then rm {show}; \
+            "echo '[PERF] prepared 1: a' >&2; n=0; p=1; \
+             while read asked < {fifo}; do \
+             if [ \"$asked\" = show ]; then \
              i=0; while [ $i -lt 2000 ]; do i=$((i+1)); done; \
              n=$((n + 1)); echo \"[PERF] frame $n: a\" >&2; fi; \
-             if [ -e {hide} ]; then rm {hide}; \
+             if [ \"$asked\" = hide ]; then \
              i=0; while [ $i -lt 60000 ]; do i=$((i+1)); done; \
              p=$((p + 1)); echo \"[PERF] prepared $p: a\" >&2; fi; \
-             sleep 0.05; done",
-            show = show.display(),
-            hide = hide.display()
+             done",
+            fifo = fifo.display()
         );
         let summon = summon.display().to_string();
         let dismiss = dismiss.display().to_string();
