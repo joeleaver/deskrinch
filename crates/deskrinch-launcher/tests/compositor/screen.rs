@@ -40,7 +40,7 @@ pub(crate) struct Shown {
     pub(crate) launcher: Launcher,
     /// Where the launcher's log was when it was last shown: its lines from
     /// there on are this show's.
-    shown_at: usize,
+    show_mark: usize,
     /// The characters typed into it since it was last shown
     /// ([`type_query`](Self::type_query)).
     typed: usize,
@@ -91,7 +91,7 @@ impl Shown {
     /// on the screen with the keyboard in its field: the compositor places
     /// it anew.
     pub(crate) fn show_again(&mut self) {
-        self.shown_at = self.launcher.mark();
+        self.show_mark = self.launcher.mark();
         self.typed = 0;
         assert!(client(&["show"]).success());
         self.launcher.wait_presented();
@@ -105,7 +105,7 @@ impl Shown {
     fn wait_keyboard(&self) {
         if let Err(why) = self
             .launcher
-            .wait_said_since(self.shown_at, FIELD_HAS_KEYBOARD)
+            .wait_said_since(self.show_mark, FIELD_HAS_KEYBOARD)
         {
             panic!("the field never had the keyboard: {why}");
         }
@@ -122,7 +122,7 @@ impl Shown {
     pub(crate) fn hid_with_the_query(&self) {
         if let Err(why) = self
             .launcher
-            .wait_said_since(self.shown_at, &query_at_hide(self.typed))
+            .wait_said_since(self.show_mark, &query_at_hide(self.typed))
         {
             panic!("a key typed was lost: {why}");
         }
@@ -174,7 +174,7 @@ impl Shown {
             screen,
             output: String::new(),
             launcher,
-            shown_at: 0,
+            show_mark: 0,
             typed: 0,
         }
     }
