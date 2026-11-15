@@ -31,11 +31,30 @@ fn a_hidden_launcher_prepares_for_its_results_and_its_icons() {
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn a_hide_prepares_for_the_next_show() {
-    let shown = Shown::summon("", |dir| write_record(dir, &["Plain"]));
-    let launcher = &shown.launcher;
+    let mut shown = Shown::hidden("", |dir| write_record(dir, &["Plain"]));
+    // Prepared once while hidden first: a launcher shown before its first
+    // preparation says at its first hide that nothing was prepared before.
+    if let Err(why) = shown.launcher.wait_prepared_for(&[Everything]) {
+        panic!("at start: {why}");
+    }
+    shown.show_again();
     assert!(client(&["hide"]).success());
-    if let Err(why) = launcher.wait_prepared_for(&[Hidden]) {
+    if let Err(why) = shown.launcher.wait_prepared_for(&[Hidden]) {
         panic!("the hide: {why}");
+    }
+}
+
+/// A launcher shown before it ever prepared (made shown, as here, or
+/// summoned before its first preparation) prepares at its first hide, which
+/// says that nothing was prepared before.
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn a_launcher_made_shown_prepares_at_its_first_hide() {
+    let shown = Shown::start("");
+    assert_eq!(shown.launcher.prepared(), 0, "a shown launcher prepared");
+    assert!(client(&["hide"]).success());
+    if let Err(why) = shown.launcher.wait_prepared_for(&[Everything]) {
+        panic!("the first hide: {why}");
     }
 }
 

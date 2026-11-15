@@ -116,6 +116,11 @@ pub fn preparing(changes: &[Change]) -> String {
 /// - A change made while it is shown needs nothing more: the hide that
 ///   follows prepares.
 ///
+/// The causes named ([`Change`]) start with the first reason that applies:
+/// a hide before any preparation (the launcher made shown, or summoned
+/// before its first preparation ran) is named "nothing was prepared
+/// before", not "it was hidden". A prepare is requested either way.
+///
 /// The pictures need nothing either: rinch loads an icon's file on a
 /// worker, and a prepared window that is still hidden prepares itself
 /// again when one lands.
