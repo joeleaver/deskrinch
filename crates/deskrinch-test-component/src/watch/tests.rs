@@ -114,6 +114,21 @@ fn says_which_renderer_presented() {
 }
 
 #[test]
+fn a_windowless_app_has_presented_once_another_window_has() {
+    let watch = Watch::default();
+    let stderr = "INFO rinch: presenting with the software renderer (chosen)\n\
+                  [PERF] window 3 opened: title=\"wallpaper\" output=\"HEADLESS-1\"\n";
+    watch.follow(stderr.as_bytes()).join().expect("reader");
+    assert_eq!(watch.presented(), None, "opened, nothing presented yet");
+    watch
+        .follow(&b"[PERF] window 3 frame 1: a\n"[..])
+        .join()
+        .expect("reader");
+    assert_eq!(watch.presented(), Some(Presented::Software));
+    assert!(!watch.has_first_frame(), "the main window's has not come");
+}
+
+#[test]
 fn waits_for_a_line_written_before_or_after() {
     let watch = Watch::default();
     watch

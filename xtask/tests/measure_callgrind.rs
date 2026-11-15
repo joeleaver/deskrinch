@@ -69,4 +69,41 @@ mod measure_callgrind {
         );
         assert!(stdout.contains(" Ir in 20 s"), "{stdout}");
     }
+
+    #[test]
+    #[ignore = "needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn several_windows_are_counted_under_callgrind_too() {
+        // Two windows, each presenting a first frame and then a frame a
+        // second. As above, the shell stays, for Callgrind to dump.
+        let script = "echo '[PERF] window 1 opened: title=\"stand-in\" output=\"HEADLESS-1\"' >&2; \
+                      echo '[PERF] window 2 opened: title=\"stand-in\" output=\"HEADLESS-2\"' >&2; \
+                      echo '[PERF] window 1 frame 1: style 0.10ms' >&2; \
+                      echo '[PERF] window 2 frame 1: style 0.10ms' >&2; \
+                      n=1; while :; do sleep 1; n=$((n+1)); \
+                      echo \"[PERF] window 1 frame $n: a\" >&2; \
+                      echo \"[PERF] window 2 frame $n: a\" >&2; done";
+        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .args(["measure", "--compositor", &compositor(), "--runs", "1"])
+            .args(["--instructions", "--settle", "1", "--idle", "3"])
+            .args(["--windows", "2"])
+            .args(["sh", "-c", script])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        for row in [
+            "instructions to first frame (Ir)",
+            "frames in the idle window",
+            "  of it \"stand-in\" on HEADLESS-1",
+            "  of it \"stand-in\" on HEADLESS-2",
+        ] {
+            assert!(stdout.contains(row), "no {row:?} in:\n{stdout}");
+        }
+        assert!(
+            !stdout.contains("process CPU when"),
+            "CPU rows under Callgrind:\n{stdout}"
+        );
+    }
 }
