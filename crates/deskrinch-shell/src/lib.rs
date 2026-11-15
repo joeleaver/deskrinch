@@ -26,6 +26,10 @@
 //! assert_eq!(launcher.ready, Ready::BusName("org.deskrinch.Launcher"));
 //! ```
 
+pub mod restart;
+
+pub use restart::Restart;
+
 /// One component of the shell: a program the session runs for as long as it
 /// lasts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,10 +48,6 @@ pub struct Component {
     /// Whether, and how often, it is started again when it ends.
     pub restart: Restart,
 }
-
-pub mod restart;
-
-pub use restart::Restart;
 
 /// The shell components' restart policy: started again after a failure, at
 /// most 3 starts in 60 seconds (what Plasma uses for plasmashell).
