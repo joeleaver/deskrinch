@@ -17,12 +17,17 @@
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
+mod report;
+
+#[cfg(test)]
 mod measure {
     use std::fs;
     use std::path::Path;
     use std::process::{Command, Output, Stdio};
 
     use rustix::process::{Pid, test_kill_process};
+
+    use crate::report::number_after;
 
     /// The compositor to test with.
     fn compositor() -> String {
@@ -207,6 +212,53 @@ mod measure {
             assert!(stdout.contains(section), "no {section:?} in:\n{stdout}");
         }
         assert!(!stdout.contains("idle CPU per minute"), "{stdout}");
+        assert_session_ended(dir.path());
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn waits_for_preparations_and_reports_them_and_the_hidden_memory() {
+        // The stand-in prepares once at start; after each dismiss (a file it
+        // watches) it prepares six times, half a second apart, sleeping in
+        // between, so its threads stay quiet. A settle that waited only for
+        // quiet threads would summon the next show after a second, with one
+        // or two of the six done; one that also waits for no prepared frame
+        // summons it after all six.
+        let dir = tempfile::tempdir().unwrap();
+        let (summon, _) = summons(dir.path());
+        let hide = dir.path().join("hide");
+        let dismiss = dir.path().join("dismiss.sh");
+        fs::write(&dismiss, format!("touch {}\n", hide.display())).unwrap();
+        let script = format!(
+            "{}echo '[PERF] prepared 1: a' >&2; n=0; p=1; while :; do \
+             if [ -e {show} ]; then rm {show}; n=$((n + 1)); \
+             echo \"[PERF] frame $n: paint_frames=1\" >&2; fi; \
+             if [ -e {hide} ]; then rm {hide}; for k in 1 2 3 4 5 6; do sleep 0.5; \
+             p=$((p + 1)); echo \"[PERF] prepared $p: a\" >&2; done; fi; \
+             sleep 0.05; done",
+            record(dir.path(), false),
+            show = dir.path().join("show").display(),
+            hide = hide.display()
+        );
+        let dismiss = dismiss.display().to_string();
+        let output = measure(
+            &["--summon", &summon, "--dismiss", &dismiss, "--shows", "2"],
+            &script,
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        let first = number_after(&stdout, "show 1: prepared frames before it, in all");
+        assert_eq!(first, 1, "{stdout}");
+        let second = number_after(&stdout, "show 2: prepared frames before it, in all");
+        assert_eq!(
+            second, 7,
+            "the second show came before the six preparations:\n{stdout}"
+        );
+        // The memory, read once, hidden and settled, before the first show.
+        for row in ["VmRSS (settled)", "Pss (settled)", "  Rss: "] {
+            assert!(stdout.contains(row), "no {row:?} in:\n{stdout}");
+        }
         assert_session_ended(dir.path());
     }
 
