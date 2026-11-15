@@ -3,13 +3,20 @@
 //!
 //! The root is the document of an app with no window of its own
 //! (`App::windowless`): it draws nothing, and holds one `Window` per
-//! output, a row of a `for` over rinch's `outputs()` keyed by each output's
-//! id, which follows the outputs connected, disconnected and changed. A
-//! row's window opens with its row and closes with it, or when its output
-//! goes first ([`surface::closed`]); an output that only changes (its mode,
-//! scale or transform) keeps its row and its window, which the compositor
-//! resizes. Before any of it, the root asks whether the display offers a
-//! layer shell at all ([`role`]), and opens nothing if it does not.
+//! output, a row of a `for` over the ids of rinch's `outputs()`, keyed by
+//! the id. A row's window opens with its row and closes with it, when its
+//! output is disconnected or turned off, or when its output goes first
+//! ([`surface::closed`]).
+//!
+//! The row's item is the output's id alone, not rinch's whole `Output`: a
+//! `for` row is drawn again, its window closed and a new one opened, when
+//! its item changes, and an `Output` changes with the output's position,
+//! size and scale. An id does not change while the output is connected, so
+//! an output that is moved, rescaled, turned or given another mode keeps
+//! its row and its window, whose layer surface the compositor reconfigures.
+//! Nothing a window draws depends on its output. Before any of it, the root
+//! asks whether the display offers a layer shell at all ([`role`]), and
+//! opens nothing if it does not.
 //!
 //! Every window draws the same thing, the [`style`] of the settings, from the same
 //! signals: a change of settings repaints every output once, and nothing
@@ -64,21 +71,18 @@ pub(crate) fn wallpaper(
     let drawn = Memo::new(move || style::css(&settings.get(), source.get().as_deref()));
     rsx! {
         div {
-            for output in outputs() {
+            for id in outputs().into_iter().map(|output| output.id) {
                 Window {
-                    key: output.id,
+                    key: id,
                     title: surface::TITLE.to_owned(),
                     width: surface::FIRST_SIZE.0,
                     height: surface::FIRST_SIZE.1,
                     borderless: true,
                     click_through: true,
                     app_id: Some(surface::NAMESPACE.to_owned()),
-                    wayland_layer: Some(surface::layer_surface(output.id)),
-                    on_closed: {
-                        let id = output.id;
-                        move || {
-                            surface::closed(id);
-                        }
+                    wayland_layer: Some(surface::layer_surface(id)),
+                    on_closed: move || {
+                        surface::closed(id);
                     },
                     div { class: "wallpaper", style: {move || drawn.get()} }
                 }
