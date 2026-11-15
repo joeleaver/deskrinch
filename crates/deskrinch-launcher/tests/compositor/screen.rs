@@ -14,7 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use deskrinch_launcher::{FIELD_HAS_KEYBOARD, query_at_hide};
+use deskrinch_launcher::{HAS_KEYBOARD, query_at_hide};
 use deskrinch_test_input::{Input, Key};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use tempfile::TempDir;
@@ -99,15 +99,15 @@ impl Shown {
         self.wait_keyboard();
     }
 
-    /// Waits for the launcher to say, in this show's lines, that its field
-    /// has the keyboard: a key typed after that reaches the field, where
-    /// one typed before could be lost ("lain" for "plain").
+    /// Waits for the launcher to say, in this show's lines, that its window
+    /// has the keyboard: a key typed before could be lost ("lain" for
+    /// "plain"). Its field may take the keyboard a moment later still
+    /// (`said.rs`), which the screen's wait for where it is drawn covers in
+    /// practice; [`hid_with_the_query`](Self::hid_with_the_query) is the
+    /// proof.
     fn wait_keyboard(&self) {
-        if let Err(why) = self
-            .launcher
-            .wait_said_since(self.show_mark, FIELD_HAS_KEYBOARD)
-        {
-            panic!("the field never had the keyboard: {why}");
+        if let Err(why) = self.launcher.wait_said_since(self.show_mark, HAS_KEYBOARD) {
+            panic!("the launcher never had the keyboard: {why}");
         }
     }
 

@@ -10,9 +10,9 @@
 //!   window losing the keyboard while shown.
 //! - Hiding clears the model, so the next show starts with an empty query
 //!   and the frequent applications as its results.
-//! - It says in its log when its field has the keyboard, once per show, and
+//! - It says in its log when its window has the keyboard, once per show, and
 //!   how long its query was at each hide, in the words of the library's
-//!   `said` module: see [`say_when_the_field_has_the_keyboard`].
+//!   `said` module: see [`hide_when_left`].
 //! - The frequent applications follow the record of starts, the installed
 //!   applications and `[general]` `remember-starts` (which the record's
 //!   thread follows too). A change to them reaches the model at once while
@@ -32,7 +32,7 @@ use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{CatalogEntry, Environment};
 use deskrinch_icons::Index;
 use deskrinch_launcher::{
-    Action, Drawn, FIELD_HAS_KEYBOARD, Input, Model, Preparation, Visibility, frequent, preparing,
+    Action, Drawn, HAS_KEYBOARD, Input, Model, Preparation, Visibility, frequent, preparing,
     query_at_hide,
 };
 use deskrinch_settings::general::GeneralSettings;
@@ -140,7 +140,6 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
     // field (a window made shown too), hiding empties the model. On the
     // desktop `focus()` posts a request the runtime applies on its next
     // turn, once the field is mounted and the window is up.
-    say_when_the_field_has_the_keyboard(field.clone(), shown);
     {
         if made_shown {
             field.focus();
@@ -199,36 +198,21 @@ fn prepare_while_hidden(
     });
 }
 
-/// Writes [`FIELD_HAS_KEYBOARD`] once per show, when the window has the
-/// keyboard and `field` is the element holding it: a key typed after the
-/// line reaches the field. With the window focused and the field not, it
-/// writes nothing (`said.rs` says why the field is usually focused first).
-fn say_when_the_field_has_the_keyboard(field: NodeHandle, shown: Signal<bool>) {
-    let mut said = false;
-    Effect::new(move || {
-        let focused = window_focused();
-        if !shown.get() {
-            said = false;
-            return;
-        }
-        let field_focused = field
-            .active_element()
-            .is_some_and(|active| active.node_id() == field.node_id());
-        if focused && field_focused && !said {
-            said = true;
-            tracing::info!("{FIELD_HAS_KEYBOARD}");
-        }
-    });
-}
-
 /// Leaving the launcher (another window took the keyboard, or an
 /// application it started did) hides it; it never takes the keyboard back.
+/// Gaining the keyboard while shown, once per show (each show makes the
+/// window anew, and losing the keyboard hides it), it writes
+/// [`HAS_KEYBOARD`].
 fn hide_when_left(starter: Starter, model: Signal<Model>) {
     let mut had_keyboard = false;
     Effect::new(move || {
         let focused = window_focused();
-        if had_keyboard && !focused && starter.visibility.is_shown() {
+        let shown = starter.visibility.is_shown();
+        if had_keyboard && !focused && shown {
             untracked(|| starter.act(input(model, Input::KeyboardLost)));
+        }
+        if !had_keyboard && focused && shown {
+            tracing::info!("{HAS_KEYBOARD}");
         }
         had_keyboard = focused;
     });
