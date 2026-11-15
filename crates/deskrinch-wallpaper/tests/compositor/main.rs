@@ -10,6 +10,8 @@
 //!   of the settings repaints every output; a picture is fitted as `fit`
 //!   says; a picture that cannot be shown leaves the colour and is
 //!   reported with its path.
+//! - [`first_frame`]: each window's first frame is drawn at its output's
+//!   scale.
 //! - [`layers`]: a window is above the wallpaper, and so is the panel.
 //! - [`outputs`]: an output turned while the wallpaper runs is covered at
 //!   its new shape; one turned off loses its wallpaper and, turned on
@@ -29,6 +31,8 @@
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
 #[cfg(test)]
 mod cover;
+#[cfg(test)]
+mod first_frame;
 #[cfg(test)]
 mod layers;
 #[cfg(test)]
