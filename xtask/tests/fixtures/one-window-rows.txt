@@ -1,0 +1,24 @@
+# The rows of a one-window report, measured without --windows: captured on
+# main 4aae311, before --windows existed, from the stand-in of
+# a_one_window_report_has_the_rows_it_had_before_windows_were_counted under
+# sway. Rows naming what the machine has are written with `*`, as the test
+# writes them. An intended change to the rows is an edit to this file.
+CPU to first frame, user+system
+  of it system
+  thread *, threads named *
+threads started by the first frame
+VmRSS (settled)
+RssAnon (settled)
+RssFile (settled)
+RssShmem (settled)
+VmSwap (settled)
+Threads (settled)
+Pss (settled)
+  Rss: *, Pss: *
+frames in the idle window
+idle CPU per minute
+wake-ups per second (voluntary switches)
+preemptions per second
+CPU per frame in the window (with idle)
+frames in all
+wall time to first frame

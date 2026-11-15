@@ -42,6 +42,10 @@ pub(crate) struct Run {
     pub(crate) metrics: Vec<Metric>,
     /// Facts that are not numbers: the GPU adapter, the load average.
     pub(crate) notes: Vec<(String, String)>,
+    /// Lines printed under a metric's row, once whatever the runs: what
+    /// the rows above it mean, where their names could mislead. Each is
+    /// the row it goes under, and the line.
+    pub(crate) remarks: Vec<(String, String)>,
     /// Which renderer presented, as the program said.
     pub(crate) presented: Option<Presented>,
     /// Everything the program wrote, oldest first ([`super::output`] keeps
@@ -57,6 +61,11 @@ impl Run {
             unit,
             value,
         });
+    }
+
+    /// Adds `line` under the row of the metric named `after`.
+    pub(crate) fn remark(&mut self, after: impl Into<String>, line: impl Into<String>) {
+        self.remarks.push((after.into(), line.into()));
     }
 
     /// Adds a note.
@@ -182,6 +191,13 @@ pub(crate) fn render(title: &str, runs: &[Run]) -> String {
                 format(max, unit),
                 each.join(", ")
             );
+            let remark = runs
+                .iter()
+                .flat_map(|run| &run.remarks)
+                .find(|(after, _)| after == name);
+            if let Some((_, line)) = remark {
+                let _ = writeln!(out, "    {line}");
+            }
         }
     }
     for (index, run) in runs.iter().enumerate() {
@@ -253,6 +269,23 @@ mod tests {
             !report.contains("Run 2:"),
             "a run without notes has no section"
         );
+    }
+
+    #[test]
+    fn a_remark_is_printed_once_under_its_row() {
+        let mut first = Run::default();
+        first.push("when a came", Unit::CpuNs, 1_000_000);
+        first.push("when b came", Unit::CpuNs, 2_000_000);
+        first.remark("when b came", "(cumulative)");
+        first.push("after", Unit::Count, 1);
+        let mut second = first.clone();
+        second.metrics[0].value = 3_000_000;
+        let report = render("x", &[first, second]);
+        let b = report.find("when b came").expect("row b");
+        let after = report.find("after").expect("row after");
+        let remark = report.find("    (cumulative)\n").expect("the remark");
+        assert!(b < remark && remark < after, "{report}");
+        assert_eq!(report.matches("(cumulative)").count(), 1, "{report}");
     }
 
     #[test]

@@ -5,6 +5,8 @@
 //! the other mode: work the program does after its first frame, such as
 //! building an index on a thread of its own, is kept out of the idle window,
 //! and its count is noted), and at the end of the idle window.
+//! With `--windows` the first frame is the last of the windows expected
+//! ([`super::windows`]): one dump, not one per window.
 //!
 //! Under Callgrind the program runs tens of times slower, so its memory,
 //! CPU time and wall time say nothing; this mode reports instructions and
@@ -21,6 +23,7 @@ use super::output;
 use super::probe::{self, Timing};
 use super::report::{self, Run, Unit};
 use super::window::{self, Stimulus};
+use super::windows::{self, Expect, Started};
 use crate::error::Error;
 use crate::session::interrupt;
 use deskrinch_test_component::Watch;
@@ -38,7 +41,8 @@ pub(crate) fn valgrind_args(out: &Path) -> Vec<String> {
 
 /// Measures the program `command` runs under Valgrind (a session client
 /// whose program is `valgrind` with [`valgrind_args`]), asking for dumps
-/// through `control`, a session client for `callgrind_control`.
+/// through `control`, a session client for `callgrind_control`, and reading
+/// the frames `expect` says.
 pub(crate) fn measure(
     mut command: Command,
     control: impl Fn() -> Command,
@@ -46,6 +50,7 @@ pub(crate) fn measure(
     out: &Path,
     timing: Timing,
     stimulus: &Stimulus,
+    expect: Expect,
 ) -> Result<Run, Error> {
     let mut child = command
         .stdout(Stdio::piped())
@@ -57,25 +62,42 @@ pub(crate) fn measure(
         })?;
     let watch = Watch::default();
     watch.follow_child(&mut child);
-    let result = run_child(&mut child, &watch, &control, program, out, timing, stimulus);
+    let profile = Profile {
+        control: &control,
+        out,
+        expect,
+    };
+    let result = run_child(&mut child, &watch, &profile, program, timing, stimulus);
     probe::stop(&mut child);
     output::with_output(result, &watch)
+}
+
+/// Where the profile is asked for and written, and which frames are read.
+struct Profile<'a> {
+    control: &'a dyn Fn() -> Command,
+    out: &'a Path,
+    expect: Expect,
 }
 
 fn run_child(
     child: &mut Child,
     watch: &Watch,
-    control: &dyn Fn() -> Command,
+    profile: &Profile<'_>,
     program: &str,
-    out: &Path,
     timing: Timing,
     stimulus: &Stimulus,
 ) -> Result<Run, Error> {
+    let Profile {
+        control,
+        out,
+        expect,
+    } = *profile;
     let pid = child.id().to_string();
     let start = Instant::now();
     loop {
         interrupt::check()?;
-        if watch.wait_first_frame(Duration::from_millis(100)).is_some() {
+        expect.wait(watch, Duration::from_millis(100));
+        if expect.started(watch) {
             break;
         }
         if let Ok(Some(status)) = child.try_wait() {
@@ -86,35 +108,55 @@ fn run_child(
             });
         }
         if start.elapsed() >= timing.first_frame {
-            return Err(Error::NoFirstFrame {
-                program: program.to_owned(),
-                waited: timing.first_frame,
-                output: watch.tail(),
-            });
+            return Err(windows::no_start(
+                expect,
+                program,
+                watch,
+                timing.first_frame,
+            ));
         }
     }
     let load = probe::load_average();
     dump(control, &pid, "first-frame")?;
+    let started = match expect {
+        Expect::Main => None,
+        Expect::Windows(n) => {
+            Some(Started::of(watch, n).map_err(|e| windows::error(program, watch, e))?)
+        }
+    };
     probe::wait(child, watch, program, timing.settle)?;
     dump(control, &pid, "settle")?;
     let frames_before = watch.frames();
+    let mark = watch.mark();
     let end = Instant::now() + timing.idle;
     let opened = stimulus.begin()?;
     while Instant::now() < end {
         interrupt::check()?;
         thread::sleep((end - Instant::now()).min(Duration::from_millis(100)));
     }
-    let frames = watch.frames() - frames_before;
+    let frames_main = watch.frames() - frames_before;
+    let since = watch.since(&mark);
     dump(control, &pid, "idle")?;
     let mut run = Run::default();
     window::end(opened, &mut run)?;
+    if let Some(started) = &started {
+        started
+            .unchanged(watch)
+            .map_err(|e| windows::error(program, watch, e))?;
+    }
 
     let first = totals(out, 1)?;
     let settle = totals(out, 2)?;
     let idle = totals(out, 3)?;
     run.push("instructions to first frame (Ir)", Unit::Count, first);
     run.push("instructions in the idle window (Ir)", Unit::Count, idle);
-    run.push("frames in the idle window", Unit::Count, frames);
+    let frames = match &started {
+        None => {
+            run.push("frames in the idle window", Unit::Count, frames_main);
+            frames_main
+        }
+        Some(started) => started.push_idle_frames(&mut run, &since),
+    };
     if let Some(per_frame) = idle.checked_div(frames) {
         run.push(
             "instructions per frame in the window (with idle)",

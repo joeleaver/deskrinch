@@ -1,6 +1,8 @@
 //! One measured start of a program in a session: CPU time to its first
 //! frame (per thread, including threads that ended before it), its memory
-//! once settled, and an idle window's CPU time, wake-ups and frames.
+//! once settled, and an idle window's CPU time, wake-ups and frames. The
+//! first frame is the main window's, or with `--windows` the last of the
+//! windows expected ([`windows`]).
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -14,6 +16,7 @@ use super::output;
 use super::procfs::{self, ProcessSample, ThreadSample};
 use super::report::{Run, Unit, per_minute, per_second_milli};
 use super::window::{self, Stimulus};
+use super::windows::{self, Arrivals, Expect, Started};
 use super::{gpu, smaps};
 use crate::error::Error;
 use crate::session::interrupt;
@@ -34,12 +37,14 @@ pub(crate) struct Timing {
     pub(crate) idle: Duration,
 }
 
-/// Starts `command` (a session client) and measures it; ends it afterwards.
+/// Starts `command` (a session client) and measures it, reading the
+/// frames `expect` says; ends it afterwards.
 pub(crate) fn measure(
     mut command: Command,
     program: &str,
     timing: Timing,
     stimulus: &Stimulus,
+    expect: Expect,
 ) -> Result<Run, Error> {
     let start = Instant::now();
     let mut child = command
@@ -52,41 +57,70 @@ pub(crate) fn measure(
         })?;
     let watch = Watch::default();
     watch.follow_child(&mut child);
-    let result = measure_child(&mut child, &watch, program, start, timing, stimulus);
+    let measured = Measured {
+        watch: &watch,
+        program,
+        expect,
+    };
+    let result = measure_child(&mut child, &measured, start, timing, stimulus);
     stop(&mut child);
     output::with_output(result, &watch)
 }
 
+/// The program measured and how its output is read.
+struct Measured<'a> {
+    watch: &'a Watch,
+    program: &'a str,
+    expect: Expect,
+}
+
 fn measure_child(
     child: &mut Child,
-    watch: &Watch,
-    program: &str,
+    measured: &Measured<'_>,
     start: Instant,
     timing: Timing,
     stimulus: &Stimulus,
 ) -> Result<Run, Error> {
+    let Measured { watch, program, .. } = *measured;
     let mut run = Run::default();
-    startup(&mut run, child, watch, program, start, timing.first_frame)?;
+    let started = startup(&mut run, child, measured, start, timing.first_frame)?;
     wait(child, watch, program, timing.settle)?;
     memory(&mut run, child.id(), program)?;
-    idle(&mut run, child, watch, program, timing.idle, stimulus)?;
-    run.push("frames in all", Unit::Count, watch.frames());
+    idle(
+        &mut run,
+        child,
+        measured,
+        timing.idle,
+        stimulus,
+        started.as_ref(),
+    )?;
+    run.push("frames in all", Unit::Count, measured.expect.frames(watch));
     Ok(run)
 }
 
-/// Samples every thread until the first frame, then records the CPU time
-/// to it and the adapter.
+/// Samples every thread until the first frame (with `--windows`, until
+/// each window expected has presented one, noting the process's CPU at
+/// each), then records the CPU time to it and the adapter. Returns the
+/// windows start-up ended with, with `--windows`.
 fn startup(
     run: &mut Run,
     child: &mut Child,
-    watch: &Watch,
-    program: &str,
+    measured: &Measured<'_>,
     start: Instant,
     timeout: Duration,
-) -> Result<(), Error> {
+) -> Result<Option<Started>, Error> {
+    let Measured {
+        watch,
+        program,
+        expect,
+    } = *measured;
     let pid = child.id();
+    let tick_ns = 1_000_000_000 / clock_ticks_per_second();
+    let cpu_now =
+        || procfs::read_process(pid).map(|now| (now.user_ticks + now.system_ticks) * tick_ns);
     let mut seen: BTreeMap<u32, ThreadSample> = BTreeMap::new();
-    while !watch.has_first_frame() {
+    let mut arrivals = Arrivals::default();
+    while !expect.started(watch) {
         interrupt::check()?;
         seen.extend(procfs::read_threads(pid));
         if let Ok(Some(status)) = child.try_wait() {
@@ -97,19 +131,24 @@ fn startup(
             });
         }
         if start.elapsed() >= timeout {
-            return Err(Error::NoFirstFrame {
-                program: program.to_owned(),
-                waited: timeout,
-                output: watch.tail(),
-            });
+            return Err(windows::no_start(expect, program, watch, timeout));
         }
-        watch.wait_first_frame(SAMPLE);
+        expect.wait(watch, SAMPLE);
+        if expect != Expect::Main {
+            arrivals.record(watch, cpu_now);
+        }
     }
     let first = sample(pid, program)?;
     seen.extend(procfs::read_threads(pid));
     let wall = start.elapsed();
+    let started = match expect {
+        Expect::Main => None,
+        Expect::Windows(n) => {
+            arrivals.record(watch, cpu_now);
+            Some(Started::of(watch, n).map_err(|e| windows::error(program, watch, e))?)
+        }
+    };
 
-    let tick_ns = 1_000_000_000 / clock_ticks_per_second();
     run.push(
         "CPU to first frame, user+system",
         Unit::CpuNs,
@@ -130,10 +169,13 @@ fn startup(
         len(seen.len()),
     );
     run.push("wall time to first frame", Unit::WallNs, nanos(wall));
+    if let Some(started) = &started {
+        started.push_startup(run, &arrivals, &watch.windows(), start);
+    }
     run.note("load average at the first frame", load_average());
     run.note("renderer", watch.renderer());
     run.presented = watch.presented();
-    Ok(())
+    Ok(started)
 }
 
 /// Records the process's memory: its status sizes, Pss, the resident set by
@@ -185,25 +227,28 @@ pub(crate) fn memory(run: &mut Run, pid: u32, program: &str) -> Result<(), Error
 }
 
 /// Records an idle window of `duration`: CPU time, wake-ups, preemptions
-/// and frames; with `stimulus`'s window opened at its start, totals too.
+/// and frames; with `stimulus`'s window opened at its start, totals too;
+/// with `--windows` (`started`), each window's frames, and a failure if the
+/// windows changed.
 fn idle(
     run: &mut Run,
     child: &mut Child,
-    watch: &Watch,
-    program: &str,
+    measured: &Measured<'_>,
     duration: Duration,
     stimulus: &Stimulus,
+    started: Option<&Started>,
 ) -> Result<(), Error> {
+    let Measured { watch, program, .. } = *measured;
     let pid = child.id();
     let before = procfs::read_threads(pid);
     let frames_before = watch.frames();
+    let mark = watch.mark();
     let window_start = Instant::now();
     let opened = stimulus.begin()?;
     wait(child, watch, program, duration)?;
     let after = procfs::read_threads(pid);
     window::end(opened, run)?;
     let millis = u64::try_from(window_start.elapsed().as_millis()).unwrap_or(u64::MAX);
-    let frames = watch.frames() - frames_before;
     // A thread that started inside the window counts from zero.
     let delta = |field: fn(&ThreadSample) -> u64| -> u64 {
         after
@@ -213,7 +258,19 @@ fn idle(
     };
     let cpu = delta(|t| t.runtime_ns);
     run.note("idle window", format!("{} s", millis / 1000));
-    run.push("frames in the idle window", Unit::Count, frames);
+    let frames = match started {
+        None => {
+            let frames = watch.frames() - frames_before;
+            run.push("frames in the idle window", Unit::Count, frames);
+            frames
+        }
+        Some(started) => {
+            started
+                .unchanged(watch)
+                .map_err(|e| windows::error(program, watch, e))?;
+            started.push_idle_frames(run, &watch.since(&mark))
+        }
+    };
     run.push("idle CPU per minute", Unit::CpuNs, per_minute(cpu, millis));
     run.push(
         "wake-ups per second (voluntary switches)",
