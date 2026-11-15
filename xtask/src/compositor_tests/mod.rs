@@ -265,7 +265,7 @@ fn runs(place: Place, plan: &renderers::Plan, selection: &Selection) -> Vec<Run>
 /// failure, prints the compositor's log.
 fn run_in(place: Place, runs: &[Run], selection: &Selection, built: &Built) -> Result<bool, Error> {
     let compositor = place.compositor;
-    let session = Session::start(
+    let mut session = Session::start(
         compositor,
         place.rendering,
         place.pass.outputs(),

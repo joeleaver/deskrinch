@@ -50,6 +50,7 @@ mod bindings;
 mod clients;
 mod compositing;
 mod compositor;
+mod compositor_log;
 mod display;
 mod ending;
 mod gpu;
@@ -61,6 +62,7 @@ mod render_nodes;
 mod rendering;
 mod scale;
 mod scaling;
+mod socket;
 mod supervisor;
 mod transform;
 
@@ -69,7 +71,6 @@ use std::fs::{self, File};
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
-use std::thread;
 use std::time::Duration;
 
 use deskrinch_test_dbus::session::isolate;
@@ -82,6 +83,7 @@ use self::ending::{end_group, kill_leftovers};
 
 pub(crate) use self::clients::ClientId;
 pub(crate) use self::compositor::Compositor;
+pub(crate) use self::compositor_log::CompositorLog;
 pub(crate) use self::display::{Binding, Display, Home, Options};
 pub(crate) use self::gpu::{Gpu, VARIABLE as GPU_VARIABLE};
 pub(crate) use self::leftovers::Leftover;
@@ -90,6 +92,7 @@ pub(crate) use self::render_nodes::RenderNodes;
 pub(crate) use self::rendering::CompositorRenderer;
 pub(crate) use self::scale::Scale;
 pub(crate) use self::scaling::Scaling;
+pub(crate) use self::socket::Doing;
 use self::supervisor::Supervisor;
 #[cfg(test)]
 pub(crate) use self::supervisor::fake_root;
@@ -282,8 +285,8 @@ impl Session {
     }
 
     /// The compositor's output so far.
-    pub(crate) fn log(&self) -> String {
-        fs::read_to_string(self.root.join("compositor.log")).unwrap_or_default()
+    pub(crate) fn log(&self) -> CompositorLog {
+        CompositorLog::new(fs::read_to_string(self.root.join("compositor.log")).unwrap_or_default())
     }
 
     /// Ends the session and checks that nothing of it is left. Leftovers
@@ -342,32 +345,6 @@ impl Session {
         }
     }
 
-    /// Waits for the compositor's Wayland socket and returns its name.
-    fn wait_for_socket(&mut self) -> Result<String, Error> {
-        let runtime = self.root.join("run");
-        let deadline = Deadline::patience();
-        loop {
-            interrupt::check()?;
-            if let Some(socket) = compositor::wayland_socket(&runtime) {
-                return Ok(socket);
-            }
-            if let Ok(Some(status)) = self.child.try_wait() {
-                return Err(Error::CompositorExited {
-                    compositor: self.compositor.name(),
-                    status,
-                    log: self.log(),
-                });
-            }
-            if deadline.passed() {
-                return Err(Error::CompositorTimedOut {
-                    compositor: self.compositor.name(),
-                    log: self.log(),
-                });
-            }
-            thread::sleep(POLL);
-        }
-    }
-
     /// Waits until the compositor owns each of its [`Compositor::bus_names`];
     /// a compositor that exits meanwhile fails at once.
     fn wait_for_bus_names(&mut self) -> Result<(), Error> {
@@ -377,13 +354,7 @@ impl Session {
                 interrupt::check()?;
                 let waited = self.bus.wait_for_name(name, POLL);
                 let Err(source) = waited else { break };
-                if let Ok(Some(status)) = self.child.try_wait() {
-                    return Err(Error::CompositorExited {
-                        compositor: self.compositor.name(),
-                        status,
-                        log: self.log(),
-                    });
-                }
+                self.exited(Doing::Starting)?;
                 if deadline.passed() {
                     return Err(Error::CompositorNotReady {
                         compositor: self.compositor.name(),

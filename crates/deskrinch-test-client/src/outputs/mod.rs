@@ -13,7 +13,6 @@
 //! Under KWin the outputs are read and set with `kscreen-doctor` instead
 //! ([`crate::kscreen`]).
 
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
@@ -27,6 +26,7 @@ use deskrinch_test_wayland::{Globals, Transform, dispatch_until};
 mod events;
 
 use self::events::{Outcome, State};
+use crate::connect::connect_at;
 use crate::layout::{Mode, OutputState, mode_to_set};
 use crate::{Error, waited};
 
@@ -268,16 +268,6 @@ pub(crate) fn layout_of_env() -> Result<Vec<OutputState>, Error> {
 pub(crate) fn apply_to_env(layout: &[OutputState]) -> Result<(), Error> {
     let connection = Connection::connect_to_env().map_err(Error::Connect)?;
     applying(&connection, |_| layout.to_vec())
-}
-
-/// A connection to the compositor listening on the Wayland socket at
-/// `socket`.
-fn connect_at(socket: &Path) -> Result<Connection, Error> {
-    let stream = UnixStream::connect(socket).map_err(|source| Error::Socket {
-        path: socket.to_owned(),
-        source,
-    })?;
-    Connection::from_socket(stream).map_err(Error::Connect)
 }
 
 /// The outputs of the wlroots compositor listening on the Wayland socket at

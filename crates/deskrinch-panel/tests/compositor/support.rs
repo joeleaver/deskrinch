@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_component::{Component, Renderer, programs};
+use deskrinch_test_component::{Component, Renderer, Watch, programs};
 use deskrinch_test_screen::{Image, Screen};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
@@ -106,6 +106,11 @@ impl Panel {
     /// The panel's last lines of output, for a failure to show.
     pub(crate) fn log(&self) -> String {
         self.component.watch().tail()
+    }
+
+    /// What the panel has written, as its watch keeps it.
+    pub(crate) fn watch(&self) -> &Watch {
+        self.component.watch()
     }
 
     /// Waits until the panel has said it is placed along `edge`, `height`
