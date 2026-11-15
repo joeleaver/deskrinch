@@ -106,6 +106,7 @@ mod tests {
         args: &[],
         ready: Ready::Started,
         wayland_grants: &["org_kde_plasma_window_management"],
+        restart: deskrinch_shell::Restart::Never,
     };
 
     #[test]

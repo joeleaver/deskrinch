@@ -1,13 +1,15 @@
 //! What deskrinch's shell consists of, in one place: its components, in the
-//! order they start, what each one's being ready means and what each must be
-//! granted ([`COMPONENTS`]), and the shell's own key bindings
-//! ([`LAUNCHER_CHORD`]).
+//! order they start, what each one's being ready means, what each must be
+//! granted and when each is started again ([`COMPONENTS`], [`restart`]), and
+//! the shell's own key bindings ([`LAUNCHER_CHORD`]).
 //!
 //! `cargo xtask desktop` starts the shell from this, in a nested compositor
-//! in a window, and grants each component its restricted interfaces first;
-//! the real login session will start it, and grant them, from this too. This
-//! crate is data only: how a component is built and started, and how a
-//! compositor is told about a key binding, are each starter's own.
+//! in a window, grants each component its restricted interfaces first, and
+//! starts a component that fails again as its policy says; the real login
+//! session will start it, grant them and restart them from this too. This
+//! crate is data, and the rules on it: no I/O and no processes. How a
+//! component is built and started, and how a compositor is told about a key
+//! binding, are each starter's own.
 //!
 //! # Example
 //!
@@ -39,7 +41,20 @@ pub struct Component {
     /// them must grant it (KWin, through the program's installed desktop
     /// file). Every starter grants them before it starts the component.
     pub wayland_grants: &'static [&'static str],
+    /// Whether, and how often, it is started again when it ends.
+    pub restart: Restart,
 }
+
+pub mod restart;
+
+pub use restart::Restart;
+
+/// The shell components' restart policy: started again after a failure, at
+/// most 3 starts in 60 seconds (what Plasma uses for plasmashell).
+pub const SHELL_RESTART: Restart = Restart::OnFailure {
+    burst: 3,
+    interval: std::time::Duration::from_secs(60),
+};
 
 /// What a component's being ready means.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -56,6 +71,7 @@ pub const WALLPAPER: Component = Component {
     args: &[],
     ready: Ready::Started,
     wayland_grants: &[],
+    restart: SHELL_RESTART,
 };
 
 /// The launcher: hidden at first, it owns its name on the session bus,
@@ -66,6 +82,7 @@ pub const LAUNCHER: Component = Component {
     args: &[],
     ready: Ready::BusName("org.deskrinch.Launcher"),
     wayland_grants: &[],
+    restart: SHELL_RESTART,
 };
 
 /// The panel. It uses nothing restricted.
@@ -74,6 +91,7 @@ pub const PANEL: Component = Component {
     args: &[],
     ready: Ready::Started,
     wayland_grants: &[],
+    restart: SHELL_RESTART,
 };
 
 /// The shell's components, in the order they start.

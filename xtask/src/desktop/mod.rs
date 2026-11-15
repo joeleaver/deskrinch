@@ -15,6 +15,7 @@
 //! exits; should it be killed, the session's supervisor ends the session.
 
 mod build;
+mod components;
 mod ending;
 mod grant;
 mod guard;
@@ -27,17 +28,18 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitStatus;
 
-use deskrinch_shell::{COMPONENTS, LAUNCHER_CHORD, LAUNCHER_TOGGLE, Ready};
-use deskrinch_test_component::{RINCH_RENDERER_VARIABLE, Renderer as Rinch};
-use deskrinch_test_wait::{Deadline, PATIENCE};
+use deskrinch_shell::{LAUNCHER_CHORD, LAUNCHER_TOGGLE};
+use deskrinch_test_component::Renderer as Rinch;
+use deskrinch_test_wait::PATIENCE;
 
+use self::components::Components;
 use self::ending::{Followed, follow, run_until_ended};
 use self::profile::Profile;
 use crate::Outcome;
 use crate::error::Error;
 use crate::session::{
-    Binding, ClientId, Compositor, CompositorRenderer, Display, GPU_VARIABLE, Gpu, Home, Options,
-    OutputTransform, Outputs, POLL, RenderNodes, Scale, Session, interrupt,
+    Binding, Compositor, CompositorRenderer, Display, GPU_VARIABLE, Gpu, Home, Options,
+    OutputTransform, Outputs, RenderNodes, Scale, Session, interrupt,
 };
 
 /// The exit status when the command refuses to run here (`EX_NOPERM`).
@@ -278,11 +280,11 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     }
     println!("desktop: session {}", session.root().display());
     println!("desktop: bus {}", session.bus_address());
-    let components = start_components(&mut session, &binaries, args.renderer)?;
+    let mut components = Components::start(&mut session, &binaries, args.renderer)?;
     // By now the compositor has rendered its first frames, with the
     // components in them: a KWin that could not says so in its log.
     session.check_presents()?;
-    let outcome = run_started(&mut session, &components, &args.command);
+    let outcome = run_started(&mut session, &mut components, &args.command);
     let ended = session.end();
     drop(profile);
     let outcome = outcome?;
@@ -297,7 +299,7 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
 /// noticed. A compositor gone before its window is followed ends it there.
 fn run_started(
     session: &mut Session,
-    components: &[(&'static str, ClientId)],
+    components: &mut Components<'_>,
     command: &[OsString],
 ) -> Result<Outcome, Error> {
     let window = match follow(session)? {
@@ -366,51 +368,6 @@ fn binary<'a>(
         .get(package)
         .map(PathBuf::as_path)
         .ok_or(DesktopError::MissingBinary { package })
-}
-
-/// Starts the components in order, each once the one before is ready.
-fn start_components(
-    session: &mut Session,
-    binaries: &BTreeMap<&'static str, PathBuf>,
-    renderer: Option<Renderer>,
-) -> Result<Vec<(&'static str, ClientId)>, Error> {
-    let mut started = Vec::new();
-    for component in COMPONENTS {
-        let mut command = session.client(binary(binaries, component.package)?.as_os_str());
-        command.args(component.args);
-        if let Some(renderer) = renderer {
-            command.env(RINCH_RENDERER_VARIABLE, renderer.rinch());
-        }
-        let id = session.spawn(command)?;
-        if let Ready::BusName(name) = component.ready {
-            wait_until_ready(session, component.package, id, name)?;
-        }
-        started.push((component.package, id));
-    }
-    Ok(started)
-}
-
-/// Waits until the component `package`, client `id`, owns `name`.
-fn wait_until_ready(
-    session: &mut Session,
-    package: &'static str,
-    id: ClientId,
-    name: &'static str,
-) -> Result<(), Error> {
-    // A component that exits fails at once: only a hung one waits it out.
-    let deadline = Deadline::patience();
-    loop {
-        interrupt::check()?;
-        if session.wait_for_name(name, POLL).is_ok() {
-            return Ok(());
-        }
-        if let Some(status) = session.client_status(id) {
-            return Err(DesktopError::ComponentExited { package, status }.into());
-        }
-        if deadline.passed() {
-            return Err(DesktopError::ComponentNotReady { package, name }.into());
-        }
-    }
 }
 
 /// [`LAUNCHER_CHORD`] as a person reads it.
