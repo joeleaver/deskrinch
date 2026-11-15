@@ -45,7 +45,6 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::Duration;
 
-use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_component::{RENDERER_VARIABLE, Renderer, programs};
 
 use self::build::Target;
@@ -333,11 +332,8 @@ fn grant_all(built: &Built, data_home: &Path) -> Result<(), Error> {
         let Some(grant) = &SUITES[row].grant else {
             continue;
         };
-        let entry = DesktopEntry::new(grant.id, grant.name, binary, grant.wayland, grant.dbus)?;
-        entry.install(data_home).map_err(|source| Error::Io {
-            what: format!("install {}", entry.file_name()),
-            source,
-        })?;
+        let entry = crate::grant::client(grant.id, grant.name, binary, grant.wayland, grant.dbus)?;
+        crate::grant::install_entry(&entry, data_home)?;
     }
     for &row in built.tests.keys() {
         for program in SUITES[row].programs {
