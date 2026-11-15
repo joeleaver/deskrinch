@@ -163,7 +163,7 @@ mod measure_windows {
             "  of it \"stand-in\" on HEADLESS-2",
             "frames in all",
             "wall time when \"stand-in\" on HEADLESS-2 first presented",
-            "windows: 2 expected",
+            "Windows: 2 expected; start-up ends at the last one's first frame",
         ] {
             assert!(stdout.contains(row), "no {row:?} in:\n{stdout}");
         }
