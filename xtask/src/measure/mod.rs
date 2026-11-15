@@ -25,7 +25,8 @@
 //! With `--summon` the program starts hidden and the shows are measured
 //! instead ([`show`]): from the command that asks it to show (the program
 //! run again with the summon arguments) to the first frame after it, the
-//! first show cold and each later one after a hide.
+//! first show cold and each later one after a hide; and its memory once,
+//! hidden and settled, before the first show.
 //!
 //! The first frame is rinch's: the program is run with `RINCH_PERF=1`,
 //! which makes rinch write a line after every presented frame. It is the
@@ -111,7 +112,12 @@ again with the summon arguments, hidden again with the dismiss arguments
 after each show. Each show reports CPU time (or with --instructions the
 instructions) from the summon command to the first frame after it, the
 first show cold, each later one after a hide. The summon command's own
-process is not counted. Memory and the idle window are not measured.
+process is not counted. Settled means its threads ran almost nothing and
+rinch prepared no frame for its hidden window over a second; the prepared
+frames before each show are reported, and with --instructions each hide
+too, from the dismiss command to settled, with its prepared frames. Memory
+is read once, hidden and settled, before the first show (without
+--instructions); the idle window is not measured.
 
 --window APP_ID opens one window with that app id in the session at the
 idle window's start (once it has had its first configure and drawn), and

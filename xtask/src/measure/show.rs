@@ -9,6 +9,16 @@
 //! Callgrind counts in that span. The dismiss command hides it again, and
 //! it is left to settle before the next show.
 //!
+//! Settled means a window in which its threads ran almost nothing and rinch
+//! prepared no frame for its hidden window (`[PERF] prepared N:`), so a show
+//! is never summoned while a preparation goes on; the report gives the
+//! prepared frames before each show. With `--instructions` each hide is
+//! counted too, from the dismiss command to settled, with the prepared
+//! frames in that span: what a preparation after a hide costs.
+//!
+//! Before the first show, the program's memory is read once, hidden and
+//! settled (CPU time only; under Callgrind memory says nothing).
+//!
 //! The first show is the cold one: the first window the process makes.
 //! Each later one is a show after a hide, which re-creates the window.
 //! The summon command's own cost (a second process) is not counted.
@@ -76,7 +86,11 @@ pub(crate) fn measure(
     let result = (|| {
         settle_hidden(&mut child, &watch, program, timing.first_frame)?;
         let mut run = Run::default();
+        // What it holds hidden, settled, before the first show: with a
+        // window it prepared, what preparing costs.
+        probe::memory(&mut run, child.id(), program)?;
         for show in 1..=summons.shows {
+            push_prepared(&mut run, show, &watch);
             let (cpu, wall) = one_show(&mut child, &watch, ask, program, timing, summons)?;
             run.push(
                 format!("show {show}: CPU from the summon to its first frame"),
@@ -111,24 +125,54 @@ pub(crate) fn measure_instructions(
         let pid = child.id().to_string();
         settle_hidden(&mut child, &watch, program, timing.first_frame)?;
         let mut run = Run::default();
+        // Callgrind numbers its dumps in the order they are asked for: a
+        // show's, then its hide's.
+        let mut dumps = 0;
         for show in 1..=summons.shows {
+            push_prepared(&mut run, show, &watch);
             callgrind::control(control, &["--zero", &pid])?;
             let frames = watch.frames();
             summon(ask, &summons.summon)?;
             first_frame_after(&mut child, &watch, program, frames, timing.first_frame)?;
             callgrind::control(control, &["--dump", &format!("show-{show}"), &pid])?;
+            dumps += 1;
             run.push(
                 format!("show {show}: instructions from the summon to its first frame (Ir)"),
                 Unit::Count,
-                callgrind::totals(out, show)?,
+                callgrind::totals(out, dumps)?,
             );
+            // The hide, to settled: what the program does once dismissed,
+            // a preparation of its hidden window included.
+            callgrind::control(control, &["--zero", &pid])?;
+            let prepared = watch.prepared();
             dismiss(&mut child, &watch, ask, program, timing, summons)?;
+            callgrind::control(control, &["--dump", &format!("hide-{show}"), &pid])?;
+            dumps += 1;
+            run.push(
+                format!("hide {show}: instructions from the dismiss to settled (Ir)"),
+                Unit::Count,
+                callgrind::totals(out, dumps)?,
+            );
+            run.push(
+                format!("hide {show}: prepared frames from the dismiss to settled"),
+                Unit::Count,
+                watch.prepared() - prepared,
+            );
         }
         run.presented = watch.presented();
         Ok(run)
     })();
     probe::stop(&mut child);
     output::with_output(result, &watch)
+}
+
+/// Records the main window's prepared frames so far, before show `show`.
+fn push_prepared(run: &mut Run, show: u32, watch: &Watch) {
+    run.push(
+        format!("show {show}: prepared frames before it, in all"),
+        Unit::Count,
+        watch.prepared(),
+    );
 }
 
 fn start(mut command: Command, program: &str) -> Result<(Child, Watch), Error> {
@@ -290,6 +334,7 @@ fn settle(child: &mut Child, watch: &Watch, program: &str, timeout: Duration) ->
     let pid = child.id();
     let start = Instant::now();
     let mut before = procfs::read_threads(pid);
+    let mut prepared = watch.prepared();
     loop {
         let window_end = Instant::now() + SETTLE_WINDOW;
         while Instant::now() < window_end {
@@ -298,7 +343,8 @@ fn settle(child: &mut Child, watch: &Watch, program: &str, timeout: Duration) ->
             std::thread::sleep(Duration::from_millis(100));
         }
         let now = procfs::read_threads(pid);
-        if cpu_between(&before, &now) < nanos(SETTLED_CPU) {
+        let prepared_now = watch.prepared();
+        if settled(cpu_between(&before, &now), prepared, prepared_now) {
             return Ok(());
         }
         if start.elapsed() >= timeout {
@@ -309,7 +355,18 @@ fn settle(child: &mut Child, watch: &Watch, program: &str, timeout: Duration) ->
             });
         }
         before = now;
+        prepared = prepared_now;
     }
+}
+
+/// Whether a settle window was quiet: its threads ran less than
+/// [`SETTLED_CPU`] (`cpu_ns`), and no prepared frame came in it (the main
+/// window's prepared frames went from `prepared_before` to
+/// `prepared_after`). A preparation queued but not yet run shows in
+/// neither until it runs; one that ran shows in the second however little
+/// CPU it took, so a show is never summoned while a preparation goes on.
+fn settled(cpu_ns: u64, prepared_before: u64, prepared_after: u64) -> bool {
+    cpu_ns < nanos(SETTLED_CPU) && prepared_after == prepared_before
 }
 
 /// Fails if the program has exited.
@@ -360,6 +417,14 @@ mod tests {
         let before = BTreeMap::from([(1, thread(100)), (2, thread(50))]);
         let after = BTreeMap::from([(1, thread(160)), (2, thread(50)), (3, thread(30))]);
         assert_eq!(cpu_between(&before, &after), 60 + 30);
+    }
+
+    #[test]
+    fn settled_wants_quiet_threads_and_no_prepared_frame() {
+        let quiet = nanos(SETTLED_CPU) - 1;
+        assert!(settled(quiet, 2, 2));
+        assert!(!settled(quiet, 2, 3), "a preparation ran in the window");
+        assert!(!settled(nanos(SETTLED_CPU), 2, 2), "the threads ran");
     }
 
     #[test]

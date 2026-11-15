@@ -5,9 +5,9 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use deskrinch_bus::Bus;
-use deskrinch_launcher::NAME;
+use deskrinch_launcher::{Change, NAME, PREPARING};
 use deskrinch_test_client::Compositor;
-use deskrinch_test_component::{Component, Renderer};
+use deskrinch_test_component::{Component, PerfLine, PerfWindow, Renderer, perf};
 use deskrinch_test_wait::{Deadline, POLL, comes_true};
 
 /// How long a test watches a launcher for something that must not happen
@@ -65,6 +65,90 @@ impl Launcher {
     /// The frames it has presented (rinch's `RINCH_PERF` lines).
     pub(crate) fn frames(&self) -> u64 {
         self.component().watch().frames()
+    }
+
+    /// The frames rinch has prepared for its hidden window (not presented).
+    pub(crate) fn prepared(&self) -> u64 {
+        self.component().watch().prepared()
+    }
+
+    /// Where its log is now: a mark for
+    /// [`wait_prepared_for_since`](Self::wait_prepared_for_since), so that
+    /// only what it writes from here on counts.
+    pub(crate) fn mark(&self) -> usize {
+        self.component().watch().lines().len()
+    }
+
+    /// Waits until a prepared frame has followed a line in which the
+    /// launcher said it asked to prepare because of one of `causes`
+    /// ([`deskrinch_launcher::preparing`]); `Err` with its last lines when
+    /// none has within the patience.
+    pub(crate) fn wait_prepared_for(&self, causes: &[Change]) -> Result<(), String> {
+        self.wait_prepared_for_since(0, causes)
+    }
+
+    /// As [`wait_prepared_for`](Self::wait_prepared_for), counting only the
+    /// lines written since `mark` ([`mark`](Self::mark)).
+    pub(crate) fn wait_prepared_for_since(
+        &self,
+        mark: usize,
+        causes: &[Change],
+    ) -> Result<(), String> {
+        let asked = |line: &str| {
+            line.contains(PREPARING) && causes.iter().any(|cause| line.contains(cause.says()))
+        };
+        let prepared = |line: &str| {
+            matches!(
+                perf::parse(line),
+                Some(PerfLine::Prepared {
+                    window: PerfWindow::Main,
+                    ..
+                })
+            )
+        };
+        let watch = self.component().watch();
+        let followed = || {
+            let lines = watch.lines();
+            let since = lines.get(mark..).unwrap_or_default();
+            since
+                .iter()
+                .position(|line| asked(line))
+                .is_some_and(|at| since[at..].iter().any(|line| prepared(line)))
+        };
+        if comes_true(followed) {
+            Ok(())
+        } else {
+            let named: Vec<&str> = causes.iter().map(|cause| cause.says()).collect();
+            Err(format!(
+                "no prepared frame followed a request naming {named:?}; its last lines:\n{}",
+                watch.tail()
+            ))
+        }
+    }
+
+    /// Waits, within the patience, for the hidden launcher to settle: a
+    /// [`STAYS_FOR`] window in which rinch prepares nothing for it. `Err`
+    /// with its last lines if it presents a frame meanwhile, or never
+    /// settles.
+    pub(crate) fn wait_settled_hidden(&self) -> Result<(), String> {
+        let watch = self.component().watch();
+        let deadline = Deadline::patience();
+        while !deadline.passed() {
+            let prepared = self.prepared();
+            if stays(|| self.prepared() == prepared && self.frames() == 0) {
+                return Ok(());
+            }
+            if self.frames() > 0 {
+                return Err(format!(
+                    "the hidden launcher presented; its last lines:\n{}",
+                    watch.tail()
+                ));
+            }
+        }
+        Err(format!(
+            "the hidden launcher went on preparing; its last lines:\n{}",
+            watch.tail()
+        ))
     }
 
     /// Waits until it has presented, with the run's renderer.

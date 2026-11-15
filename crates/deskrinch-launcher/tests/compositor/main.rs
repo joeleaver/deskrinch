@@ -10,6 +10,8 @@
 //! - [`click`]: the pointer's clicks on its results.
 //! - [`frequent`]: the applications used most, on an empty query, and the
 //!   record of starts they come from.
+//! - [`prepared`]: the hidden window prepared for its next show when what
+//!   it draws changes, and nothing presented or prepared while it idles.
 //!
 //! Every launcher a test starts is ended before the test returns, the one a
 //! client starts (in a process group of its own) included.
@@ -19,6 +21,8 @@
 mod click;
 #[cfg(test)]
 mod frequent;
+#[cfg(test)]
+mod prepared;
 #[cfg(test)]
 mod process;
 #[cfg(test)]
