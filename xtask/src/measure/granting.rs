@@ -189,7 +189,7 @@ fn is_callgrind_tool(path: &Path) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use deskrinch_shell::{LAUNCHER, PANEL, Ready};
+    use deskrinch_shell::{LAUNCHER, PANEL};
 
     use super::*;
 
@@ -210,15 +210,6 @@ mod tests {
         }
     }
 
-    /// A component that uses a restricted interface, as one of the shell's
-    /// will.
-    const RESTRICTED: Component = Component {
-        package: "deskrinch-restricted",
-        args: &[],
-        ready: Ready::Started,
-        wayland_grants: &["org_kde_plasma_window_management"],
-    };
-
     #[test]
     fn a_component_is_granted_under_kwin_and_the_rest_say_why_not() {
         let sh = resolve(OsStr::new("sh")).unwrap();
@@ -227,9 +218,9 @@ mod tests {
             Grant::decide(&request(sh, None, compositor), component).unwrap()
         };
         assert_eq!(
-            decide(Some(&RESTRICTED), Compositor::Kwin),
+            decide(Some(&PANEL), Compositor::Kwin),
             Grant::Granted {
-                component: &RESTRICTED,
+                component: &PANEL,
                 executable: PathBuf::from(sh),
             }
         );
@@ -240,7 +231,7 @@ mod tests {
             "nothing: deskrinch-launcher uses nothing restricted"
         );
         for compositor in [Compositor::Sway, Compositor::Labwc] {
-            let unrestricted = decide(Some(&RESTRICTED), compositor);
+            let unrestricted = decide(Some(&PANEL), compositor);
             assert_eq!(unrestricted, Grant::Unrestricted(compositor));
             assert!(unrestricted.note().ends_with("restricts nothing"));
         }
@@ -255,25 +246,25 @@ mod tests {
         assert_eq!(not_a_component, Grant::NotAComponent("panel-after".into()));
         assert!(not_a_component.note().contains("--component PACKAGE"));
         assert_eq!(
-            of("/tmp/measure/panel-after", Some("deskrinch-panel")),
-            Grant::NothingRestricted(&PANEL)
+            of("/tmp/measure/launcher-after", Some("deskrinch-launcher")),
+            Grant::NothingRestricted(&LAUNCHER)
         );
         assert_eq!(
-            of("/build/release/deskrinch-panel", None),
-            Grant::NothingRestricted(&PANEL)
+            of("/build/release/deskrinch-launcher", None),
+            Grant::NothingRestricted(&LAUNCHER)
         );
     }
 
     #[test]
     fn the_note_says_what_was_granted_and_to_what() {
         let granted = Grant::Granted {
-            component: &RESTRICTED,
-            executable: PathBuf::from("/tmp/measure/restricted"),
+            component: &PANEL,
+            executable: PathBuf::from("/tmp/measure/panel-after"),
         };
         assert!(
             granted
                 .note()
-                .starts_with("org_kde_plasma_window_management to /tmp/measure/restricted")
+                .starts_with("org_kde_plasma_window_management to /tmp/measure/panel-after")
         );
     }
 
