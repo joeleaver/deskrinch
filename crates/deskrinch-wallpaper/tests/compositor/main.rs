@@ -16,6 +16,8 @@
 //! - [`outputs`]: an output turned while the wallpaper runs is covered at
 //!   its new shape; one turned off loses its wallpaper and, turned on
 //!   again, gets one anew, the others staying covered.
+//! - [`reconfigured`]: an output moved, rescaled or turned keeps its
+//!   window, and is covered at its new shape.
 //! - [`together`]: with the two outputs at one position, where sway shows
 //!   the wallpaper of only one, the wallpaper follows four settings edits
 //!   in turn on the output shown, and both outputs show the last once
@@ -37,6 +39,8 @@ mod first_frame;
 mod layers;
 #[cfg(test)]
 mod outputs;
+#[cfg(test)]
+mod reconfigured;
 #[cfg(test)]
 mod support;
 #[cfg(test)]

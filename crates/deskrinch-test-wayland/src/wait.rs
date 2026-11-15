@@ -2,7 +2,7 @@
 //!
 //! `EventQueue::blocking_dispatch` waits for the compositor as long as it
 //! takes; a compositor that never answers hangs the test. These read the
-//! socket only when [`poll`](rustix::event::poll) says there is something
+//! socket only when [`poll`] says there is something
 //! to read, and only until the deadline.
 
 use std::os::fd::OwnedFd;
