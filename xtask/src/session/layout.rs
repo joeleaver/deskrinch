@@ -10,7 +10,7 @@ use std::ffi::OsStr;
 
 use deskrinch_test_client::{KSCREEN_DOCTOR, OutputState, kscreen_outputs, wlroots_outputs_at};
 
-use super::{Compositor, Session};
+use super::{Compositor, Doing, Session};
 use crate::error::Error;
 
 impl Session {
@@ -20,7 +20,7 @@ impl Session {
     /// it failed.
     pub(crate) fn output_layout(&mut self) -> Result<Vec<OutputState>, Error> {
         let listed = self.list_outputs();
-        listed.map_err(|error| self.unless_exited(error))
+        listed.map_err(|error| self.unless_exited(Doing::ListingOutputs, error))
     }
 
     fn list_outputs(&self) -> Result<Vec<OutputState>, Error> {

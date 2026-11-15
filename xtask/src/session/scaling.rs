@@ -7,7 +7,7 @@ use deskrinch_test_client::{
     KSCREEN_DOCTOR, OutputChange, OutputInfo, TestClient, configure_every_output, kscreen_settings,
 };
 
-use super::{Outputs, Session};
+use super::{Doing, Outputs, Session};
 use crate::error::Error;
 
 /// How a compositor's outputs get their scale and transform.
@@ -33,7 +33,7 @@ impl Session {
     /// reported as its exit ([`Session::unless_exited`]).
     pub(super) fn set_up_outputs(&mut self, outputs: Outputs) -> Result<(), Error> {
         let set_up = self.set_up_and_check(outputs);
-        set_up.map_err(|error| self.unless_exited(error))
+        set_up.map_err(|error| self.unless_exited(Doing::SettingUpOutputs, error))
     }
 
     fn set_up_and_check(&self, outputs: Outputs) -> Result<(), Error> {

@@ -9,6 +9,7 @@
 //! that has exited is reported as that, with its status and its log; one
 //! that runs and goes on refusing, at the patience, with the last refusal.
 
+use std::fmt;
 use std::thread;
 
 use deskrinch_test_wait::Deadline;
@@ -54,29 +55,53 @@ impl Session {
     /// [`POLL`].
     fn between_tries(&mut self) -> Result<(), Error> {
         interrupt::check()?;
-        self.exited()?;
+        self.exited(Doing::Starting)?;
         thread::sleep(POLL);
         Ok(())
     }
 
-    /// `error`, from talking to the compositor after the start, unless the
-    /// compositor has exited: then its exit, with its status and its log,
-    /// which is what the error came of.
-    pub(crate) fn unless_exited(&mut self, error: Error) -> Error {
-        self.exited().err().unwrap_or(error)
+    /// `error`, from talking to the compositor while the session was
+    /// `doing` something, unless the compositor has exited: then its exit,
+    /// with what the session was doing, its status and its log, which is
+    /// what the error came of.
+    pub(crate) fn unless_exited(&mut self, doing: Doing, error: Error) -> Error {
+        self.exited(doing).err().unwrap_or(error)
     }
 
-    /// Fails with [`Error::CompositorExited`], its status and its log, if
-    /// the compositor has exited.
-    pub(crate) fn exited(&mut self) -> Result<(), Error> {
+    /// Fails with [`Error::CompositorExited`], what the session was
+    /// `doing`, the status and the log, if the compositor has exited.
+    pub(crate) fn exited(&mut self, doing: Doing) -> Result<(), Error> {
         match self.child.try_wait() {
             Ok(Some(status)) => Err(Error::CompositorExited {
                 compositor: self.compositor.name(),
                 status,
+                doing,
                 log: self.log(),
             }),
             _ => Ok(()),
         }
+    }
+}
+
+/// What the session was doing when its compositor exited, as the error
+/// says it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Doing {
+    /// Starting: before the session was ready.
+    Starting,
+    /// Setting up its outputs, the last step of its start.
+    SettingUpOutputs,
+    /// Listing its outputs, a session that was ready.
+    ListingOutputs,
+}
+
+impl fmt::Display for Doing {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Starting => "before it was ready",
+            Self::SettingUpOutputs => "while the session set up its outputs, before it was ready",
+            Self::ListingOutputs => "while the session listed its outputs, after it was ready",
+        })
     }
 }
 
@@ -113,13 +138,18 @@ mod tests {
 
     use super::*;
 
-    #[test]
-    fn an_exit_seen_between_tries_is_reported_as_the_exit() {
-        let exited = Error::CompositorExited {
+    fn exit(doing: Doing) -> Error {
+        Error::CompositorExited {
             compositor: "sway",
             status: ExitStatus::from_raw(1 << 8),
+            doing,
             log: CompositorLog::default(),
-        };
+        }
+    }
+
+    #[test]
+    fn an_exit_seen_between_tries_is_reported_as_the_exit() {
+        let exited = exit(Doing::Starting);
         let error = not_accepted(
             Compositor::Sway,
             Connecting::Stopped(exited),
@@ -134,6 +164,27 @@ mod tests {
             said.ends_with("(empty: the compositor had printed nothing)"),
             "{said}"
         );
+    }
+
+    #[test]
+    fn an_exit_says_what_the_session_was_doing() {
+        let said = exit(Doing::SettingUpOutputs).to_string();
+        assert!(
+            said.starts_with(
+                "sway exited (exit status: 1) while the session set up its outputs, before it \
+                 was ready; its log:"
+            ),
+            "{said}"
+        );
+        let said = exit(Doing::ListingOutputs).to_string();
+        assert!(
+            said.starts_with(
+                "sway exited (exit status: 1) while the session listed its outputs, after it \
+                 was ready; its log:"
+            ),
+            "{said}"
+        );
+        assert!(!said.contains("before it was ready"), "{said}");
     }
 
     #[test]

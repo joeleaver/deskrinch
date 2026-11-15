@@ -92,6 +92,7 @@ pub(crate) use self::render_nodes::RenderNodes;
 pub(crate) use self::rendering::CompositorRenderer;
 pub(crate) use self::scale::Scale;
 pub(crate) use self::scaling::Scaling;
+pub(crate) use self::socket::Doing;
 use self::supervisor::Supervisor;
 #[cfg(test)]
 pub(crate) use self::supervisor::fake_root;
@@ -353,7 +354,7 @@ impl Session {
                 interrupt::check()?;
                 let waited = self.bus.wait_for_name(name, POLL);
                 let Err(source) = waited else { break };
-                self.exited()?;
+                self.exited(Doing::Starting)?;
                 if deadline.passed() {
                     return Err(Error::CompositorNotReady {
                         compositor: self.compositor.name(),
