@@ -7,12 +7,11 @@
 //! compositor follows its `wl_output` globals.
 
 use std::collections::HashSet;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::time::Duration;
 
 use deskrinch_test_wait::Deadline;
-use deskrinch_test_wayland::{WaitError, dispatch_until, roundtrip};
+use deskrinch_test_wayland::{WaitError, connect_once, dispatch_until, roundtrip};
 use wayland_client::protocol::wl_registry::{self, WlRegistry};
 use wayland_client::{Connection, Dispatch, EventQueue, QueueHandle};
 
@@ -60,7 +59,7 @@ impl Window {
             socket: socket.to_owned(),
             source,
         };
-        let stream = UnixStream::connect(socket).map_err(|error| watch(error.into()))?;
+        let stream = connect_once(socket).map_err(|error| watch(error.into()))?;
         let connection = Connection::from_socket(stream).map_err(|error| watch(error.into()))?;
         let mut queue = connection.new_event_queue();
         let registry = connection.display().get_registry(&queue.handle(), ());

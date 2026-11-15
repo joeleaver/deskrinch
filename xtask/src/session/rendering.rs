@@ -136,7 +136,7 @@ impl Session {
             return Ok(());
         }
         let log = self.log();
-        match cannot_present(&log) {
+        match cannot_present(log.as_str()) {
             None => Ok(()),
             Some(line) => Err(Error::CompositorUnfit {
                 compositor: self.compositor.name(),
@@ -155,7 +155,7 @@ impl Session {
             return Ok(());
         }
         let log = self.log();
-        match gpu_renderer(&log) {
+        match gpu_renderer(log.as_str()) {
             Ok(_) => Ok(()),
             Err(line) => Err(Error::CompositorUnfit {
                 compositor: self.compositor.name(),
