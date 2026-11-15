@@ -105,11 +105,13 @@ pub fn preparing(changes: &[Change]) -> String {
 /// - At a hide the last painted frame is the shown one's: the query and its
 ///   results, which the hide clears back to the frequent applications. The
 ///   launcher prepares at every hide, without asking whether the hide
-///   changed what is drawn: one with nothing changed costs about 17 thousand
-///   instructions with the software renderer and 21 thousand with the GPU
-///   one (measured with `cargo xtask measure --summon --instructions`,
-///   against 132 and 216 thousand for the hide itself), too little to make
-///   the rule conditional.
+///   changed what is drawn. Measured from the dismiss to settled
+///   (`cargo xtask measure --summon --instructions`), a hide costs about
+///   126 thousand instructions with the software renderer and 212 thousand
+///   with the GPU one when nothing prepares; following what the next show
+///   draws, which clones and compares the frequent rows, adds about 10
+///   thousand; and the prepare with nothing changed adds about 17 and 21
+///   thousand. That is too little to make the rule conditional.
 /// - While hidden, [`Drawn`] changes when the frequent applications do (the
 ///   installed applications, the record of starts and `[general]` make
 ///   them), when the icon theme's index does, and when the look does.
