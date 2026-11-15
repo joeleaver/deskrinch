@@ -96,6 +96,10 @@ pub(crate) fn place(placement: Placement) {
     let width = current_window_size().map_or(f64::from(FIRST_WIDTH), |(width, _)| width);
     set_current_window_size(width, f64::from(placement.height.get()));
     set_current_window_layer(layer_surface(placement));
+    tracing::info!(
+        "{}",
+        deskrinch_panel::placed(placement.edge, placement.height)
+    );
 }
 
 #[cfg(test)]

@@ -98,6 +98,11 @@ impl Wallpaper {
         Self { component }
     }
 
+    /// Its last lines, for a failure's message.
+    pub(crate) fn log(&self) -> String {
+        self.component.watch().tail()
+    }
+
     /// Every window's frames now, to count from.
     pub(crate) fn mark(&self) -> Mark {
         self.component.watch().mark()

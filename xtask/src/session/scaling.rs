@@ -52,6 +52,7 @@ impl Session {
         let change = OutputChange {
             scale: Some(outputs.scale.get()),
             transform: Some(outputs.transform.get()),
+            position: None,
         };
         configure_every_output(&self.socket_path(), change).map_err(|source| Error::OutputSetup {
             compositor: self.compositor.name(),
@@ -68,6 +69,7 @@ impl Session {
         let change = OutputChange {
             scale: Some(outputs.scale.get()),
             transform: Some(outputs.transform.get()),
+            position: None,
         };
         let settings = names.iter().flat_map(|name| kscreen_settings(name, change));
         let output = self

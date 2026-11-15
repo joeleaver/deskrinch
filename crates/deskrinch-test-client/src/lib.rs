@@ -26,7 +26,7 @@
 //! - The session's outputs ([`outputs`], each an [`OutputState`]: on or
 //!   off, position, mode, scale, transform), and changes to them under any
 //!   of the three compositors: [`turn_output_off`], and [`change_output`]
-//!   for a scale or transform. Each states every output in full, and
+//!   for a scale, transform or position. Each states every output in full, and
 //!   returns a [`RestoreOutputs`] that puts the whole layout back when
 //!   restored or dropped ([`layout`] says why). Through
 //!   `wlr-output-management` under sway and labwc, and KDE's

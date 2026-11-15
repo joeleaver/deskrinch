@@ -77,11 +77,37 @@ impl Panel {
     /// presented, having checked that renderer is what presented.
     pub(crate) fn start() -> Self {
         let renderer = Renderer::of_run();
-        let component = Component::start(Command::new(PANEL), renderer).unwrap();
+        // Its own `info` lines too: where it is placed when it moves.
+        let mut command = Command::new(PANEL);
+        command.env("RUST_LOG", "warn,deskrinch_panel=info");
+        let component = Component::start(command, renderer).unwrap();
         if let Err(why) = component.wait_presented_with(renderer) {
             panic!("the panel: {why}");
         }
         Self { component }
+    }
+
+    /// Waits until the panel has said it is placed along `edge`, `height`
+    /// high ([`deskrinch_panel::placed`], written by its main thread when it
+    /// applies the change); `Err` with its last lines when it does not. Any
+    /// line it has written counts, so a test that asks for a placement it
+    /// has had before is answered by the earlier line.
+    pub(crate) fn wait_placed(&self, edge: Edge, height: u32) -> Result<(), String> {
+        let edge = match edge {
+            Edge::Top => deskrinch_settings::panel::Edge::Top,
+            Edge::Bottom => deskrinch_settings::panel::Edge::Bottom,
+        };
+        let height = deskrinch_settings::panel::Height::try_from(height).unwrap();
+        let line = deskrinch_panel::placed(edge, height);
+        let watch = self.component.watch();
+        if watch.wait_for_line(PATIENCE, |said| said.contains(&line)) {
+            Ok(())
+        } else {
+            Err(format!(
+                "it did not say {line:?}; its last lines:\n{}",
+                watch.tail()
+            ))
+        }
     }
 
     /// Waits until the panel has reported a mistake in its settings whose
