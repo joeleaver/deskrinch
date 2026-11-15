@@ -18,6 +18,9 @@ mod edges;
 mod push;
 
 #[cfg(test)]
+mod restarts;
+
+#[cfg(test)]
 mod desktop {
     use std::fs::{self, File};
     use std::path::Path;
