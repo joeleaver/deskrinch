@@ -108,6 +108,12 @@ use crate::error::Error;
 /// unset unless asked.
 const CURRENT_DESKTOP: &str = "XDG_CURRENT_DESKTOP";
 
+/// The variable naming the session's compositor's process id, for a client
+/// that ends the compositor under its other clients (a test of what a
+/// component does when its display goes away). The compositor leads the
+/// session's process group, so this is that group's id too.
+pub(crate) const COMPOSITOR_PID: &str = "DESKRINCH_SESSION_COMPOSITOR_PID";
+
 /// Where a session's root is made: `/tmp`, not `$TMPDIR`, as the Wayland
 /// socket's path must fit a Unix socket address (108 bytes), and `$TMPDIR`
 /// may be long.

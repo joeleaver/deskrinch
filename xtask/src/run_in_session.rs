@@ -15,7 +15,9 @@ use deskrinch_test_dbus::session;
 
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, Session, interrupt};
+use crate::session::{
+    COMPOSITOR_PID, Compositor, CompositorRenderer, Gpu, Outputs, Session, interrupt,
+};
 
 /// `cargo xtask session --help`: what the session is, exactly. The lists of
 /// variables come from `deskrinch-test-dbus`, which sets them.
@@ -35,6 +37,7 @@ pub(crate) fn long_about() -> String {
         "None of the caller's {}.",
         session::REAL_SESSION_VARIABLES.join(", ")
     ));
+    let compositor_pid = COMPOSITOR_PID;
     format!(
         "\
 Run a command in an isolated, nested, headless compositor session.
@@ -53,6 +56,8 @@ The environment the command and everything it starts see:
     sway. No X server: KWin runs without Xwayland, so no kcminit either.
   - DESKRINCH_TEST_COMPOSITOR naming the compositor (kwin, sway or labwc), as
     the compositor tests' guard against the real session expects.
+  - {compositor_pid}: the compositor's process id, for a
+    command that ends the compositor under its other clients.
   - DBUS_SESSION_BUS_ADDRESS naming a private dbus-daemon with service
     activation off: nothing (portals, secret service, notification daemons)
     is started on demand. The compositor uses the same bus.
