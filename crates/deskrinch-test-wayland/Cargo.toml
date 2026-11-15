@@ -14,5 +14,10 @@ rustix = { workspace = true, features = ["event", "fs"] }
 thiserror.workspace = true
 wayland-client.workspace = true
 
+[dev-dependencies]
+# A socket bound and not listened on, which the standard library cannot make.
+rustix = { workspace = true, features = ["event", "fs", "net"] }
+tempfile.workspace = true
+
 [lints]
 workspace = true
