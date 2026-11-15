@@ -1,10 +1,12 @@
 //! `cargo xtask desktop`: the shell in a window on the real desktop.
 //!
 //! A nested compositor opens its outputs as windows on the compositor the
-//! command runs under, and the shell's components ([`COMPONENTS`]) run in
-//! it, in an isolated session ([`Session`]) like the tests': only the
-//! nested compositor is given the real display, and everything inside gets
-//! the session's own home, directories, bus and display. The launcher chord
+//! command runs under, and the shell's components
+//! ([`deskrinch_shell::COMPONENTS`]) run in it, started again as each one's
+//! restart policy says ([`components`]), in an isolated session
+//! ([`Session`]) like the tests': only the nested compositor is given the
+//! real display, and everything inside gets the session's own home,
+//! directories, bus and display. The launcher chord
 //! ([`LAUNCHER_CHORD`]) is bound in the nested compositor's configuration.
 //!
 //! It is the owner's to run ([`guard`]): it refuses outside an interactive
