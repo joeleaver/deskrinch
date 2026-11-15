@@ -69,13 +69,15 @@ mod style;
 mod surface;
 mod wallpaper;
 
+use std::process::ExitCode;
+
 use deskrinch_appearance::Bus;
 use deskrinch_component::{Configuration, report};
 use deskrinch_settings::wallpaper::WallpaperSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 
-fn main() {
+fn main() -> ExitCode {
     // Before the configuration is read, so that its diagnostics are shown.
     report::init();
     let dirs = BaseDirs::from_process();
@@ -84,13 +86,15 @@ fn main() {
     let theme = Theme::start(&configuration, Bus::Session);
     let first_theme = theme.initial();
     let home = dirs.home.clone();
-    deskrinch_component::app::windowless(move |scope| {
-        wallpaper::wallpaper(scope, live, theme, home)
-    })
-    .image_scheme(picture::SCHEME, picture::load)
-    .theme(first_theme)
-    .run();
+    let ended = deskrinch_component::app::run(
+        deskrinch_component::app::windowless(move |scope| {
+            wallpaper::wallpaper(scope, live, theme, home)
+        })
+        .image_scheme(picture::SCHEME, picture::load)
+        .theme(first_theme),
+    );
     if role::refused() {
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     }
+    ended
 }

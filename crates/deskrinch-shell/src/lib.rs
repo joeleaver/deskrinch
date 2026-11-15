@@ -1,6 +1,7 @@
 //! What deskrinch's shell consists of, in one place: its components, in the
 //! order they start, what each one's being ready means and what each must be
-//! granted ([`COMPONENTS`]), and the shell's own key bindings
+//! granted ([`COMPONENTS`]), the statuses a component ends with besides
+//! success ([`exit_status`]), and the shell's own key bindings
 //! ([`LAUNCHER_CHORD`]).
 //!
 //! `cargo xtask desktop` starts the shell from this, in a nested compositor
@@ -23,6 +24,8 @@
 //!     .unwrap();
 //! assert_eq!(launcher.ready, Ready::BusName("org.deskrinch.Launcher"));
 //! ```
+
+pub mod exit_status;
 
 /// One component of the shell: a program the session runs for as long as it
 /// lasts.

@@ -18,6 +18,8 @@ debug = []
 [dependencies]
 deskrinch-config.workspace = true
 deskrinch-settings.workspace = true
+# The exit status for a lost display, which the component's starter reads.
+deskrinch-shell.workspace = true
 deskrinch-xdg.workspace = true
 # `desktop`: rinch's native logging (its `tracing-subscriber` formatter),
 # the one a component's window runs with.

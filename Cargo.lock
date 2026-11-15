@@ -912,6 +912,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-config",
  "deskrinch-settings",
+ "deskrinch-shell",
  "deskrinch-test-wait",
  "deskrinch-xdg",
  "rinch",
