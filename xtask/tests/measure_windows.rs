@@ -5,7 +5,9 @@
 //! Beside them, the report of a one-window program measured without
 //! `--windows`, whose rows are held to a list captured before `--windows`
 //! existed (`tests/fixtures/one-window-rows.txt`). Nothing here asserts on
-//! time.
+//! a duration, but one test depends on an order in time, with room for a
+//! slow machine: a window replaced during the run must be replaced after
+//! start-up and before the run ends. It says so where it does.
 //!
 //! Ignored by a plain `cargo test`, because they need a compositor
 //! installed; they start only isolated sessions of their own. Name the
@@ -32,9 +34,15 @@ mod measure_windows {
 
     /// `xtask measure` of `sh -c script`: one run, short windows.
     fn measure(options: &[&str], script: &str) -> Output {
+        measure_idle("2", options, script)
+    }
+
+    /// `xtask measure` of `sh -c script`: one run, a settle of a second and
+    /// an idle window of `idle` seconds.
+    fn measure_idle(idle: &str, options: &[&str], script: &str) -> Output {
         Command::new(env!("CARGO_BIN_EXE_xtask"))
             .args(["measure", "--compositor", &compositor(), "--runs", "1"])
-            .args(["--settle", "1", "--idle", "2"])
+            .args(["--settle", "1", "--idle", idle])
             .args(options)
             .args(["sh", "-c", script])
             .stdin(Stdio::null())
@@ -217,19 +225,28 @@ mod measure_windows {
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn a_window_replaced_during_the_run_fails_it_as_outside_what_is_measured() {
-        // Window 2 closes a second after the first frames and window 3 takes
-        // its place on the same output, as when an output is turned off and
-        // on again: the count stays 2, the windows do not.
+        // Window 2 closes five seconds after the first frames and window 3
+        // takes its place on the same output, as when an output is turned off
+        // and on again: the count stays 2, the windows do not.
+        //
+        // The order this depends on: measure must have ended start-up (seen
+        // both first frames) before the replacement is read, and the
+        // replacement must be read before the run ends, a second of settle
+        // and 20 s of idle after start-up. A slow machine could break it
+        // both ways: start-up seen more than 5 s late would take the
+        // replaced windows as the ones it started with, and a replacement
+        // read more than about 16 s late would fall after the run. Either
+        // way the run would pass, a correct tool, and this test fail.
         let script = format!(
             "{}{}echo '[PERF] window 1 frame 1: style 0.10ms' >&2; \
-             echo '[PERF] window 2 frame 1: style 0.10ms' >&2; sleep 1; \
+             echo '[PERF] window 2 frame 1: style 0.10ms' >&2; sleep 5; \
              echo '[PERF] window 2 closed' >&2; {}\
              echo '[PERF] window 3 frame 1: style 0.10ms' >&2; exec sleep 600",
             opened(1, "HEADLESS-1"),
             opened(2, "HEADLESS-2"),
             opened(3, "HEADLESS-2"),
         );
-        let output = measure(&["--windows", "2"], &script);
+        let output = measure_idle("20", &["--windows", "2"], &script);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(1), "{stdout}\n{stderr}");
