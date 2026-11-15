@@ -85,12 +85,15 @@ pub const LAUNCHER: Component = Component {
     restart: SHELL_RESTART,
 };
 
-/// The panel. It uses nothing restricted.
+/// The panel. Its taskbar follows the window list: under KWin through
+/// `org_kde_plasma_window_management`, which KWin offers only to the
+/// programs it grants it (the wlroots compositors' window-list protocol is
+/// not restricted).
 pub const PANEL: Component = Component {
     package: "deskrinch-panel",
     args: &[],
     ready: Ready::Started,
-    wayland_grants: &[],
+    wayland_grants: &["org_kde_plasma_window_management"],
     restart: SHELL_RESTART,
 };
 

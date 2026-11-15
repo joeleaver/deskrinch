@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_component::{Component, Renderer};
+use deskrinch_test_component::{Component, Renderer, Watch, programs};
 use deskrinch_test_screen::{Image, Screen};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
@@ -19,10 +19,14 @@ use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 /// = 600 ms at the default animation speed a fresh session has (KWin 6.6,
 /// `effects/fadingpopups/contents/code/main.js`; its window scale effect
 /// takes 200 ms, `effects/scale`). sway and labwc animate nothing.
-const STILL: Duration = Duration::from_millis(600);
+pub(crate) const STILL: Duration = Duration::from_millis(600);
 
-/// The panel binary Cargo built.
-const PANEL: &str = env!("CARGO_BIN_EXE_deskrinch-panel");
+/// The panel binary: this suite declares the panel as one of its programs,
+/// so that it is granted what the shell grants it, and runs it from the
+/// path it was granted at ([`deskrinch_test_component::programs`]).
+fn panel_binary() -> PathBuf {
+    programs::program(deskrinch_shell::PANEL.package).unwrap_or_else(|why| panic!("{why}"))
+}
 
 /// Panics unless the tests run in a nested session started by `cargo xtask
 /// compositor-tests` (`Compositor::current`): run anywhere else they would
@@ -76,15 +80,37 @@ impl Panel {
     /// Starts the panel with the run's renderer, and returns once it has
     /// presented, having checked that renderer is what presented.
     pub(crate) fn start() -> Self {
-        let renderer = Renderer::of_run();
-        // Its own `info` lines too: where it is placed when it moves.
-        let mut command = Command::new(PANEL);
+        Self::start_with(Self::command())
+    }
+
+    /// The command that starts the panel binary, for a test to add to. The
+    /// panel logs its own `info` lines too: where it is placed when it
+    /// moves.
+    pub(crate) fn command() -> Command {
+        let mut command = Command::new(panel_binary());
         command.env("RUST_LOG", "warn,deskrinch_panel=info");
+        command
+    }
+
+    /// [`start`](Self::start), with `command` (from
+    /// [`command`](Self::command)).
+    pub(crate) fn start_with(command: Command) -> Self {
+        let renderer = Renderer::of_run();
         let component = Component::start(command, renderer).unwrap();
         if let Err(why) = component.wait_presented_with(renderer) {
             panic!("the panel: {why}");
         }
         Self { component }
+    }
+
+    /// The panel's last lines of output, for a failure to show.
+    pub(crate) fn log(&self) -> String {
+        self.component.watch().tail()
+    }
+
+    /// What the panel has written, as its watch keeps it.
+    pub(crate) fn watch(&self) -> &Watch {
+        self.component.watch()
     }
 
     /// Waits until the panel has said it is placed along `edge`, `height`
@@ -119,7 +145,7 @@ impl Panel {
         assert!(
             reported,
             "the panel did not report {says}; its last lines:\n{}",
-            self.component.watch().tail()
+            self.log()
         );
     }
 }

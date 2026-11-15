@@ -14,7 +14,8 @@
 //! - `[PERF] window <id> closed`: a window closed, the main one included
 //!   (whose id is in no other line).
 //!
-//! [`parse`] reads one line. The frame summary after the colon is not read.
+//! [`parse`] reads one line. [`counter`] reads one counter from the summary
+//! after a frame line's colon, which is otherwise not read.
 
 /// Which window a line is about.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -92,6 +93,43 @@ pub fn parse(line: &str) -> Option<PerfLine> {
         return Some(PerfLine::Closed { id });
     }
     opened(id, rest.strip_prefix("opened: ")?).map(PerfLine::Opened)
+}
+
+/// The counter `name` in the summary of the presented or prepared frame
+/// line `line` (`… | name=value …`), if it is an integer counter there.
+///
+/// The counters are rinch's (rinch-dom's `perf.rs`, `Counter`), named as it
+/// writes them. A frame line leaves out a counter that is 0 that frame, and
+/// a counter rinch renames is simply not there: either way this is `None`,
+/// which a caller reports as the counter not found, never as a value.
+/// Time counters (`time_…`, written in milliseconds) are not integers, and
+/// are `None` too.
+#[must_use]
+pub fn counter(line: &str, name: &str) -> Option<u64> {
+    let line = crate::log::strip_ansi(line);
+    if !matches!(
+        parse(&line)?,
+        PerfLine::Frame { .. } | PerfLine::Prepared { .. }
+    ) {
+        return None;
+    }
+    let (_, summary) = line.split_once(": ")?;
+    summary
+        .split_whitespace()
+        .find_map(|word| word.strip_prefix(name)?.strip_prefix('='))?
+        .parse()
+        .ok()
+}
+
+/// The first presented frame line of `window` among `lines` (a program's
+/// output, as [`Watch::lines`](crate::Watch::lines) keeps it), if there is
+/// one.
+#[must_use]
+pub fn first_frame(lines: &[String], window: PerfWindow) -> Option<&str> {
+    lines
+        .iter()
+        .map(String::as_str)
+        .find(|line| parse(line) == Some(PerfLine::Frame { window, n: 1 }))
 }
 
 /// `N` of `<kind>N: …`.
@@ -257,6 +295,73 @@ mod tests {
         };
         assert_eq!(opened.title, "a\tb\nc \u{1b} é");
         assert_eq!(opened.app_id.as_deref(), Some("x y"));
+    }
+
+    /// The panel's first frame on a scale-2 output, as rinch wrote it in a
+    /// run (rinch ac657148a): its buffer is 640 by 40 logical pixels at
+    /// scale 2.
+    const FIRST_FRAME: &str = "[PERF] frame 1: style 35.66ms layout 157.91ms \
+        paint 18.60ms present 4.32ms | \
+        style_resolves=7 elements_cascaded=7 style_nodes_visited=7 \
+        pseudo_element_passes=14 full_restyles=1 full_restyle_dpr=1 full_style_walks=1 \
+        taffy_style_syncs=7 taffy_style_changes=6 shape_measure_ifc=5 shape_ifc_build=2 \
+        ifc_measure_cache_hits=7 ifc_measure_invalidations=9 ifc_signature_changes=2 \
+        layout_resolves=3 layout_skipped_paint_only=1 ifc_setup_passes=2 \
+        ifc_full_passes=1 ifc_full_initial=1 ifc_scoped_passes=1 ifc_scope_containers=1 \
+        ifc_scope_nodes=2 taffy_root_computes=2 taffy_measure_calls=17 paint_frames=1 \
+        repaint_full=1 repaint_full_first_frame=1 repainted_px=102400 surface_px=102400 \
+        paint_nodes_visited=6 stacking_order_builds=1 glyph_atlas_misses=7 effect_runs=8 \
+        signal_notifies=8 rerender_events_queued=2 time_ifc_setup_ns=6.54ms \
+        time_taffy_compute_ns=146.33ms time_build_ifc_ns=4.55ms";
+
+    #[test]
+    fn a_counter_is_read_from_a_frame_line() {
+        assert_eq!(counter(FIRST_FRAME, "surface_px"), Some(640 * 40 * 4));
+        assert_eq!(counter(FIRST_FRAME, "paint_frames"), Some(1));
+        // A name that is another's prefix finds only its own.
+        assert_eq!(counter(FIRST_FRAME, "surface"), None);
+        // Not there: a counter that was 0, or one renamed.
+        assert_eq!(counter(FIRST_FRAME, "no_such_counter"), None);
+        // In milliseconds, not an integer.
+        assert_eq!(counter(FIRST_FRAME, "time_ifc_setup_ns"), None);
+        let window = FIRST_FRAME.replacen("[PERF] frame", "[PERF] window 3 frame", 1);
+        assert_eq!(counter(&window, "surface_px"), Some(640 * 40 * 4));
+        let prepared = FIRST_FRAME.replacen("frame 1", "prepared 1", 1);
+        assert_eq!(counter(&prepared, "surface_px"), Some(640 * 40 * 4));
+    }
+
+    #[test]
+    fn the_first_frame_of_a_window_is_found_among_its_lines() {
+        let lines: Vec<String> = [
+            "starting",
+            r#"[PERF] window 3 opened: title="Wallpaper" output_id=52"#,
+            "[PERF] window 3 frame 1: style 1.00ms | surface_px=7",
+            "[PERF] frame 2: style 1.00ms | surface_px=9",
+            "[PERF] frame 1: style 1.00ms | surface_px=8",
+        ]
+        .map(str::to_owned)
+        .to_vec();
+        assert_eq!(
+            first_frame(&lines, PerfWindow::Main),
+            Some("[PERF] frame 1: style 1.00ms | surface_px=8")
+        );
+        assert_eq!(
+            first_frame(&lines, PerfWindow::Id(3)).and_then(|line| counter(line, "surface_px")),
+            Some(7)
+        );
+        assert_eq!(first_frame(&lines, PerfWindow::Id(4)), None);
+    }
+
+    #[test]
+    fn a_line_other_than_a_frame_has_no_counters() {
+        assert_eq!(
+            counter(
+                r#"[PERF] window 3 opened: title="surface_px=1""#,
+                "surface_px"
+            ),
+            None
+        );
+        assert_eq!(counter("surface_px=1", "surface_px"), None);
     }
 
     #[test]

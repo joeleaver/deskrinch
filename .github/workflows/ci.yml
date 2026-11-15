@@ -204,6 +204,18 @@ jobs:
           cargo build -p deskrinch-panel --locked
           cargo xtask measure --compositor sway --runs 1 --settle 1 --idle 5 \
             --renderer software --expect-renderer software target/debug/deskrinch-panel
+      # Under KWin the panel binds window management, which KWin grants only
+      # to an executable a desktop file names: under Callgrind that is
+      # Valgrind's tool, which measure grants as the shell grants the panel.
+      # measure fails a run whose program logs an error, so if the grant ever
+      # stops working, this run says so.
+      - name: Measure the panel under KWin, under Callgrind
+        if: matrix.compositor == 'kwin'
+        run: |
+          cargo build -p deskrinch-panel --locked
+          cargo xtask measure --compositor kwin --runs 1 --settle 2 --idle 2 \
+            --instructions --renderer software --expect-renderer software \
+            target/debug/deskrinch-panel
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
         # It runs after a failure in the compositor tests too, which must not
         # hide what it would show; and each binary runs whatever fails before
