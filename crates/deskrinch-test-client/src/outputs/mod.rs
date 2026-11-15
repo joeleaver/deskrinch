@@ -37,6 +37,9 @@ pub struct OutputChange {
     pub scale: Option<f64>,
     /// The transform.
     pub transform: Option<Transform>,
+    /// The position of its top-left corner in the layout, in logical
+    /// pixels: another output's puts the two at one position.
+    pub position: Option<(i32, i32)>,
 }
 
 /// A connection to the manager, its heads described.

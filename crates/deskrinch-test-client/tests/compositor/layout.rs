@@ -50,8 +50,8 @@ fn each_output_turned_and_put_back_leaves_the_layout_as_it_was() {
     let before = fresh();
     for output in &before {
         let quarter = OutputChange {
-            scale: None,
             transform: Some(Transform::Rotated90),
+            ..OutputChange::default()
         };
         let restore = change_output(&output.name, quarter).unwrap();
         let turned = outputs().unwrap();
@@ -76,7 +76,7 @@ fn each_output_scaled_and_put_back_leaves_the_layout_as_it_was() {
         };
         let scaled = OutputChange {
             scale: Some(other),
-            transform: None,
+            ..OutputChange::default()
         };
         let restore = change_output(&output.name, scaled).unwrap();
         let now = outputs().unwrap();
@@ -85,6 +85,26 @@ fn each_output_scaled_and_put_back_leaves_the_layout_as_it_was() {
         restore.restore().unwrap();
         assert_as(&before, &format!("{} scaled and back", output.name));
     }
+}
+
+#[test]
+#[ignore = "needs a compositor: cargo xtask compositor-tests"]
+fn an_output_moved_onto_the_other_and_put_back_leaves_the_layout_as_it_was() {
+    let before = fresh();
+    let (first, second) = (&before[0], &before[1]);
+    let onto = OutputChange {
+        position: Some(first.position),
+        ..OutputChange::default()
+    };
+    let restore = change_output(&second.name, onto).unwrap();
+    let together = outputs().unwrap();
+    let this = together.iter().find(|o| o.name == second.name).unwrap();
+    assert_eq!(this.position, first.position, "{together:?}");
+    restore.restore().unwrap();
+    assert_as(
+        &before,
+        &format!("{} moved onto {} and back", second.name, first.name),
+    );
 }
 
 #[test]

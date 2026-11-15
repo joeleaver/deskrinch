@@ -34,7 +34,10 @@ pub fn kscreen_settings(name: &str, change: OutputChange) -> Vec<String> {
     let rotation = change
         .transform
         .map(|transform| format!("output.{name}.rotation.{}", rotation(transform)));
-    scale.into_iter().chain(rotation).collect()
+    let position = change
+        .position
+        .map(|(x, y)| format!("output.{name}.position.{x},{y}"));
+    scale.into_iter().chain(rotation).chain(position).collect()
 }
 
 /// `transform`'s name for `kscreen-doctor`'s `rotation` (`KScreen` calls a
@@ -325,21 +328,23 @@ mod tests {
     }
 
     #[test]
-    fn settings_name_the_output_scale_and_rotation() {
+    fn settings_name_the_output_scale_rotation_and_position() {
         let change = OutputChange {
             scale: Some(1.5),
             transform: Some(Transform::Rotated90),
+            position: Some((0, 0)),
         };
         assert_eq!(
             kscreen_settings("Virtual-1", change),
             [
                 "output.Virtual-1.scale.1.5",
-                "output.Virtual-1.rotation.left"
+                "output.Virtual-1.rotation.left",
+                "output.Virtual-1.position.0,0"
             ]
         );
         let whole = OutputChange {
             scale: Some(2.0),
-            transform: None,
+            ..OutputChange::default()
         };
         assert_eq!(kscreen_settings("V", whole), ["output.V.scale.2"]);
         assert_eq!(
