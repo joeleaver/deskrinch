@@ -2,7 +2,6 @@
 //! own, which may have several windows.
 
 use std::collections::HashMap;
-use std::os::unix::net::UnixStream;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex};
@@ -99,11 +98,7 @@ impl TestClient {
     ///
     /// As [`connect`](Self::connect).
     pub fn connect_to(socket: &Path) -> Result<Self, Error> {
-        let stream = UnixStream::connect(socket).map_err(|source| Error::Socket {
-            path: socket.to_owned(),
-            source,
-        })?;
-        Self::with(Connection::from_socket(stream).map_err(Error::Connect)?)
+        Self::with(crate::connect::connect_at(socket)?)
     }
 
     fn with(connection: Connection) -> Result<Self, Error> {

@@ -46,6 +46,7 @@
 
 mod client;
 mod compositor;
+mod connect;
 mod converge;
 mod keyboard;
 mod kscreen;
@@ -80,15 +81,10 @@ pub enum Error {
     /// There is no compositor to connect to.
     #[error("could not connect to the compositor")]
     Connect(#[source] wayland_client::ConnectError),
-    /// The compositor's socket could not be connected to.
-    #[error("could not connect to {}", path.display())]
-    Socket {
-        /// The socket.
-        path: std::path::PathBuf,
-        /// Why.
-        #[source]
-        source: std::io::Error,
-    },
+    /// The compositor's socket, named by its path, accepted no connection
+    /// (a refusal said as such), or could not be connected to.
+    #[error(transparent)]
+    Socket(#[from] deskrinch_test_wayland::Connecting),
     /// A global the client needs could not be bound.
     #[error("could not bind a global the client needs")]
     Bind(#[source] deskrinch_test_wayland::BindError),

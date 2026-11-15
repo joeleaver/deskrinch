@@ -32,7 +32,7 @@ fn id(name: &str) -> DesktopId {
 
 /// Writes a record in which each of `names` was started more often than
 /// the next.
-fn write_record(dir: &Path, names: &[&str]) {
+pub(crate) fn write_record(dir: &Path, names: &[&str]) {
     let store = Store::in_directory(state(dir));
     let now = now();
     for (n, name) in names.iter().enumerate() {

@@ -20,8 +20,8 @@
 //! The wallpaper never closes its own windows, and assumes the compositor
 //! closes a background layer surface only when its output goes. So it
 //! treats every close of a window as its output going: nothing to put
-//! right and no error, the row (and so the window) going when `outputs()`
-//! next changes, and an output that comes back being a new row. That
+//! right and no error, the row (and so the window) going when the output
+//! leaves `outputs()`, and an output that comes back being a new row. That
 //! covers an output that goes between rinch listing it and the window for
 //! it being made, too: rinch then makes no window (an id no output has is
 //! never the compositor's to place elsewhere), reports it closed and logs a
@@ -29,8 +29,9 @@
 //!
 //! What is not handled, as a limit: a compositor that closed the surface
 //! while keeping the output would leave that output without a wallpaper
-//! until the outputs next change. KWin, sway and labwc close it only with
-//! its output.
+//! until the output is turned off and on again, or disconnected and
+//! connected: a row is the output's id, which no other change of the output
+//! changes. KWin, sway and labwc close it only with its output.
 
 use rinch::{
     LayerAnchor, LayerAxes, LayerExclusiveZone, LayerKeyboard, LayerShellLayer, LayerSurface,
