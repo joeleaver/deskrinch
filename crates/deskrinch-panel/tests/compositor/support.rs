@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_component::{Component, Renderer};
+use deskrinch_test_component::{Component, Renderer, programs};
 use deskrinch_test_screen::{Image, Screen};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
@@ -21,8 +21,12 @@ use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 /// takes 200 ms, `effects/scale`). sway and labwc animate nothing.
 const STILL: Duration = Duration::from_millis(600);
 
-/// The panel binary Cargo built.
-const PANEL: &str = env!("CARGO_BIN_EXE_deskrinch-panel");
+/// The panel binary: this suite declares the panel as one of its programs,
+/// so that it is granted what the shell grants it, and runs it from the
+/// path it was granted at ([`deskrinch_test_component::programs`]).
+fn panel_binary() -> PathBuf {
+    programs::program(deskrinch_shell::PANEL.package).unwrap_or_else(|why| panic!("{why}"))
+}
 
 /// Panics unless the tests run in a nested session started by `cargo xtask
 /// compositor-tests` (`Compositor::current`): run anywhere else they would
@@ -83,7 +87,7 @@ impl Panel {
     /// panel logs its own `info` lines too: where it is placed when it
     /// moves.
     pub(crate) fn command() -> Command {
-        let mut command = Command::new(PANEL);
+        let mut command = Command::new(panel_binary());
         command.env("RUST_LOG", "warn,deskrinch_panel=info");
         command
     }
