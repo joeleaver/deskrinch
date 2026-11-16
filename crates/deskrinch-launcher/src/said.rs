@@ -6,30 +6,25 @@
 //!
 //! # What "the launcher has the keyboard" means
 //!
-//! The launcher's window has the compositor's keyboard
-//! (`rinch::window::window_focused`): written once per show, when it gains
-//! it. It does not say that its query field holds the keyboard inside the
-//! window, which is what a key typed needs.
+//! The launcher's query field holds the keyboard: the field is focused and
+//! its window has the compositor's keyboard, which is what a key typed
+//! needs. The line is written from the field's own `focus` event, which
+//! rinch fires at exactly that moment, once per show: the first time in a
+//! show that the field gains the keyboard.
 //!
-//! The show asks for the field's focus as it asks for the window, and rinch
-//! applies the request on a later turn of its event loop. Usually that is
-//! before the compositor gives the window the keyboard, which it can do
-//! only once the window is on the screen, but nothing guarantees the order.
-//! Under labwc, a launcher started shown (`--show`) is given the keyboard
-//! first, and its field is focused some 20 ms later. rinch can say which
-//! element holds the keyboard when asked (`NodeHandle::active_element`), but
-//! says nothing when that changes, so the launcher cannot write the line at
-//! the moment the field gains the keyboard. Until rinch says so, the line
-//! is the window's.
+//! The order is rinch's. The show asks for the field's focus as it asks
+//! for the window, and rinch applies that request before the window's next
+//! frame, and before it tells the window it has the keyboard; the field's
+//! `focus` event then comes with the keyboard. So a key typed after the
+//! line reaches the field, whichever comes first on the compositor's side.
 //!
 //! # The query at the hide
 //!
 //! At each hide the launcher says how many characters its query had, never
-//! the query. That is the proof that every key typed reached the field,
-//! whatever the order above.
+//! the query. That is the proof that every key typed reached the field.
 
-/// The line the launcher writes once per show when its window gains the
-/// keyboard.
+/// The line the launcher writes once per show when its query field gains
+/// the keyboard.
 pub const HAS_KEYBOARD: &str = "the launcher has the keyboard";
 
 /// The line the launcher writes at each hide, `{}` standing for how many

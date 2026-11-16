@@ -44,6 +44,7 @@ fn entries() -> Arc<Vec<Arc<CatalogEntry>>> {
 /// A slot for a signal made inside the mounted component.
 type Slot<T> = Rc<RefCell<Option<T>>>;
 
+/// What a slot was given at the mount.
 fn taken<T: Copy>(slot: &Slot<T>) -> T {
     slot.borrow().expect("made at the mount")
 }
@@ -82,6 +83,7 @@ fn mounted_view() -> (TestApp, Rc<RefCell<Calls>>, Signal<Model>) {
                 matches!(key, "ArrowUp" | "ArrowDown" | "Enter" | "Escape")
             },
             Rc::new(move |input| p.borrow_mut().pointer.push(input)),
+            || {},
         );
         content
     });
@@ -183,18 +185,41 @@ fn a_press_on_the_padding_round_the_results_is_off_them() {
 
 // ── The wiring, `act` recorded ──────────────────────────────────────────
 
-/// The wiring mounted, shown or hidden as `shown` says, what it hands `act`
-/// recorded.
-struct Wired {
-    app: TestApp,
-    acts: Rc<RefCell<Vec<Action>>>,
-    model: Signal<Model>,
-    visibility: Arc<Visibility>,
+/// The wiring mounted, what it hands `act` recorded.
+pub(super) struct Wired {
+    pub(super) app: TestApp,
+    pub(super) acts: Rc<RefCell<Vec<Action>>>,
+    pub(super) model: Signal<Model>,
+    pub(super) visibility: Arc<Visibility>,
 }
 
-fn wired(shown: bool) -> Wired {
+/// How the wiring is mounted.
+#[derive(Clone, Copy)]
+pub(super) struct Mount {
+    /// Whether the launcher is shown.
+    pub(super) shown: bool,
+    /// Whether its window was made shown, so the field is focused at the
+    /// mount. The launcher makes it so when it starts shown.
+    pub(super) made_shown: bool,
+    /// Whether another focusable element (`.other`, a text field) is
+    /// mounted before the launcher's content.
+    pub(super) other: bool,
+}
+
+/// The wiring mounted shown or hidden as `shown` says, as the launcher
+/// starts.
+pub(super) fn wired(shown: bool) -> Wired {
+    wired_as(Mount {
+        shown,
+        made_shown: shown,
+        other: false,
+    })
+}
+
+/// The wiring mounted as `mount` says.
+pub(super) fn wired_as(mount: Mount) -> Wired {
     let acts = Rc::new(RefCell::new(Vec::new()));
-    let visibility = Arc::new(Visibility::new(shown));
+    let visibility = Arc::new(Visibility::new(mount.shown));
     let model_slot: Slot<Signal<Model>> = Rc::default();
     let (a, v, slot) = (
         Rc::clone(&acts),
@@ -206,7 +231,7 @@ fn wired(shown: bool) -> Wired {
         *slot.borrow_mut() = Some(model);
         let all = entries();
         let shown = v.signal();
-        wire(
+        let content = wire(
             __scope,
             Wiring {
                 model,
@@ -214,10 +239,20 @@ fn wired(shown: bool) -> Wired {
                 index: Signal::new(None),
                 visibility: v,
                 shown,
-                made_shown: shown.get(),
+                made_shown: mount.made_shown,
                 act: Rc::new(move |action| a.borrow_mut().push(action)),
             },
-        )
+        );
+        if mount.other {
+            rsx! {
+                div {
+                    input { class: "other", r#type: "text" }
+                    {content}
+                }
+            }
+        } else {
+            content
+        }
     });
     let model = taken(&model_slot);
     Wired {
@@ -290,10 +325,11 @@ fn hiding_says_the_query_s_length_and_empties_it() {
 
 /// A `tracing` subscriber keeping each event's message.
 #[derive(Clone, Default)]
-struct Log(Arc<Mutex<Vec<String>>>);
+pub(super) struct Log(Arc<Mutex<Vec<String>>>);
 
 impl Log {
-    fn lines(&self) -> Vec<String> {
+    /// The messages so far.
+    pub(super) fn lines(&self) -> Vec<String> {
         self.0
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
