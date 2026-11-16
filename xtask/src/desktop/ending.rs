@@ -11,6 +11,7 @@ use std::process::ExitStatus;
 use std::time::{Duration, Instant};
 
 use super::DesktopError;
+use super::components::Components;
 use super::window::{Seen, Window};
 use crate::Outcome;
 use crate::error::Error;
@@ -64,8 +65,9 @@ fn is_failure(ended: &Result<Outcome, Error>) -> bool {
 }
 
 /// Runs until the window closes, the command exits or xtask is
-/// interrupted; says when a component exits meanwhile. `window` is the
-/// desktop's, followed ([`follow`]).
+/// interrupted; a component that ends meanwhile is decided by its restart
+/// policy, said, and started again if it says so ([`Components::look`]).
+/// `window` is the desktop's, followed ([`follow`]).
 ///
 /// An interrupt that came first is the outcome, whatever is noticed after
 /// it: the handler records it before it ends the session's group, so once
@@ -74,21 +76,14 @@ fn is_failure(ended: &Result<Outcome, Error>) -> bool {
 pub(super) fn run_until_ended(
     session: &mut Session,
     mut window: Window,
-    components: &[(&'static str, ClientId)],
+    components: &mut Components<'_>,
     program: Option<ClientId>,
 ) -> Result<Outcome, Error> {
-    let mut reported = vec![false; components.len()];
     loop {
         if let Some(status) = program.and_then(|id| session.client_status(id)) {
             return outcome(Ending::Command(status), interrupt::interrupted(), None);
         }
-        for ((package, id), reported) in components.iter().zip(&mut reported) {
-            if !*reported && let Some(status) = session.client_status(*id) {
-                interrupt::check()?;
-                eprintln!("desktop: {package} exited ({status}); the desktop runs on without it");
-                *reported = true;
-            }
-        }
+        components.look(session)?;
         match window.watch(POLL) {
             Seen::Open => interrupt::check()?,
             seen => {

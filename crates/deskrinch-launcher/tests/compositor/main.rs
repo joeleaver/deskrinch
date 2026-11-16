@@ -20,6 +20,8 @@
 #[cfg(test)]
 mod click;
 #[cfg(test)]
+mod devtools;
+#[cfg(test)]
 mod frequent;
 #[cfg(test)]
 mod prepared;

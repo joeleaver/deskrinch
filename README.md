@@ -429,12 +429,29 @@ cargo build --release -p deskrinch-launcher
 cargo xtask measure --renderer software --summon show --dismiss hide target/release/deskrinch-launcher
 ```
 
-Its end-to-end tests measure stand-in scripts in isolated sessions, and are
-ignored by `cargo test` like the session's (they do not cover
-`--instructions`, which needs Valgrind):
+With `--type TEXT` a query is typed after each show, one key at a time, each
+key measured from the key to settled and followed by a frame. The keys come
+from a typist measure runs in the session (`cargo xtask type`, hidden from the
+help). The program has to say two things in its log, and `--type` takes their
+words, with no default: `--keyboard-line`, the line it writes once it has the
+keyboard (the first key waits for it), and `--query-line`, the line it writes
+at the hide with `{}` where it gives how many characters it was typed (a
+length other than TEXT's fails the run, since a key was lost). The launcher
+writes both at info, so its log level has to let them through:
 
 ```sh
-DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure -- --ignored
+cargo xtask measure --summon show --dismiss hide --type term \
+  --keyboard-line "the launcher has the keyboard" \
+  --query-line "hidden with a query of {} characters" \
+  --env RUST_LOG=warn,deskrinch_launcher=info target/release/deskrinch-launcher
+```
+
+Its end-to-end tests measure stand-in scripts in isolated sessions, and are
+ignored by `cargo test` like the session's (`measure_callgrind` needs
+Valgrind; `measure_typing` types into a stand-in with the real typist):
+
+```sh
+DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_typing -- --ignored
 ```
 
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists

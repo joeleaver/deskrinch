@@ -1,10 +1,10 @@
-//! What KWin grants the shell's components, from `deskrinch-shell`'s list
-//! ([`Component::wayland_grants`]): KWin offers a restricted interface only
-//! to an executable whose installed desktop file grants it
-//! (`deskrinch-kwin-access`). Every xtask that starts a component under
-//! KWin (`desktop`, `measure`, and `compositor-tests` for a suite's
-//! programs) installs its grant through here; sway and labwc restrict
-//! nothing.
+//! What KWin grants: the shell's components what `deskrinch-shell`'s list
+//! says ([`Component::wayland_grants`]), and other programs xtask starts
+//! (test binaries, its own typist) what they use ([`client`]). KWin offers
+//! a restricted interface only to an executable whose installed desktop
+//! file grants it (`deskrinch-kwin-access`). Every xtask that starts such a
+//! program under KWin (`desktop`, `measure`, `compositor-tests`) installs
+//! its grant through here; sway and labwc restrict nothing.
 
 use std::path::Path;
 
@@ -56,14 +56,39 @@ pub(crate) fn entry(
     if component.wayland_grants.is_empty() {
         return Ok(None);
     }
-    let entry = DesktopEntry::new(
+    client(
         &format!("org.deskrinch.shell.{}", component.package),
         component.package,
         executable,
         component.wayland_grants,
         &[],
-    )?;
-    Ok(Some(entry))
+    )
+    .map(Some)
+}
+
+/// The desktop file granting `executable`, a program that is not one of
+/// the shell's components (a test binary, or xtask's own typist), the
+/// restricted Wayland interfaces `wayland` and D-Bus interfaces `dbus`,
+/// under the desktop id `id` and the name `name`.
+pub(crate) fn client(
+    id: &str,
+    name: &str,
+    executable: &Path,
+    wayland: &[&str],
+    dbus: &[&str],
+) -> Result<DesktopEntry, Error> {
+    Ok(DesktopEntry::new(id, name, executable, wayland, dbus)?)
+}
+
+/// Installs `entry` into the data directory `data_home`.
+pub(crate) fn install_entry(entry: &DesktopEntry, data_home: &Path) -> Result<(), Error> {
+    entry
+        .install(data_home)
+        .map(drop)
+        .map_err(|source| Error::Io {
+            what: format!("install {}", entry.file_name()),
+            source,
+        })
 }
 
 /// Installs [`entry`] into the data directory `data_home`; whether there
@@ -76,10 +101,7 @@ pub(crate) fn install(
     let Some(entry) = entry(component, executable)? else {
         return Ok(false);
     };
-    entry.install(data_home).map_err(|source| Error::Io {
-        what: format!("install {}", entry.file_name()),
-        source,
-    })?;
+    install_entry(&entry, data_home)?;
     Ok(true)
 }
 

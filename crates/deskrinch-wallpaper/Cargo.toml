@@ -12,6 +12,12 @@ publish.workspace = true
 name = "deskrinch-wallpaper"
 path = "src/main.rs"
 
+[features]
+# rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input),
+# and rinch's DevTools keys: `cargo run -p deskrinch-wallpaper --features
+# debug`. Off in a normal build.
+debug = ["rinch/debug", "deskrinch-component/debug"]
+
 [dependencies]
 deskrinch-appearance.workspace = true
 deskrinch-component.workspace = true
