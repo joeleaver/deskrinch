@@ -16,8 +16,9 @@
 //!    kind [`Until`] names (rinch's `RINCH_PERF` lines, which the caller
 //!    turns on), within the patience;
 //! 3. writes how many bytes the component had written to its standard
-//!    error to `DIR/acted`, then does what [`Then`] names: what came
-//!    before is what the component said before it was acted on;
+//!    error to `DIR/acted`, then does what [`Then`] names (ends the
+//!    compositor, or sends the component a signal that asks it to stop):
+//!    what came before is what the component said before it was acted on;
 //! 4. waits, within the patience, for the component to end, and writes its
 //!    status to `DIR/status` as a shell would give it: its exit code, or
 //!    128 and the signal's number when a signal ended it.
@@ -96,6 +97,13 @@ pub(crate) enum Then {
     /// End the session's compositor (`SIGTERM` to it): the component's
     /// display goes away.
     KillCompositor,
+    /// Send the component `SIGTERM`: asked to stop, as a session or a unit
+    /// stops it.
+    #[value(name = "signal:TERM")]
+    SignalTerm,
+    /// Send the component `SIGINT`: asked to stop, as Ctrl-C asks.
+    #[value(name = "signal:INT")]
+    SignalInt,
 }
 
 /// Why `cargo xtask in-session` could not do what it was asked.
@@ -133,8 +141,11 @@ pub(crate) enum InSessionError {
     /// The session gave no compositor process id.
     #[error("{COMPOSITOR_PID} is not a process id")]
     NoCompositor,
-    /// The compositor could not be signalled.
-    #[error("could not end the compositor")]
+    /// The component's process id does not fit a `pid_t`.
+    #[error("the component's process id is not a process id")]
+    NoPid,
+    /// The compositor or the component could not be signalled.
+    #[error("could not send the signal")]
     Kill(#[source] std::io::Error),
     /// The component did not end within the patience after the action.
     #[error("the component did not end within {PATIENCE:?} of {then:?}; it said:\n{said}")]
@@ -193,7 +204,7 @@ fn step(args: &Args) -> Result<(), InSessionError> {
             source,
         });
     }
-    if let Err(error) = act(args.then) {
+    if let Err(error) = act(args.then, &component) {
         end(&mut component);
         return Err(error);
     }
@@ -236,17 +247,29 @@ fn wait_frame(component: &mut Child, until: Until, log: &Path) -> Result<(), InS
     }
 }
 
-fn act(then: Then) -> Result<(), InSessionError> {
-    match then {
+/// Does `then` to `component` or its session.
+fn act(then: Then, component: &Child) -> Result<(), InSessionError> {
+    let (pid, signal) = match then {
         Then::KillCompositor => {
             let pid = std::env::var(COMPOSITOR_PID)
                 .ok()
                 .and_then(|pid| pid.parse().ok())
                 .and_then(Pid::from_raw)
                 .ok_or(InSessionError::NoCompositor)?;
-            kill_process(pid, Signal::TERM).map_err(|error| InSessionError::Kill(error.into()))
+            (pid, Signal::TERM)
         }
-    }
+        Then::SignalTerm => (child_pid(component)?, Signal::TERM),
+        Then::SignalInt => (child_pid(component)?, Signal::INT),
+    };
+    kill_process(pid, signal).map_err(|error| InSessionError::Kill(error.into()))
+}
+
+/// The component's process id.
+fn child_pid(component: &Child) -> Result<Pid, InSessionError> {
+    i32::try_from(component.id())
+        .ok()
+        .and_then(Pid::from_raw)
+        .ok_or(InSessionError::NoPid)
 }
 
 /// The component's status once it has ended, or `None` if it has not

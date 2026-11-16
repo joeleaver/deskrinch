@@ -18,6 +18,9 @@
 //!   [`into_signal`](LiveSettings::into_signal) hands it to the UI as a
 //!   [`rinch` signal](rinch::prelude::Signal) that every change reaches.
 //!
+//! - [`stop`]: ending in order when asked to (`SIGTERM`, `SIGINT`,
+//!   `SIGHUP`), which [`app::run`] installs.
+//!
 //! - [`Handover`]: values from another thread of the component to the UI,
 //!   held until the UI's signal exists; what [`LiveSettings`] hands a table
 //!   over with, and any other source (a D-Bus client) can use.
@@ -47,6 +50,7 @@ mod configuration_tests;
 mod handover;
 mod live;
 pub mod report;
+pub mod stop;
 
 pub use configuration::Configuration;
 pub use handover::Handover;

@@ -48,6 +48,9 @@ pub(crate) enum Until {
 }
 
 impl Until {
+    /// Every wait.
+    const ALL: [Self; 2] = [Self::Presented, Self::Prepared];
+
     /// The argument it stands for.
     fn argument(self) -> &'static str {
         match self {
@@ -62,13 +65,49 @@ impl Until {
 pub(crate) enum Then {
     /// End the session's compositor: the component's display goes away.
     KillCompositor,
+    /// Send the component `SIGTERM`.
+    SignalTerm,
+    /// Send the component `SIGINT`.
+    SignalInt,
 }
 
 impl Then {
+    /// Every action.
+    const ALL: [Self; 3] = [Self::KillCompositor, Self::SignalTerm, Self::SignalInt];
+
     /// The argument it stands for.
     fn argument(self) -> &'static str {
         match self {
             Self::KillCompositor => "kill-compositor",
+            Self::SignalTerm => "signal:TERM",
+            Self::SignalInt => "signal:INT",
+        }
+    }
+}
+
+/// Every wait and action here is one `cargo xtask in-session` takes: run
+/// outside a session with each, it refuses, which it does only after its
+/// arguments have parsed (an argument it does not know is clap's error,
+/// not the refusal). Plain `cargo test` runs it, anywhere.
+#[test]
+fn every_wait_and_action_is_one_the_subcommand_takes() {
+    let dir = tempfile::tempdir().unwrap();
+    for until in Until::ALL {
+        for then in Then::ALL {
+            let ran = Command::new(env!("CARGO_BIN_EXE_xtask"))
+                .args(["in-session", "--dir"])
+                .arg(dir.path())
+                .args(["--until", until.argument(), "--then", then.argument()])
+                .arg("/bin/true")
+                .env_remove("DESKRINCH_TEST_COMPOSITOR")
+                .stdin(Stdio::null())
+                .output()
+                .unwrap();
+            let said = String::from_utf8_lossy(&ran.stderr);
+            assert!(
+                said.contains("runs only inside cargo xtask session"),
+                "{until:?} and {then:?} were not taken; it said:\n{said}"
+            );
         }
     }
 }
@@ -78,7 +117,17 @@ impl Then {
 /// shell grants it (`cargo xtask session --grant`), as on the desktop;
 /// once it has drawn its first `until` frame, `then` is done. How the
 /// component ended.
-pub(crate) fn run(package: &str, args: &[&str], until: Until, then: Then) -> Ended {
+///
+/// `filter` is the component's `RUST_LOG` when given; without it, the
+/// caller's `RUST_LOG` passes through, and a component shows `warn` and
+/// worse when there is none.
+pub(crate) fn run(
+    package: &str,
+    args: &[&str],
+    until: Until,
+    then: Then,
+    filter: Option<&str>,
+) -> Ended {
     let dir = tempfile::tempdir().unwrap();
     let component = program(package).unwrap();
     let session_stderr = dir.path().join("session-stderr");
@@ -97,6 +146,9 @@ pub(crate) fn run(package: &str, args: &[&str], until: Until, then: Then) -> End
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(fs::File::create(&session_stderr).unwrap());
+    if let Some(filter) = filter {
+        command.env("RUST_LOG", filter);
+    }
     let mut session = deskrinch_test_lifetime::spawn(command).unwrap();
     let ended = wait_ended(&mut session);
     let said = fs::read_to_string(dir.path().join("stderr")).unwrap_or_default();
