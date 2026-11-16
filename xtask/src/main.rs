@@ -13,6 +13,7 @@ mod error;
 mod file_length;
 mod git;
 mod grant;
+mod in_session;
 mod input;
 mod measure;
 mod run_in_session;
@@ -173,6 +174,12 @@ enum Task {
     /// Refuses outside a nested session. Not for running by hand.
     #[command(name = "input", hide = true)]
     Input,
+    /// The session's side of a test that runs a component in a nested
+    /// session: starts it, waits for its first frame, acts on it (ends the
+    /// compositor), and writes how it ended. Refuses outside a nested
+    /// session. Not for running by hand.
+    #[command(name = "in-session", hide = true)]
+    InSession(in_session::Args),
 }
 
 impl Task {
@@ -188,6 +195,7 @@ impl Task {
             Self::Desktop(args) => desktop::run(root, &args),
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
             Self::Input => input::run(),
+            Self::InSession(args) => in_session::run(&args),
             Self::Measure(args) => measure::run(&args.request()),
             Self::Session {
                 outputs,

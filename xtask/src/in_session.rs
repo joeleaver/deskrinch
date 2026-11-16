@@ -1,0 +1,281 @@
+//! `cargo xtask in-session`: the session's side of a test that runs a shell
+//! component in a nested session, does something to it once it has come
+//! far enough, and reads how it ended. The tests run it as the command of
+//! `cargo xtask session` (`xtask/tests/in_session/`).
+//!
+//! It is hidden from `--help` because it is the tests': it is not for
+//! running by hand. Outside a nested session it refuses, before it starts
+//! anything: there it would end the real desktop's compositor.
+//!
+//! What it does, in order:
+//!
+//! 1. starts the component (the command after its options) with its
+//!    standard error in `DIR/stderr`, its standard output discarded and
+//!    the session's environment;
+//! 2. waits, reading that file, for the component's first frame of the
+//!    kind [`Until`] names (rinch's `RINCH_PERF` lines, which the caller
+//!    turns on), within the patience;
+//! 3. does what [`Then`] names;
+//! 4. waits, within the patience, for the component to end, and writes its
+//!    status to `DIR/status` as a shell would give it: its exit code, or
+//!    128 and the signal's number when a signal ended it.
+//!
+//! A component that ends before that frame, never draws it, or does not
+//! end afterwards is an error, said on standard error (the component is
+//! killed first), and `DIR/status` is not written.
+
+use std::fs::{self, File};
+use std::os::unix::process::ExitStatusExt;
+use std::path::{Path, PathBuf};
+use std::process::{Child, Command, ExitStatus, Stdio};
+
+use clap::ValueEnum;
+use deskrinch_test_client::Compositor;
+use deskrinch_test_component::perf::{PerfLine, parse};
+use deskrinch_test_wait::{Deadline, PATIENCE, POLL};
+use rustix::process::{Pid, Signal, kill_process};
+
+use crate::Outcome;
+
+/// The variable `cargo xtask session` names its compositor's process id in.
+const COMPOSITOR_PID: &str = "DESKRINCH_SESSION_COMPOSITOR_PID";
+
+/// `cargo xtask in-session`'s arguments.
+#[derive(Debug, clap::Args)]
+pub(crate) struct Args {
+    /// The directory the component's standard error and its status are
+    /// written in.
+    #[arg(long, value_name = "DIR")]
+    dir: PathBuf,
+    /// The frame to wait for before acting.
+    #[arg(long, value_enum)]
+    until: Until,
+    /// What to do then.
+    #[arg(long, value_enum)]
+    then: Then,
+    /// The component.
+    component: PathBuf,
+    /// Its arguments.
+    #[arg(
+        value_name = "ARGS",
+        trailing_var_arg = true,
+        allow_hyphen_values = true
+    )]
+    arguments: Vec<String>,
+}
+
+/// What to wait for before acting: the component's first frame of this
+/// kind, of any of its windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum Until {
+    /// A presented frame: a component with a window shown.
+    Presented,
+    /// A prepared frame: a component that starts hidden.
+    Prepared,
+}
+
+impl Until {
+    /// Whether `log` has such a frame line.
+    fn in_log(self, log: &str) -> bool {
+        log.lines().any(|line| {
+            matches!(
+                (self, parse(line)),
+                (Self::Presented, Some(PerfLine::Frame { .. }))
+                    | (Self::Prepared, Some(PerfLine::Prepared { .. }))
+            )
+        })
+    }
+}
+
+/// What to do once the component has come that far.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub(crate) enum Then {
+    /// End the session's compositor (`SIGTERM` to it): the component's
+    /// display goes away.
+    KillCompositor,
+}
+
+/// Why `cargo xtask in-session` could not do what it was asked.
+#[derive(Debug, thiserror::Error)]
+pub(crate) enum InSessionError {
+    /// It was run outside a nested session.
+    #[error("cargo xtask in-session runs only inside cargo xtask session")]
+    NotNested,
+    /// The component could not be started.
+    #[error("could not start {}", component.display())]
+    Start {
+        /// The component.
+        component: PathBuf,
+        /// Why.
+        source: std::io::Error,
+    },
+    /// The component ended before the frame waited for.
+    #[error("the component ended ({status}) before its first {until:?} frame; it said:\n{said}")]
+    EndedEarly {
+        /// The frame waited for.
+        until: Until,
+        /// How it ended.
+        status: ExitStatus,
+        /// Its standard error.
+        said: String,
+    },
+    /// The frame did not come within the patience.
+    #[error("no {until:?} frame within {PATIENCE:?}; the component said:\n{said}")]
+    NoFrame {
+        /// The frame waited for.
+        until: Until,
+        /// Its standard error.
+        said: String,
+    },
+    /// The session gave no compositor process id.
+    #[error("{COMPOSITOR_PID} is not a process id")]
+    NoCompositor,
+    /// The compositor could not be signalled.
+    #[error("could not end the compositor")]
+    Kill(#[source] std::io::Error),
+    /// The component did not end within the patience after the action.
+    #[error("the component did not end within {PATIENCE:?} of {then:?}; it said:\n{said}")]
+    NotEnded {
+        /// What was done.
+        then: Then,
+        /// Its standard error.
+        said: String,
+    },
+    /// The component's status had neither an exit code nor a signal.
+    #[error("the component ended with a status that is neither an exit code nor a signal: {0}")]
+    NoStatus(ExitStatus),
+    /// A file in the directory could not be written or read, or the
+    /// component could not be waited for.
+    #[error("could not {what}")]
+    Io {
+        /// What was being done.
+        what: &'static str,
+        /// Why.
+        source: std::io::Error,
+    },
+}
+
+/// Runs the component as `args` say (see the module's doc).
+pub(crate) fn run(args: &Args) -> Result<Outcome, crate::error::Error> {
+    if Compositor::nested().is_none() {
+        return Err(InSessionError::NotNested.into());
+    }
+    Ok(step(args).map(|()| Outcome::Passed)?)
+}
+
+fn step(args: &Args) -> Result<(), InSessionError> {
+    let stderr_path = args.dir.join("stderr");
+    let stderr = File::create(&stderr_path).map_err(io("make the component's stderr file"))?;
+    let mut component = Command::new(&args.component)
+        .args(&args.arguments)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(stderr)
+        .spawn()
+        .map_err(|source| InSessionError::Start {
+            component: args.component.clone(),
+            source,
+        })?;
+    if let Err(error) = wait_frame(&mut component, args.until, &stderr_path) {
+        end(&mut component);
+        return Err(error);
+    }
+    act(args.then)?;
+    let Some(status) = wait_end(&mut component)? else {
+        end(&mut component);
+        return Err(InSessionError::NotEnded {
+            then: args.then,
+            said: said(&stderr_path),
+        });
+    };
+    let status = shell_status(status).ok_or(InSessionError::NoStatus(status))?;
+    fs::write(args.dir.join("status"), format!("{status}\n"))
+        .map_err(io("write the component's status"))
+}
+
+/// Waits for the component's first `until` frame in its log at `log`.
+fn wait_frame(component: &mut Child, until: Until, log: &Path) -> Result<(), InSessionError> {
+    let deadline = Deadline::patience();
+    loop {
+        if until.in_log(&said(log)) {
+            return Ok(());
+        }
+        if let Some(status) = component
+            .try_wait()
+            .map_err(io("look whether the component ended"))?
+        {
+            return Err(InSessionError::EndedEarly {
+                until,
+                status,
+                said: said(log),
+            });
+        }
+        if deadline.passed() {
+            return Err(InSessionError::NoFrame {
+                until,
+                said: said(log),
+            });
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+fn act(then: Then) -> Result<(), InSessionError> {
+    match then {
+        Then::KillCompositor => {
+            let pid = std::env::var(COMPOSITOR_PID)
+                .ok()
+                .and_then(|pid| pid.parse().ok())
+                .and_then(Pid::from_raw)
+                .ok_or(InSessionError::NoCompositor)?;
+            kill_process(pid, Signal::TERM).map_err(|error| InSessionError::Kill(error.into()))
+        }
+    }
+}
+
+/// The component's status once it has ended, or `None` if it has not
+/// within the patience.
+fn wait_end(component: &mut Child) -> Result<Option<ExitStatus>, InSessionError> {
+    let deadline = Deadline::patience();
+    loop {
+        if let Some(status) = component
+            .try_wait()
+            .map_err(io("look whether the component ended"))?
+        {
+            return Ok(Some(status));
+        }
+        if deadline.passed() {
+            return Ok(None);
+        }
+        std::thread::sleep(POLL);
+    }
+}
+
+/// Kills and reaps the component, after a failure.
+fn end(component: &mut Child) {
+    // It may have ended by itself meanwhile.
+    drop(component.kill());
+    drop(component.wait());
+}
+
+/// What the component wrote to its standard error so far.
+fn said(log: &Path) -> String {
+    fs::read_to_string(log).unwrap_or_default()
+}
+
+/// `status` as a shell gives it in `$?`: the exit code, or 128 and the
+/// number of the signal that ended the process. `None` for a status with
+/// neither, which a process waited for does not have (a stopped one is not
+/// reported by `wait` without `WUNTRACED`).
+fn shell_status(status: ExitStatus) -> Option<i32> {
+    status
+        .code()
+        .or_else(|| status.signal().map(|signal| 128 + signal))
+}
+
+fn io(what: &'static str) -> impl FnOnce(std::io::Error) -> InSessionError {
+    move |source| InSessionError::Io { what, source }
+}
+
+#[cfg(test)]
+mod tests;
