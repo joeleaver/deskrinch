@@ -76,6 +76,23 @@ fn large() -> Vec<Case> {
             fixtures::LOSSY_ALPHA_NOISE_WEBP.to_vec(),
         ),
         case(
+            "jpeg 1024 progressive 4:4:4",
+            fixtures::GRADIENT_PROGRESSIVE_444_JPEG.to_vec(),
+        ),
+        case(
+            "jpeg 1024 progressive 4:2:0",
+            fixtures::GRADIENT_PROGRESSIVE_420_JPEG.to_vec(),
+        ),
+        case(
+            "jpeg 1024 baseline",
+            fixtures::GRADIENT_BASELINE_JPEG.to_vec(),
+        ),
+        case("webp 2048 lossy", fixtures::GRADIENT_LOSSY_WEBP.to_vec()),
+        case(
+            "webp 1024 lossy alpha",
+            fixtures::GRADIENT_LOSSY_ALPHA_WEBP.to_vec(),
+        ),
+        case(
             "large webp animated",
             webp::animated(side, side, &[(0, 0, side, side, rgba.clone())]),
         ),
@@ -234,6 +251,88 @@ fn small_gif_webp() -> Vec<Case> {
             ),
         ),
     ]
+}
+
+/// Pictures that are mostly metadata: what each decoder keeps of it must be
+/// counted, or refused, as the pixels are.
+#[must_use]
+pub fn metadata() -> &'static [Case] {
+    static METADATA: LazyLock<Vec<Case>> = LazyLock::new(|| {
+        const BIG: usize = 4 << 20;
+        const SEGMENT: usize = 65_000;
+        let junk = noise(BIG);
+        let small = [9_u8; 16 * 16 * 4];
+        let mut xmp = b"http://ns.adobe.com/xap/1.0/\0".to_vec();
+        xmp.extend_from_slice(&junk[..SEGMENT - xmp.len()]);
+        let mut exif = b"Exif\0\0".to_vec();
+        exif.extend_from_slice(&junk[..SEGMENT - exif.len()]);
+        let png = png::encode(16, 16, ColorType::Rgba, BitDepth::Eight, &small);
+        let mut splt = b"palette\0\x08".to_vec();
+        splt.extend_from_slice(&junk[..BIG / 6 * 6]);
+        let gif = gif::encode(
+            16,
+            16,
+            &[gif::Placed {
+                left: 0,
+                top: 0,
+                width: 16,
+                height: 16,
+                rgba: small.to_vec(),
+            }],
+        );
+        vec![
+            case(
+                "jpeg with 4 MB of profile segments",
+                jpeg::with_profile(fixtures::BASELINE_JPEG, &junk),
+            ),
+            case(
+                "jpeg with 4 MB of APP1 and comment segments",
+                jpeg::with_segments(
+                    &jpeg::with_segments(fixtures::BASELINE_JPEG, 0xe1, &xmp, BIG / SEGMENT / 2),
+                    0xfe,
+                    &junk[..SEGMENT],
+                    BIG / SEGMENT / 2,
+                ),
+            ),
+            case(
+                "jpeg with 4 MB of EXIF segments",
+                jpeg::with_segments(fixtures::BASELINE_JPEG, 0xe1, &exif, BIG / SEGMENT),
+            ),
+            case(
+                "webp with a 4 MB profile chunk",
+                webp::extended(16, 16, &small, &junk, &[], &[]),
+            ),
+            case(
+                "webp with 4 MB exif and xmp chunks",
+                webp::extended(16, 16, &small, &[], &junk[..BIG / 2], &junk[BIG / 2..]),
+            ),
+            case(
+                "gif with a 4 MB comment",
+                gif::with_extension(&gif, 0xfe, None, &junk),
+            ),
+            case(
+                "gif with a 4 MB application extension",
+                gif::with_extension(&gif, 0xff, Some(b"XMP DataXMP"), &junk),
+            ),
+            case(
+                "png with a 4 MB eXIf chunk",
+                png::with_chunk(&png, *b"eXIf", &junk),
+            ),
+            case(
+                "png with a 4 MB eXIf chunk after the image data",
+                png::with_chunk_at_end(&png, *b"eXIf", &junk),
+            ),
+            case(
+                "png with a 4 MB sPLT chunk",
+                png::with_chunk(&png, *b"sPLT", &splt),
+            ),
+            case(
+                "png with a 4 MB unknown chunk",
+                png::with_chunk(&png, *b"drAg", &junk),
+            ),
+        ]
+    });
+    &METADATA
 }
 
 /// What a stranger might send instead of a picture.

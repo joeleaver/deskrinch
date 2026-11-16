@@ -61,10 +61,10 @@ deskrinch-workspaces = { path = "crates/deskrinch-workspaces" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
 futures-core = "0.3.34"
+futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
 # The versions `image` already locks: deskrinch-picture uses the decoders
 # directly, each with limits of its own, so there is one copy of each.
 gif = "0.14.2"
-futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
 # The version the tree already locks; its keyed default hasher (foldhash),
 # for tables whose keys live outside them (`HashTable`).
 hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }

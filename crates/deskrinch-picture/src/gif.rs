@@ -4,6 +4,11 @@
 //! decoded. A GIF's colour profile (an application extension few write) is
 //! not read.
 //!
+//! The decoder collects the data of the application extensions before the
+//! first frame (XMP and ICC today); the walk over the blocks
+//! ([`walk::gif`]) says how much there is of every application extension,
+//! and it is charged.
+//!
 //! The result is the logical screen's size; a screen of 0 × 0, which some
 //! writers leave, takes the first frame's size. A frame reaching past the
 //! screen is clipped to it.
@@ -17,10 +22,16 @@ use image::metadata::Orientation;
 use crate::decode::{Embedded, Raw};
 use crate::error::DecodeError;
 use crate::limits::{Format, Limits};
+use crate::walk;
 
 /// What the decoder allocates besides the frame's buffers: its LZW tables,
 /// a palette, the read buffer.
 const FIXED_BYTES: usize = 128 * 1024;
+
+/// What collecting application-extension data costs, as a multiple of the
+/// data: a vector grown by doubling holds up to twice it, and the copy at
+/// each growth holds the old beside the new.
+const GROWTH: usize = 3;
 
 /// Decodes the first frame of the GIF `bytes` under `limits`.
 pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> {
@@ -34,6 +45,12 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
     options.set_memory_limit(MemoryLimit::Bytes(
         NonZeroU64::new(per_frame).unwrap_or(NonZeroU64::MIN),
     ));
+    // The extensions before the first frame are read with its information,
+    // and the decoder keeps what it collects of application extensions
+    // (growing a vector: up to three times the data while it grows), so
+    // that is charged before they are read, and held through the decode.
+    let metadata = walk::gif(bytes).saturating_mul(GROWTH);
+    limits.working(metadata.checked_add(FIXED_BYTES))?;
     let mut decoder = options.read_info(Cursor::new(bytes)).map_err(malformed)?;
     let screen = (u32::from(decoder.width()), u32::from(decoder.height()));
     let frame = decoder
@@ -63,6 +80,7 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         result_bytes
             .checked_add(frame_bytes)
             .and_then(|n| n.checked_add(indices))
+            .and_then(|n| n.checked_add(metadata))
             .and_then(|n| n.checked_add(FIXED_BYTES)),
     )?;
 

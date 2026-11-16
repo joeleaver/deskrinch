@@ -18,10 +18,17 @@ pub fn with_segment(jpeg: &[u8], marker: u8, payload: &[u8]) -> Vec<u8> {
 /// (1 to 8, or anything else for an invalid one).
 #[must_use]
 pub fn with_orientation(jpeg: &[u8], value: u16) -> Vec<u8> {
-    let mut exif = b"Exif\0\0".to_vec();
+    let exif = [b"Exif\0\0".as_slice(), &exif_orientation(value)].concat();
+    with_segment(jpeg, 0xe1, &exif)
+}
+
+/// EXIF data (a TIFF structure, as PNG's `eXIf` and WebP's `EXIF` chunks
+/// hold it) whose only tag is the orientation `value`.
+#[must_use]
+pub fn exif_orientation(value: u16) -> Vec<u8> {
     // A little-endian TIFF header, its first IFD at 8, one entry: tag
     // 0x0112 (Orientation), type 3 (SHORT), count 1, the value; no next IFD.
-    exif.extend(b"II*\0");
+    let mut exif = b"II*\0".to_vec();
     exif.extend(8_u32.to_le_bytes());
     exif.extend(1_u16.to_le_bytes());
     exif.extend(0x0112_u16.to_le_bytes());
@@ -30,7 +37,7 @@ pub fn with_orientation(jpeg: &[u8], value: u16) -> Vec<u8> {
     exif.extend(value.to_le_bytes());
     exif.extend([0, 0]);
     exif.extend(0_u32.to_le_bytes());
-    with_segment(jpeg, 0xe1, &exif)
+    exif
 }
 
 /// `jpeg` with the ICC profile `icc`, in as many APP2 segments as it takes
@@ -84,4 +91,30 @@ fn find(bytes: &[u8], from: usize, needle: &[u8]) -> Option<usize> {
         .windows(needle.len())
         .position(|w| w == needle)
         .map(|at| at + from)
+}
+
+/// `jpeg` with `count` segments `marker` of `payload` each, right after its
+/// start-of-image marker.
+#[must_use]
+pub fn with_segments(jpeg: &[u8], marker: u8, payload: &[u8], count: usize) -> Vec<u8> {
+    let mut out = jpeg[..2].to_vec();
+    for _ in 0..count {
+        out.extend([0xff, marker]);
+        out.extend(u16::try_from(payload.len() + 2).unwrap().to_be_bytes());
+        out.extend_from_slice(payload);
+    }
+    out.extend_from_slice(&jpeg[2..]);
+    out
+}
+
+/// `jpeg` (one with an Adobe APP14 segment, as the CMYK fixture has) with
+/// its colour transform byte set to `transform`: 0 for CMYK or RGB, 1 for
+/// YCbCr, 2 for YCCK.
+#[must_use]
+pub fn with_adobe_transform(jpeg: &[u8], transform: u8) -> Vec<u8> {
+    // "Adobe", then a version (2 bytes), two flag words (4), the transform.
+    let at = find(jpeg, 0, b"Adobe").unwrap() + 11;
+    let mut out = jpeg.to_vec();
+    out[at] = transform;
+    out
 }

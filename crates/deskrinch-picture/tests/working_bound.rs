@@ -16,7 +16,7 @@
 //! Its own binary without the test harness, so that nothing else allocates
 //! while a decode is counted.
 
-use deskrinch_picture::{Formats, Ignored, Limits, Profile, decode};
+use deskrinch_picture::{Formats, Ignored, Limits, MAX_PROFILE_BYTES, Profile, decode};
 use deskrinch_test_pictures::hostile::{self, Case};
 use peak_alloc::PeakAlloc;
 use proptest::prelude::*;
@@ -74,17 +74,49 @@ fn smallest_bound(bytes: &[u8]) -> Option<usize> {
 }
 
 fn each_picture_stays_within_its_own_bound() {
-    for Case { name, bytes } in hostile::ordinary() {
-        let (name, bytes) = (name.as_str(), bytes.as_slice());
-        let bound = smallest_bound(bytes).unwrap_or_else(|| panic!("{name}: never decoded"));
+    // Every picture is measured before any failure is reported, so that one
+    // run shows them all.
+    let mut failures = Vec::new();
+    for Case { name, bytes } in hostile::ordinary().iter().chain(hostile::metadata()) {
+        let Some(bound) = smallest_bound(bytes) else {
+            failures.push(format!("{name}: never decoded"));
+            continue;
+        };
         let (result, peak) = measured(bytes, &limits(bound));
-        assert!(result.is_ok(), "{name}: {result:?}");
-        assert!(
-            peak <= bound,
-            "{name}: {peak} bytes at its peak, bound {bound}"
-        );
         println!("{name}: peak {peak} of {bound} ({}%)", peak * 100 / bound);
+        if result.is_err() {
+            failures.push(format!("{name}: {result:?}"));
+        }
+        if peak > bound {
+            failures.push(format!("{name}: {peak} bytes at its peak, bound {bound}"));
+        }
     }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// What the crate's documentation says a refused picture may have
+/// allocated: the header read's copies of the file's metadata, at most
+/// twice the encoded size and a PNG's colour profile up to the cap.
+fn refused_metadata_stays_within_what_the_documentation_says() {
+    let mut failures = Vec::new();
+    for Case { name, bytes } in hostile::metadata() {
+        let Some(own) = smallest_bound(bytes) else {
+            continue;
+        };
+        let bound = own / 2;
+        let (result, peak) = measured(bytes, &limits(bound));
+        let allowed = bound.max(2 * bytes.len() + MAX_PROFILE_BYTES);
+        println!("{name}, refused at {bound}: {result:?}, peak {peak} of {allowed}");
+        if result.is_ok() {
+            failures.push(format!("{name}: decoded at half its own bound"));
+        }
+        if peak > allowed {
+            failures.push(format!(
+                "{name}: {peak} bytes before its refusal, {allowed} allowed"
+            ));
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
 }
 
 fn hostile_pictures_stay_within_the_bound() {
@@ -140,6 +172,7 @@ fn mutated_pictures_stay_within_the_bound() {
 
 fn main() {
     each_picture_stays_within_its_own_bound();
+    refused_metadata_stays_within_what_the_documentation_says();
     hostile_pictures_stay_within_the_bound();
     mutated_pictures_stay_within_the_bound();
     println!("working bound: all held");

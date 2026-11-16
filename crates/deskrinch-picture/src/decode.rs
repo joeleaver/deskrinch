@@ -42,8 +42,8 @@ pub(crate) enum Embedded {
     None,
     /// The profile's bytes.
     Bytes(Vec<u8>),
-    /// It has one the decoder could not read, for this reason.
-    Unreadable(&'static str),
+    /// It has one that is not used, for this reason.
+    Ignored(Ignored),
 }
 
 impl From<Option<Vec<u8>>> for Embedded {
@@ -110,16 +110,15 @@ fn finish(raw: Raw, format: Format, limits: &Limits) -> Result<Decoded, DecodeEr
     let row = width as usize;
     let profile = match icc {
         Embedded::None => Profile::None,
-        Embedded::Unreadable(why) => Profile::Ignored(Ignored::Malformed {
-            fault: why.to_owned(),
-        }),
+        Embedded::Ignored(why) => Profile::Ignored(why),
         Embedded::Bytes(icc)
             if rgba.len().saturating_add(colour::extra(icc.len(), row))
                 > limits.max_working_bytes =>
         {
             Profile::Ignored(Ignored::OverWorkingBound)
         }
-        Embedded::Bytes(icc) => colour::convert(&mut rgba, row, &icc),
+        Embedded::Bytes(icc) => colour::convert(&mut rgba, row, &icc)
+            .map_err(|failed| DecodeError::ColourConversion { fault: failed.0 })?,
     };
     let (rgba, width, height) = orient::apply(rgba, width, height, orientation);
     // Every decoder hands on width × height × 4 bytes.

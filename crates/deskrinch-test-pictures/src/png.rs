@@ -214,3 +214,26 @@ pub fn expected(width: u32, height: u32, pixel: impl Fn(u32, u32) -> [u16; 4]) -
         .flat_map(|(x, y)| pixel(x, y).map(|c| c.to_be_bytes()[0]))
         .collect()
 }
+
+/// `png` with a chunk of `kind` holding `data` put right after its `IHDR`.
+#[must_use]
+pub fn with_chunk(png: &[u8], kind: [u8; 4], data: &[u8]) -> Vec<u8> {
+    // The signature (8) and the IHDR chunk (4 + 4 + 13 + 4).
+    let after_header = 33;
+    let mut out = png[..after_header].to_vec();
+    chunk(&mut out, kind, data);
+    out.extend_from_slice(&png[after_header..]);
+    out
+}
+
+/// `png` with a chunk of `kind` holding `data` put right before its `IEND`,
+/// after the image data.
+#[must_use]
+pub fn with_chunk_at_end(png: &[u8], kind: [u8; 4], data: &[u8]) -> Vec<u8> {
+    // The IEND chunk: length (4), type (4), CRC (4).
+    let end = png.len() - 12;
+    let mut out = png[..end].to_vec();
+    chunk(&mut out, kind, data);
+    out.extend_from_slice(&png[end..]);
+    out
+}

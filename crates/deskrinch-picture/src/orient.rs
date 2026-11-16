@@ -1,4 +1,4 @@
-//! A JPEG's EXIF orientation applied to its decoded pixels: the eight
+//! EXIF orientation applied to decoded pixels: the eight
 //! orientations, the flips and the half turn in place, the quarter turns
 //! (which swap width and height) through a second buffer the size of the
 //! result, which the working bound counts ([`extra`]).

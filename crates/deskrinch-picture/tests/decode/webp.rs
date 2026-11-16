@@ -50,3 +50,19 @@ fn an_animation_gives_its_first_frame_on_its_canvas() {
     assert!(near(pixel(&decoded, 5, 3), [255, 0, 0, 255], 1));
     assert_eq!(pixel(&decoded, 0, 0)[3], 0);
 }
+
+/// A WebP's EXIF orientation is applied only from a chunk before the image
+/// data, which a WebP written to its specification never has.
+#[test]
+fn exif_before_the_image_data_turns_it_and_after_does_not() {
+    use deskrinch_test_pictures::jpeg::exif_orientation;
+
+    let pixels: Vec<u8> = (1..=6).flat_map(|n| [n, 0, 0, 255]).collect();
+    let exif = exif_orientation(6);
+    let first = decoded(&webp::with_exif_first(3, 2, &pixels, &exif)).unwrap();
+    assert_eq!((first.image.width(), first.image.height()), (2, 3));
+    assert_eq!(first.image.rgba()[0], 4);
+    let ordered = decoded(&webp::extended(3, 2, &pixels, &[], &exif, &[])).unwrap();
+    assert_eq!((ordered.image.width(), ordered.image.height()), (3, 2));
+    assert_eq!(ordered.image.rgba(), pixels.as_slice());
+}

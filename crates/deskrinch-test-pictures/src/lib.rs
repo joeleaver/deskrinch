@@ -7,7 +7,10 @@
 //!   quadrants ([`QUADRANTS`]) at quality 95 without chroma subsampling
 //!   (`subsampled.jpg`: 4:2:0), a 16 × 16 grey of 100, a 16 × 16 CMYK of
 //!   (0, 128, 255, 0), 256 × 256 noise at quality 75 (JPEG) and 60 (WebP,
-//!   with noise for alpha too).
+//!   with noise for alpha too); and large smooth gradients (1024 a side,
+//!   2048 for the lossy WebP without alpha), red across, green down, so that
+//!   each decoder's per-pixel memory is many times its fixed share in files
+//!   of tens of KB.
 //! - [`png`], [`gif`], [`webp`]: encoders for the other formats and layouts.
 //! - [`jpeg`]: segments spliced into a JPEG (EXIF orientation, an ICC
 //!   profile, repeated scans).

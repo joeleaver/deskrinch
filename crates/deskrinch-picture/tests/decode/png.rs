@@ -138,3 +138,22 @@ fn a_png_is_refused_where_only_jpeg_is_accepted() {
     ));
     assert!(decode(&bytes, Formats::PNG, &limits).is_ok());
 }
+
+/// A 3 × 2 picture with EXIF orientation 6 (a quarter turn clockwise):
+/// turned when its `eXIf` comes before the image data, not after.
+#[test]
+fn exif_before_the_image_data_turns_it_and_after_does_not() {
+    use deskrinch_test_pictures::jpeg::exif_orientation;
+    use deskrinch_test_pictures::png::{with_chunk, with_chunk_at_end};
+
+    let pixels: Vec<u8> = (1..=6).flat_map(|n| [n, 0, 0, 255]).collect();
+    let plain = encode(3, 2, ColorType::Rgba, BitDepth::Eight, &pixels);
+    let exif = exif_orientation(6);
+    let first = decoded(&with_chunk(&plain, *b"eXIf", &exif)).unwrap();
+    assert_eq!((first.image.width(), first.image.height()), (2, 3));
+    // The bottom-left pixel (4) is shown at the top left.
+    assert_eq!(first.image.rgba()[0], 4);
+    let last = decoded(&with_chunk_at_end(&plain, *b"eXIf", &exif)).unwrap();
+    assert_eq!((last.image.width(), last.image.height()), (3, 2));
+    assert_eq!(last.image.rgba(), pixels.as_slice());
+}

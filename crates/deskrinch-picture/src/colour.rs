@@ -98,10 +98,15 @@ pub enum Ignored {
 }
 
 /// Converts `rgba`, `width` pixels a row, from `icc` to sRGB, as the
-/// module's documentation says, and says what was done.
-pub(crate) fn convert(rgba: &mut [u8], width: usize, icc: &[u8]) -> Profile {
+/// module's documentation says, and says what was done; or that it failed
+/// part way.
+pub(crate) fn convert(
+    rgba: &mut [u8],
+    width: usize,
+    icc: &[u8],
+) -> Result<Profile, PartlyConverted> {
     if icc.len() > MAX_PROFILE_BYTES {
-        return Profile::Ignored(Ignored::TooLarge { size: icc.len() });
+        return Ok(Profile::Ignored(Ignored::TooLarge { size: icc.len() }));
     }
     let options = ParsingOptions {
         // moxcms refuses a profile of exactly its maximum.
@@ -112,13 +117,13 @@ pub(crate) fn convert(rgba: &mut [u8], width: usize, icc: &[u8]) -> Profile {
     let from = match ColorProfile::new_from_slice_with_options(icc, options) {
         Ok(profile) => profile,
         Err(fault) => {
-            return Profile::Ignored(Ignored::Malformed {
+            return Ok(Profile::Ignored(Ignored::Malformed {
                 fault: fault.to_string(),
-            });
+            }));
         }
     };
     if from.color_space != DataColorSpace::Rgb {
-        return Profile::Ignored(Ignored::NotRgb);
+        return Ok(Profile::Ignored(Ignored::NotRgb));
     }
     let srgb = ColorProfile::new_srgb();
     let transform = match from.create_transform_8bit(
@@ -129,35 +134,46 @@ pub(crate) fn convert(rgba: &mut [u8], width: usize, icc: &[u8]) -> Profile {
     ) {
         Ok(transform) => transform,
         Err(fault) => {
-            return Profile::Ignored(Ignored::NoTransform {
+            return Ok(Profile::Ignored(Ignored::NoTransform {
                 fault: fault.to_string(),
-            });
+            }));
         }
     };
     let probe = probe();
     let mut probed = vec![0; probe.len()];
     if transform.transform(&probe, &mut probed).is_err() {
-        return Profile::Ignored(Ignored::NoTransform {
+        return Ok(Profile::Ignored(Ignored::NoTransform {
             fault: "the transform refused the probe".to_owned(),
-        });
+        }));
     }
     if same_colours(&probe, &probed) {
-        return Profile::AlreadySrgb;
+        return Ok(Profile::AlreadySrgb);
     }
     let stride = width * 4;
     let mut scratch = vec![0; stride];
-    for row in rgba.chunks_exact_mut(stride) {
+    for (index, row) in rgba.chunks_exact_mut(stride).enumerate() {
         scratch.copy_from_slice(row);
         if let Err(fault) = transform.transform(&scratch, row) {
-            // Rows already converted stay so; the lanes are always the
-            // right length, so this does not happen.
-            return Profile::Ignored(Ignored::NoTransform {
-                fault: fault.to_string(),
-            });
+            // A failed row is left as it was. Before any row was converted
+            // the picture is as decoded, as the label says; after, it is
+            // neither, and the picture is refused.
+            return if index == 0 {
+                Ok(Profile::Ignored(Ignored::NoTransform {
+                    fault: fault.to_string(),
+                }))
+            } else {
+                Err(PartlyConverted(fault.to_string()))
+            };
         }
     }
-    Profile::Converted
+    Ok(Profile::Converted)
 }
+
+/// A conversion that failed after some rows were converted: the picture is
+/// neither as decoded nor sRGB, and is refused
+/// ([`crate::DecodeError::ColourConversion`]).
+#[derive(Debug)]
+pub(crate) struct PartlyConverted(pub(crate) String);
 
 /// The colours a profile is tried on: 17 levels a channel, and every grey.
 fn probe() -> Vec<u8> {

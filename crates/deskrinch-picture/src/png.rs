@@ -10,17 +10,24 @@
 //! STRIP_16`), so what it writes is never wider than the result. An APNG
 //! gives its default image, the first one it shows. Text chunks are
 //! skipped unread; `cICP`, `gAMA` and `cHRM` are not applied.
+//!
+//! The decoder keeps every `eXIf` chunk it reads, before the image data
+//! or after (`Reader::finish` reads those after); the walk over the chunks
+//! ([`walk::png`]) says how much, and it is charged and added to the
+//! decoder's own limit. An `eXIf` before the image data gives the
+//! orientation.
 
 use std::io::Cursor;
 
 use ::png::{BitDepth, ColorType, Decoder, DecodingError, Limits as PngLimits, Transformations};
 use image::metadata::Orientation;
 
-use crate::colour;
+use crate::colour::{self, Ignored};
 use crate::decode::{Embedded, Raw};
 use crate::error::DecodeError;
 use crate::limits::{Format, Limits};
 use crate::rgba::{self, Channels};
+use crate::walk;
 
 /// What the decoder may allocate for itself besides its rows and the
 /// profile: its inflate state and scratch.
@@ -36,20 +43,32 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
     let (width, height) =
         header_size(bytes).ok_or_else(|| DecodeError::malformed(Format::Png, "no PNG header"))?;
     let result_bytes = limits.result_bytes(width, height)?;
+    let metadata = walk::png(bytes);
     let row = usize::try_from(width)
         .unwrap_or(usize::MAX)
         .saturating_mul(8);
+    // The decoder's own share: its rows and scratch, the profile up to the
+    // cap (what it inflates of a larger one is dropped, and said to be),
+    // and every eXIf chunk it reads, before the image data or after.
     let own = FIXED_BYTES
         .saturating_add(row.saturating_mul(ROWS))
-        .saturating_add(colour::MAX_PROFILE_BYTES);
-    // The colour conversion's share is checked once the profile is known
-    // (`decode::finish`); a PNG has no orientation.
-    limits.working(result_bytes.checked_add(own))?;
+        .saturating_add(colour::MAX_PROFILE_BYTES)
+        .saturating_add(metadata.exif);
+    let orientation_extra = if metadata.exif_first { result_bytes } else { 0 };
+    // It reads a chunk into a buffer of its own and copies an eXIf out of
+    // it: two copies at once, of which its limit counts one.
+    let needed = result_bytes.checked_add(own).map(|peak| {
+        peak.saturating_add(metadata.exif).max(
+            result_bytes
+                .saturating_add(metadata.exif)
+                .saturating_add(orientation_extra),
+        )
+    });
+    limits.working(needed)?;
 
     let mut decoder = Decoder::new_with_limits(Cursor::new(bytes), PngLimits { bytes: own });
     decoder.set_ignore_text_chunk(true);
     decoder.set_transformations(Transformations::EXPAND | Transformations::STRIP_16);
-    let fault = |error| fault(error, limits);
     let mut reader = decoder.read_info().map_err(fault)?;
     let info = reader.info();
     if (info.width, info.height) != (width, height) {
@@ -57,14 +76,24 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
     }
     let animated = info.animation_control.is_some();
     // The decoder drops a profile it cannot inflate within its limit, or
-    // a corrupt one, without a word: whether there was one is read from
-    // the chunks.
+    // a corrupt one, without a word: whether there was one is the walk's.
     let icc = match &info.icc_profile {
         Some(profile) => Embedded::Bytes(profile.to_vec()),
-        None if has_profile_chunk(bytes) => Embedded::Unreadable(
-            "the PNG decoder dropped it: corrupt, or larger than it may inflate",
-        ),
+        None if metadata.profile => Embedded::Ignored(Ignored::Malformed {
+            fault: "the PNG decoder dropped it: corrupt, or larger than it may inflate".to_owned(),
+        }),
         None => Embedded::None,
+    };
+    // EXIF before the image data is what is shown; after it, not
+    // (see the crate's documentation).
+    let orientation = if metadata.exif_first {
+        info.exif_metadata
+            .as_deref()
+            .map(strip_exif_prefix)
+            .and_then(Orientation::from_exif_chunk)
+            .unwrap_or(Orientation::NoTransforms)
+    } else {
+        Orientation::NoTransforms
     };
     let native = reader
         .output_buffer_size()
@@ -106,43 +135,27 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         height,
         rgba,
         icc,
-        orientation: Orientation::NoTransforms,
+        orientation,
     })
 }
 
-/// The decoder's error as this crate's.
-fn fault(error: DecodingError, limits: &Limits) -> DecodeError {
+/// The decoder's error as this crate's. Over its own limit is not the
+/// caller's bound (what the decoder keeps is charged to that before it
+/// starts): it wanted more than this crate's estimate of a picture this
+/// size allows.
+fn fault(error: DecodingError) -> DecodeError {
     match error {
-        DecodingError::LimitsExceeded => DecodeError::WorkingTooLarge {
-            needed: None,
-            max: limits.max_working_bytes,
+        DecodingError::LimitsExceeded => DecodeError::Unsupported {
+            format: Format::Png,
+            what: "it needs more of the decoder's memory than a picture of its size is allowed",
         },
         other => DecodeError::malformed(Format::Png, other),
     }
 }
 
-/// Whether the PNG `bytes` have an `iCCP` chunk before their image data:
-/// the chunks walked by their lengths, nothing else read.
-fn has_profile_chunk(bytes: &[u8]) -> bool {
-    let mut at = 8;
-    while let Some(header) = bytes.get(at..at + 8) {
-        let (length, kind) = header.split_at(4);
-        match kind {
-            b"iCCP" => return true,
-            b"IDAT" => return false,
-            _ => {}
-        }
-        let length = u32::from_be_bytes([length[0], length[1], length[2], length[3]]);
-        let Some(next) = usize::try_from(length)
-            .ok()
-            .and_then(|n| n.checked_add(12))
-            .and_then(|n| n.checked_add(at))
-        else {
-            return false;
-        };
-        at = next;
-    }
-    false
+/// EXIF data without the `Exif\0\0` some writers put before it.
+pub(crate) fn strip_exif_prefix(exif: &[u8]) -> &[u8] {
+    exif.strip_prefix(b"Exif\0\0").unwrap_or(exif)
 }
 
 /// The width and height the header of `bytes` gives: the first chunk must

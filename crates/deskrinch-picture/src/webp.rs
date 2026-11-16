@@ -7,8 +7,10 @@
 //! not on a limit it enforces, and [`working`] says it per kind:
 //!
 //! - lossy: the Y, U and V planes, padded to 16-pixel macroblocks
-//!   (1.5 bytes a pixel), and with alpha the alpha plane and the lossless
-//!   stream it may be coded in (5 bytes a pixel);
+//!   (1.5 bytes a pixel), and what it keeps per macroblock besides: 2 bytes
+//!   a padded pixel together, as measured (1.86 on a 2048 × 2048 picture);
+//!   with alpha, the alpha plane and the lossless stream it may be coded in
+//!   (5 bytes a pixel);
 //! - lossless: its transforms' sub-images and tables (at most 1 byte a
 //!   pixel), and without alpha a whole RGBA copy it narrows to RGB from
 //!   (4 bytes a pixel);
@@ -17,16 +19,24 @@
 //!
 //! The working-bound test holds files of each kind to it, so an image-webp
 //! update that allocates more fails a test.
+//!
+//! Metadata: the profile is read under image-webp's memory limit at the
+//! profile cap (a larger one is ignored, its size the walk's,
+//! [`walk::webp`]); an EXIF chunk is read only when it comes before the
+//! image data, which in a WebP written to its specification it never does
+//! (see the crate's documentation), and is charged; XMP is never read.
 
 use std::io::Cursor;
 
 use image::metadata::Orientation;
 use image_webp::WebPDecoder;
 
+use crate::colour::{self, Ignored};
 use crate::decode::{Embedded, Raw};
 use crate::error::DecodeError;
 use crate::limits::{Format, Limits};
 use crate::rgba::{self, Channels};
+use crate::{png, walk};
 
 /// What the decoder allocates for itself however small the picture.
 const FIXED_BYTES: usize = 512 * 1024;
@@ -34,17 +44,64 @@ const FIXED_BYTES: usize = 512 * 1024;
 /// Decodes the WebP `bytes` (an animation's first frame) under `limits`.
 pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> {
     let malformed = |fault: image_webp::DecodingError| DecodeError::malformed(Format::WebP, fault);
+    let metadata = walk::webp(bytes);
     let mut decoder = WebPDecoder::new(Cursor::new(bytes)).map_err(malformed)?;
     let (width, height) = decoder.dimensions();
     let result_bytes = limits.result_bytes(width, height)?;
     let alpha = decoder.has_alpha();
     let animated = decoder.is_animated();
     let lossy = !animated && decoder.is_lossy();
-    limits.working(
-        working(width, height, alpha, lossy, animated)
-            .and_then(|own| own.checked_add(result_bytes)),
-    )?;
-    let icc = decoder.icc_profile().map_err(malformed)?;
+    // The profile within the cap and an EXIF before the image data are
+    // read, and kept through the decode.
+    let profile = if metadata.profile <= colour::MAX_PROFILE_BYTES {
+        metadata.profile
+    } else {
+        0
+    };
+    let exif = metadata.exif_first.unwrap_or(0);
+    let turned = if metadata.exif_first.is_some() {
+        result_bytes
+    } else {
+        0
+    };
+    let kept = profile.saturating_add(exif);
+    let needed = working(width, height, alpha, lossy, animated)
+        .and_then(|own| own.checked_add(result_bytes))
+        .and_then(|peak| peak.checked_add(kept))
+        .map(|peak| peak.max(result_bytes.saturating_add(kept).saturating_add(turned)));
+    limits.working(needed)?;
+
+    let icc = if metadata.profile > colour::MAX_PROFILE_BYTES {
+        Embedded::Ignored(Ignored::TooLarge {
+            size: metadata.profile,
+        })
+    } else {
+        // Its read is held to the cap whatever the chunk index says.
+        decoder.set_memory_limit(colour::MAX_PROFILE_BYTES);
+        match decoder.icc_profile() {
+            Ok(icc) => Embedded::from(icc),
+            Err(fault) => Embedded::Ignored(Ignored::Malformed {
+                fault: fault.to_string(),
+            }),
+        }
+    };
+    // An EXIF chunk after the image data is never read (see the crate's
+    // documentation); one before it is read under what was charged for it.
+    let orientation = if metadata.exif_first.is_some() {
+        decoder.set_memory_limit(exif);
+        let read = decoder
+            .exif_metadata()
+            .map_err(|_| DecodeError::WorkingTooLarge {
+                needed: None,
+                max: limits.max_working_bytes,
+            })?;
+        read.as_deref()
+            .map(png::strip_exif_prefix)
+            .and_then(Orientation::from_exif_chunk)
+            .unwrap_or(Orientation::NoTransforms)
+    } else {
+        Orientation::NoTransforms
+    };
 
     let channels = if alpha { Channels::Rgba } else { Channels::Rgb };
     let native = decoder
@@ -60,8 +117,8 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         width,
         height,
         rgba,
-        icc: Embedded::from(icc),
-        orientation: Orientation::NoTransforms,
+        icc,
+        orientation,
     })
 }
 
@@ -75,8 +132,7 @@ fn working(width: u32, height: u32, alpha: bool, lossy: bool, animated: bool) ->
     let padded = |side: u32| usize::try_from(side).ok()?.checked_next_multiple_of(16);
     let planes = padded(width)?
         .checked_mul(padded(height)?)?
-        .checked_mul(3)?
-        / 2;
+        .checked_mul(2)?;
     let lossy_bytes =
         |alpha: bool| planes.checked_add(if alpha { pixels.checked_mul(5)? } else { 0 });
     let lossless_bytes =

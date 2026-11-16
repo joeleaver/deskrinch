@@ -19,3 +19,17 @@ pub const LOSSY_WEBP: &[u8] = include_bytes!("../fixtures/lossy.webp");
 pub const LOSSY_ALPHA_WEBP: &[u8] = include_bytes!("../fixtures/lossy-alpha.webp");
 /// A 256 × 256 lossy WebP of noise with alpha (also noise), quality 60.
 pub const LOSSY_ALPHA_NOISE_WEBP: &[u8] = include_bytes!("../fixtures/lossy-alpha-noise-256.webp");
+/// A 1024 × 1024 gradient, progressive JPEG, 4:4:4, quality 85.
+pub const GRADIENT_PROGRESSIVE_444_JPEG: &[u8] =
+    include_bytes!("../fixtures/gradient-1024-progressive-444.jpg");
+/// The same gradient, progressive JPEG, 4:2:0.
+pub const GRADIENT_PROGRESSIVE_420_JPEG: &[u8] =
+    include_bytes!("../fixtures/gradient-1024-progressive-420.jpg");
+/// The same gradient, baseline JPEG, 4:2:0.
+pub const GRADIENT_BASELINE_JPEG: &[u8] = include_bytes!("../fixtures/gradient-1024-baseline.jpg");
+/// A 2048 × 2048 gradient, lossy WebP without alpha, quality 80.
+pub const GRADIENT_LOSSY_WEBP: &[u8] = include_bytes!("../fixtures/gradient-2048-lossy.webp");
+/// A 1024 × 1024 gradient with an alpha falling from top to bottom, lossy
+/// WebP, quality 80.
+pub const GRADIENT_LOSSY_ALPHA_WEBP: &[u8] =
+    include_bytes!("../fixtures/gradient-1024-lossy-alpha.webp");

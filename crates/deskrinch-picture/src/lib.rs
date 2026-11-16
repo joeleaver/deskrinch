@@ -29,7 +29,22 @@
 //!   refused before its buffers exist.
 //!
 //! The process's peak during a decode is therefore the input (at most the
-//! encoded bound) plus the working bound. The decoders are used directly,
+//! encoded bound) plus the working bound.
+//!
+//! What a decoder keeps of the file's metadata (the EXIF, the XMP, the
+//! colour profile, a GIF's application extensions) is charged to the
+//! working bound at what it holds: from the decoder's own header read where
+//! it says, and otherwise from a walk over the container's length-prefixed
+//! blocks, which reads lengths and signatures only. Nothing is capped by a
+//! number the caller did not set, but the colour profile
+//! ([`MAX_PROFILE_BYTES`]), whose excess is ignored and said to be.
+//!
+//! A picture refused for a limit may have allocated, before its refusal,
+//! what its format's header read keeps of the file's metadata: at most
+//! twice the encoded size (a JPEG decoder's copy and the copy of its EXIF it
+//! hands over) and a PNG's inflated colour profile, at most
+//! [`MAX_PROFILE_BYTES`]. The working-bound test holds refused pictures
+//! that are mostly metadata to that. The decoders are used directly,
 //! not through `image`, because each lets its caller see more of the
 //! header (a JPEG's components and whether it is progressive, a WebP's
 //! kind) or bound more of what it allocates (`png`'s and `gif`'s own
@@ -49,7 +64,17 @@
 //! and what happened to its colour profile ([`Profile`]): an embedded RGB
 //! ICC profile is converted to sRGB, an sRGB one is recognised and changes
 //! nothing, and one that cannot be used is ignored with its reason
-//! ([`Ignored`]). A JPEG's EXIF orientation is applied.
+//! ([`Ignored`]).
+//!
+//! # Orientation
+//!
+//! A picture's EXIF orientation is applied when the EXIF comes before the
+//! image data, and not when it comes after: the CSS Images specification
+//! has user agents ignore metadata that changes the layout once the image
+//! data has begun, as Chrome and Firefox do for WebP and Safari for PNG.
+//! So a JPEG's (APP1, always before its scans) is applied, a PNG's `eXIf`
+//! before its `IDAT` is and one after it is not, and a WebP's EXIF chunk,
+//! which its specification puts after the image data, is not applied.
 //!
 //! # Example
 //!
@@ -77,6 +102,7 @@ mod limits;
 mod orient;
 mod png;
 mod rgba;
+mod walk;
 mod webp;
 
 pub use colour::{Ignored, MAX_CURVE_ENTRIES, MAX_GRID_POINTS, MAX_PROFILE_BYTES, Profile};

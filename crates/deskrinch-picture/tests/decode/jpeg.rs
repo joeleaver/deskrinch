@@ -47,6 +47,21 @@ fn a_cmyk_jpeg_is_converted_by_the_decoder_and_its_print_profile_ignored() {
     assert_eq!(pixel(&decoded, 5, 5), [r, g, b, a]);
 }
 
+/// The CMYK fixture with its Adobe transform byte set to 2 is a YCCK file.
+/// Its stored components are Adobe's inverted CMYK (255, 127, 0, 255),
+/// now read as Y = 255, Cb = 127, Cr = 0 and K = 255. JFIF's YCbCr to RGB
+/// gives (75.5, 346 → 255, 253.2); YCCK's C, M, Y are 255 less those, as
+/// libjpeg's YCCK-to-CMYK conversion has it: (179.5, 0, 1.8), in Adobe's
+/// inverted form. With K at 255 (no black) that is the colour:
+/// (179, 0, 2).
+#[test]
+fn a_ycck_jpeg_is_converted_by_the_decoder() {
+    let ycck = jpeg::with_adobe_transform(fixtures::CMYK_JPEG, 2);
+    let decoded = decoded(&ycck).unwrap();
+    let got = pixel(&decoded, 5, 5);
+    assert!(near(got, [179, 0, 2, 255], 3), "{got:?}");
+}
+
 /// Each EXIF orientation shows the 32 × 16 quadrants upright: the colour
 /// that ends up at each corner of what is shown, and its size.
 #[test]

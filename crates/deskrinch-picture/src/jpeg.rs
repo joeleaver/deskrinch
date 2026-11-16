@@ -11,6 +11,13 @@
 //! way. The working-bound test holds real and hostile files to it, so a
 //! zune update that allocates more fails a test.
 //!
+//! zune keeps the file's metadata from its header read (the EXIF, the XMP,
+//! the profile's pieces, more), and does not say how much without keeping
+//! it; the walk over the file's segments ([`walk::jpeg`]) says, and the
+//! decode charges it: the decode's decoder keeps it, and this crate keeps
+//! its own copy of a profile within the cap. A profile over the cap is
+//! never put together.
+//!
 //! The colour spaces zune decodes are all made RGBA: YCbCr and RGB as they
 //! are, grey widened, CMYK and YCCK converted to RGB by zune (their print
 //! profiles are not RGB and are ignored, [`crate::Ignored::NotRgb`]).
@@ -21,11 +28,13 @@ use zune_core::colorspace::ColorSpace;
 use zune_core::options::DecoderOptions;
 use zune_jpeg::JpegDecoder;
 
+use crate::colour::{self, Ignored};
 use crate::decode::{Embedded, Raw};
 use crate::error::DecodeError;
 use crate::limits::{Format, Limits};
 use crate::orient;
 use crate::rgba::{self, Channels};
+use crate::walk;
 
 /// The most scans a progressive JPEG may have: 64. Each scan walks the
 /// coefficients of the whole picture again, so the decode's time grows
@@ -41,67 +50,52 @@ const FIXED_BYTES: usize = 512 * 1024;
 /// Decodes the JPEG `bytes` under `limits`.
 pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> {
     let malformed = |fault| DecodeError::malformed(Format::Jpeg, fault);
-    // The header read allocates nothing that grows with the size, so the
-    // size is let through it and checked here, as a typed error; the
-    // decode itself is held to the bound by zune too.
-    let options = |max: usize| {
-        DecoderOptions::default()
-            .set_max_width(max)
-            .set_max_height(max)
-            .set_strict_mode(false)
-            .jpeg_set_max_scans(MAX_SCANS)
+    // What zune will keep of the file's metadata, which it does not say
+    // without keeping it.
+    let metadata = walk::jpeg(bytes);
+    let header = read_header(bytes)?;
+    let result_bytes = limits.result_bytes(header.width, header.height)?;
+    let (out, channels) = output(header.input)?;
+    // A profile over the cap is not taken: its size is the walk's.
+    let profile = if metadata.profile == 0 {
+        Embedded::None
+    } else if metadata.profile > colour::MAX_PROFILE_BYTES {
+        Embedded::Ignored(Ignored::TooLarge {
+            size: metadata.profile,
+        })
+    } else {
+        Embedded::Bytes(Vec::new())
     };
-    let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options(usize::MAX));
-    decoder.decode_headers().map_err(malformed)?;
-    let info = decoder
-        .info()
-        .ok_or_else(|| malformed(zune_jpeg::errors::DecodeErrors::FormatStatic("no header")))?;
-    let (width, height) = (u32::from(info.width), u32::from(info.height));
-    let result_bytes = limits.result_bytes(width, height)?;
-    let input = decoder.input_colorspace().ok_or_else(|| {
-        malformed(zune_jpeg::errors::DecodeErrors::FormatStatic(
-            "no colour space",
-        ))
-    })?;
-    let (out, channels) = match input {
-        ColorSpace::Luma => (ColorSpace::Luma, Channels::Grey),
-        ColorSpace::YCbCr | ColorSpace::RGB => (ColorSpace::RGBA, Channels::Rgba),
-        // zune's CMYK conversion fills RGB; its RGBA leaves alpha at 0.
-        ColorSpace::CMYK | ColorSpace::YCCK => (ColorSpace::RGB, Channels::Rgb),
-        _ => {
-            return Err(DecodeError::Unsupported {
-                format: Format::Jpeg,
-                what: "its colour space",
-            });
-        }
+    let ours = if matches!(profile, Embedded::Bytes(_)) {
+        metadata.profile
+    } else {
+        0
     };
-    let orientation = info
-        .exif_data
-        .as_deref()
-        .and_then(Orientation::from_exif_chunk)
-        .unwrap_or(Orientation::NoTransforms);
-    let icc = decoder.icc_profile();
-    let icc_len = icc.as_ref().map_or(0, Vec::len);
+    // The decode's decoder keeps the metadata again (and puts extended XMP
+    // together once more); this crate keeps its own copy of the profile.
+    let kept = metadata
+        .application
+        .checked_add(metadata.extended_xmp)
+        .and_then(|n| n.checked_add(ours));
     let own = working(
-        width,
-        height,
-        usize::from(info.components),
-        info.sof.is_progressive(),
+        header.width,
+        header.height,
+        header.components,
+        header.progressive,
     );
     let needed = own
         .and_then(|own| own.checked_add(result_bytes))
-        .and_then(|peak| peak.checked_add(icc_len))
+        .and_then(|peak| peak.checked_add(kept?))
         .map(|peak| {
             let turned = result_bytes
-                .saturating_add(icc_len)
-                .saturating_add(orient::extra(orientation, result_bytes));
+                .saturating_add(ours)
+                .saturating_add(orient::extra(header.orientation, result_bytes));
             peak.max(turned)
         });
     limits.working(needed)?;
 
     // zune chooses its colour conversion in its header read, so the decode
-    // is a decoder of its own, made with the output colour space, reading
-    // the headers again (they are small).
+    // is a decoder of its own, made with the output colour space.
     let side = usize::try_from(limits.max_side).unwrap_or(usize::MAX);
     let mut decoder = JpegDecoder::new_with_options(
         ZCursor::new(bytes),
@@ -122,13 +116,81 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         .decode_into(&mut rgba[..native])
         .map_err(malformed)?;
     rgba::widen(&mut rgba, result_bytes / 4, channels);
+    let icc = match profile {
+        Embedded::Bytes(_) => Embedded::from(decoder.icc_profile()),
+        other => other,
+    };
     Ok(Raw {
-        width,
-        height,
+        width: header.width,
+        height: header.height,
         rgba,
-        icc: Embedded::from(icc),
-        orientation,
+        icc,
+        orientation: header.orientation,
     })
+}
+
+/// zune's options: the size let through to `max` a side, lenient, with
+/// this crate's scan cap.
+fn options(max: usize) -> DecoderOptions {
+    DecoderOptions::default()
+        .set_max_width(max)
+        .set_max_height(max)
+        .set_strict_mode(false)
+        .jpeg_set_max_scans(MAX_SCANS)
+}
+
+/// The header read. It keeps the file's metadata (at most the encoded size)
+/// and nothing that grows with the picture's size, so the size is let
+/// through it and checked by the caller, as a typed error; its decoder,
+/// and its copy of the metadata, end when it returns.
+fn read_header(bytes: &[u8]) -> Result<Header, DecodeError> {
+    let malformed = |fault| DecodeError::malformed(Format::Jpeg, fault);
+    let missing = |what| malformed(zune_jpeg::errors::DecodeErrors::FormatStatic(what));
+    let mut decoder = JpegDecoder::new_with_options(ZCursor::new(bytes), options(usize::MAX));
+    decoder.decode_headers().map_err(malformed)?;
+    let input = decoder
+        .input_colorspace()
+        .ok_or_else(|| missing("no colour space"))?;
+    let info = decoder.info().ok_or_else(|| missing("no header"))?;
+    Ok(Header {
+        width: u32::from(info.width),
+        height: u32::from(info.height),
+        components: usize::from(info.components),
+        progressive: info.sof.is_progressive(),
+        input,
+        orientation: info
+            .exif_data
+            .as_deref()
+            .and_then(Orientation::from_exif_chunk)
+            .unwrap_or(Orientation::NoTransforms),
+    })
+}
+
+/// The colour space zune is to write for a file in `input`, and the
+/// channels that is.
+fn output(input: ColorSpace) -> Result<(ColorSpace, Channels), DecodeError> {
+    Ok(match input {
+        ColorSpace::Luma => (ColorSpace::Luma, Channels::Grey),
+        ColorSpace::YCbCr | ColorSpace::RGB => (ColorSpace::RGBA, Channels::Rgba),
+        // zune's CMYK conversion fills RGB; its RGBA leaves alpha at 0.
+        ColorSpace::CMYK | ColorSpace::YCCK => (ColorSpace::RGB, Channels::Rgb),
+        _ => {
+            return Err(DecodeError::Unsupported {
+                format: Format::Jpeg,
+                what: "its colour space",
+            });
+        }
+    })
+}
+
+/// What the header read says.
+struct Header {
+    width: u32,
+    height: u32,
+    components: usize,
+    progressive: bool,
+    input: ColorSpace,
+    orientation: Orientation,
 }
 
 /// What zune allocates for itself decoding a `width` × `height` picture

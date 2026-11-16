@@ -81,3 +81,72 @@ pub fn with_size(webp: &[u8], width: u32, height: u32) -> Vec<u8> {
     out[at..at + 4].copy_from_slice(&packed.to_le_bytes());
     out
 }
+
+/// A lossless WebP of `width` × `height` RGBA8 `rgba` in the extended
+/// container, with the ICC profile `icc` before the image and the `exif`
+/// and `xmp` chunks after it (each left out when empty), as the
+/// specification orders them.
+#[must_use]
+pub fn extended(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    icc: &[u8],
+    exif: &[u8],
+    xmp: &[u8],
+) -> Vec<u8> {
+    container(width, height, rgba, &[icc, exif, xmp], false)
+}
+
+/// The same with an `exif` chunk before the image instead, against the
+/// specification's order.
+#[must_use]
+pub fn with_exif_first(width: u32, height: u32, rgba: &[u8], exif: &[u8]) -> Vec<u8> {
+    container(width, height, rgba, &[&[], exif, &[]], true)
+}
+
+/// The extended container: `metadata` is the profile, the EXIF and the
+/// XMP, each left out when empty.
+fn container(
+    width: u32,
+    height: u32,
+    rgba: &[u8],
+    metadata: &[&[u8]; 3],
+    exif_first: bool,
+) -> Vec<u8> {
+    let [icc, exif, xmp] = *metadata;
+    let three = |v: u32| v.to_le_bytes()[..3].to_vec();
+    let mut flags = 0b0001_0000;
+    if !icc.is_empty() {
+        flags |= 0b0010_0000;
+    }
+    if !exif.is_empty() {
+        flags |= 0b0000_1000;
+    }
+    if !xmp.is_empty() {
+        flags |= 0b0000_0100;
+    }
+    let mut body = b"WEBP".to_vec();
+    let mut vp8x = vec![flags, 0, 0, 0];
+    vp8x.extend(three(width - 1));
+    vp8x.extend(three(height - 1));
+    chunk(&mut body, *b"VP8X", &vp8x);
+    if !icc.is_empty() {
+        chunk(&mut body, *b"ICCP", icc);
+    }
+    if exif_first && !exif.is_empty() {
+        chunk(&mut body, *b"EXIF", exif);
+    }
+    let image = lossless(width, height, rgba);
+    body.extend_from_slice(vp8l_chunk(&image));
+    if !exif_first && !exif.is_empty() {
+        chunk(&mut body, *b"EXIF", exif);
+    }
+    if !xmp.is_empty() {
+        chunk(&mut body, *b"XMP ", xmp);
+    }
+    let mut out = b"RIFF".to_vec();
+    out.extend(u32::try_from(body.len()).unwrap().to_le_bytes());
+    out.extend(body);
+    out
+}

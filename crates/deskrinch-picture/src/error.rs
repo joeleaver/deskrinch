@@ -44,8 +44,10 @@ pub enum DecodeError {
         /// The bound.
         max: usize,
     },
-    /// The decode would allocate more than `max_working_bytes` at its peak
-    /// (`None`: more than a `usize` can say).
+    /// The decode would allocate more than `max_working_bytes` at its peak.
+    /// `needed` is `None` when that is not known: more than a `usize` can
+    /// say, or a decoder found wanting more than was charged for what it
+    /// keeps.
     #[error("decoding needs {needed:?} bytes at its peak, more than {max}")]
     WorkingTooLarge {
         /// What the header says the decode needs.
@@ -69,6 +71,14 @@ pub enum DecodeError {
         /// Its format.
         format: Format,
         /// The decoder's account of the fault.
+        fault: String,
+    },
+    /// Converting the picture's colour profile failed after part of the
+    /// picture was converted, so its pixels are neither as decoded nor
+    /// sRGB.
+    #[error("its colour conversion failed part way: {fault}")]
+    ColourConversion {
+        /// moxcms's account.
         fault: String,
     },
     /// The named file was not read.
