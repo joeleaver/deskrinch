@@ -30,7 +30,7 @@ mod measure {
     use rustix::process::{Pid, test_kill_process};
 
     use crate::report::number_after;
-    use crate::stand_in::{draws_when_shown, summons};
+    use crate::stand_in::{summoned, summons};
 
     /// The compositor to test with.
     fn compositor() -> String {
@@ -179,12 +179,9 @@ mod measure {
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn reports_each_show() {
         let dir = tempfile::tempdir().unwrap();
-        let (summon, dismiss) = summons(dir.path());
-        let script = format!(
-            "{}{}",
-            record(dir.path(), false),
-            draws_when_shown(dir.path())
-        );
+        let stand_in = summoned(dir.path(), false);
+        let (summon, dismiss) = (stand_in.summon, stand_in.dismiss);
+        let script = format!("{}{}", record(dir.path(), false), stand_in.script);
         let output = measure(
             &["--summon", &summon, "--dismiss", &dismiss, "--shows", "2"],
             &script,

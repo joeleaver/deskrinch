@@ -19,9 +19,11 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::input::{CallgrindMeter, InputClient, Inputs, PointerSteps, move_pointer};
 use super::output;
 use super::probe::{self, Timing};
 use super::report::{self, Run, Unit};
+use super::settle::Running;
 use super::window::{self, Stimulus};
 use super::windows::{self, Expect, Started};
 use crate::error::Error;
@@ -42,7 +44,12 @@ pub(crate) fn valgrind_args(out: &Path) -> Vec<String> {
 /// Measures the program `command` runs under Valgrind (a session client
 /// whose program is `valgrind` with [`valgrind_args`]), asking for dumps
 /// through `control`, a session client for `callgrind_control`, and reading
-/// the frames `expect` says.
+/// the frames `expect` says; with `inputs`, its pointer's steps after the
+/// idle window, each from a dump of its own.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the session's clients, the program, its profile, and what is asked"
+)]
 pub(crate) fn measure(
     mut command: Command,
     control: impl Fn() -> Command,
@@ -51,7 +58,10 @@ pub(crate) fn measure(
     timing: Timing,
     stimulus: &Stimulus,
     expect: Expect,
+    inputs: Option<&Inputs<'_>>,
 ) -> Result<Run, Error> {
+    // The client first: its devices are made before the program starts.
+    let mut client = inputs.map(Inputs::start).transpose()?;
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -67,7 +77,16 @@ pub(crate) fn measure(
         out,
         expect,
     };
-    let result = run_child(&mut child, &watch, &profile, program, timing, stimulus);
+    let pointer = client
+        .as_mut()
+        .zip(inputs.and_then(|inputs| inputs.pointer));
+    let result = run_child(
+        &mut child, &watch, &profile, program, timing, stimulus, pointer,
+    )
+    .and_then(|run| {
+        client.take().map(InputClient::finish).transpose()?;
+        Ok(run)
+    });
     probe::stop(&mut child);
     output::with_output(result, &watch)
 }
@@ -86,6 +105,7 @@ fn run_child(
     program: &str,
     timing: Timing,
     stimulus: &Stimulus,
+    pointer: Option<(&mut InputClient, &PointerSteps)>,
 ) -> Result<Run, Error> {
     let Profile {
         control,
@@ -117,7 +137,10 @@ fn run_child(
         }
     }
     let load = probe::load_average();
-    dump(control, &pid, "first-frame")?;
+    // Callgrind numbers its dumps in the order they are asked for; each is
+    // counted where it is asked for, and read by the number it got.
+    let mut dumps = 0;
+    let first_dump = dump(control, &pid, "first-frame", &mut dumps)?;
     let started = match expect {
         Expect::Main => None,
         Expect::Windows(n) => {
@@ -125,7 +148,7 @@ fn run_child(
         }
     };
     probe::wait(child, watch, program, timing.settle)?;
-    dump(control, &pid, "settle")?;
+    let settle_dump = dump(control, &pid, "settle", &mut dumps)?;
     let frames_before = watch.frames();
     let mark = watch.mark();
     let end = Instant::now() + timing.idle;
@@ -136,18 +159,17 @@ fn run_child(
     }
     let frames_main = watch.frames() - frames_before;
     let since = watch.since(&mark);
-    dump(control, &pid, "idle")?;
+    let idle_dump = dump(control, &pid, "idle", &mut dumps)?;
     let mut run = Run::default();
-    window::end(opened, &mut run)?;
     if let Some(started) = &started {
         started
             .unchanged(watch)
             .map_err(|e| windows::error(program, watch, e))?;
     }
 
-    let first = totals(out, 1)?;
-    let settle = totals(out, 2)?;
-    let idle = totals(out, 3)?;
+    let first = totals(out, first_dump)?;
+    let settle = totals(out, settle_dump)?;
+    let idle = totals(out, idle_dump)?;
     run.push("instructions to first frame (Ir)", Unit::Count, first);
     run.push("instructions in the idle window (Ir)", Unit::Count, idle);
     let frames = match &started {
@@ -172,15 +194,37 @@ fn run_child(
             timing.settle.as_secs()
         ),
     );
+    // The pointer's steps, after the idle window and its rows; each step's
+    // dump follows those above, zeroed at its start.
+    if let Some((client, steps)) = pointer {
+        let id = child.id();
+        let mut running = Running {
+            child,
+            watch,
+            program,
+            timeout: timing.first_frame,
+        };
+        let mut meter = CallgrindMeter::new(control, id, out, &mut dumps);
+        move_pointer(&mut run, &mut running, client, steps, &mut meter, "", "")?;
+    }
+    window::end(opened, &mut run)?;
     run.note("load average at the first frame", load);
     run.note("renderer", watch.renderer());
     run.presented = watch.presented();
     Ok(run)
 }
 
-/// Asks Callgrind in process `pid` to write a dump named `label`.
-fn dump(control: &dyn Fn() -> Command, pid: &str, label: &str) -> Result<(), Error> {
-    self::control(control, &["--dump", label, pid])
+/// Asks Callgrind in process `pid` to write a dump named `label`, the run's
+/// next after the `dumps` so far; its number.
+fn dump(
+    control: &dyn Fn() -> Command,
+    pid: &str,
+    label: &str,
+    dumps: &mut u32,
+) -> Result<u32, Error> {
+    self::control(control, &["--dump", label, pid])?;
+    *dumps += 1;
+    Ok(*dumps)
 }
 
 /// Runs `callgrind_control` (a session client) with `args`: `--dump LABEL

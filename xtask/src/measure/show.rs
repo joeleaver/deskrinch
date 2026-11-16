@@ -22,7 +22,9 @@
 //! settled (CPU time only; under Callgrind memory says nothing).
 //!
 //! With `--type`, a query is typed after each show's first frame, a key at
-//! a time, and each key measured ([`typing`]), before the dismiss.
+//! a time, and with the pointer options the pointer is placed and moved a
+//! step at a time; each step is measured ([`super::input`]), before the
+//! dismiss.
 //!
 //! The first show is the cold one: the first window the process makes.
 //! Each later one is a show after a hide, which re-creates the window.
@@ -34,12 +36,15 @@ use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use super::callgrind;
+use super::input::{
+    CallgrindMeter, CpuMeter, InputClient, Inputs, Meter, PointerSteps, Typing, after_show,
+    check_query_line, move_pointer,
+};
 use super::output;
 use super::probe::{self, Timing, nanos};
 use super::procfs::{self, cpu_between};
 use super::report::{Run, Unit};
-use super::settle::{alive, settle, settle_hidden};
-use super::typing::{self, CallgrindMeter, CpuMeter, Typing, Typist};
+use super::settle::{Running, alive, settle_hidden};
 use crate::error::Error;
 use crate::session::interrupt;
 use deskrinch_test_component::Watch;
@@ -55,7 +60,7 @@ pub(crate) struct Summons {
     pub(crate) dismiss: Vec<OsString>,
     /// How many shows each run measures.
     pub(crate) shows: u32,
-    /// With `--type`: what is typed after each show ([`typing`]).
+    /// With `--type`: what is typed after each show ([`super::input`]).
     pub(crate) typing: Option<Typing>,
     /// `--prepares`: the program prepares its hidden window, and the first
     /// settle waits for its first preparation.
@@ -81,54 +86,54 @@ impl Summons {
 /// The program run again with `args`: a session client.
 pub(crate) type Ask<'a> = &'a dyn Fn(&[OsString]) -> Command;
 
-/// The measured program while it runs: what waiting on it needs.
-pub(crate) struct Running<'a> {
-    pub(crate) child: &'a mut Child,
-    pub(crate) watch: &'a Watch,
-    pub(crate) program: &'a str,
-    /// How long whatever it is waited for may take.
-    pub(crate) timeout: Duration,
-}
-
-impl Running<'_> {
-    /// Waits for it to settle.
-    pub(crate) fn settle(&mut self) -> Result<(), Error> {
-        settle(self.child, self.watch, self.program, self.timeout)
-    }
-
-    /// Fails if it has exited.
-    pub(crate) fn alive(&mut self) -> Result<(), Error> {
-        alive(self.child, self.watch, self.program)
-    }
-}
-
-/// Starts the typist if `summons` types: before the program can show,
-/// since a headless wlroots seat gives a window that maps while it has no
-/// keyboard none of the keyboard.
-fn start_typist(
+/// After show `show`'s first frame, through `client` if there is one: the
+/// query typed (`--type`), then the pointer moved (`pointer`), each step
+/// measured by `meter`; `mark` is where the program's output stood before
+/// the summon.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the run, the program, the client, what is asked, the meter and where the show is"
+)]
+fn give_input(
+    run: &mut Run,
+    running: &mut Running<'_>,
+    client: Option<&mut InputClient>,
     summons: &Summons,
-    typist: Option<&dyn Fn() -> Command>,
-) -> Result<Option<Typist>, Error> {
-    match (&summons.typing, typist) {
-        (Some(_), Some(make)) => Typist::start(make()).map(Some),
-        _ => Ok(None),
+    pointer: Option<&PointerSteps>,
+    meter: &mut dyn Meter,
+    mark: usize,
+    show: u32,
+) -> Result<(), Error> {
+    let Some(client) = client else {
+        return Ok(());
+    };
+    if let Some(typing) = &summons.typing {
+        after_show(run, running, client, typing, meter, mark, show)?;
     }
+    if let Some(steps) = pointer {
+        let prefix = format!("show {show}: ");
+        let dumps = format!("show-{show}-");
+        move_pointer(run, running, client, steps, meter, &prefix, &dumps)?;
+    }
+    Ok(())
 }
 
 /// Starts `command` (the program, hidden) and measures each show's CPU
-/// time, and with `--type` each key's (`typist` making the typist's
-/// command); ends it afterwards.
+/// time, and with `inputs` each step's (keys typed, pointer moves); ends it
+/// afterwards.
 pub(crate) fn measure(
     command: Command,
     ask: Ask<'_>,
-    typist: Option<&dyn Fn() -> Command>,
+    inputs: Option<&Inputs<'_>>,
     program: &str,
     timing: Timing,
     summons: &Summons,
 ) -> Result<Run, Error> {
+    // The client first: its devices are made before the program starts.
+    let mut client = inputs.map(Inputs::start).transpose()?;
+    let pointer = inputs.and_then(|inputs| inputs.pointer);
     let (mut child, watch) = start(command, program)?;
     let result = (|| {
-        let mut typist = start_typist(summons, typist)?;
         settle_hidden(
             &mut child,
             &watch,
@@ -157,24 +162,23 @@ pub(crate) fn measure(
                 program,
                 timeout: timing.first_frame,
             };
-            if let (Some(typing), Some(typist)) = (&summons.typing, typist.as_mut()) {
-                let mut meter = CpuMeter::new(pid);
-                typing::after_show(
-                    &mut run,
-                    &mut running,
-                    typist,
-                    typing,
-                    &mut meter,
-                    mark,
-                    show,
-                )?;
-            }
+            let mut meter = CpuMeter::new(pid);
+            give_input(
+                &mut run,
+                &mut running,
+                client.as_mut(),
+                summons,
+                pointer,
+                &mut meter,
+                mark,
+                show,
+            )?;
             dismiss(&mut running, ask, summons)?;
             if let Some(typing) = &summons.typing {
-                typing::check_query_line(&mut running, typing, mark, show)?;
+                check_query_line(&mut running, typing, mark, show)?;
             }
         }
-        typist.map(Typist::finish).transpose()?;
+        client.take().map(InputClient::finish).transpose()?;
         run.note("load average after the shows", probe::load_average());
         run.presented = watch.presented();
         Ok(run)
@@ -194,15 +198,16 @@ pub(crate) fn measure_instructions(
     command: Command,
     control: &dyn Fn() -> Command,
     ask: Ask<'_>,
-    typist: Option<&dyn Fn() -> Command>,
+    inputs: Option<&Inputs<'_>>,
     program: &str,
     out: &Path,
     timing: Timing,
     summons: &Summons,
 ) -> Result<Run, Error> {
+    let mut client = inputs.map(Inputs::start).transpose()?;
+    let pointer = inputs.and_then(|inputs| inputs.pointer);
     let (mut child, watch) = start(command, program)?;
     let result = (|| {
-        let mut typist = start_typist(summons, typist)?;
         let id = child.id();
         let pid = id.to_string();
         settle_hidden(
@@ -214,7 +219,7 @@ pub(crate) fn measure_instructions(
         )?;
         let mut run = Run::default();
         // Callgrind numbers its dumps in the order they are asked for: a
-        // show's, each key's, then its hide's.
+        // show's, each step's, then its hide's.
         let mut dumps = 0;
         for show in 1..=summons.shows {
             push_prepared(&mut run, show, &watch, summons);
@@ -236,18 +241,17 @@ pub(crate) fn measure_instructions(
                 program,
                 timeout: timing.first_frame,
             };
-            if let (Some(typing), Some(typist)) = (&summons.typing, typist.as_mut()) {
-                let mut meter = CallgrindMeter::new(control, id, out, &mut dumps);
-                typing::after_show(
-                    &mut run,
-                    &mut running,
-                    typist,
-                    typing,
-                    &mut meter,
-                    mark,
-                    show,
-                )?;
-            }
+            let mut meter = CallgrindMeter::new(control, id, out, &mut dumps);
+            give_input(
+                &mut run,
+                &mut running,
+                client.as_mut(),
+                summons,
+                pointer,
+                &mut meter,
+                mark,
+                show,
+            )?;
             // The hide, to settled: what the program does once dismissed,
             // a preparation of its hidden window included.
             callgrind::control(control, &["--zero", &pid])?;
@@ -266,10 +270,10 @@ pub(crate) fn measure_instructions(
                 watch.prepared() - prepared,
             );
             if let Some(typing) = &summons.typing {
-                typing::check_query_line(&mut running, typing, mark, show)?;
+                check_query_line(&mut running, typing, mark, show)?;
             }
         }
-        typist.map(Typist::finish).transpose()?;
+        client.take().map(InputClient::finish).transpose()?;
         run.presented = watch.presented();
         Ok(run)
     })();

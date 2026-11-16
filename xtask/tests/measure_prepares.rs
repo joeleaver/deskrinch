@@ -22,7 +22,7 @@ mod measure_prepares {
     use std::process::{Command, Output, Stdio};
 
     use crate::report::number_after;
-    use crate::stand_in::{draws_when_shown, summons};
+    use crate::stand_in::summoned;
 
     /// What a run's notes say when show 1 came before any preparation.
     const NOTE: &str = "summoned before the program prepared anything";
@@ -36,8 +36,9 @@ mod measure_prepares {
     /// `xtask measure --summon` of the stand-in in `dir`, which first runs
     /// `start`, then draws when summoned; one show, and `options` besides.
     fn measure(dir: &Path, start: &str, options: &[&str]) -> Output {
-        let (summon, dismiss) = summons(dir);
-        let script = format!("{start}{}", draws_when_shown(dir));
+        let stand_in = summoned(dir, false);
+        let (summon, dismiss) = (stand_in.summon, stand_in.dismiss);
+        let script = format!("{start}{}", stand_in.script);
         Command::new(env!("CARGO_BIN_EXE_xtask"))
             .args(["measure", "--compositor", &compositor(), "--runs", "1"])
             .args(["--summon", &summon, "--dismiss", &dismiss, "--shows", "1"])

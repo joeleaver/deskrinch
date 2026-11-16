@@ -1,16 +1,28 @@
-//! `cargo xtask type`, the typist `measure --type` runs in its nested
+//! `cargo xtask input`, the input client measure runs in its nested
 //! session, refuses outside one, before it connects to anything; and
-//! `measure --type` refuses to run without the two lines it reads. Neither
+//! measure refuses typing without the two lines it reads, and pointer
+//! options that do not make sense, before any session starts. None of it
 //! needs a compositor.
 
 #[cfg(test)]
-mod typist {
-    use std::process::{Command, Stdio};
+mod input {
+    use std::process::{Command, Output, Stdio};
+
+    /// `xtask measure` with `args`, of a program it never gets to start.
+    fn measure(args: &[&str]) -> Output {
+        Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .arg("measure")
+            .args(args)
+            .arg("program")
+            .stdin(Stdio::null())
+            .output()
+            .unwrap()
+    }
 
     #[test]
-    fn the_typist_refuses_outside_a_nested_session() {
+    fn the_input_client_refuses_outside_a_nested_session() {
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
-            .arg("type")
+            .arg("input")
             .env_remove("DESKRINCH_TEST_COMPOSITOR")
             .stdin(Stdio::null())
             .output()
@@ -18,14 +30,14 @@ mod typist {
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(1), "{stderr}");
         assert!(
-            stderr.contains("types only into a nested session"),
+            stderr.contains("types and points only in a nested session"),
             "{stderr}"
         );
         assert!(output.stdout.is_empty(), "it said it was ready");
     }
 
     #[test]
-    fn the_typist_is_not_in_the_help() {
+    fn the_input_client_is_not_in_the_help() {
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
             .arg("--help")
             .output()
@@ -33,20 +45,11 @@ mod typist {
         let help = String::from_utf8_lossy(&output.stdout);
         assert!(output.status.success(), "{help}");
         assert!(help.contains("measure"), "{help}");
-        assert!(!help.contains("  type "), "{help}");
+        assert!(!help.contains("  input "), "{help}");
     }
 
     #[test]
     fn typing_needs_both_lines_and_a_summon() {
-        let measure = |args: &[&str]| {
-            Command::new(env!("CARGO_BIN_EXE_xtask"))
-                .arg("measure")
-                .args(args)
-                .arg("program")
-                .stdin(Stdio::null())
-                .output()
-                .unwrap()
-        };
         let lines = [
             "--keyboard-line",
             "has the keyboard",
@@ -72,5 +75,40 @@ mod typist {
         let stderr = String::from_utf8_lossy(&untypable.stderr);
         assert_eq!(untypable.status.code(), Some(2), "{stderr}");
         assert!(stderr.contains("'P' cannot be typed"), "{stderr}");
+    }
+
+    #[test]
+    fn the_pointer_needs_a_placing_and_a_move_and_points_on_the_outputs() {
+        let alone = measure(&["--place-pointer", "640,360"]);
+        let stderr = String::from_utf8_lossy(&alone.stderr);
+        assert_eq!(alone.status.code(), Some(2), "{stderr}");
+        assert!(stderr.contains("--move-pointer"), "{stderr}");
+        let unplaced = measure(&["--move-pointer", "640,700"]);
+        let stderr = String::from_utf8_lossy(&unplaced.stderr);
+        assert_eq!(unplaced.status.code(), Some(2), "{stderr}");
+        assert!(stderr.contains("--place-pointer"), "{stderr}");
+        let not_a_point = measure(&["--place-pointer", "640", "--move-pointer", "1,2"]);
+        let stderr = String::from_utf8_lossy(&not_a_point.stderr);
+        assert_eq!(not_a_point.status.code(), Some(2), "{stderr}");
+        assert!(stderr.contains("is not X,Y or N:X,Y"), "{stderr}");
+        // Refused by measure itself, before any session: one output asked.
+        let past = measure(&[
+            "--outputs",
+            "1",
+            "--place-pointer",
+            "640,360",
+            "--move-pointer",
+            "2:10,10",
+        ]);
+        let stderr = String::from_utf8_lossy(&past.stderr);
+        assert_eq!(past.status.code(), Some(1), "{stderr}");
+        assert!(
+            stderr.contains("2:10,10 is on an output past the session's 1"),
+            "{stderr}"
+        );
+        assert!(
+            !stderr.contains("measure: run"),
+            "a session started: {stderr}"
+        );
     }
 }
