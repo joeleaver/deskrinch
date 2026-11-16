@@ -99,12 +99,10 @@ impl Shown {
         self.wait_keyboard();
     }
 
-    /// Waits for the launcher to say, in this show's lines, that its window
-    /// has the keyboard: a key typed before could be lost ("lain" for
-    /// "plain"). Its field may take the keyboard a moment later still
-    /// (`said.rs`), which the screen's wait for where it is drawn covers in
-    /// practice; [`hid_with_the_query`](Self::hid_with_the_query) is the
-    /// proof.
+    /// Waits for the launcher to say, in this show's lines, that its query
+    /// field has the keyboard (`said.rs`): a key typed before could be lost
+    /// ("lain" for "plain"), a key typed after reaches the field.
+    /// [`hid_with_the_query`](Self::hid_with_the_query) is the proof.
     fn wait_keyboard(&self) {
         if let Err(why) = self.launcher.wait_said_since(self.show_mark, HAS_KEYBOARD) {
             panic!("the launcher never had the keyboard: {why}");

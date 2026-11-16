@@ -19,6 +19,8 @@ use rinch::prelude::*;
 const SIZE: u32 = 32;
 
 /// The launcher's content, and its query field (to focus at each show).
+/// `on_focus` is called each time the field gains the keyboard (its
+/// `focus` event: the field focused while the window has the keyboard).
 pub(crate) fn view(
     __scope: &mut RenderScope,
     model: Signal<Model>,
@@ -26,6 +28,7 @@ pub(crate) fn view(
     on_query: impl Fn(String) + 'static,
     on_key: impl Fn(&str) -> bool + 'static,
     on_pointer: Rc<dyn Fn(Input)>,
+    on_focus: impl Fn() + 'static,
 ) -> (NodeHandle, NodeHandle) {
     let rows = Memo::new(move || model.with(|m| m.rows()[m.visible()].to_vec()));
     let selected = Memo::new(move || model.with(|m| m.selected_row().map(|row| row.id.clone())));
@@ -44,6 +47,7 @@ pub(crate) fn view(
             value: {move || model.with(|m| m.query().to_owned())},
             oninput: move |text: String| on_query(text),
             onkeydown: move |key| on_key(&key.key),
+            onfocus: move || on_focus(),
         }
     };
     let content = rsx! {
