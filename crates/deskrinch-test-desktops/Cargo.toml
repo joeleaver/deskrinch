@@ -1,0 +1,17 @@
+[package]
+name = "deskrinch-test-desktops"
+description = "KWin's virtual desktops changed through its own D-Bus interface, for deskrinch's compositor tests: the compositor's side of a test of something that follows them."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# The session's bus, which KWin's interface is on.
+deskrinch-bus.workspace = true
+zbus = { workspace = true, features = ["default-rt"] }
+
+[lints]
+workspace = true
