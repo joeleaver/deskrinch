@@ -32,7 +32,13 @@ impl Wired {
 #[test]
 fn made_hidden_the_window_is_hidden_without_the_keyboard_and_asks_nothing() {
     let mut wired = wired(false);
+    // Opened with the launcher's own props (WindowProps has no PartialEq):
+    // its layer surface, its app id, and hidden.
     let props = surface::window_props(false);
+    let opened = wired.app.window_props();
+    assert_eq!(opened.wayland_layer, props.wayland_layer);
+    assert_eq!(opened.app_id, props.app_id);
+    assert_eq!(opened.visible, props.visible);
     assert_eq!(wired.app.size(), (props.width, props.height));
     assert!(!wired.app.is_visible());
     assert!(!wired.app.is_window_focused());

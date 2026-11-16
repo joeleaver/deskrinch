@@ -21,9 +21,11 @@
 //! - [`stop`]: ending in order when asked to (`SIGTERM`, `SIGINT`,
 //!   `SIGHUP`), which [`app::run`] installs.
 //!
-//! - [`Handover`]: values from another thread of the component to the UI,
-//!   held until the UI's signal exists; what [`LiveSettings`] hands a table
-//!   over with, and any other source (a D-Bus client) can use.
+//! - [`handover`]: values from another thread of the component to the UI,
+//!   held until the UI's signal exists, in two halves: a [`Handover`] that
+//!   delivers, and an [`Inbox`] that the UI's root turns into its signal,
+//!   once. What [`LiveSettings`] hands a table over with, and any other
+//!   source (a D-Bus client) can use.
 //!
 //! # Example
 //!
@@ -53,5 +55,5 @@ pub mod report;
 pub mod stop;
 
 pub use configuration::Configuration;
-pub use handover::Handover;
+pub use handover::{Handover, Inbox, handover};
 pub use live::LiveSettings;

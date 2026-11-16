@@ -23,6 +23,9 @@ const NAMES: [&str; 8] = [
 ];
 
 impl OutputTransform {
+    /// Upright: what every compositor starts with.
+    pub(crate) const NORMAL: Self = Self(Transform::Normal);
+
     /// The transform.
     pub(crate) fn get(self) -> Transform {
         self.0

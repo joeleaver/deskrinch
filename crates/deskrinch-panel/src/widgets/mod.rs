@@ -6,6 +6,6 @@ mod clock;
 mod switcher;
 mod taskbar;
 
-pub(crate) use clock::ClockWidget;
-pub(crate) use switcher::{Following as FollowedWorkspaces, SwitcherWidget};
-pub(crate) use taskbar::{AppIcons, Following as FollowedWindows, TaskbarWidget};
+pub(crate) use clock::{ClockWidget, follow as follow_clock};
+pub(crate) use switcher::{Following as FollowedWorkspaces, Runs, SwitcherWidget};
+pub(crate) use taskbar::{AppIcons, Buttons, Following as FollowedWindows, TaskbarWidget};

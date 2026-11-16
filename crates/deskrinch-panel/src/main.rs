@@ -109,8 +109,8 @@ fn main() -> ExitCode {
     let window = surface::window_props(surface::Placement::of(&live.initial));
     let first_theme = theme.initial();
     let env = Environment::from_process();
-    let (windows, follow_windows) = widgets::FollowedWindows::new();
-    let (workspaces, follow_workspaces) = widgets::FollowedWorkspaces::new();
+    let (windows, buttons, follow_windows) = widgets::FollowedWindows::new();
+    let (workspaces, runs, follow_workspaces) = widgets::FollowedWorkspaces::new();
     compositor::start(vec![follow_windows, follow_workspaces]);
     let parts = panel::Parts {
         live,
@@ -119,6 +119,8 @@ fn main() -> ExitCode {
         icons: Icons::start(SearchPath::new(&base_dirs)),
         windows,
         workspaces,
+        buttons,
+        runs,
     };
     deskrinch_component::app::run(
         deskrinch_component::app::new(move |scope| panel::panel(scope, parts))

@@ -33,14 +33,17 @@ struct Mounted {
 }
 
 fn mounted(shown: bool) -> Mounted {
-    let visibility = Arc::new(Visibility::new(shown));
+    // The visibility and its window's inbox, which the root turns into the
+    // window's signal (the hand-over's two halves).
+    let (visibility, window) = Visibility::new(shown);
+    let visibility = Arc::new(visibility);
     let model_slot: Rc<RefCell<Option<Signal<Model>>>> = Rc::default();
     let (v, slot) = (Arc::clone(&visibility), Rc::clone(&model_slot));
     let app = TestApp::builder(move |__scope: &mut RenderScope| {
         let model = Signal::new(Model::new());
         *slot.borrow_mut() = Some(model);
         let index = Signal::new(None);
-        let shown = v.signal();
+        let shown = window.into_signal(v.is_shown());
         let content = wiring::wire(
             __scope,
             Wiring {

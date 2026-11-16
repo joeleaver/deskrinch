@@ -25,7 +25,9 @@
 //!   [`TestWindow::pointer_events`], [`TestWindow::wait_pointer_at`]). Wheel
 //!   events, frames and the cursor are not kept.
 //! - [`Compositor::current`] says which nested compositor the tests run
-//!   in, and refuses to go on outside one.
+//!   in, and refuses to go on outside one. [`require_outputs`] refuses to
+//!   go on unless the session's outputs have the modes a test was written
+//!   for (a pass of `cargo xtask compositor-tests` with outputs of its own).
 //! - The session's outputs ([`outputs`], each an [`OutputState`]: on or
 //!   off, position, mode, scale, transform), and changes to them under any
 //!   of the three compositors: [`turn_output_off`], and [`change_output`]
@@ -35,8 +37,10 @@
 //!   `wlr-output-management` under sway and labwc, and KDE's
 //!   `kscreen-doctor` under KWin.
 //! - For a session's runner, which is not one of its clients:
-//!   [`configure_every_output`] and [`wlroots_outputs_at`] on a wlroots
-//!   compositor's socket, [`kscreen_settings`] for running `kscreen-doctor`
+//!   [`configure_every_output`], [`wlroots_outputs_at`] and
+//!   [`set_wlroots_outputs_at`] on a wlroots
+//!   compositor's socket, [`kscreen_settings`], [`kscreen_add_mode`] and
+//!   [`kscreen_select_mode`] for running `kscreen-doctor`
 //!   itself, [`kscreen_outputs`] to read its listing, and
 //!   [`layout_differences`] to compare two layouts. [`configure_output`]
 //!   changes one output under a wlroots compositor without a guard.
@@ -59,6 +63,7 @@ mod output_info;
 mod outputs;
 mod paint;
 mod pointer;
+mod require;
 mod seat;
 mod synced;
 mod window;
@@ -68,15 +73,21 @@ use std::time::Duration;
 
 pub use client::TestClient;
 pub use compositor::Compositor;
-pub use kscreen::{KSCREEN_DOCTOR, kscreen_outputs, kscreen_settings};
+pub use kscreen::{
+    KSCREEN_DOCTOR, kscreen_add_mode, kscreen_outputs, kscreen_select_mode, kscreen_settings,
+};
 pub use layer::TestLayer;
 pub use layout::{
     Mode, OutputState, RestoreOutputs, change_output, layout_differences, outputs, turn_output_off,
 };
 pub use output_info::OutputInfo;
-pub use outputs::{OutputChange, configure_every_output, configure_output, wlroots_outputs_at};
+pub use outputs::{
+    OutputChange, configure_every_output, configure_output, set_wlroots_outputs_at,
+    wlroots_outputs_at,
+};
 pub use paint::Paint;
 pub use pointer::{PointerEvent, PointerMark};
+pub use require::require_outputs;
 pub use window::TestWindow;
 
 /// Why a test client could not do what was asked.

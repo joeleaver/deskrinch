@@ -1,0 +1,18 @@
+[package]
+name = "deskrinch-test-pictures"
+description = "Pictures for deskrinch-picture's tests: fixtures, encoders, segments and profiles spliced in, and hostile cases."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+gif.workspace = true
+image-webp.workspace = true
+moxcms.workspace = true
+png.workspace = true
+
+[lints]
+workspace = true

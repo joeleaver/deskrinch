@@ -91,7 +91,7 @@ pub(crate) use self::compositor_log::CompositorLog;
 pub(crate) use self::display::{Binding, Display, Home, Options};
 pub(crate) use self::gpu::{Gpu, VARIABLE as GPU_VARIABLE};
 pub(crate) use self::leftovers::Leftover;
-pub(crate) use self::outputs::Outputs;
+pub(crate) use self::outputs::{OutputSize, Outputs, SizeArgs, TooManySizes};
 pub(crate) use self::render_nodes::RenderNodes;
 pub(crate) use self::rendering::CompositorRenderer;
 pub(crate) use self::scale::Scale;

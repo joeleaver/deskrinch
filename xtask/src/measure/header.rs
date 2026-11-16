@@ -19,13 +19,13 @@ pub(super) fn header(request: &Request, end: &End) -> String {
         .collect();
     let header = format!(
         "Measured: {} {}\n\
-         Compositor: {} (nested, headless, {} output(s); {})\n\
+         Compositor: {} (nested, headless, {}; {})\n\
          Renderer: {}; shader cache: {}; {}\n\
          Machine: {}",
         request.program.to_string_lossy(),
         args.join(" "),
         request.compositor.name(),
-        request.outputs,
+        request.outputs.counted(),
         match (request.compositor, request.compositor_renderer()) {
             (Compositor::Kwin, _) => "it composites with the GPU through EGL".to_owned(),
             (_, CompositorRenderer::Gpu) => format!(
@@ -127,6 +127,25 @@ pub(super) fn no_window(runs: &[Run]) -> Option<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The header says how many outputs the session had, and their sizes
+    /// where any was asked for; without, as it always has.
+    #[test]
+    fn the_header_says_the_outputs_sizes_when_asked_for() {
+        let mut request = Request::new("panel".into());
+        let plain = header(&request, &End::Frame(1));
+        assert!(
+            plain.contains("(nested, headless, 1 output(s); "),
+            "{plain}"
+        );
+        let size: crate::session::OutputSize = "3840x2160".parse().unwrap();
+        request.outputs = crate::session::Outputs::plain(2).sized(&[size]).unwrap();
+        let sized = header(&request, &End::Frame(1));
+        assert!(
+            sized.contains("(nested, headless, 2 output(s) of 3840x2160, 1280x720; "),
+            "{sized}"
+        );
+    }
 
     #[test]
     fn a_program_that_drew_in_no_run_is_said_to_have_no_window() {

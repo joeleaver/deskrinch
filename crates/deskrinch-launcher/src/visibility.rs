@@ -3,8 +3,7 @@
 
 use std::sync::{Mutex, PoisonError};
 
-use deskrinch_component::Handover;
-use rinch::prelude::Signal;
+use deskrinch_component::{Handover, Inbox, handover};
 
 /// Whether the launcher is shown, and the hand-over that tells its window.
 ///
@@ -19,13 +18,17 @@ pub struct Visibility {
 }
 
 impl Visibility {
-    /// Hidden or shown at first, as `shown` says.
+    /// Hidden or shown at first, as `shown` says; and the window's half of
+    /// the hand-over, which the launcher's root turns into the window's
+    /// signal, once, starting at [`is_shown`](Self::is_shown).
     #[must_use]
-    pub fn new(shown: bool) -> Self {
-        Self {
+    pub fn new(shown: bool) -> (Self, Inbox<bool>) {
+        let (window, inbox) = handover();
+        let visibility = Self {
             shown: Mutex::new(shown),
-            window: Handover::default(),
-        }
+            window,
+        };
+        (visibility, inbox)
     }
 
     /// Whether the launcher is shown, or about to be.
@@ -53,13 +56,6 @@ impl Visibility {
         self.set(false);
     }
 
-    /// The window's signal, on the UI thread, once: whether it should be
-    /// shown, from now on.
-    pub fn signal(&self) -> Signal<bool> {
-        let shown = self.is_shown();
-        self.window.signal(shown)
-    }
-
     fn set(&self, wanted: bool) {
         let mut shown = self.lock();
         if *shown != wanted {
@@ -80,7 +76,7 @@ mod tests {
 
     #[test]
     fn toggle_flips_and_show_and_hide_set() {
-        let visibility = Visibility::new(false);
+        let (visibility, _window) = Visibility::new(false);
         assert!(visibility.toggle());
         assert!(visibility.is_shown());
         assert!(!visibility.toggle());
@@ -97,7 +93,7 @@ mod tests {
 
     #[test]
     fn starts_as_asked() {
-        assert!(Visibility::new(true).is_shown());
-        assert!(!Visibility::new(false).is_shown());
+        assert!(Visibility::new(true).0.is_shown());
+        assert!(!Visibility::new(false).0.is_shown());
     }
 }
