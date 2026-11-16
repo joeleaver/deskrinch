@@ -15,11 +15,11 @@ mod in_session;
 mod lost {
     use deskrinch_shell::exit_status::{DISPLAY_LOST, DISPLAY_LOST_LINE};
 
-    use crate::in_session;
+    use crate::in_session::{self, Then, Until};
 
     #[track_caller]
-    fn ends_with_display_lost(package: &str, args: &[&str], until: &str) {
-        let ended = in_session::run(package, args, until, "kill-compositor");
+    fn ends_with_display_lost(package: &str, args: &[&str], until: Until) {
+        let ended = in_session::run(package, args, until, Then::KillCompositor);
         assert_eq!(
             ended.status,
             i32::from(DISPLAY_LOST),
@@ -37,19 +37,19 @@ mod lost {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_wallpaper_ends_with_display_lost() {
-        ends_with_display_lost("deskrinch-wallpaper", &[], "presented");
+        ends_with_display_lost("deskrinch-wallpaper", &[], Until::Presented);
     }
 
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_panel_ends_with_display_lost() {
-        ends_with_display_lost("deskrinch-panel", &[], "presented");
+        ends_with_display_lost("deskrinch-panel", &[], Until::Presented);
     }
 
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_launcher_shown_ends_with_display_lost() {
-        ends_with_display_lost("deskrinch-launcher", &["--show"], "presented");
+        ends_with_display_lost("deskrinch-launcher", &["--show"], Until::Presented);
     }
 
     /// The launcher as it nearly always is, and as it is when a compositor
@@ -58,6 +58,6 @@ mod lost {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_launcher_hidden_ends_with_display_lost() {
-        ends_with_display_lost("deskrinch-launcher", &[], "prepared");
+        ends_with_display_lost("deskrinch-launcher", &[], Until::Prepared);
     }
 }

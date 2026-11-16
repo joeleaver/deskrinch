@@ -21,8 +21,9 @@
 //!    128 and the signal's number when a signal ended it.
 //!
 //! A component that ends before that frame, never draws it, or does not
-//! end afterwards is an error, said on standard error (the component is
-//! killed first), and `DIR/status` is not written.
+//! end afterwards, and an action that cannot be done, are errors, said on
+//! standard error, and `DIR/status` is not written. On every error path
+//! the component is killed and reaped first: nothing is left running.
 
 use std::fs::{self, File};
 use std::os::unix::process::ExitStatusExt;
@@ -180,7 +181,10 @@ fn step(args: &Args) -> Result<(), InSessionError> {
         end(&mut component);
         return Err(error);
     }
-    act(args.then)?;
+    if let Err(error) = act(args.then) {
+        end(&mut component);
+        return Err(error);
+    }
     let Some(status) = wait_end(&mut component)? else {
         end(&mut component);
         return Err(InSessionError::NotEnded {

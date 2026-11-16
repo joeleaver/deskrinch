@@ -27,11 +27,46 @@ pub(crate) struct Ended {
     pub(crate) said: String,
 }
 
+/// What to wait for before acting: `cargo xtask in-session`'s `--until`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Until {
+    /// The component's first presented frame: a component with a window
+    /// shown.
+    Presented,
+    /// Its first prepared frame: a component that starts hidden.
+    Prepared,
+}
+
+impl Until {
+    /// The argument it stands for.
+    fn argument(self) -> &'static str {
+        match self {
+            Self::Presented => "presented",
+            Self::Prepared => "prepared",
+        }
+    }
+}
+
+/// What to do then: `cargo xtask in-session`'s `--then`.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum Then {
+    /// End the session's compositor: the component's display goes away.
+    KillCompositor,
+}
+
+impl Then {
+    /// The argument it stands for.
+    fn argument(self) -> &'static str {
+        match self {
+            Self::KillCompositor => "kill-compositor",
+        }
+    }
+}
+
 /// The component `package` with `args`, run in a session of its own with
 /// the software renderer and rinch's frame lines; once it has drawn its
-/// first `until` frame (`presented` or `prepared`), `then` is done
-/// (`cargo xtask in-session`'s `--then`). How the component ended.
-pub(crate) fn run(package: &str, args: &[&str], until: &str, then: &str) -> Ended {
+/// first `until` frame, `then` is done. How the component ended.
+pub(crate) fn run(package: &str, args: &[&str], until: Until, then: Then) -> Ended {
     let dir = tempfile::tempdir().unwrap();
     let component = program(package).unwrap();
     let session_stderr = dir.path().join("session-stderr");
@@ -45,7 +80,7 @@ pub(crate) fn run(package: &str, args: &[&str], until: &str, then: &str) -> Ende
         ])
         .arg("--dir")
         .arg(dir.path())
-        .args(["--until", until, "--then", then])
+        .args(["--until", until.argument(), "--then", then.argument()])
         .arg(&component)
         .args(args)
         .env("RINCH_PERF", "1")
