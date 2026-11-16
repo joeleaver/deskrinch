@@ -1,85 +1,80 @@
-//! The typist from measure's side: `cargo xtask type` run in the session,
-//! given one key at a time on its input, each acknowledged on its output
-//! once typed ([`crate::typist`]).
+//! The input client from measure's side: `cargo xtask input` run in the
+//! session, given one step a line, each acknowledged on its output once
+//! taken ([`crate::input`] has the protocol).
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex, PoisonError};
-use std::thread;
+use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
-use super::TypingError;
+use super::MeasuredInputError;
 use crate::error::Error;
-use crate::typist::{READY, TYPED};
+use crate::input::{DONE, READY, Step};
 
-/// How long the typist may take to make its keyboard, or to type one key:
+/// How long the client may take to make its devices, or to take one step:
 /// a guard against a hang, not a time it is expected to take.
 const ANSWERS: Duration = Duration::from_secs(60);
 
-/// The typist, running, its keyboard made.
-pub(crate) struct Typist {
+/// The input client, running, its devices made.
+pub(crate) struct InputClient {
     child: Child,
-    /// Its input: a key a line. `None` once closed.
-    keys: Option<ChildStdin>,
+    /// Its input: a step a line. `None` once closed.
+    steps: Option<ChildStdin>,
     /// Its output, a line at a time.
     said: Receiver<String>,
-    /// What it wrote on standard error, for a failure's message.
-    stderr: Arc<Mutex<String>>,
+    /// What it writes on standard error, read to its end on a thread, for
+    /// a failure's message. `None` once taken.
+    stderr: Option<JoinHandle<String>>,
 }
 
-impl Typist {
-    /// Starts `command` (`cargo xtask type`, a session client) and waits
-    /// for it to say its keyboard is made.
+impl InputClient {
+    /// Starts `command` (`cargo xtask input`, a session client) and waits
+    /// for it to say its devices are made.
     pub(crate) fn start(mut command: Command) -> Result<Self, Error> {
         let mut child = command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .map_err(|source| TypingError::Typist {
+            .map_err(|source| MeasuredInputError::Client {
                 what: format!("could not be started: {source}"),
                 stderr: String::new(),
             })?;
-        let keys = child.stdin.take();
+        let steps = child.stdin.take();
         let said = lines(child.stdout.take());
-        let stderr = Arc::new(Mutex::new(String::new()));
-        if let Some(mut stream) = child.stderr.take() {
-            let stderr = Arc::clone(&stderr);
+        let stderr = child.stderr.take().map(|mut stream| {
             thread::spawn(move || {
                 let mut text = String::new();
                 drop(stream.read_to_string(&mut text));
-                stderr
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner)
-                    .push_str(&text);
-            });
-        }
-        let mut typist = Self {
+                text
+            })
+        });
+        let mut client = Self {
             child,
-            keys,
+            steps,
             said,
             stderr,
         };
-        typist.expect(READY, "did not make its keyboard")?;
-        Ok(typist)
+        client.expect(READY, "did not make its keyboard and pointer")?;
+        Ok(client)
     }
 
-    /// Types `key`, and waits for the typist to say it has.
-    pub(crate) fn key(&mut self, key: char) -> Result<(), Error> {
+    /// Takes `step`, and waits for the client to say it has.
+    pub(crate) fn step(&mut self, step: &Step) -> Result<(), Error> {
         let sent = self
-            .keys
+            .steps
             .as_mut()
-            .map(|keys| writeln!(keys, "{key}").and_then(|()| keys.flush()));
+            .map(|steps| writeln!(steps, "{step}").and_then(|()| steps.flush()));
         if !matches!(sent, Some(Ok(()))) {
-            return Err(self.failed(&format!("did not take the key {key:?}")));
+            return Err(self.failed(&format!("did not take `{step}`")));
         }
-        self.expect(TYPED, &format!("did not type the key {key:?}"))
+        self.expect(DONE, &format!("did not take `{step}`"))
     }
 
     /// Closes its input, and waits for it to end as it should.
     pub(crate) fn finish(mut self) -> Result<(), Error> {
-        drop(self.keys.take());
+        drop(self.steps.take());
         match self.child.wait() {
             Ok(status) if status.success() => Ok(()),
             Ok(status) => Err(self.failed(&format!("ended badly ({status})"))),
@@ -87,7 +82,7 @@ impl Typist {
         }
     }
 
-    /// Waits for the typist to say `word`; `failing` says what it did not
+    /// Waits for the client to say `word`; `failing` says what it did not
     /// do otherwise.
     fn expect(&mut self, word: &str, failing: &str) -> Result<(), Error> {
         match self.said.recv_timeout(ANSWERS) {
@@ -97,28 +92,33 @@ impl Typist {
                 Err(self.failed(&format!("{failing} within {ANSWERS:?}")))
             }
             Err(RecvTimeoutError::Disconnected) => {
-                drop(self.child.wait());
                 Err(self.failed(&format!("{failing}: it ended")))
             }
         }
     }
 
-    fn failed(&self, what: &str) -> Error {
-        TypingError::Typist {
+    /// The client failed in `what`: it is ended, and what it wrote on its
+    /// standard error, to its end, goes with the error.
+    fn failed(&mut self, what: &str) -> Error {
+        drop(self.steps.take());
+        drop(self.child.kill());
+        drop(self.child.wait());
+        let stderr = self
+            .stderr
+            .take()
+            .and_then(|reader| reader.join().ok())
+            .unwrap_or_default();
+        MeasuredInputError::Client {
             what: what.to_owned(),
-            stderr: self
-                .stderr
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone(),
+            stderr,
         }
         .into()
     }
 }
 
-impl Drop for Typist {
+impl Drop for InputClient {
     fn drop(&mut self) {
-        drop(self.keys.take());
+        drop(self.steps.take());
         drop(self.child.kill());
         drop(self.child.wait());
     }

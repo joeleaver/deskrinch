@@ -2,7 +2,9 @@
 //! frame (per thread, including threads that ended before it), its memory
 //! once settled, and an idle window's CPU time, wake-ups and frames. The
 //! first frame is the main window's, or with `--windows` the last of the
-//! windows expected ([`windows`]).
+//! windows expected ([`windows`]). With the pointer options, the pointer is
+//! moved after the idle window, each step measured ([`super::input`]), the
+//! `--window` window still open.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -12,10 +14,12 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process};
 
+use super::input::{CpuMeter, InputClient, Inputs, move_pointer};
 use super::output;
 use super::procfs::{self, ProcessSample, ThreadSample};
 use super::report::{Run, Unit, per_minute, per_second_milli};
-use super::window::{self, Stimulus};
+use super::settle::Running;
+use super::window::{self, Opened, Stimulus};
 use super::windows::{self, Arrivals, Expect, Started};
 use super::{gpu, smaps};
 use crate::error::Error;
@@ -38,14 +42,18 @@ pub(crate) struct Timing {
 }
 
 /// Starts `command` (a session client) and measures it, reading the
-/// frames `expect` says; ends it afterwards.
+/// frames `expect` says, with `inputs` its pointer's steps after the idle
+/// window; ends it afterwards.
 pub(crate) fn measure(
     mut command: Command,
     program: &str,
     timing: Timing,
     stimulus: &Stimulus,
     expect: Expect,
+    inputs: Option<&Inputs<'_>>,
 ) -> Result<Run, Error> {
+    // The client first: its devices are made before the program starts.
+    let mut client = inputs.map(Inputs::start).transpose()?;
     let start = Instant::now();
     let mut child = command
         .stdout(Stdio::piped())
@@ -62,7 +70,14 @@ pub(crate) fn measure(
         program,
         expect,
     };
-    let result = measure_child(&mut child, &measured, start, timing, stimulus);
+    let pointer = client
+        .as_mut()
+        .zip(inputs.and_then(|inputs| inputs.pointer));
+    let result =
+        measure_child(&mut child, &measured, start, timing, stimulus, pointer).and_then(|run| {
+            client.take().map(InputClient::finish).transpose()?;
+            Ok(run)
+        });
     stop(&mut child);
     output::with_output(result, &watch)
 }
@@ -80,13 +95,14 @@ fn measure_child(
     start: Instant,
     timing: Timing,
     stimulus: &Stimulus,
+    pointer: Option<(&mut InputClient, &super::input::PointerSteps)>,
 ) -> Result<Run, Error> {
     let Measured { watch, program, .. } = *measured;
     let mut run = Run::default();
     let started = startup(&mut run, child, measured, start, timing.first_frame)?;
     wait(child, watch, program, timing.settle)?;
     memory(&mut run, child.id(), program)?;
-    idle(
+    let opened = idle(
         &mut run,
         child,
         measured,
@@ -94,6 +110,25 @@ fn measure_child(
         stimulus,
         started.as_ref(),
     )?;
+    if let Some((client, steps)) = pointer {
+        let pid = child.id();
+        let mut running = Running {
+            child,
+            watch,
+            program,
+            timeout: timing.first_frame,
+        };
+        move_pointer(
+            &mut run,
+            &mut running,
+            client,
+            steps,
+            &mut CpuMeter::new(pid),
+            "",
+            "",
+        )?;
+    }
+    window::end(opened, &mut run)?;
     run.push("frames in all", Unit::Count, measured.expect.frames(watch));
     Ok(run)
 }
@@ -237,7 +272,7 @@ fn idle(
     duration: Duration,
     stimulus: &Stimulus,
     started: Option<&Started>,
-) -> Result<(), Error> {
+) -> Result<Option<Opened>, Error> {
     let Measured { watch, program, .. } = *measured;
     let pid = child.id();
     let before = procfs::read_threads(pid);
@@ -247,7 +282,6 @@ fn idle(
     let opened = stimulus.begin()?;
     wait(child, watch, program, duration)?;
     let after = procfs::read_threads(pid);
-    window::end(opened, run)?;
     let millis = u64::try_from(window_start.elapsed().as_millis()).unwrap_or(u64::MAX);
     // A thread that started inside the window counts from zero.
     let delta = |field: fn(&ThreadSample) -> u64| -> u64 {
@@ -300,7 +334,7 @@ fn idle(
             per_frame,
         );
     }
-    Ok(())
+    Ok(opened)
 }
 
 /// How many thread groups the idle window's note names.

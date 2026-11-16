@@ -39,6 +39,7 @@ mod environment;
 mod gpu;
 mod granting;
 mod help;
+mod input;
 mod output;
 mod probe;
 mod procfs;
@@ -49,19 +50,18 @@ mod show;
 mod smaps;
 mod state;
 mod system;
-mod typing;
 mod window;
 mod windows;
 
 pub(crate) use args::Args;
 pub(crate) use help::LONG_ABOUT;
-pub(crate) use typing::TypingError;
+pub(crate) use input::MeasuredInputError;
 pub(crate) use windows::WindowsError;
 
 use self::environment::parse_env;
+use self::input::{Inputs, Point, Pointer, QueryLine, Typing, parse_text};
 use self::renderer::{Expected, Renderer};
 use self::show::Summons;
-use self::typing::{QueryLine, Typing, parse_text};
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -128,12 +128,16 @@ pub(crate) struct Request {
     pub(crate) component: Option<String>,
     /// With `--env`: variables set on the measured program, after its own.
     pub(crate) env: Vec<(String, String)>,
+    /// With `--place-pointer`: the pointer placed, then moved a step at a
+    /// time, after the idle window or after each show.
+    pub(crate) pointer: Option<Pointer>,
 }
 
 impl Request {
-    /// Whether it types (`--type`).
-    fn types(&self) -> bool {
-        self.summons.as_ref().is_some_and(|s| s.typing.is_some())
+    /// Whether it gives the program input: a query typed (`--type`), or
+    /// the pointer moved.
+    fn gives_input(&self) -> bool {
+        self.pointer.is_some() || self.summons.as_ref().is_some_and(|s| s.typing.is_some())
     }
 
     /// What each run's compositor renders with: the GPU when rinch's GPU
@@ -167,6 +171,7 @@ impl Request {
             allow_errors: false,
             component: None,
             env: Vec::new(),
+            pointer: None,
         }
     }
 }
@@ -176,10 +181,14 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     if let Some(state) = &request.state {
         state::check(state)?;
     }
+    if let Some(pointer) = &request.pointer {
+        pointer.check(request.outputs)?;
+    }
     let program = request.program.to_string_lossy().into_owned();
     let grant = Grant::of(request)?;
-    // Only a typed run depends on finding this binary, the typist.
-    let typist = request.types().then(typist_executable).transpose()?;
+    // Only a run that gives input depends on finding this binary, the
+    // input client.
+    let client = request.gives_input().then(input_executable).transpose()?;
     // A warm cache lives outside the sessions, for as long as this task.
     let cache_dir = (request.shader_cache == ShaderCache::Warm)
         .then(|| {
@@ -194,32 +203,34 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         .transpose()?;
     let cache = cache_dir.as_ref().map(tempfile::TempDir::path);
     if let Some(dir) = cache {
+        // The filling start does what a measured run does, its --window
+        // window and its pointer's steps included: the cache is to hold what
+        // the runs draw.
         eprintln!("measure: filling the shader cache with one unmeasured start");
         let timing = probe::Timing {
             first_frame: request.first_frame_timeout,
             settle: Duration::ZERO,
             idle: Duration::ZERO,
         };
-        in_session(request, &grant, typist.as_deref(), |session| {
-            let command = client(session, request, Some(dir));
-            match &request.summons {
-                Some(summons) => {
-                    let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
-                    let typist = typist
-                        .as_deref()
-                        .map(|exe| move || typist_client(session, exe));
-                    let typist = typist.as_ref().map(|make| -> &dyn Fn() -> Command { make });
-                    show::measure(command, &ask, typist, &program, timing, summons).map(drop)
+        in_session(request, &grant, client.as_deref(), |session| {
+            with_inputs(request, session, client.as_deref(), |inputs| {
+                let command = program_client(session, request, Some(dir));
+                match &request.summons {
+                    Some(summons) => {
+                        let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
+                        show::measure(command, &ask, inputs, &program, timing, summons).map(drop)
+                    }
+                    None => probe::measure(
+                        command,
+                        &program,
+                        timing,
+                        &Stimulus::of(session, request.window.as_deref()),
+                        Expect::of(request.windows),
+                        inputs,
+                    )
+                    .map(drop),
                 }
-                None => probe::measure(
-                    command,
-                    &program,
-                    timing,
-                    &Stimulus::none(),
-                    Expect::of(request.windows),
-                )
-                .map(drop),
-            }
+            })
         })?;
     }
     let timing = probe::Timing {
@@ -231,12 +242,10 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let mut runs = Vec::new();
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
-        let mut run = in_session(request, &grant, typist.as_deref(), |session| {
-            let typist = typist
-                .as_deref()
-                .map(|exe| move || typist_client(session, exe));
-            let typist = typist.as_ref().map(|make| -> &dyn Fn() -> Command { make });
-            measure_run(request, session, index, cache, &program, timing, typist)
+        let mut run = in_session(request, &grant, client.as_deref(), |session| {
+            with_inputs(request, session, client.as_deref(), |inputs| {
+                measure_run(request, session, index, cache, &program, timing, inputs)
+            })
         })?;
         output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
         run.note("granted", grant.note());
@@ -258,8 +267,8 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
 
 /// Measures run `index` of `program` in `session` as `request` asks: under
 /// Callgrind with `--instructions`, else from `/proc`; its shows with
-/// `--summon`, else its start and idle window; `typist`, with `--type`,
-/// makes the typist.
+/// `--summon`, else its start and idle window; with `inputs`, the input
+/// it gives.
 fn measure_run(
     request: &Request,
     session: &Session,
@@ -267,16 +276,16 @@ fn measure_run(
     cache: Option<&Path>,
     program: &str,
     timing: probe::Timing,
-    typist: Option<&dyn Fn() -> Command>,
+    inputs: Option<&Inputs<'_>>,
 ) -> Result<report::Run, Error> {
     let ask = |args: &[OsString]| asked(session, request, cache, args);
     let stimulus = || Stimulus::of(session, request.window.as_deref());
     let expect = Expect::of(request.windows);
     if !request.instructions {
-        let command = client(session, request, cache);
+        let command = program_client(session, request, cache);
         return match &request.summons {
-            Some(summons) => show::measure(command, &ask, typist, program, timing, summons),
-            None => probe::measure(command, program, timing, &stimulus(), expect),
+            Some(summons) => show::measure(command, &ask, inputs, program, timing, summons),
+            None => probe::measure(command, program, timing, &stimulus(), expect, inputs),
         };
     }
     let dir = request.profiles.as_ref().map_or_else(
@@ -297,19 +306,28 @@ fn measure_run(
     let control = || session.client("callgrind_control".as_ref());
     match &request.summons {
         Some(summons) => show::measure_instructions(
-            command, &control, &ask, typist, program, &out, timing, summons,
+            command, &control, &ask, inputs, program, &out, timing, summons,
         ),
-        None => callgrind::measure(command, control, program, &out, timing, &stimulus(), expect),
+        None => callgrind::measure(
+            command,
+            control,
+            program,
+            &out,
+            timing,
+            &stimulus(),
+            expect,
+            inputs,
+        ),
     }
 }
 
 /// Runs `measure` in a fresh session, which is ended afterwards whatever
-/// the outcome. Under KWin the program is granted `grant`, and the typist
-/// (`--type`'s, run from `typist`) the keyboard KWin restricts.
+/// the outcome. Under KWin the program is granted `grant`, and the input
+/// client (run from `client`) the input KWin restricts.
 fn in_session<T>(
     request: &Request,
     grant: &Grant,
-    typist: Option<&Path>,
+    client: Option<&Path>,
     measure: impl FnOnce(&Session) -> Result<T, Error>,
 ) -> Result<T, Error> {
     let session = Session::start(
@@ -321,10 +339,10 @@ fn in_session<T>(
         Gpu::Machine,
         |data_home| {
             grant.install(data_home)?;
-            if let Some(typist) = typist
+            if let Some(client) = client
                 && request.compositor == Compositor::Kwin
             {
-                crate::grant::install_entry(&crate::typist::grant(typist)?, data_home)?;
+                crate::grant::install_entry(&crate::input::grant(client)?, data_home)?;
             }
             Ok(())
         },
@@ -341,7 +359,7 @@ fn in_session<T>(
 }
 
 /// The measured program as a client of `session`.
-fn client(session: &Session, request: &Request, cache: Option<&Path>) -> Command {
+fn program_client(session: &Session, request: &Request, cache: Option<&Path>) -> Command {
     let mut command = session.client(&request.program);
     environment(&mut command, request, cache);
     command.args(&request.args);
@@ -358,22 +376,42 @@ fn asked(session: &Session, request: &Request, cache: Option<&Path>, args: &[OsS
     command
 }
 
-/// This binary, which is `--type`'s typist run as `cargo xtask type`, with
+/// With `client` (the input client's executable), runs `measure` with the
+/// input `request` gives in `session`: the client's command, and the
+/// pointer's steps, each point's output named as the session names it.
+fn with_inputs<T>(
+    request: &Request,
+    session: &Session,
+    client: Option<&Path>,
+    measure: impl FnOnce(Option<&Inputs<'_>>) -> Result<T, Error>,
+) -> Result<T, Error> {
+    let Some(executable) = client else {
+        return measure(None);
+    };
+    let pointer = match &request.pointer {
+        Some(pointer) => Some(pointer.steps(&session.output_names()?)?),
+        None => None,
+    };
+    let client = || {
+        let mut command = session.client(executable.as_os_str());
+        command.arg("input");
+        command
+    };
+    measure(Some(&Inputs {
+        client: &client,
+        pointer: pointer.as_ref(),
+    }))
+}
+
+/// This binary, which is the input client run as `cargo xtask input`, with
 /// links resolved: the executable KWin sees, and grants.
-fn typist_executable() -> Result<PathBuf, Error> {
+fn input_executable() -> Result<PathBuf, Error> {
     std::env::current_exe()
         .and_then(std::fs::canonicalize)
         .map_err(|source| Error::Io {
-            what: "find xtask's own executable, the typist".into(),
+            what: "find xtask's own executable, the input client".into(),
             source,
         })
-}
-
-/// The typist, `executable type`, as a client of `session`.
-fn typist_client(session: &Session, executable: &Path) -> Command {
-    let mut command = session.client(executable.as_os_str());
-    command.arg("type");
-    command
 }
 
 /// What was measured, where and how.
@@ -444,6 +482,10 @@ fn header(request: &Request) -> String {
             "{header}\nTyped after each show: {:?}, a key at a time, each to settled",
             typing.text
         ),
+        None => header,
+    };
+    let header = match &request.pointer {
+        Some(pointer) => format!("{header}\nPointer: {}", pointer.describe()),
         None => header,
     };
     match environment_set(request) {

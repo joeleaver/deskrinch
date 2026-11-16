@@ -105,13 +105,13 @@ pub(crate) enum Error {
     /// The shell's components could not be built.
     #[error(transparent)]
     Components(#[from] crate::components::BuildError),
-    /// `cargo xtask type` stopped.
+    /// `cargo xtask input` stopped.
     #[error(transparent)]
-    Typist(#[from] crate::typist::TypistError),
-    /// `cargo xtask measure --type` could not type, or the program did not
-    /// take what was typed.
+    Input(#[from] crate::input::InputError),
+    /// `cargo xtask measure` could not type or point, or the program did not
+    /// take what was typed, or drew nothing for a step.
     #[error(transparent)]
-    Typing(#[from] crate::measure::TypingError),
+    MeasuredInput(#[from] crate::measure::MeasuredInputError),
     /// A test binary cannot be granted what KWin restricts.
     #[error("could not write a test binary's desktop file")]
     DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),

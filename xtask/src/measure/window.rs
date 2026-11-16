@@ -33,11 +33,6 @@ pub(crate) struct Stimulus {
 }
 
 impl Stimulus {
-    /// Nothing: the idle window is idle.
-    pub(crate) fn none() -> Self {
-        Self::default()
-    }
-
     /// A window with `app_id`, when there is one, opened through `session`'s
     /// compositor.
     pub(crate) fn of(session: &Session, app_id: Option<&str>) -> Self {

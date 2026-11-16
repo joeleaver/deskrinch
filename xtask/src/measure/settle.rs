@@ -22,6 +22,27 @@ use super::procfs::{self, cpu_between};
 use crate::error::Error;
 use crate::session::interrupt;
 
+/// The measured program while it runs: what waiting on it needs.
+pub(crate) struct Running<'a> {
+    pub(crate) child: &'a mut Child,
+    pub(crate) watch: &'a Watch,
+    pub(crate) program: &'a str,
+    /// How long whatever it is waited for may take.
+    pub(crate) timeout: Duration,
+}
+
+impl Running<'_> {
+    /// Waits for it to settle.
+    pub(crate) fn settle(&mut self) -> Result<(), Error> {
+        settle(self.child, self.watch, self.program, self.timeout)
+    }
+
+    /// Fails if it has exited.
+    pub(crate) fn alive(&mut self) -> Result<(), Error> {
+        alive(self.child, self.watch, self.program)
+    }
+}
+
 /// A program counts as settled when its threads ran less than this much
 /// CPU time over [`SETTLE_WINDOW`].
 const SETTLED_CPU: Duration = Duration::from_millis(5);
