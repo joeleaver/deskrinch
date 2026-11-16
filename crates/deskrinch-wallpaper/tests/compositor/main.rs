@@ -14,8 +14,9 @@
 //!   scale.
 //! - [`layers`]: a window is above the wallpaper, and so is the panel.
 //! - [`outputs`]: an output turned while the wallpaper runs is covered at
-//!   its new shape; one turned off loses its wallpaper and, turned on
-//!   again, gets one anew, the others staying covered.
+//!   its new shape; one turned off (unplugged, to the wallpaper) loses its
+//!   window and, turned on again (plugged in), gets exactly one new one,
+//!   the other output keeping its window.
 //! - [`reconfigured`]: an output moved, rescaled or turned keeps its
 //!   window, and is covered at its new shape.
 //! - [`together`]: with the two outputs at one position, where sway shows
@@ -23,12 +24,34 @@
 //!   in turn on the output shown, and both outputs show the last once
 //!   apart (rinch issue 2669).
 //!
-//! Not covered here: a new output, never seen before, plugged in (the
-//! sessions' outputs are fixed at their start; one turned off and on
-//! comes back as a new `wl_output` global, which is what the wallpaper
-//! follows); that the wallpaper wakes up for nothing when idle, which
-//! `cargo xtask measure`'s idle window shows; and that it covers a strip a
-//! panel reserves, which the panel above it hides from the screen.
+//! An output unplugged and one plugged in are tested as an output turned
+//! off and on. To a client both are the same: a `wl_output` global removed,
+//! and a new one added with a new id; the wallpaper keys and places its
+//! windows by that id, never by name, so it takes the same path for both.
+//! A compositor-side unplug is left out, for what each compositor can do in
+//! a test session (found 2026-11-16):
+//!
+//! - KWin 6.6 (`--virtual`): its virtual outputs are fixed at its start
+//!   (`--output-count`); nothing on its bus adds or removes one, and
+//!   `kscreen-doctor` only enables, disables and configures. Off and on
+//!   only.
+//! - labwc 0.9: its headless outputs are fixed at its start
+//!   (`WLR_HEADLESS_OUTPUTS`); it has no command that makes or destroys
+//!   one, and `wlr-output-management` only enables and disables. Off and on
+//!   only.
+//! - sway 1.11: `swaymsg output <name> unplug` and `swaymsg create_output`
+//!   work, but a test cannot use them here. The output it makes has a new
+//!   name (`HEADLESS-3`, never `HEADLESS-2` again), so the session's layout
+//!   cannot be put back as the test client's guard and the runner's check
+//!   expect. And an unplug after any output's mode was committed in the
+//!   session (which every output change of the test client's does, the
+//!   ones this suite makes among them) is a use-after-free in sway and
+//!   wlroots 0.19.2 (rinch issue 2707, rinch PR 2711) that may end a
+//!   client's connection, by luck of what the freed memory holds.
+//!
+//! Not covered here: that the wallpaper wakes up for nothing when idle,
+//! which `cargo xtask measure`'s idle window shows; and that it covers a
+//! strip a panel reserves, which the panel above it hides from the screen.
 
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
 #[cfg(test)]
