@@ -388,7 +388,8 @@ fn clock_ticks_per_second() -> u64 {
     rustix::param::clock_ticks_per_second()
 }
 
-fn nanos(duration: Duration) -> u64 {
+/// `duration` in nanoseconds, saturating.
+pub(crate) fn nanos(duration: Duration) -> u64 {
     u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
 }
 
