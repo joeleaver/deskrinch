@@ -1,8 +1,9 @@
 //! A popup's life: expiry, its sender closing it, replacement in place, and
 //! the window going with the last popup.
 
+use deskrinch_test_component::{PerfLine, perf};
 use deskrinch_test_notify::Signal;
-use deskrinch_test_wait::comes_true;
+use deskrinch_test_wait::{PATIENCE, comes_true};
 
 use crate::support::Notifications;
 
@@ -14,10 +15,18 @@ const CLOSED: u32 = 3;
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn a_popup_expires_and_the_window_goes_with_it() {
     let mut notifications = Notifications::start();
+    // Drawn, then expired: too brief to wait for a still screen between.
     let id = notifications
         .client
         .simple(0, "Brief", "a second and a half", 1500);
-    notifications.column("the popup", |c| c.popups.len() == 1);
+    let watch = notifications.daemon().watch();
+    assert!(
+        watch.wait_for_line(PATIENCE, |line| {
+            matches!(perf::parse(line), Some(PerfLine::Frame { .. }))
+        }),
+        "the popup was never drawn; its last lines:\n{}",
+        watch.tail()
+    );
     assert_eq!(notifications.next_signal(), Signal::Closed(id, EXPIRED));
     notifications.wait_gone();
     let watch = notifications.daemon().watch();

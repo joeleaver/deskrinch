@@ -5,7 +5,8 @@
 //!
 //! Nothing paints but a popup: the page, the column and the gaps between
 //! popups are transparent, so that a surface that takes only its painted
-//! pixels takes exactly the popups.
+//! pixels takes exactly the popups. So a popup has no shadow, which would
+//! paint into the gaps; its border sets it apart.
 
 use crate::policy::{BODY_LINES, ICON_SIZE, WIDTH};
 
@@ -28,7 +29,6 @@ pub(crate) fn sheet() -> String {
     color: var(--rinch-color-text);
     border: 1px solid var(--rinch-color-border);
     border-radius: var(--rinch-radius-default);
-    box-shadow: var(--rinch-shadow-sm);
     font-size: var(--rinch-font-size-sm);
 }}
 .popup.critical {{ border-color: var(--rinch-color-red-6); }}

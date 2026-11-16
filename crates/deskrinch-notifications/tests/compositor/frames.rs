@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use deskrinch_test_component::{PerfLine, perf};
 use deskrinch_test_notify::Signal;
+use deskrinch_test_wait::comes_true;
 
 use crate::support::Notifications;
 
@@ -43,17 +44,16 @@ fn a_change_is_one_frame_and_nothing_changing_is_none() {
         notifications.daemon().watch().tail()
     );
 
-    let frames = notifications.daemon().watch().frames();
     let replaced = notifications
         .client
         .simple(id, "Frames", "counted again", 0);
     assert_eq!(replaced, id);
-    assert!(
-        notifications
-            .daemon()
-            .watch()
-            .wait_frame_after(frames, deskrinch_test_wait::PATIENCE)
-    );
+    // The column's window is not the app's main one (a windowless app has
+    // none), so its frames are counted from the lines.
+    assert!(comes_true(|| presented(
+        &notifications.daemon().watch().lines(),
+        mark
+    ) >= 1));
     std::thread::sleep(QUIET);
     assert_eq!(
         presented(&notifications.daemon().watch().lines(), mark),
