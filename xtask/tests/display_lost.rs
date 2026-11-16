@@ -27,7 +27,7 @@ mod lost {
 
     #[track_caller]
     fn ends_with_display_lost(package: &str, args: &[&str], until: Until) {
-        let ended = in_session::run(package, args, until, Then::KillCompositor);
+        let ended = in_session::run(package, args, until, Then::KillCompositor, None);
         assert_eq!(
             ended.status,
             i32::from(DISPLAY_LOST),

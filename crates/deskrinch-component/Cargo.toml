@@ -21,9 +21,15 @@ deskrinch-settings.workspace = true
 # The exit status for a lost display, which the component's starter reads.
 deskrinch-shell.workspace = true
 deskrinch-xdg.workspace = true
+# Reading whether a stop signal was ignored when the process started.
+libc.workspace = true
 # `desktop`: rinch's native logging (its `tracing-subscriber` formatter),
 # the one a component's window runs with.
 rinch = { workspace = true, features = ["desktop"] }
+# The handlers for the signals that ask a component to stop, chained with
+# any other program's (`stop`).
+signal-hook.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
