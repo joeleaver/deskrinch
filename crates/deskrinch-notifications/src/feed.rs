@@ -68,6 +68,12 @@ impl Feed {
         self.hand_over(&inner);
     }
 
+    /// Whether the service has ended (its connection, or its name, is
+    /// gone): the daemon then ends with a failure, to be started again.
+    pub(crate) fn ended(&self) -> bool {
+        self.lock().ended
+    }
+
     /// The UI's signal of the state, on the UI thread; called once.
     pub(crate) fn signal(&self) -> Signal<State> {
         self.handover.signal(State::default())

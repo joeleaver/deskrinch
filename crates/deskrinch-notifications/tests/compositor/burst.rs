@@ -15,7 +15,7 @@ use deskrinch_test_notify::Signal;
 use deskrinch_test_screen::Image;
 use deskrinch_test_wait::PATIENCE;
 
-use crate::support::{Column, Notifications};
+use crate::support::{Column, Notifications, PADDING, WIDTH};
 
 /// A body `lines` lines long.
 fn body(lines: usize) -> String {
@@ -96,8 +96,8 @@ fn changes_while_a_size_is_asked_for_leave_every_popup_whole() {
     let painted = surface_px(&watch.lines()).expect("a frame painted");
     // The column's content: its width, and down to the last popup's bottom
     // and the padding under it.
-    let padding = 12 * scale;
-    let width = u64::from(380 * scale);
+    let padding = PADDING * scale;
+    let width = u64::from(WIDTH * scale);
     let height = u64::from(column.bottom + 1 + padding);
     let content = width * height;
     // A pixel row either way, for rounding the logical height.

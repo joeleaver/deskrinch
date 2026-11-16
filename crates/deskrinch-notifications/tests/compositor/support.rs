@@ -42,11 +42,11 @@ const TOLERANCE: u8 = 8;
 
 /// The theme's spacing the column is padded with (`--rinch-spacing-sm`),
 /// in logical pixels: the popups start this far from the output's edges.
-const PADDING: u32 = 12;
+pub(crate) const PADDING: u32 = 12;
 
 /// The column's width in logical pixels, its padding included: the
 /// daemon's.
-const WIDTH: u32 = 380;
+pub(crate) const WIDTH: u32 = 380;
 
 /// Panics unless the tests run in a nested session started by `cargo xtask
 /// compositor-tests`: run anywhere else they would take the real session's

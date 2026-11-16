@@ -48,7 +48,6 @@
 //! software one, chosen at run time, `RINCH_RENDERER` overriding.
 
 mod actions;
-mod ending;
 mod feed;
 mod owner;
 mod picture;
@@ -104,7 +103,7 @@ fn main() -> ExitCode {
     let theme = Theme::start(&configuration, Bus::Session);
     let first_theme = theme.initial();
     let parts = root::Parts {
-        feed,
+        feed: Arc::clone(&feed),
         handle,
         theme,
         installed: Installed::start(&Environment::from_process()),
@@ -117,5 +116,9 @@ fn main() -> ExitCode {
     // An orderly stop: every live notification closed (reason 4), then the
     // name released.
     drop(service);
-    ending::status(ended)
+    if feed.ended() {
+        ExitCode::FAILURE
+    } else {
+        ended
+    }
 }

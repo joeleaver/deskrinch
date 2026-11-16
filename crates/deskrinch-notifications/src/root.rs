@@ -22,7 +22,7 @@ use rinch::reactive::Effect;
 
 use crate::feed::Feed;
 use crate::popup::{self, Shared};
-use crate::{ending, style, surface};
+use crate::{style, surface};
 
 /// What the daemon's UI runs with.
 pub(crate) struct Parts {
@@ -48,7 +48,8 @@ pub(crate) fn notifications(parts: Parts) -> NodeHandle {
     let state = feed.signal();
     Effect::new(move || {
         if state.with(|state| state.ended) {
-            ending::service_ended();
+            // main reads it from the feed, and ends with a failure.
+            exit();
         }
     });
     let shared = Shared {
