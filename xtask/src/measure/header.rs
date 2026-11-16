@@ -90,6 +90,20 @@ pub(super) fn header(request: &Request, end: &End) -> String {
         ),
         None => header,
     };
+    let header = if request.step_commands.is_empty() {
+        header
+    } else {
+        let listed: Vec<String> = request
+            .step_commands
+            .iter()
+            .enumerate()
+            .map(|(index, command)| format!("{}. {command:?}", index + 1))
+            .collect();
+        format!(
+            "{header}\nCommand steps (after the idle window, each to settled): {}",
+            listed.join("; ")
+        )
+    };
     let header = match &request.pointer {
         Some(pointer) => format!("{header}\nPointer: {}", pointer.describe()),
         None => header,

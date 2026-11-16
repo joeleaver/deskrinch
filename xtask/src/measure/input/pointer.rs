@@ -17,7 +17,7 @@ use std::fmt;
 
 use super::super::report::Run;
 use super::super::settle::Running;
-use super::steps::{Measured, Rows, measure_steps};
+use super::steps::{Measured, Rows, Scope, measure_steps};
 use super::{InputClient, MeasuredInputError, Meter};
 use crate::error::Error;
 use crate::input::Step;
@@ -156,14 +156,14 @@ pub(crate) fn move_pointer(
     client.step(&steps.place)?;
     running.settle()?;
     let count = steps.moves.len();
-    let measured: Vec<Measured> = steps
+    let measured: Vec<Measured<Step>> = steps
         .moves
         .iter()
         .enumerate()
         .map(|(index, (step, point))| {
             let row = format!("pointer step {} of {count} (to {point})", index + 1);
             Measured {
-                step: step.clone(),
+                action: step.clone(),
                 named: row.clone(),
                 row,
                 dump: format!("{dumps}pointer-{}", index + 1),
@@ -179,6 +179,14 @@ pub(crate) fn move_pointer(
         from: "move",
         sum: "pointer, the steps' sum",
         frames: "pointer: frames presented",
+        scope: Scope::Main,
     };
-    measure_steps(run, running, client, &measured, &rows, meter)
+    measure_steps(
+        run,
+        running,
+        &mut |step| client.step(step),
+        &measured,
+        &rows,
+        meter,
+    )
 }

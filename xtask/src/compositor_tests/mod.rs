@@ -48,6 +48,7 @@ mod bounded;
 mod build;
 mod component_rule;
 mod granted;
+mod ignored_rule;
 mod leaks;
 pub(crate) mod renderers;
 mod repeat;
