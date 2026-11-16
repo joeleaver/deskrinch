@@ -125,8 +125,12 @@ the lines in the notes.
 
 --state DIR starts each run's state directory (XDG_STATE_HOME) with a copy
 of DIR's contents, such as the launcher's record of starts
-(deskrinch/starts.toml); the report says the state was seeded, and from
-where. A DIR that is not a readable directory fails before any session.
+(deskrinch/starts.toml), and --config DIR its configuration directory
+(XDG_CONFIG_HOME), such as the wallpaper's [wallpaper] with a picture
+(deskrinch/config.toml). The copy is made once the compositor has started
+and before the program does, and nothing is written back to DIR. The
+report's header says what was seeded, from where, and the files it held. A
+DIR that is not a readable directory fails before any session.
 
 --windows N measures a program that opens N windows (the wallpaper opens
 one per output: --outputs 2 --windows 2), from rinch's per-window lines;
