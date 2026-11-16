@@ -137,10 +137,7 @@ fn run_child(
         }
     }
     let load = probe::load_average();
-    // Callgrind numbers its dumps in the order they are asked for; each is
-    // counted where it is asked for, and read by the number it got.
-    let mut dumps = 0;
-    let first_dump = dump(control, &pid, "first-frame", &mut dumps)?;
+    let first = dump(control, &pid, out, "first-frame")?;
     let started = match expect {
         Expect::Main => None,
         Expect::Windows(n) => {
@@ -148,7 +145,7 @@ fn run_child(
         }
     };
     probe::wait(child, watch, program, timing.settle)?;
-    let settle_dump = dump(control, &pid, "settle", &mut dumps)?;
+    let settle = dump(control, &pid, out, "settle")?;
     let frames_before = watch.frames();
     let mark = watch.mark();
     let end = Instant::now() + timing.idle;
@@ -159,7 +156,7 @@ fn run_child(
     }
     let frames_main = watch.frames() - frames_before;
     let since = watch.since(&mark);
-    let idle_dump = dump(control, &pid, "idle", &mut dumps)?;
+    let idle = dump(control, &pid, out, "idle")?;
     let mut run = Run::default();
     if let Some(started) = &started {
         started
@@ -167,9 +164,6 @@ fn run_child(
             .map_err(|e| windows::error(program, watch, e))?;
     }
 
-    let first = totals(out, first_dump)?;
-    let settle = totals(out, settle_dump)?;
-    let idle = totals(out, idle_dump)?;
     run.push("instructions to first frame (Ir)", Unit::Count, first);
     run.push("instructions in the idle window (Ir)", Unit::Count, idle);
     let frames = match &started {
@@ -194,8 +188,8 @@ fn run_child(
             timing.settle.as_secs()
         ),
     );
-    // The pointer's steps, after the idle window and its rows; each step's
-    // dump follows those above, zeroed at its start.
+    // The pointer's steps, after the idle window and its rows; each step
+    // zeroed at its start and read from the dump named for it.
     if let Some((client, steps)) = pointer {
         let id = child.id();
         let mut running = Running {
@@ -204,7 +198,7 @@ fn run_child(
             program,
             timeout: timing.first_frame,
         };
-        let mut meter = CallgrindMeter::new(control, id, out, &mut dumps);
+        let mut meter = CallgrindMeter::new(control, id, out);
         move_pointer(&mut run, &mut running, client, steps, &mut meter, "", "")?;
     }
     window::end(opened, &mut run)?;
@@ -214,17 +208,16 @@ fn run_child(
     Ok(run)
 }
 
-/// Asks Callgrind in process `pid` to write a dump named `label`, the run's
-/// next after the `dumps` so far; its number.
-fn dump(
+/// Asks Callgrind in process `pid` to write a dump with the hint `label`
+/// to the profile `out`, and gives its instruction total ([`totals`]).
+pub(crate) fn dump(
     control: &dyn Fn() -> Command,
     pid: &str,
+    out: &Path,
     label: &str,
-    dumps: &mut u32,
-) -> Result<u32, Error> {
+) -> Result<u64, Error> {
     self::control(control, &["--dump", label, pid])?;
-    *dumps += 1;
-    Ok(*dumps)
+    totals(out, label)
 }
 
 /// Runs `callgrind_control` (a session client) with `args`: `--dump LABEL
@@ -246,23 +239,39 @@ pub(crate) fn control(control: &dyn Fn() -> Command, args: &[&str]) -> Result<()
     }
 }
 
-/// The instruction total of dump `n` of the profile at `out`. Callgrind
-/// writes a dump's file when it is asked for it, so the file is waited for.
-pub(crate) fn totals(out: &Path, n: u32) -> Result<u64, Error> {
-    let path = dump_path(out, n);
+/// The instruction total of the dump of the profile at `out` (Callgrind
+/// writes each as `out.N`) whose hint is `label`: the dump that names it in
+/// its description (`desc: Trigger: dump LABEL`), whatever its number, so a
+/// figure is always read from its own span's dump. Callgrind writes a
+/// dump's file when it is asked for it, so the file is waited for.
+///
+/// A run's hints are unique (`first-frame`, `settle`, `idle`, `show-N`,
+/// `hide-N`, `show-N-key-K`, `pointer-K`, `show-N-pointer-K`); two dumps of
+/// one profile with the same hint are an error, never a guess.
+pub(crate) fn totals(out: &Path, label: &str) -> Result<u64, Error> {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        if let Ok(text) = fs::read_to_string(&path)
-            && let Some(total) = parse_totals(&text)
-        {
-            return Ok(total);
+        let named: Vec<(PathBuf, Option<u64>)> = named_dumps(out)
+            .filter(|(_, hint, _)| hint == label)
+            .map(|(path, _, total)| (path, total))
+            .collect();
+        if named.len() > 1 {
+            let mut files: Vec<PathBuf> = named.into_iter().map(|(path, _)| path).collect();
+            files.sort();
+            return Err(Error::CallgrindHintRepeated {
+                label: label.to_owned(),
+                files,
+            });
+        }
+        if let Some((_, Some(total))) = named.first() {
+            return Ok(*total);
         }
         if Instant::now() >= deadline {
             return Err(Error::Read {
-                path,
+                path: out.to_owned(),
                 source: std::io::Error::new(
                     std::io::ErrorKind::NotFound,
-                    "Callgrind wrote no complete dump",
+                    format!("Callgrind wrote no complete dump with the hint {label:?}"),
                 ),
             });
         }
@@ -270,11 +279,29 @@ pub(crate) fn totals(out: &Path, n: u32) -> Result<u64, Error> {
     }
 }
 
-/// Where Callgrind writes dump `n` of the profile `out`: `out.n`.
-pub(crate) fn dump_path(out: &Path, n: u32) -> PathBuf {
-    let mut name = out.as_os_str().to_owned();
-    name.push(format!(".{n}"));
-    PathBuf::from(name)
+/// The dumps of the profile at `out` written so far: each one's file, its
+/// hint, and its total once it is complete.
+fn named_dumps(out: &Path) -> impl Iterator<Item = (PathBuf, String, Option<u64>)> {
+    let prefix = out
+        .file_name()
+        .map(|name| format!("{}.", name.to_string_lossy()))
+        .unwrap_or_default();
+    let dir = out.parent().map(Path::to_owned).unwrap_or_default();
+    fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter(move |entry| entry.file_name().to_string_lossy().starts_with(&prefix))
+        .filter_map(|entry| Some((entry.path(), fs::read_to_string(entry.path()).ok()?)))
+        .filter_map(|(path, text)| Some((path, hint(&text)?.to_owned(), parse_totals(&text))))
+}
+
+/// The hint a dump was asked for with, from its description.
+fn hint(profile: &str) -> Option<&str> {
+    profile
+        .lines()
+        .find_map(|line| line.strip_prefix("desc: Trigger: dump "))
+        .map(str::trim_end)
 }
 
 /// The `totals:` (or, without it, `summary:`) line of a Callgrind profile:
@@ -307,13 +334,70 @@ mod tests {
     }
 
     #[test]
-    fn dumps_are_numbered_after_the_output_file() {
+    fn valgrind_writes_the_profile_where_asked() {
         let args = valgrind_args(Path::new("/tmp/x/callgrind.out"));
         assert!(args.contains(&"--callgrind-out-file=/tmp/x/callgrind.out".to_owned()));
         assert!(args.contains(&"--tool=callgrind".to_owned()));
+    }
+
+    /// A dump with the hint `hint` and the total `total`, as Callgrind
+    /// writes one.
+    fn dump_text(hint: &str, total: u64) -> String {
+        format!(
+            "version: 1\ncreator: callgrind-3.26.0\npart: 2\ndesc: I1 cache: \n\
+             desc: Trigger: dump {hint}\n\npositions: line\nevents: Ir\nsummary: {total}\n\
+             totals: {total}\n"
+        )
+    }
+
+    #[test]
+    fn a_figure_is_read_from_the_dump_that_names_it_whatever_its_number() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("callgrind.out");
+        fs::write(dir.path().join("callgrind.out.1"), dump_text("idle", 900)).unwrap();
+        fs::write(
+            dir.path().join("callgrind.out.3"),
+            dump_text("pointer-2", 70),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("callgrind.out.2"),
+            dump_text("pointer-1", 50),
+        )
+        .unwrap();
+        fs::write(dir.path().join("other.out.2"), dump_text("pointer-1", 1)).unwrap();
+        assert_eq!(totals(&out, "pointer-1").unwrap(), 50);
+        assert_eq!(totals(&out, "pointer-2").unwrap(), 70);
+        assert_eq!(totals(&out, "idle").unwrap(), 900);
         assert_eq!(
-            dump_path(Path::new("/tmp/x/callgrind.out"), 2),
-            Path::new("/tmp/x/callgrind.out.2")
+            hint(&dump_text("show-1-pointer-1", 5)),
+            Some("show-1-pointer-1")
+        );
+        assert_eq!(
+            hint("version: 1\ndesc: Trigger: Program termination\n"),
+            None
+        );
+    }
+
+    #[test]
+    fn two_dumps_of_one_profile_with_one_hint_are_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("callgrind.out");
+        fs::write(
+            dir.path().join("callgrind.out.1"),
+            dump_text("pointer-1", 50),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("callgrind.out.2"),
+            dump_text("pointer-1", 70),
+        )
+        .unwrap();
+        let error = totals(&out, "pointer-1").unwrap_err().to_string();
+        assert!(error.contains("\"pointer-1\""), "{error}");
+        assert!(
+            error.contains("callgrind.out.1") && error.contains("callgrind.out.2"),
+            "{error}"
         );
     }
 }

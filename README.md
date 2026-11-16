@@ -459,16 +459,22 @@ cargo xtask measure --summon show --dismiss hide --prepares --type term \
 `--place-pointer POINT` and `--move-pointer POINT` (repeatable) move the
 pointer through the same client: placed first, unmeasured, then moved to each
 point in turn, each step measured from the move to settled and followed by a
-frame, as a key is. A point is `X,Y` on the session's first output or `N:X,Y`
-on its Nth, in logical pixels. For a program measured by its start and idle
-window, such as the panel, the steps come after the idle window, any
-`--window` window still open, so the idle figures stay those of a run without
-them; with `--summon`, after each show. A hover over the panel's taskbar is
-the pointer placed off the panel, then moved onto a button and back off. The
-button is the `--window` window's, the taskbar's only one; on the session's
-1280x720 output the panel is the bottom 40 pixels (y 680 to 720), and its
-first button starts after the bar's padding (`--rinch-spacing-md`, 16), its
-icon (16 square, inside 6 of padding) centred at 30,700:
+frame, as a key is. Each step, key or move, also says how many of its frames
+ran reactive work (a signal notified). That is no anomaly in itself, since
+typing changes a query; but with two runs or more, a run in which a step
+presented or reacted otherwise than in the other runs is noted with both
+pairs: the runs differ in that step, and the dearer figure may include work
+that is not the step's, a clock's minute say. With one run, the rows are the reader's to compare. A point is
+`X,Y` on the session's first output or `N:X,Y` on its Nth, in logical
+pixels. For a program measured by its start and idle window, such as the
+panel, the steps come after the idle window, any `--window` window still
+open, so the idle figures stay those of a run without them; with `--summon`,
+after each show. A hover over the panel's taskbar is the pointer placed off
+the panel, then moved onto a button and back off. The button is the
+`--window` window's, the taskbar's only one; on the session's 1280x720 output
+the panel is the bottom 40 pixels (y 680 to 720), and its first button starts
+after the bar's padding (`--rinch-spacing-md`, 16), its icon (16 square,
+inside 6 of padding) centred at 30,700:
 
 ```sh
 cargo xtask build-components --release
