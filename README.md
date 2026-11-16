@@ -509,19 +509,30 @@ that is not the step's, a clock's minute say. With one run, the rows are the rea
 pixels. For a program measured by its start and idle window, such as the
 panel, the steps come after the idle window, any `--window` window still
 open, so the idle figures stay those of a run without them; with `--summon`,
-after each show. A hover over the panel's taskbar is the pointer placed off
-the panel, then moved onto a button and back off. The button is the
-`--window` window's, the taskbar's only one; on the session's 1280x720 output
-the panel is the bottom 40 pixels (y 680 to 720), and its first button starts
-after the bar's padding (`--rinch-spacing-md`, 16), its icon (16 square,
-inside 6 of padding) centred at 30,700:
+after each show. A hover over the panel is the pointer placed off the panel,
+then moved onto one of its buttons and back off. On the session's 1280x720
+output the panel is the bottom 40 pixels (y 680 to 720), and the bar lays out
+the workspace switcher first, then the taskbar. So 30,700 is the switcher's
+first button, and the taskbar's button (the `--window` window's, its only
+one) is further right, at 70,700:
 
 ```sh
 cargo xtask build-components --release
+# The switcher's first button.
 cargo xtask measure --compositor kwin --renderer software \
   --window org.deskrinch.HoverMeasure --place-pointer 640,360 \
   --move-pointer 30,700 --move-pointer 640,360 target/release/deskrinch-panel
+# The taskbar's button.
+cargo xtask measure --compositor kwin --renderer software \
+  --window org.deskrinch.HoverMeasure --place-pointer 640,360 \
+  --move-pointer 70,700 --move-pointer 640,360 target/release/deskrinch-panel
 ```
+
+A point depends on what the bar lays out before the element, so check it
+against the repainted box in the program's frame lines (each run's output,
+whose path the report gives) before reading the rows as that element's: a
+hover frame repaints that element's box (`repainted_px`; at scale 1 on that
+output, 1,440 for a switcher button and 8,160 for the taskbar's).
 
 `--state DIR` and `--config DIR` start each run's state directory
 (`XDG_STATE_HOME`) or configuration directory (`XDG_CONFIG_HOME`) with a
