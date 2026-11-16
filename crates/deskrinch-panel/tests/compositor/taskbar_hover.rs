@@ -29,12 +29,10 @@
 //!   until one step is clean, or the patience runs out and the test fails
 //!   with those frames.
 
-use deskrinch_test_component::log::strip_ansi;
-use deskrinch_test_component::perf::parse;
-use deskrinch_test_component::{PerfLine, PerfWindow, counter};
 use deskrinch_test_screen::Rgba;
 use deskrinch_test_wait::Deadline;
 
+use crate::frames::{self, one_paint_only_frame};
 use crate::taskbar::{Bar, GREEN, RED, near};
 use crate::taskbar_clicks::open_active;
 
@@ -123,7 +121,7 @@ fn hover(scheme: &str, apart: bool) {
 /// The pointer onto red's button (its icon `red`): the mark comes, in one
 /// paint-only frame. Returns the step's reactive frames.
 fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> Vec<String> {
-    let from = bar.panel().watch().lines().len();
+    let from = frames::step(bar.panel());
     bar.point_at(red);
     bar.see("red's button marked under the pointer", |_, image| {
         Bar::beside(image, red).is_some_and(|p| !near(p, colours.plain))
@@ -141,20 +139,20 @@ fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> Ve
             colours.active
         );
     }
-    one_paint_only_frame(bar, from, "onto red's button")
+    one_paint_only_frame(bar.panel(), from, "onto red's button")
 }
 
 /// The pointer off the panel: red's mark goes, in one paint-only frame.
 /// Returns the step's reactive frames.
 fn point_off(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> Vec<String> {
-    let from = bar.panel().watch().lines().len();
+    let from = frames::step(bar.panel());
     bar.point_off();
     bar.see(
         "red's mark gone with the pointer off the panel",
         |_, image| Bar::beside(image, red).is_some_and(|p| near(p, colours.plain)),
     );
     let _ = bar.settled(|image| Bar::beside(image, red));
-    one_paint_only_frame(bar, from, "off the panel")
+    one_paint_only_frame(bar.panel(), from, "off the panel")
 }
 
 /// Whether `a` and `b` differ by more than [`ROUNDING`] in some colour
@@ -168,52 +166,4 @@ fn apart_from(a: Rgba, b: Rgba) -> bool {
 /// A sampled pixel, which is on the screen whenever its button is.
 fn sample(pixel: Option<Rgba>) -> Rgba {
     pixel.expect("a pixel inside the panel")
-}
-
-/// Asserts that the step since the panel's log line `from` made exactly one
-/// frame without reactive work (no `signal_notifies`), and that rinch's
-/// counters on it say it repainted (`paint_frames`) and resolved no layout:
-/// rinch's layout pass may be entered, but each entry skipped Taffy because
-/// nothing but paint changed (`layout_skipped_paint_only` equal to
-/// `layout_resolves`), and no node's layout style changed
-/// (`taffy_style_changes` absent: rinch leaves a counter that is 0 out of
-/// the line). Returns the step's reactive frames, left out of the count.
-fn one_paint_only_frame(bar: &Bar, from: usize, what: &str) -> Vec<String> {
-    let lines = bar.panel().watch().lines();
-    let (reactive, frames): (Vec<String>, Vec<String>) = lines[from..]
-        .iter()
-        .filter(|line| {
-            matches!(
-                parse(&strip_ansi(line)),
-                Some(PerfLine::Frame {
-                    window: PerfWindow::Main,
-                    ..
-                })
-            )
-        })
-        .cloned()
-        .partition(|line| counter(line, "signal_notifies").is_some());
-    let [frame] = frames.as_slice() else {
-        panic!(
-            "{what}: {} frames without reactive work, not one: {frames:#?}; \
-             the reactive frames left out: {reactive:#?}",
-            frames.len()
-        );
-    };
-    assert_eq!(
-        counter(frame, "paint_frames"),
-        Some(1),
-        "{what}: the frame did not repaint: {frame}"
-    );
-    assert_eq!(
-        counter(frame, "layout_skipped_paint_only"),
-        counter(frame, "layout_resolves"),
-        "{what}: the frame resolved layout: {frame}"
-    );
-    assert_eq!(
-        counter(frame, "taffy_style_changes"),
-        None,
-        "{what}: the frame changed a layout style: {frame}"
-    );
-    reactive
 }
