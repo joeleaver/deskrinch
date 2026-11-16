@@ -50,6 +50,17 @@ fn taken<T: Copy>(slot: &Slot<T>) -> T {
     slot.borrow().expect("made at the mount")
 }
 
+/// `component` mounted as the launcher draws it: in a window of its size,
+/// with the shell's look, so its padding and the field's box are the
+/// launcher's own (with no look, the launcher has no padding, and its
+/// corner is the field).
+fn launcher_window(component: impl FnOnce(&mut RenderScope) -> NodeHandle + 'static) -> TestApp {
+    TestApp::builder(component)
+        .size(surface::WIDTH, surface::HEIGHT)
+        .theme(deskrinch_theme::look::props(Scheme::Light))
+        .mount()
+}
+
 // ── The view, its callbacks recorded ────────────────────────────────────
 
 /// What the view's callbacks were given.
@@ -66,7 +77,7 @@ fn mounted_view() -> (TestApp, Rc<RefCell<Calls>>, Signal<Model>) {
     let calls = Rc::new(RefCell::new(Calls::default()));
     let model_slot: Slot<Signal<Model>> = Rc::default();
     let (c, slot) = (Rc::clone(&calls), Rc::clone(&model_slot));
-    let app = TestApp::mount(move |__scope: &mut RenderScope| {
+    let app = launcher_window(move |__scope: &mut RenderScope| {
         let mut model = Model::new();
         let all = entries();
         model.set_query("term", all.iter().map(|e| &e.entry));
@@ -177,7 +188,17 @@ fn a_press_on_the_padding_round_the_results_is_off_them() {
     let launcher = app.bounds(".launcher");
     // The launcher's own padding: the nearest handler is the container's,
     // not a row's (rinch's dispatch stops at the nearest node with one).
-    app.click(launcher.x + 2.0, launcher.y + 2.0);
+    let (x, y) = (launcher.x + 2.0, launcher.y + 2.0);
+    let field = app.bounds(".launcher-query");
+    assert!(
+        x < field.x || y < field.y,
+        "the point is the field's: {field:?}"
+    );
+    for row in app.query_all(".launcher-row") {
+        let row = app.bounds(&row);
+        assert!(x < row.x || y < row.y, "the point is a row's: {row:?}");
+    }
+    app.click(x, y);
     assert_eq!(
         calls.borrow().pointer,
         [Input::Press(None), Input::Release(None)]
@@ -217,9 +238,8 @@ pub(super) fn wired(shown: bool) -> Wired {
     })
 }
 
-/// The wiring mounted as `mount` says, in a window of the launcher's size
-/// with the shell's look, so its padding and the field's box are the
-/// launcher's own.
+/// The wiring mounted as `mount` says, as the launcher draws it
+/// ([`launcher_window`]).
 pub(super) fn wired_as(mount: Mount) -> Wired {
     let acts = Rc::new(RefCell::new(Vec::new()));
     let visibility = Arc::new(Visibility::new(mount.shown));
@@ -229,7 +249,7 @@ pub(super) fn wired_as(mount: Mount) -> Wired {
         Arc::clone(&visibility),
         Rc::clone(&model_slot),
     );
-    let app = TestApp::builder(move |__scope: &mut RenderScope| {
+    let app = launcher_window(move |__scope: &mut RenderScope| {
         let model = Signal::new(Model::new());
         *slot.borrow_mut() = Some(model);
         let all = entries();
@@ -256,10 +276,7 @@ pub(super) fn wired_as(mount: Mount) -> Wired {
         } else {
             content
         }
-    })
-    .size(surface::WIDTH, surface::HEIGHT)
-    .theme(deskrinch_theme::look::props(Scheme::Light))
-    .mount();
+    });
     let model = taken(&model_slot);
     Wired {
         app,
