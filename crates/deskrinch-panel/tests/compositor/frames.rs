@@ -125,7 +125,8 @@ fn hover_step(panel: &Panel, from: usize, what: &str) -> (Vec<String>, usize) {
 ///
 /// The rule's limit: work deferred by longer than a round (the two steps,
 /// each a pointer move, the screen showing it, and the screen keeping still
-/// for the stability window, under a second on a quiet machine) can land in
+/// for the stability window: 1.7 to 1.9 s a round, measured under sway on
+/// rinch f5dd9e4e3 at loads of 9 to 19) can land in
 /// a round after the one it belongs to, behind a clean round, and is not
 /// seen.
 ///
