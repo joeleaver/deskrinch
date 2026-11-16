@@ -50,6 +50,11 @@ tracing.workspace = true
 zbus = { workspace = true, features = ["default-rt", "service"] }
 
 [dev-dependencies]
+# rinch's test harness (`rinch::testing::TestApp`): the view and the wiring
+# driven through rinch's own dispatch. A dev-dependency only, so the
+# launcher built for use has no `testing` (resolver 3 keeps dev-dependency
+# features out of a plain build).
+rinch = { workspace = true, features = ["desktop", "testing"] }
 deskrinch-test-wait.workspace = true
 # The shell's description, whose name for the launcher must be its own.
 deskrinch-shell.workspace = true

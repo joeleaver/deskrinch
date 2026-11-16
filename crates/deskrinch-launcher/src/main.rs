@@ -26,6 +26,7 @@ mod start;
 mod starts;
 mod surface;
 mod view;
+mod wiring;
 
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;

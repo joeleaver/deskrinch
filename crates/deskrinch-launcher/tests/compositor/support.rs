@@ -131,6 +131,13 @@ impl Launcher {
         }
     }
 
+    /// The lines it has written since `mark` ([`mark`](Self::mark)).
+    pub(crate) fn lines_since(&self, mark: usize) -> Vec<String> {
+        let mut lines = self.component().watch().lines();
+        lines.drain(..mark.min(lines.len()));
+        lines
+    }
+
     /// Waits until a line written since `mark` ([`mark`](Self::mark)) has
     /// `text` in it; `Err` with its last lines when none has within the
     /// patience.
