@@ -21,17 +21,17 @@
 //!   saying so first as a warning ([`bound_line`]). Nothing makes a
 //!   component unkillable by one `SIGTERM`; deskrinch-shell's restart rules
 //!   read an end by any of the three as clean, as they always have.
+//! - **A signal ignored when the process started** stays ignored. A
+//!   component started under `nohup`, or by a shell that ignores `SIGINT`
+//!   for a background job, inherits `SIG_IGN`, and installing a handler
+//!   over it would undo what its starter asked for. The disposition is
+//!   read when [`install_once`] is called.
 //!
 //! The asked line is at info level: being asked to stop is the normal end
 //! of a component, not worth a reader's attention by default. The bound's
 //! line is a warning: a component that had to be ended by the bound has a
 //! fault (its loop was stuck, or its end took longer than it may), and a
 //! reader of its log sees it with the default filter (`warn`).
-//! - **A signal ignored when the process started** stays ignored. A
-//!   component started under `nohup`, or by a shell that ignores `SIGINT`
-//!   for a background job, inherits `SIG_IGN`, and installing a handler
-//!   over it would undo what its starter asked for. The disposition is
-//!   read when [`install_once`] is called.
 //!
 //! The handlers are process-wide and are signal-hook's, which chains them
 //! (`signal-hook-registry`): a program that wants a handler of its own for
