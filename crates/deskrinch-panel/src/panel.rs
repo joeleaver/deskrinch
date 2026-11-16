@@ -10,7 +10,8 @@
 //! (`deskrinch-applications`), are the taskbar's icons, also through the
 //! context ([`AppIcons`]). So are the compositor's windows and workspaces,
 //! followed on the panel's one shared connection ([`crate::compositor`]),
-//! for the taskbar and the switcher.
+//! for the taskbar and the switcher; and the panel's one clock's text,
+//! which every clock face reads (`widgets`' `clock`).
 
 use std::rc::Rc;
 
@@ -23,7 +24,7 @@ use rinch::reactive::Effect;
 
 use crate::bar::Bar;
 use crate::surface::{self, Placement};
-use crate::widgets::{AppIcons, FollowedWindows, FollowedWorkspaces};
+use crate::widgets::{AppIcons, FollowedWindows, FollowedWorkspaces, follow_clock};
 
 /// What the panel runs with.
 pub(crate) struct Parts {
@@ -60,6 +61,8 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     let mut placed = Placement::of(&live.initial);
     let settings = live.into_signal();
     create_context(settings);
+    // The panel's one clock; its faces read the text.
+    create_context(follow_clock(settings));
     let placement = Memo::new(move || Placement::of(&settings.get()));
     Effect::new(move || {
         let wanted = placement.get();
