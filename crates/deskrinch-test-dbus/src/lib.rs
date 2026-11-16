@@ -225,8 +225,8 @@ impl PrivateBus {
     /// [`session::environment`] and `DBUS_SESSION_BUS_ADDRESS`. For code
     /// under test that builds its own commands and takes extra variables
     /// rather than a [`Command`]; such a command still inherits the real
-    /// session's variables ([`session::REAL_SESSION_VARIABLES`]) unless the
-    /// code under test removes them.
+    /// session's variables ([`session::to_remove`]) unless the code under
+    /// test removes them.
     #[must_use]
     pub fn session_env(&self) -> Vec<(&'static str, OsString)> {
         session::environment(self.dir.path())

@@ -13,6 +13,10 @@
 //! - `CARGO_HOME` and `RUSTUP_HOME` at the real ones, so that cargo and
 //!   rustup keep working with `HOME` moved;
 //! - none of [`REAL_SESSION_VARIABLES`];
+//! - none of the variables that lead an audio client to the real session's
+//!   sound server: every one beginning with one of [`AUDIO_PREFIXES`]
+//!   (`PULSE_`, `PIPEWIRE_`, `WIREPLUMBER_`, `SPA_`), and
+//!   [`AUDIO_VARIABLES`] (`JACK_DEFAULT_SERVER`, `ALSA_CONFIG_PATH`);
 //! - everything else as the caller has it (`PATH`, the locale, `TERM`,
 //!   `CARGO_*` and `RUST*` settings, ...).
 //!
@@ -24,9 +28,10 @@
 //! of the user's passwd entry, the owner's own. So `HOME` under the
 //! session's root is what keeps KWin's shader cache in the session.
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::fs::DirBuilder;
 use std::io;
+use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -54,6 +59,21 @@ pub const REAL_SESSION_VARIABLES: &[&str] = &[
     "XDG_SEAT_PATH",
     "XDG_VTNR",
 ];
+
+/// The prefixes of the variables that would lead an audio client to the real
+/// session's sound server: its socket, cookie, configuration, default
+/// devices and plugins (libpulse's `PULSE_SERVER` and `PULSE_COOKIE`,
+/// PipeWire's `PIPEWIRE_REMOTE` and `PIPEWIRE_RUNTIME_DIR`, WirePlumber's and
+/// SPA's configuration and plugin directories, ...). They are prefixes, not
+/// names, because each family is open-ended and grows with new releases; the
+/// underscore is part of the prefix, so `PULSEAUDIO` is left alone.
+pub const AUDIO_PREFIXES: &[&str] = &["PULSE_", "PIPEWIRE_", "WIREPLUMBER_", "SPA_"];
+
+/// Audio variables outside [`AUDIO_PREFIXES`]' families that name a sound
+/// server or a configuration that does: JACK's server, which PipeWire's JACK
+/// library also follows, and ALSA's configuration, where the PulseAudio and
+/// PipeWire plugins are set up.
+pub const AUDIO_VARIABLES: &[&str] = &["JACK_DEFAULT_SERVER", "ALSA_CONFIG_PATH"];
 
 /// The home and XDG base-directory variables, and the directory under the
 /// session's root each one names.
@@ -132,10 +152,63 @@ pub fn environment(root: &Path) -> Vec<(&'static str, OsString)> {
         .collect()
 }
 
+/// Whether an isolated session removes the variable `name`: one of
+/// [`REAL_SESSION_VARIABLES`] or [`AUDIO_VARIABLES`], or one that begins
+/// with one of [`AUDIO_PREFIXES`].
+#[must_use]
+pub fn is_removed(name: &OsStr) -> bool {
+    REAL_SESSION_VARIABLES
+        .iter()
+        .chain(AUDIO_VARIABLES)
+        .any(|variable| name == *variable)
+        || AUDIO_PREFIXES
+            .iter()
+            .any(|prefix| name.as_bytes().starts_with(prefix.as_bytes()))
+}
+
+/// The variables an isolated session removes, for a program started from
+/// this process: [`REAL_SESSION_VARIABLES`] and [`AUDIO_VARIABLES`], set or
+/// not, and every variable of this process's environment that begins with
+/// one of [`AUDIO_PREFIXES`]. For code that builds its own commands rather
+/// than calling [`isolate`].
+#[must_use]
+pub fn to_remove() -> Vec<OsString> {
+    removed(std::env::vars_os().map(|(name, _)| name))
+}
+
+/// The named variables, and those of `present` that [`is_removed`], each
+/// once.
+fn removed(present: impl IntoIterator<Item = OsString>) -> Vec<OsString> {
+    let mut names: Vec<OsString> = REAL_SESSION_VARIABLES
+        .iter()
+        .chain(AUDIO_VARIABLES)
+        .map(OsString::from)
+        .chain(present.into_iter().filter(|name| is_removed(name)))
+        .collect();
+    names.sort_unstable();
+    names.dedup();
+    names
+}
+
 /// Points `command` at the session under `root` instead of the real one:
-/// [`REAL_SESSION_VARIABLES`] removed, [`environment`] set.
+/// every variable [`is_removed`] says, whether this process has it or it
+/// was set on `command`, removed; [`environment`] set.
 pub fn isolate(command: &mut Command, root: &Path) {
-    for variable in REAL_SESSION_VARIABLES {
+    isolate_inheriting(command, root, std::env::vars_os().map(|(name, _)| name));
+}
+
+/// [`isolate`], with `inherited` the names of the environment `command`
+/// would inherit.
+fn isolate_inheriting(
+    command: &mut Command,
+    root: &Path,
+    inherited: impl IntoIterator<Item = OsString>,
+) {
+    let set: Vec<OsString> = command
+        .get_envs()
+        .map(|(name, _)| name.to_owned())
+        .collect();
+    for variable in removed(inherited.into_iter().chain(set)) {
         command.env_remove(variable);
     }
     command.envs(environment(root));
@@ -164,10 +237,106 @@ mod tests {
         let mut command = Command::new("true");
         command.env("WAYLAND_DISPLAY", "wayland-real");
         isolate(&mut command, root);
+        envs(&command)
+    }
+
+    fn envs(command: &Command) -> Vec<(OsString, Option<OsString>)> {
         command
             .get_envs()
             .map(|(name, value)| (name.to_owned(), value.map(ToOwned::to_owned)))
             .collect()
+    }
+
+    /// A variable of each audio family, and each named audio variable.
+    const AUDIO_MARKED: &[&str] = &[
+        "PULSE_SERVER",
+        "PULSE_COOKIE",
+        "PULSE_PROP_media.role",
+        "PIPEWIRE_REMOTE",
+        "PIPEWIRE_RUNTIME_DIR",
+        "WIREPLUMBER_CONFIG_DIR",
+        "SPA_PLUGIN_DIR",
+        "JACK_DEFAULT_SERVER",
+        "ALSA_CONFIG_PATH",
+    ];
+
+    /// Variables that only look like the audio families: the prefix
+    /// without its underscore, or the family's name inside another.
+    const NOT_AUDIO: &[&str] = &["PULSEAUDIO", "PULSE", "PIPEWIRE", "MY_PULSE_SERVER"];
+
+    #[test]
+    fn isolation_removes_the_audio_variables_set_on_the_command() {
+        let mut command = Command::new("true");
+        for variable in AUDIO_MARKED.iter().chain(NOT_AUDIO) {
+            command.env(variable, "marker-from-outside");
+        }
+        isolate(&mut command, Path::new("/tmp/session"));
+        let envs = envs(&command);
+        for variable in AUDIO_MARKED {
+            assert!(
+                envs.contains(&((*variable).into(), None)),
+                "{variable} is not removed"
+            );
+        }
+        for variable in NOT_AUDIO {
+            assert_eq!(
+                value(&envs, variable),
+                Some("marker-from-outside".into()),
+                "{variable} is not the session's to remove"
+            );
+        }
+    }
+
+    #[test]
+    fn isolation_removes_the_audio_variables_inherited() {
+        let mut command = Command::new("true");
+        let inherited = AUDIO_MARKED.iter().chain(NOT_AUDIO).map(OsString::from);
+        isolate_inheriting(&mut command, Path::new("/tmp/session"), inherited);
+        let envs = envs(&command);
+        for variable in AUDIO_MARKED {
+            assert!(
+                envs.contains(&((*variable).into(), None)),
+                "{variable} is not removed"
+            );
+        }
+        for variable in NOT_AUDIO {
+            assert!(
+                !envs.iter().any(|(name, _)| name == variable),
+                "{variable} is not the session's to remove"
+            );
+        }
+    }
+
+    #[test]
+    fn the_prefix_rule_needs_the_underscore() {
+        for prefix in AUDIO_PREFIXES {
+            assert!(prefix.ends_with('_'), "{prefix}");
+            assert!(is_removed(OsStr::new(prefix)), "{prefix}");
+            assert!(is_removed(OsStr::new(&format!("{prefix}ANYTHING"))));
+            let bare = prefix.trim_end_matches('_');
+            assert!(!is_removed(OsStr::new(bare)), "{bare}");
+            assert!(!is_removed(OsStr::new(&format!("{bare}X"))), "{bare}X");
+        }
+    }
+
+    #[test]
+    fn a_name_that_is_not_unicode_still_meets_the_prefix_rule() {
+        use std::os::unix::ffi::OsStringExt as _;
+
+        let name = OsString::from_vec(b"PULSE_\xff".to_vec());
+        assert!(is_removed(&name));
+        assert!(!is_removed(&OsString::from_vec(b"\xffPULSE_".to_vec())));
+    }
+
+    #[test]
+    fn the_named_variables_are_removed_set_or_not() {
+        let names = removed(std::iter::empty());
+        for variable in REAL_SESSION_VARIABLES.iter().chain(AUDIO_VARIABLES) {
+            assert!(names.contains(&(*variable).into()), "{variable}");
+        }
+        let names = removed(["PULSE_SERVER".into(), "PATH".into()]);
+        assert!(names.contains(&"PULSE_SERVER".into()));
+        assert!(!names.contains(&"PATH".into()));
     }
 
     fn value(envs: &[(OsString, Option<OsString>)], name: &str) -> Option<OsString> {
@@ -227,9 +396,7 @@ mod tests {
         names.dedup();
         assert_eq!(names.len(), count, "{names:?}");
         assert!(
-            names
-                .iter()
-                .all(|name| !REAL_SESSION_VARIABLES.contains(name)),
+            names.iter().all(|name| !is_removed(OsStr::new(name))),
             "a variable is both removed and set"
         );
     }

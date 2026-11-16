@@ -26,7 +26,7 @@ use super::output;
 use super::probe::{self, Timing};
 use super::report::{self, Run, Unit};
 use super::settle::Running;
-use super::start_end::Start;
+use super::start_end::{End, Start};
 use super::window::{self, Stimulus};
 use super::windows::{self, Expect, Started};
 use crate::error::Error;
@@ -168,11 +168,7 @@ fn run_child(
             .map_err(|e| windows::error(program, watch, e))?;
     }
 
-    run.push(
-        format!("instructions to {} (Ir)", ends.end.to()),
-        Unit::Count,
-        first,
-    );
+    push_start(&mut run, ends.end, first, settle);
     run.push("instructions in the idle window (Ir)", Unit::Count, idle);
     let frames = match &started {
         None => {
@@ -211,6 +207,24 @@ fn run_child(
     run.presented = watch.presented();
     run.drew = expect.frames(watch) > 0 || !watch.windows().is_empty();
     Ok(run)
+}
+
+/// The start's rows: the instructions to start-up's `end` (`first`, its
+/// dump), and to the end of the settle (`first` and the settle's dump
+/// `settle` together). The second is the figure to compare across pins when
+/// a start-up thread may finish on either side of the end: its work then
+/// moves between the two dumps, and only their sum stays put.
+fn push_start(run: &mut Run, end: &End, first: u64, settle: u64) {
+    run.push(
+        format!("instructions to {} (Ir)", end.to()),
+        Unit::Count,
+        first,
+    );
+    run.push(
+        "instructions to the end of the settle (Ir)",
+        Unit::Count,
+        first + settle,
+    );
 }
 
 /// The pointer's steps, then the command steps, each counted from a dump of
@@ -347,6 +361,34 @@ pub(crate) fn parse_totals(profile: &str) -> Option<u64> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_end_of_the_settle_is_the_start_s_dump_and_the_settle_s_together() {
+        let row = |run: &Run, name: &str| {
+            run.metrics
+                .iter()
+                .find(|metric| metric.name == name)
+                .map(|metric| metric.value)
+        };
+        let mut run = Run::default();
+        push_start(&mut run, &End::Frame(1), 581_098_231, 9_072_297);
+        assert_eq!(
+            row(&run, "instructions to first frame (Ir)"),
+            Some(581_098_231)
+        );
+        assert_eq!(
+            row(&run, "instructions to the end of the settle (Ir)"),
+            Some(590_170_528)
+        );
+        // Named so for any end.
+        let mut run = Run::default();
+        push_start(&mut run, &End::Frame(2), 10, 792);
+        assert_eq!(row(&run, "instructions to start-up's end (Ir)"), Some(10));
+        assert_eq!(
+            row(&run, "instructions to the end of the settle (Ir)"),
+            Some(802)
+        );
+    }
 
     #[test]
     fn reads_the_total_of_a_dump() {
