@@ -206,9 +206,8 @@ jobs:
       - name: Measure the panel under sway
         if: ${{ !cancelled() && matrix.compositor == 'sway' }}
         run: |
-          cargo xtask build-components > "$RUNNER_TEMP/components"
-          panel=$(sed -n 's/^deskrinch-panel\t//p' "$RUNNER_TEMP/components")
-          test -n "$panel"
+          # On a line of its own, so that a failed build fails the step.
+          panel=$(cargo xtask build-components deskrinch-panel)
           cargo xtask measure --compositor sway --runs 1 --settle 1 --idle 5 \
             --renderer software --expect-renderer software "$panel"
       # Under KWin the panel binds window management, which KWin grants only
@@ -219,9 +218,8 @@ jobs:
       - name: Measure the panel under KWin, under Callgrind
         if: matrix.compositor == 'kwin'
         run: |
-          cargo xtask build-components > "$RUNNER_TEMP/components"
-          panel=$(sed -n 's/^deskrinch-panel\t//p' "$RUNNER_TEMP/components")
-          test -n "$panel"
+          # On a line of its own, so that a failed build fails the step.
+          panel=$(cargo xtask build-components deskrinch-panel)
           cargo xtask measure --compositor kwin --runs 1 --settle 2 --idle 2 \
             --instructions --renderer software --expect-renderer software \
             "$panel"

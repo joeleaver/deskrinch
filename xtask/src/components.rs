@@ -41,12 +41,78 @@ pub(crate) enum BuildError {
         /// How `cargo` exited.
         status: ExitStatus,
     },
-    /// `cargo` built them but did not report one's binary.
+    /// `cargo` built them but did not report one's binary in a target
+    /// directory (`<target>/<profile>/<name>`).
     #[error("cargo reported no binary for {package}")]
     Missing {
         /// The package.
         package: &'static str,
     },
+    /// A binary was asked for that is not one of the components'.
+    #[error("{package} is none of the shell's components ({packages})")]
+    Unknown {
+        /// What was asked for.
+        package: String,
+        /// The components' packages.
+        packages: String,
+    },
+}
+
+/// What [`build`] built: every one of [`packages`]' binaries, and the target
+/// directory Cargo put them in.
+#[derive(Debug, Clone)]
+pub(crate) struct Built {
+    binaries: BTreeMap<&'static str, PathBuf>,
+    target: PathBuf,
+}
+
+impl Built {
+    /// `package`'s binary.
+    ///
+    /// # Errors
+    ///
+    /// [`BuildError::Unknown`] when `package` is none of [`packages`].
+    pub(crate) fn binary(&self, package: &str) -> Result<&Path, BuildError> {
+        self.binaries
+            .get(package)
+            .map(PathBuf::as_path)
+            .ok_or_else(|| unknown(package))
+    }
+
+    /// Every package and its binary.
+    pub(crate) fn binaries(&self) -> impl Iterator<Item = (&'static str, &Path)> {
+        self.binaries
+            .iter()
+            .map(|(&package, binary)| (package, binary.as_path()))
+    }
+
+    /// The target directory Cargo put the binaries in (they are in its
+    /// `<profile>/`).
+    pub(crate) fn target_dir(&self) -> &Path {
+        &self.target
+    }
+
+    /// Every package's binary as if built under `target`'s `debug`, for
+    /// tests of what uses it.
+    #[cfg(test)]
+    pub(crate) fn at(target: &Path) -> Self {
+        let binaries = packages()
+            .into_iter()
+            .map(|package| (package, target.join("debug").join(package)))
+            .collect();
+        Self {
+            binaries,
+            target: target.to_owned(),
+        }
+    }
+}
+
+/// The error for `package`, none of [`packages`].
+fn unknown(package: &str) -> BuildError {
+    BuildError::Unknown {
+        package: package.to_owned(),
+        packages: packages().join(", "),
+    }
 }
 
 /// The packages whose binaries the shell runs: the components, and what the
@@ -76,10 +142,7 @@ fn cargo_args(profile: Profile) -> Vec<&'static str> {
 /// Builds [`packages`] with `profile` in the workspace at `root`, Cargo's
 /// progress on standard error; returns each package's binary, where Cargo
 /// put it.
-pub(crate) fn build(
-    root: &Path,
-    profile: Profile,
-) -> Result<BTreeMap<&'static str, PathBuf>, BuildError> {
+pub(crate) fn build(root: &Path, profile: Profile) -> Result<Built, BuildError> {
     let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
     let output = Command::new(&cargo)
         .current_dir(root)
@@ -94,26 +157,51 @@ pub(crate) fn build(
         });
     }
     let messages = String::from_utf8_lossy(&output.stdout);
-    packages()
-        .into_iter()
-        .map(|package| {
-            cargo_messages::executable(&messages, package, package, Kind::Bin)
-                .map(|binary| (package, binary))
-                .ok_or(BuildError::Missing { package })
-        })
-        .collect()
+    let mut binaries = BTreeMap::new();
+    // One build's binaries are all in one target directory: each one's says
+    // which.
+    let mut target = PathBuf::new();
+    for package in packages() {
+        let binary = cargo_messages::executable(&messages, package, package, Kind::Bin)
+            .ok_or(BuildError::Missing { package })?;
+        // `<target>/<profile>/<name>`.
+        binary
+            .parent()
+            .and_then(Path::parent)
+            .ok_or(BuildError::Missing { package })?
+            .clone_into(&mut target);
+        binaries.insert(package, binary);
+    }
+    Ok(Built { binaries, target })
 }
 
-/// `cargo xtask build-components`: builds them, and prints each package
-/// and its binary's path, a tab between, one a line.
-pub(crate) fn run(root: &Path, release: bool) -> Result<crate::Outcome, crate::error::Error> {
+/// `cargo xtask build-components`: builds them all, and prints `package`'s
+/// binary's path alone, or without one, each package and its binary's path,
+/// a tab between, one a line. A `package` none of the components' is an
+/// error before anything is built.
+pub(crate) fn run(
+    root: &Path,
+    release: bool,
+    package: Option<&str>,
+) -> Result<crate::Outcome, crate::error::Error> {
+    if let Some(package) = package
+        && !packages().contains(&package)
+    {
+        return Err(unknown(package).into());
+    }
     let profile = if release {
         Profile::Release
     } else {
         Profile::Dev
     };
-    for (package, binary) in build(root, profile)? {
-        println!("{package}\t{}", binary.display());
+    let built = build(root, profile)?;
+    match package {
+        Some(package) => println!("{}", built.binary(package)?.display()),
+        None => {
+            for (package, binary) in built.binaries() {
+                println!("{package}\t{}", binary.display());
+            }
+        }
     }
     Ok(crate::Outcome::Passed)
 }

@@ -23,7 +23,6 @@ mod guard;
 mod profile;
 mod window;
 
-use std::collections::BTreeMap;
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -169,12 +168,6 @@ pub(crate) enum DesktopError {
         /// By what.
         why: &'static str,
     },
-    /// `cargo` built a component but did not report its binary.
-    #[error("cargo reported no binary for {package}")]
-    MissingBinary {
-        /// The package.
-        package: &'static str,
-    },
     /// A component exited before it was ready.
     #[error("{package} exited ({status}) before it was ready")]
     ComponentExited {
@@ -235,7 +228,7 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     let toggle = Binding::new(
         &id,
         LAUNCHER_CHORD,
-        binary(&binaries, LAUNCHER_TOGGLE.package)?,
+        binaries.binary(LAUNCHER_TOGGLE.package)?,
         LAUNCHER_TOGGLE.args,
     )?;
     let bindings = [toggle];
@@ -366,17 +359,6 @@ fn outer_display() -> Result<PathBuf, DesktopError> {
             why: format!("{} does not exist", socket.display()),
         })
     }
-}
-
-/// `package`'s binary in `binaries`.
-fn binary<'a>(
-    binaries: &'a BTreeMap<&'static str, PathBuf>,
-    package: &'static str,
-) -> Result<&'a Path, DesktopError> {
-    binaries
-        .get(package)
-        .map(PathBuf::as_path)
-        .ok_or(DesktopError::MissingBinary { package })
 }
 
 /// [`LAUNCHER_CHORD`] as a person reads it.

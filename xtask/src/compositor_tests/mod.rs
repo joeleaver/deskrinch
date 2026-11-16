@@ -25,14 +25,17 @@
 //! `session_end` tests end the session under a connected manager, so they
 //! run last.
 //!
-//! The components are built apart from the tests, by the one build of them
-//! all ([`crate::components`]), whatever suites run, and the run keeps its
-//! own copy of each ([`run_dir`]). Not with the tests: one invocation
-//! unifies features over everything it builds, the test crates'
-//! dev-dependencies included, and the suites would then start components
-//! nobody builds for use. Not only those the chosen suites declare: a build
-//! of some gives a component another unit than a build of all, and the unit
-//! a suite starts would depend on which suites were chosen.
+//! When a chosen suite declares a program, the components are built apart
+//! from the tests, all of them, by the one build of them
+//! ([`crate::components`]), and the run keeps its own copy of each
+//! ([`run_dir`]); a run whose chosen suites declare none builds none
+//! ([`needs_components`]). Not with the tests: one invocation unifies
+//! features over everything it builds, the test crates' dev-dependencies
+//! included, and the suites would then start components nobody builds for
+//! use. All of them once any: a build of some gives a component another unit
+//! than a build of all, and the unit a suite starts would depend on which
+//! suites were chosen. None for a run that starts none: it would build what
+//! it never starts, and fail if one of them did not build.
 //!
 //! A run can be narrowed to some suites, and to one test of one suite
 //! ([`selection`]), and repeated in fresh sessions ([`repeat`]). A run that
@@ -129,16 +132,24 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
 }
 
 /// What a run built: the chosen suites' test binaries, by their rows in
-/// [`SUITES`], and every component, by package, kept in the run's own
-/// directory for as long as the run lasts.
+/// [`SUITES`], and, when they declare programs ([`needs_components`]), every
+/// component, by package, kept in the run's own directory for as long as
+/// the run lasts.
 struct Built {
     tests: BTreeMap<usize, PathBuf>,
     programs: BTreeMap<&'static str, PathBuf>,
-    _kept: RunDir,
+    _kept: Option<RunDir>,
 }
 
-/// Builds the chosen suites' test binaries, then every component
-/// ([`crate::components::build`]), kept in the run's own directory.
+/// Whether the suites of `rows` declare a program, and so whether the run
+/// builds the components.
+fn needs_components(rows: &[usize]) -> bool {
+    rows.iter().any(|&row| !SUITES[row].programs.is_empty())
+}
+
+/// Builds the chosen suites' test binaries, then, when they declare
+/// programs, every component ([`crate::components::build`]), kept in the
+/// run's own directory.
 fn build(root: &Path, selection: &Selection) -> Result<Built, Error> {
     let mut targets: Vec<Target> = Vec::new();
     for &row in selection.rows() {
@@ -157,26 +168,27 @@ fn build(root: &Path, selection: &Selection) -> Result<Built, Error> {
             (row, built[at.unwrap_or_default()].clone())
         })
         .collect();
+    if !needs_components(selection.rows()) {
+        return Ok(Built {
+            tests,
+            programs: BTreeMap::new(),
+            _kept: None,
+        });
+    }
     let built = components::build(root, Profile::Dev)?;
     let keeping = |source| Error::Io {
         what: "keep the components for the run".into(),
         source,
     };
-    let any = built
-        .values()
-        .next()
-        .ok_or(components::BuildError::Missing {
-            package: deskrinch_shell::COMPONENTS[0].package,
-        })?;
-    let kept = RunDir::beside(any).map_err(keeping)?;
+    let kept = RunDir::in_target(built.target_dir()).map_err(keeping)?;
     let programs = built
-        .iter()
-        .map(|(&package, binary)| Ok((package, kept.keep(binary).map_err(keeping)?)))
+        .binaries()
+        .map(|(package, binary)| Ok((package, kept.keep(package, binary).map_err(keeping)?)))
         .collect::<Result<_, Error>>()?;
     Ok(Built {
         tests,
         programs,
-        _kept: kept,
+        _kept: Some(kept),
     })
 }
 
@@ -369,4 +381,29 @@ fn grant_all(built: &Built, data_home: &Path) -> Result<(), Error> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The row of the suite named `name`.
+    fn row(name: &str) -> usize {
+        SUITES
+            .iter()
+            .position(|suite| suite.target.name() == name)
+            .unwrap_or_else(|| panic!("no suite named {name}"))
+    }
+
+    #[test]
+    fn components_are_built_only_for_a_run_that_starts_one() {
+        let panel = row("deskrinch-panel compositor");
+        let screen = row("deskrinch-test-screen compositor");
+        assert!(needs_components(&[panel]));
+        assert!(needs_components(&[screen, panel]));
+        assert!(!needs_components(&[screen]));
+        assert!(!needs_components(&[]));
+        let all: Vec<usize> = (0..SUITES.len()).collect();
+        assert!(needs_components(&all));
+    }
 }

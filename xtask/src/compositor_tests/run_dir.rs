@@ -9,10 +9,23 @@
 //! which builds the components again. So the runner keeps each built
 //! component in a directory of the run's own, `compositor-tests/run-<pid>`
 //! in the target directory, and hands the suites those paths: a hard link,
-//! which Cargo leaves alone when it replaces the uplifted file (it removes
-//! it and makes a new one), or a copy where the link is refused. Which of
-//! the two was made matters to nobody: either way the suites get a path that
-//! nothing else writes.
+//! or a copy where the link is refused. Which of the two was made matters to
+//! nobody: either way the suites get a path that nothing else writes.
+//!
+//! Why a link is as good as a copy. The kept link shares its file with the
+//! uplifted one, and where Cargo's build directory is in the same file
+//! system (no `build-dir` elsewhere, as on CI), with Cargo's own
+//! `deps/<name>-<hash>` too. Neither is ever written in place:
+//!
+//! - Cargo replaces the uplifted file by removing it and linking or copying
+//!   anew.
+//! - A rebuild of the same unit (a source changed, the same `deps/` name)
+//!   links a new file: the linker writes its output elsewhere and puts it in
+//!   place of the old one, which the kept link goes on holding. Seen with
+//!   rust-lld, Rust's default linker on Linux and CI's, and with mold: after
+//!   a source change and the same build, `deps/deskrinch_panel-<hash>` and
+//!   the uplifted file had a new inode each, and the kept link the old inode
+//!   and the old content.
 //!
 //! The directory goes when the run ends. A run that was killed leaves its
 //! own, holding full binaries once Cargo has replaced the uplifted files,
@@ -35,13 +48,9 @@ pub(super) struct RunDir {
 }
 
 impl RunDir {
-    /// Makes this run's directory beside the target directory holding
-    /// `built` (a binary Cargo put at `<target>/<profile>/<name>`), after
+    /// Makes this run's directory in the target directory `target`, after
     /// removing the directories of runs whose process is gone.
-    pub(super) fn beside(built: &Path) -> io::Result<Self> {
-        let target = built.parent().and_then(Path::parent).ok_or_else(|| {
-            io::Error::other(format!("no target directory above {}", built.display()))
-        })?;
+    pub(super) fn in_target(target: &Path) -> io::Result<Self> {
         let parent = target.join("compositor-tests");
         remove_stale(&parent, process_runs);
         let path = parent.join(format!("{PREFIX}{}", std::process::id()));
@@ -54,13 +63,10 @@ impl RunDir {
         Ok(Self { path })
     }
 
-    /// Keeps `built` in the run's directory, under its own name; its path
-    /// there.
-    pub(super) fn keep(&self, built: &Path) -> io::Result<PathBuf> {
-        let name = built
-            .file_name()
-            .ok_or_else(|| io::Error::other(format!("{} names no file", built.display())))?;
-        let kept = self.path.join(name);
+    /// Keeps `package`'s binary `built` in the run's directory, under the
+    /// package's name; its path there.
+    pub(super) fn keep(&self, package: &str, built: &Path) -> io::Result<PathBuf> {
+        let kept = self.path.join(package);
         if fs::hard_link(built, &kept).is_err() {
             fs::copy(built, &kept)?;
         }
@@ -174,8 +180,8 @@ mod tests {
         let built = dir.path().join("debug").join("deskrinch-panel");
         fs::create_dir_all(built.parent().unwrap()).unwrap();
         fs::write(&built, b"first").unwrap();
-        let run = RunDir::beside(&built).unwrap();
-        let kept = run.keep(&built).unwrap();
+        let run = RunDir::in_target(dir.path()).unwrap();
+        let kept = run.keep("deskrinch-panel", &built).unwrap();
         // As Cargo replaces an uplifted file: removed, then made anew.
         fs::remove_file(&built).unwrap();
         fs::write(&built, b"second").unwrap();
