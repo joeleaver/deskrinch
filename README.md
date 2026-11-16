@@ -429,7 +429,7 @@ instructions) is taken from the summon command to the first frame after it,
 the first show cold and the later ones after a hide:
 
 ```sh
-cargo build --release -p deskrinch-launcher
+cargo xtask build-components --release
 cargo xtask measure --renderer software --summon show --dismiss hide target/release/deskrinch-launcher
 ```
 
