@@ -118,7 +118,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 19] = [
+pub(super) const SUITES: [Suite; 20] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -391,6 +391,25 @@ pub(super) const SUITES: [Suite; 19] = [
         passes: PLAIN,
         renders: false,
         programs: &[],
+        filter: &[],
+    },
+    // Each shell component's end when its display goes away, in a session
+    // of its own nested in this one, whose compositor the test kills.
+    Suite {
+        target: Target {
+            package: XTASK,
+            test: "display_lost",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: PLAIN,
+        renders: false,
+        programs: &[
+            &deskrinch_shell::WALLPAPER,
+            &deskrinch_shell::LAUNCHER,
+            &deskrinch_shell::PANEL,
+        ],
         filter: &[],
     },
     // The two suites that exercise the shared connection, again on

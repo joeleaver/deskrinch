@@ -226,6 +226,8 @@ What the command, and everything it starts, sees:
   under sway). There is no X server: KWin runs without Xwayland.
 - `DESKRINCH_TEST_COMPOSITOR` naming the compositor (`kwin`, `sway` or
   `labwc`), which the compositor tests' guard against the real session reads.
+- `DESKRINCH_SESSION_COMPOSITOR_PID`: the compositor's process id, for a
+  command that ends the compositor under its other clients.
 - `DBUS_SESSION_BUS_ADDRESS` naming a private `dbus-daemon` with service
   activation off, which the compositor uses too: no portal, secret service
   or notification daemon is ever started on demand.
