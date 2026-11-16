@@ -50,6 +50,7 @@ mod component_rule;
 mod granted;
 mod ignored_rule;
 mod leaks;
+mod passes;
 pub(crate) mod renderers;
 mod repeat;
 mod run_dir;
@@ -262,8 +263,12 @@ fn sessions(
 ) -> Result<Vec<(Place, Vec<Run>)>, Error> {
     let mut sessions = Vec::new();
     for &compositor in compositors {
-        for pass in Pass::ALL {
-            let outputs = pass.outputs().sized(sizes)?;
+        for pass in Pass::EVERY {
+            let outputs = if pass.has_outputs_of_its_own() {
+                pass.outputs()
+            } else {
+                pass.outputs().sized(sizes)?
+            };
             for rendering in [CompositorRenderer::Software, CompositorRenderer::Gpu] {
                 let place = Place {
                     compositor,
@@ -273,9 +278,15 @@ fn sessions(
                     gpu: Gpu::Machine,
                 };
                 let runs = runs(place, plan, selection);
-                if !runs.is_empty() {
-                    sessions.push((place, runs));
+                if runs.is_empty() {
+                    continue;
                 }
+                if pass.has_outputs_of_its_own() && !sizes.is_empty() {
+                    return Err(Error::OutputsOfItsOwn {
+                        outputs: outputs.to_string(),
+                    });
+                }
+                sessions.push((place, runs));
             }
         }
     }
@@ -423,5 +434,34 @@ mod tests {
         assert!(!needs_components(&[]));
         let all: Vec<usize> = (0..SUITES.len()).collect();
         assert!(needs_components(&all));
+    }
+
+    /// A pass with outputs of its own runs on them whatever the run asks,
+    /// and a run that asks other sizes for such a session is refused; a run
+    /// whose suites do not go there takes the sizes for its own passes.
+    #[test]
+    fn sizes_asked_for_never_change_a_pass_with_outputs_of_its_own() {
+        let (plan, _) = renderers::Plan::new(
+            renderers::Choice::Software,
+            &crate::session::RenderNodes::of_machine(),
+        )
+        .unwrap();
+        let size: OutputSize = "2560x1440".parse().unwrap();
+        let client =
+            Selection::new(&["deskrinch-test-client compositor".to_owned()], None).unwrap();
+        let planned = sessions(&[Compositor::Kwin], &[], &plan, &client).unwrap();
+        let own = planned
+            .iter()
+            .find(|(place, _)| place.pass == Pass::UhdBesideFullHd)
+            .expect("the test client's row on the pass with outputs of its own");
+        assert_eq!(own.0.outputs, Pass::UhdBesideFullHd.outputs());
+        let refused = sessions(&[Compositor::Kwin], &[size], &plan, &client).unwrap_err();
+        assert!(
+            refused.to_string().contains("--output-size cannot change"),
+            "{refused}"
+        );
+        let panel = Selection::new(&["deskrinch-panel compositor".to_owned()], None).unwrap();
+        let sized = sessions(&[Compositor::Kwin], &[size], &plan, &panel).unwrap();
+        assert!(sized.iter().all(|(place, _)| place.outputs.size(0) == size));
     }
 }
