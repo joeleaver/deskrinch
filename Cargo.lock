@@ -1071,6 +1071,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-picture"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.2",
+ "deskrinch-test-pictures",
+ "deskrinch-untrusted",
+ "gif",
+ "image",
+ "image-webp",
+ "moxcms",
+ "peak_alloc",
+ "png 0.18.1",
+ "proptest",
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zune-core",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "deskrinch-settings"
 version = "0.1.0"
 dependencies = [
@@ -1103,6 +1124,7 @@ name = "deskrinch-status-notifier"
 version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
+ "deskrinch-picture",
  "deskrinch-test-dbus",
  "deskrinch-test-wait",
  "deskrinch-timer",
@@ -1199,6 +1221,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-pictures"
+version = "0.1.0"
+dependencies = [
+ "gif",
+ "image-webp",
+ "moxcms",
+ "png 0.18.1",
+]
+
+[[package]]
 name = "deskrinch-test-portal"
 version = "0.1.0"
 dependencies = [
@@ -1265,8 +1297,11 @@ dependencies = [
 name = "deskrinch-untrusted"
 version = "0.1.0"
 dependencies = [
- "png 0.18.1",
+ "libc",
  "proptest",
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3448,6 +3483,12 @@ name = "pastey"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
+
+[[package]]
+name = "peak_alloc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccc90935a8dd139fdf341762773687a1e361d3f54b396a55d9dd1f7001e484bb"
 
 [[package]]
 name = "peniko"

@@ -13,4 +13,4 @@ disallowed-methods = [
 ]
 # Proper names the docs use that `doc_markdown` would otherwise want in
 # backticks; `".."` keeps clippy's default list.
-doc-valid-idents = ["AppArmor", "DevTools", "GLib", "KWin", "PipeWire", "PulseAudio", "TZif", "WirePlumber", ".."]
+doc-valid-idents = ["AppArmor", "DevTools", "GLib", "KWin", "PipeWire", "ProPhoto", "PulseAudio", "TZif", "WirePlumber", ".."]

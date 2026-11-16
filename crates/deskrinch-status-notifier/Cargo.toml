@@ -10,6 +10,8 @@ publish.workspace = true
 
 [dependencies]
 deskrinch-bus.workspace = true
+# Menu entries' PNG icons.
+deskrinch-picture.workspace = true
 # The read interval's waits.
 deskrinch-timer.workspace = true
 deskrinch-untrusted.workspace = true
