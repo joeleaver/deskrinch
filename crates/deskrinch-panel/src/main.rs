@@ -85,6 +85,8 @@ mod panel;
 mod surface;
 mod widgets;
 
+use std::process::ExitCode;
+
 use deskrinch_appearance::Bus;
 use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::{Configuration, report};
@@ -94,7 +96,7 @@ use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 
-fn main() {
+fn main() -> ExitCode {
     // Before the configuration is read, so that its diagnostics are shown.
     report::init();
     let base_dirs = BaseDirs::from_process();
@@ -110,8 +112,9 @@ fn main() {
         installed: Installed::start(&env),
         icons: Icons::start(SearchPath::new(&base_dirs)),
     };
-    deskrinch_component::app::new(move |scope| panel::panel(scope, parts))
-        .window_props(window)
-        .theme(first_theme)
-        .run();
+    deskrinch_component::app::run(
+        deskrinch_component::app::new(move |scope| panel::panel(scope, parts))
+            .window_props(window)
+            .theme(first_theme),
+    )
 }

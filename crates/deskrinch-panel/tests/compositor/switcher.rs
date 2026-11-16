@@ -305,10 +305,10 @@ fn a_click_switches_to_its_workspace() {
 }
 
 /// The pointer onto a button that is not the current one marks it (the
-/// bar's shared `:hover` rule), and off the panel the mark goes: each step
-/// one frame without reactive work, which repaints and lays nothing out,
-/// and at least one step with no reactive frame at all (the two rules of
-/// the taskbar's hover test, for the same reasons: [`crate::taskbar_hover`]).
+/// bar's shared `:hover` rule), and off the panel the mark goes, round
+/// after round until a round after the first is clean: the taskbar's hover
+/// rule, for the same reasons ([`frames::until_clean_round`],
+/// [`crate::taskbar_hover`]).
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_button_under_the_pointer_is_marked_until_it_leaves() {
@@ -321,37 +321,27 @@ fn the_button_under_the_pointer_is_marked_until_it_leaves() {
     // The last is current; the first is not, and is the first mark from
     // the left once the pointer is on it.
     let first = boxes[0];
-    let deadline = Deadline::patience();
-    let mut reactive = Vec::new();
-    loop {
-        let from = frames::step(&pager.panel);
-        pager.point_at(first);
-        let mark = pager.wait_mark("the first button marked under the pointer", |m| {
-            m == Some(first)
-        });
-        assert_eq!(mark, Some(first));
-        let onto = frames::one_paint_only_frame(&pager.panel, from, "onto the first button");
-        let from = frames::step(&pager.panel);
-        pager.point_off();
-        let last = boxes[boxes.len() - 1];
-        let mark = pager.wait_mark("the first button's mark gone", |m| m == Some(last));
-        assert_eq!(
-            mark,
-            Some(last),
-            "only the current workspace's mark is left"
-        );
-        let off = frames::one_paint_only_frame(&pager.panel, from, "off the panel");
-        if onto.is_empty() || off.is_empty() {
-            return;
-        }
-        reactive.push(onto);
-        reactive.push(off);
-        assert!(
-            !deadline.passed(),
-            "every step had reactive work, which a hover would cause if it set a signal \
-             in a frame of its own; the reactive frames, step by step: {reactive:#?}"
-        );
-    }
+    let last = boxes[boxes.len() - 1];
+    frames::until_clean_round(
+        &mut pager,
+        |pager| &pager.panel,
+        |pager| {
+            pager.point_at(first);
+            let mark = pager.wait_mark("the first button marked under the pointer", |m| {
+                m == Some(first)
+            });
+            assert_eq!(mark, Some(first));
+        },
+        |pager| {
+            pager.point_off();
+            let mark = pager.wait_mark("the first button's mark gone", |m| m == Some(last));
+            assert_eq!(
+                mark,
+                Some(last),
+                "only the current workspace's mark is left"
+            );
+        },
+    );
 }
 
 /// KWin alone can add and remove desktops while it runs. Under labwc, whose

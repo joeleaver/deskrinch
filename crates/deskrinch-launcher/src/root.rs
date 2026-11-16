@@ -1,18 +1,13 @@
-//! The launcher's root: the look applied, the window following
-//! [`Visibility`], and the model ([`Model`]) driven by what the user types
-//! and presses.
+//! The launcher's root: the world the launcher reads and acts on, around
+//! its wiring ([`wiring`]), which makes what the user types and presses
+//! into the model's input and has the window follow [`Visibility`].
 //!
-//! - The query is the field's text; the results follow it and the
-//!   installed applications.
-//! - Up and Down move the selection; Enter asks for an activation token for
-//!   the launcher's window (from the key press) and, in its answer, starts
-//!   the selected application with it and hides; Escape hides; so does the
-//!   window losing the keyboard while shown.
-//! - Hiding clears the model, so the next show starts with an empty query
-//!   and the frequent applications as its results.
-//! - It says in its log when its window has the keyboard, once per show, and
-//!   how long its query was at each hide, in the words of the library's
-//!   `said` module: see [`hide_when_left`].
+//! - The look is applied, and the icons follow its icon theme.
+//! - The results follow the installed applications as well as the query.
+//! - What the model answers is done here ([`Starter`]): Enter asks for an
+//!   activation token for the launcher's window (from the key press) and,
+//!   in its answer, starts the selected application with it and hides;
+//!   Escape, and the window losing the keyboard while shown, hide.
 //! - The frequent applications follow the record of starts, the installed
 //!   applications and `[general]` `remember-starts` (which the record's
 //!   thread follows too). A change to them reaches the model at once while
@@ -31,20 +26,17 @@ use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{CatalogEntry, Environment};
 use deskrinch_icons::Index;
-use deskrinch_launcher::{
-    Action, Drawn, HAS_KEYBOARD, Input, Model, Preparation, Visibility, frequent, preparing,
-    query_at_hide,
-};
+use deskrinch_launcher::{Action, Drawn, Model, Preparation, Visibility, frequent, preparing};
 use deskrinch_settings::general::GeneralSettings;
 use deskrinch_start_record::Record;
 use deskrinch_theme::{Scheme, Theme};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
-use rinch::windows::{hide_current_window, prepare_current_window, show_current_window};
+use rinch::windows::prepare_current_window;
 
 use crate::start::start;
 use crate::starts::{Held, Starts};
-use crate::view;
+use crate::wiring::{self, Wiring};
 
 /// What the launcher runs with.
 pub(crate) struct Parts {
@@ -105,10 +97,6 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
         shown,
     });
 
-    let on_query = move |query: String| {
-        let entries = entries.get();
-        model.update(|m| m.set_query(&query, entries.iter().map(|e| &e.entry)));
-    };
     let starter = Starter {
         visibility: Arc::clone(&visibility),
         entries,
@@ -116,56 +104,18 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
         env,
         starts,
     };
-    let on_key = {
-        let starter = starter.clone();
-        move |key: &str| -> bool {
-            let input = match key {
-                "ArrowUp" => Input::Up,
-                "ArrowDown" => Input::Down,
-                "Enter" => Input::Enter,
-                "Escape" => Input::Escape,
-                _ => return false,
-            };
-            starter.act(self::input(model, input));
-            true
-        }
-    };
-    let on_pointer: Rc<dyn Fn(Input)> = {
-        let starter = starter.clone();
-        Rc::new(move |pointer: Input| starter.act(input(model, pointer)))
-    };
-    let (content, field) = view::view(__scope, model, index, on_query, on_key, on_pointer);
-
-    // The window follows `Visibility`; showing puts the keyboard in the
-    // field (a window made shown too), hiding empties the model. On the
-    // desktop `focus()` posts a request the runtime applies on its next
-    // turn, once the field is mounted and the window is up.
-    {
-        if made_shown {
-            field.focus();
-        }
-        let mut applied_shown = made_shown;
-        Effect::new(move || {
-            let wanted = shown.get();
-            if wanted == applied_shown {
-                return;
-            }
-            applied_shown = wanted;
-            if wanted {
-                show_current_window();
-                field.focus();
-            } else {
-                hide_current_window();
-                untracked(|| {
-                    let chars = model.with(|m| m.query().chars().count());
-                    tracing::info!("{}", query_at_hide(chars));
-                    model.update(Model::clear);
-                });
-            }
-        });
-    }
-
-    hide_when_left(starter, model);
+    let content = wiring::wire(
+        __scope,
+        Wiring {
+            model,
+            entries,
+            index,
+            visibility,
+            shown,
+            made_shown,
+            act: Rc::new(move |action| starter.act(action)),
+        },
+    );
     prepare_while_hidden(model, index, applied.scheme, shown);
     content
 }
@@ -195,26 +145,6 @@ fn prepare_while_hidden(
             tracing::info!("{}", preparing(&changes));
             prepare_current_window();
         }
-    });
-}
-
-/// Leaving the launcher (another window took the keyboard, or an
-/// application it started did) hides it; it never takes the keyboard back.
-/// Gaining the keyboard while shown, once per show (each show makes the
-/// window anew, and losing the keyboard hides it), it writes
-/// [`HAS_KEYBOARD`].
-fn hide_when_left(starter: Starter, model: Signal<Model>) {
-    let mut had_keyboard = false;
-    Effect::new(move || {
-        let focused = window_focused();
-        let shown = starter.visibility.is_shown();
-        if had_keyboard && !focused && shown {
-            untracked(|| starter.act(input(model, Input::KeyboardLost)));
-        }
-        if !had_keyboard && focused && shown {
-            tracing::info!("{HAS_KEYBOARD}");
-        }
-        had_keyboard = focused;
     });
 }
 
@@ -268,13 +198,6 @@ fn follow_frequent(parts: &Frequent<'_>) {
             });
         });
     });
-}
-
-/// Gives the model `input`; answers what to do.
-fn input(model: Signal<Model>, input: Input) -> Action {
-    let mut action = Action::Stay;
-    model.update(|m| action = m.input(input));
-    action
 }
 
 /// What doing what the model answers needs.

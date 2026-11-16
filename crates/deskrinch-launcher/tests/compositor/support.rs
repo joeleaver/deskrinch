@@ -1,13 +1,14 @@
 //! What the tests share: the launcher binary run and ended, the bus asked
 //! who owns the launcher's name, and waiting.
 
+use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use deskrinch_bus::Bus;
 use deskrinch_launcher::{Change, NAME, PREPARING};
 use deskrinch_test_client::Compositor;
-use deskrinch_test_component::{Component, PerfLine, PerfWindow, Renderer, perf};
+use deskrinch_test_component::{Component, PerfLine, PerfWindow, Renderer, perf, programs};
 use deskrinch_test_wait::{Deadline, POLL, comes_true};
 
 /// How long a test watches a launcher for something that must not happen
@@ -17,7 +18,11 @@ use deskrinch_test_wait::{Deadline, POLL, comes_true};
 /// visible effect, awaited) are to replace it.
 pub(crate) const STAYS_FOR: Duration = Duration::from_secs(2);
 
-pub(crate) const LAUNCHER: &str = env!("CARGO_BIN_EXE_deskrinch-launcher");
+/// The launcher binary the run built for this suite
+/// ([`deskrinch_test_component::programs`]).
+fn launcher_binary() -> PathBuf {
+    programs::program(deskrinch_shell::LAUNCHER.package).unwrap_or_else(|why| panic!("{why}"))
+}
 
 /// Panics unless the tests run in a nested session started by
 /// `cargo xtask compositor-tests` (`Compositor::current`). Run anywhere
@@ -126,6 +131,13 @@ impl Launcher {
         }
     }
 
+    /// The lines it has written since `mark` ([`mark`](Self::mark)).
+    pub(crate) fn lines_since(&self, mark: usize) -> Vec<String> {
+        let mut lines = self.component().watch().lines();
+        lines.drain(..mark.min(lines.len()));
+        lines
+    }
+
     /// Waits until a line written since `mark` ([`mark`](Self::mark)) has
     /// `text` in it; `Err` with its last lines when none has within the
     /// patience.
@@ -231,7 +243,7 @@ impl Drop for Launcher {
 
 /// The launcher binary with `args`, for [`run`] or [`Launcher::spawn`].
 pub(crate) fn launcher(args: &[&str]) -> Command {
-    let mut command = Command::new(LAUNCHER);
+    let mut command = Command::new(launcher_binary());
     command.args(args);
     command
 }

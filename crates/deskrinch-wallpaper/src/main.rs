@@ -35,8 +35,9 @@
 //!   rinch makes such a window an ordinary one, which for a wallpaper would
 //!   be a window over everything else. So the wallpaper asks rinch which
 //!   window roles the display offers before opening any window, and
-//!   without the layer shell it says why, opens nothing, and exits with a
-//!   failure status ([`role`]).
+//!   without the layer shell it says why, opens nothing, and exits with
+//!   deskrinch-shell's `CANNOT_RUN_HERE`, so that it is not started again
+//!   ([`role`]).
 //! - Each output's window is keyed and placed by the output's id, which
 //!   every output has: an output without a name (`wl_output` before
 //!   version 4) gets its wallpaper like any other ([`surface`]).
@@ -69,13 +70,16 @@ mod style;
 mod surface;
 mod wallpaper;
 
+use std::process::ExitCode;
+
 use deskrinch_appearance::Bus;
 use deskrinch_component::{Configuration, report};
 use deskrinch_settings::wallpaper::WallpaperSettings;
+use deskrinch_shell::exit_status::CANNOT_RUN_HERE;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 
-fn main() {
+fn main() -> ExitCode {
     // Before the configuration is read, so that its diagnostics are shown.
     report::init();
     let dirs = BaseDirs::from_process();
@@ -84,13 +88,15 @@ fn main() {
     let theme = Theme::start(&configuration, Bus::Session);
     let first_theme = theme.initial();
     let home = dirs.home.clone();
-    deskrinch_component::app::windowless(move |scope| {
-        wallpaper::wallpaper(scope, live, theme, home)
-    })
-    .image_scheme(picture::SCHEME, picture::load)
-    .theme(first_theme)
-    .run();
+    let ended = deskrinch_component::app::run(
+        deskrinch_component::app::windowless(move |scope| {
+            wallpaper::wallpaper(scope, live, theme, home)
+        })
+        .image_scheme(picture::SCHEME, picture::load)
+        .theme(first_theme),
+    );
     if role::refused() {
-        std::process::exit(1);
+        return ExitCode::from(CANNOT_RUN_HERE);
     }
+    ended
 }

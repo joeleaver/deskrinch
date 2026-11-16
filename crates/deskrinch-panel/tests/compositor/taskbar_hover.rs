@@ -11,28 +11,27 @@
 //! the mark comes and goes.
 //!
 //! What each change costs is read from rinch's own counters on the panel's
-//! frame lines, by two rules:
+//! frame lines, round by round ([`frames::until_clean_round`]):
 //!
-//! - Each step (the pointer onto the button, or off the panel) makes exactly
-//!   one frame without reactive work (no `signal_notifies`), and that frame
-//!   repaints and lays nothing out. A `:hover` change runs nothing reactive,
-//!   so its frame is told from frames drawn for something else the panel
-//!   follows (the clock's minute, a window's title, an icon index landing
-//!   late on a loaded machine), which are left out of the count. A hover
-//!   that came to set a signal would make its own frame reactive, and the
-//!   count would be 0.
-//! - At least one step has no reactive frame at all. The first rule cannot
-//!   see reactive work the hover causes in a frame of its own, since it
-//!   leaves every reactive frame out; such work would show on every step,
-//!   while the clock or a late arrival shows on one or two. So while every
-//!   step so far had a reactive frame, the pointer goes on and off again,
-//!   until one step is clean, or the patience runs out and the test fails
-//!   with those frames.
+//! - A step (the pointer onto the button, or off the panel) with any frame
+//!   without reactive work (no `signal_notifies`) has exactly one, and it
+//!   repaints and lays nothing out: what a `:hover` change costs.
+//! - A step with reactive frames is crowded: drawn for something else the
+//!   panel follows (the clock's minute, a window's title, an icon index
+//!   landing late on a loaded machine), or the hover's restyle batched into
+//!   one frame with such a change.
+//! - The pointer goes on and off again until a round after the first is
+//!   clean in both its steps: one frame without reactive work each, and no
+//!   reactive frame. The steps' windows are contiguous, so a frame between
+//!   two steps is read too.
+//! - A hover that came to set a signal, on entering or on leaving, directly
+//!   or deferred by less than a round, crowds every round, and the test fails
+//!   at the patience; the clock or a late arrival crowds a round or two. Work
+//!   deferred by longer than a round is the rule's limit.
 
 use deskrinch_test_screen::Rgba;
-use deskrinch_test_wait::Deadline;
 
-use crate::frames::{self, one_paint_only_frame};
+use crate::frames;
 use crate::taskbar::{Bar, GREEN, RED, near};
 use crate::taskbar_clicks::open_active;
 
@@ -72,7 +71,7 @@ struct Colours {
 }
 
 /// Red's window, then green's, active; the pointer onto red's button, then
-/// off the panel, again while no step has been free of reactive frames.
+/// off the panel, round after round until one after the first is clean.
 /// `apart` is whether the hovered and the selected option are different
 /// colours in `scheme`.
 fn hover(scheme: &str, apart: bool) {
@@ -100,28 +99,17 @@ fn hover(scheme: &str, apart: bool) {
         "red's button is not the bar's colour before the pointer: {before:?} against {:?}",
         colours.plain
     );
-    let deadline = Deadline::patience();
-    let mut reactive = Vec::new();
-    loop {
-        let onto = point_onto(&mut bar, red, &colours);
-        let off = point_off(&mut bar, red, &colours);
-        if onto.is_empty() || off.is_empty() {
-            return;
-        }
-        reactive.push(onto);
-        reactive.push(off);
-        assert!(
-            !deadline.passed(),
-            "every step had reactive work, which a hover would cause if it set a signal \
-             in a frame of its own; the reactive frames, step by step: {reactive:#?}"
-        );
-    }
+    frames::until_clean_round(
+        &mut bar,
+        Bar::panel,
+        |bar| point_onto(bar, red, &colours),
+        |bar| point_off(bar, red, &colours),
+    );
 }
 
-/// The pointer onto red's button (its icon `red`): the mark comes, in one
-/// paint-only frame. Returns the step's reactive frames.
-fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> Vec<String> {
-    let from = frames::step(bar.panel());
+/// The pointer onto red's button (its icon `red`): returns once the mark
+/// has come and the screen keeps still.
+fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) {
     bar.point_at(red);
     bar.see("red's button marked under the pointer", |_, image| {
         Bar::beside(image, red).is_some_and(|p| !near(p, colours.plain))
@@ -139,20 +127,17 @@ fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> Ve
             colours.active
         );
     }
-    one_paint_only_frame(bar.panel(), from, "onto red's button")
 }
 
-/// The pointer off the panel: red's mark goes, in one paint-only frame.
-/// Returns the step's reactive frames.
-fn point_off(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> Vec<String> {
-    let from = frames::step(bar.panel());
+/// The pointer off the panel: returns once red's mark has gone and the
+/// screen keeps still.
+fn point_off(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) {
     bar.point_off();
     bar.see(
         "red's mark gone with the pointer off the panel",
         |_, image| Bar::beside(image, red).is_some_and(|p| near(p, colours.plain)),
     );
     let _ = bar.settled(|image| Bar::beside(image, red));
-    one_paint_only_frame(bar.panel(), from, "off the panel")
 }
 
 /// Whether `a` and `b` differ by more than [`ROUNDING`] in some colour

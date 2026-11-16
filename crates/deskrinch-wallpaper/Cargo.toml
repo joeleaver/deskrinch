@@ -22,6 +22,9 @@ debug = ["rinch/debug", "deskrinch-component/debug"]
 deskrinch-appearance.workspace = true
 deskrinch-component.workspace = true
 deskrinch-settings.workspace = true
+# The status it ends with where it cannot run (no layer shell); and, for
+# the layering test, the panel by its package as the shell names it.
+deskrinch-shell.workspace = true
 deskrinch-theme.workspace = true
 deskrinch-watch.workspace = true
 deskrinch-xdg.workspace = true
@@ -35,9 +38,6 @@ rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 tracing.workspace = true
 
 [dev-dependencies]
-# The panel, which the layering test starts over the wallpaper, by its
-# package as the shell names it.
-deskrinch-shell.workspace = true
 deskrinch-test-wait.workspace = true
 # The compositor tests: the session's outputs, turned, and turned off and
 # on; the wallpaper started and watched; the screen captured.

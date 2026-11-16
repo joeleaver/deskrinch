@@ -118,14 +118,27 @@ impl Shown {
     }
 
     /// Waits for the launcher to say, at its hide, that its query had every
-    /// character typed into it since it was shown: none was lost.
+    /// character typed into it since it was shown (none was lost), then
+    /// checks that between the show and that hide it said it had the
+    /// keyboard exactly once.
     pub(crate) fn hid_with_the_query(&self) {
-        if let Err(why) = self
-            .launcher
-            .wait_said_since(self.show_mark, &query_at_hide(self.typed))
-        {
+        let hidden = query_at_hide(self.typed);
+        if let Err(why) = self.launcher.wait_said_since(self.show_mark, &hidden) {
             panic!("a key typed was lost: {why}");
         }
+        let lines = self.launcher.lines_since(self.show_mark);
+        let show = lines
+            .iter()
+            .take_while(|line| !line.contains(&hidden))
+            .collect::<Vec<_>>();
+        let said = show
+            .iter()
+            .filter(|line| line.contains(HAS_KEYBOARD))
+            .count();
+        assert_eq!(
+            said, 1,
+            "{HAS_KEYBOARD:?} said {said} times in one show; its lines from the show to the hide:\n{show:#?}"
+        );
     }
 
     /// The test's directory: its applications, configuration and state.
@@ -398,6 +411,12 @@ fn shown_again_it_starts_empty_with_the_keyboard_in_the_field() {
     assert_eq!(bands(&empty), 1, "the last query's results are gone");
     shown.type_query("plain");
     shown.see("the results of the query", results_drawn);
+    // Each show, the first and this one, said it had the keyboard once.
+    shown.input.press(Key::ESCAPE).unwrap();
+    shown.see("the launcher hidden again", |image| {
+        at_centre(image).is_none()
+    });
+    shown.hid_with_the_query();
 }
 
 #[test]

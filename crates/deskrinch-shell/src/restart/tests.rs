@@ -142,9 +142,65 @@ fn the_policy_maps_to_a_units_lines_as_written() {
         POLICY.systemd_lines(),
         [
             "Restart=on-failure",
+            "RestartPreventExitStatus=78",
             "StartLimitBurst=3",
             "StartLimitIntervalSec=60"
         ]
     );
     assert_eq!(Restart::Never.systemd_lines(), ["Restart=no"]);
+}
+
+/// A component whose display went away ends with
+/// [`DISPLAY_LOST`](crate::exit_status::DISPLAY_LOST), which the policy
+/// reads as a failure: started again, it reaches a compositor that came
+/// back on the same socket (KWin's wrapper), and the limit ends the
+/// restarts when none does.
+#[test]
+fn a_lost_display_is_a_failure() {
+    let lost = exited(i32::from(crate::exit_status::DISPLAY_LOST));
+    assert_eq!(Exit::of(&lost), Exit::Failed);
+    let base = Instant::now();
+    let mut starts = Starts::new(POLICY, base);
+    assert_eq!(
+        starts.after_exit(Exit::of(&lost), at(base, 1.0)),
+        Verdict::Restart { start: 2 }
+    );
+}
+
+/// A component that cannot run where it was started ends with
+/// [`CANNOT_RUN_HERE`](crate::exit_status::CANNOT_RUN_HERE), and is not
+/// started again: not on its first start, nor after restarts for other
+/// failures, however long after.
+#[test]
+fn a_component_that_cannot_run_here_is_not_started_again() {
+    let cannot = exited(i32::from(CANNOT_RUN_HERE));
+    assert_eq!(Exit::of(&cannot), Exit::CannotRunHere);
+    let base = Instant::now();
+    let mut starts = Starts::new(POLICY, base);
+    assert_eq!(
+        starts.after_exit(Exit::of(&cannot), at(base, 1.0)),
+        Verdict::CannotRunHere
+    );
+    let mut starts = Starts::new(POLICY, base);
+    assert_eq!(
+        starts.after_exit(Exit::Failed, at(base, 1.0)),
+        Verdict::Restart { start: 2 }
+    );
+    assert_eq!(
+        starts.after_exit(Exit::of(&cannot), at(base, 600.0)),
+        Verdict::CannotRunHere
+    );
+    // Under `Restart::Never`, never, as for any other end.
+    let mut starts = Starts::new(Restart::Never, base);
+    assert_eq!(starts.after_exit(Exit::of(&cannot), base), Verdict::Never);
+}
+
+/// Only the one code: its neighbours, and the same number as a signal, are
+/// failures.
+#[test]
+fn only_its_own_code_reads_as_cannot_run_here() {
+    let code = i32::from(CANNOT_RUN_HERE);
+    assert_eq!(Exit::of(&exited(code - 1)), Exit::Failed);
+    assert_eq!(Exit::of(&exited(code + 1)), Exit::Failed);
+    assert_ne!(Exit::of(&killed(code)), Exit::CannotRunHere);
 }

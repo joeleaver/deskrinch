@@ -156,6 +156,10 @@ fn said(component: &Component, status: ExitStatus, verdict: Verdict) -> String {
             "desktop: {package} exited cleanly ({status}); not started again, the desktop runs \
              on without it"
         ),
+        Verdict::CannotRunHere => format!(
+            "desktop: {package} cannot run here ({status}); NOT started again, the desktop runs \
+             on without it (it said why above)"
+        ),
         Verdict::Never => format!(
             "desktop: {package} exited ({status}); it is never started again, the desktop runs \
              on without it"
@@ -196,7 +200,8 @@ mod tests {
     use std::os::unix::process::ExitStatusExt;
     use std::time::Duration;
 
-    use deskrinch_shell::{LAUNCHER, PANEL};
+    use deskrinch_shell::exit_status::CANNOT_RUN_HERE;
+    use deskrinch_shell::{LAUNCHER, PANEL, WALLPAPER};
 
     use super::*;
 
@@ -228,5 +233,11 @@ mod tests {
              the most it may have: NOT started again; the desktop runs on without it"
         );
         assert!(!said(&PANEL, clean, Verdict::Never).contains('\n'));
+        let cannot = ExitStatus::from_raw(i32::from(CANNOT_RUN_HERE) << 8);
+        assert_eq!(
+            said(&WALLPAPER, cannot, Verdict::CannotRunHere),
+            "desktop: deskrinch-wallpaper cannot run here (exit status: 78); NOT started again, \
+             the desktop runs on without it (it said why above)"
+        );
     }
 }

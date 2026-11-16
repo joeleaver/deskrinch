@@ -26,6 +26,7 @@ mod start;
 mod starts;
 mod surface;
 mod view;
+mod wiring;
 
 use std::process::{Command, ExitCode, Stdio};
 use std::sync::Arc;
@@ -187,11 +188,12 @@ fn run(show: bool) -> ExitCode {
         starts,
         record,
     };
-    deskrinch_component::app::new(move |scope| root::launcher(scope, parts))
-        .window_props(surface::window_props(show))
-        .theme(first_theme)
-        .run();
+    let ended = deskrinch_component::app::run(
+        deskrinch_component::app::new(move |scope| root::launcher(scope, parts))
+            .window_props(surface::window_props(show))
+            .theme(first_theme),
+    );
     // The name is the session's for as long as the launcher runs.
     drop(service);
-    ExitCode::SUCCESS
+    ended
 }
