@@ -21,7 +21,7 @@
 //! closes a background layer surface only when its output goes. So it
 //! treats every close of a window as its output going: nothing to put
 //! right and no error, the row (and so the window) going when the output
-//! leaves `outputs()`, and an output that comes back being a new row. That
+//! leaves `output_ids()`, and an output that comes back being a new row. That
 //! covers an output that goes between rinch listing it and the window for
 //! it being made, too: rinch then makes no window (an id no output has is
 //! never the compositor's to place elsewhere), reports it closed and logs a

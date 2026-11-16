@@ -106,6 +106,32 @@ mod session {
         assert_eq!(killed.status.code(), Some(128 + 15));
     }
 
+    /// The compositor's process id is the command's to know, and is the
+    /// compositor's: the process of that id runs the compositor's program,
+    /// and leads the command's process group.
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn tells_the_command_the_compositors_process_id() {
+        let output = session(&[
+            "sh",
+            "-c",
+            "echo $DESKRINCH_SESSION_COMPOSITOR_PID; \
+             cat /proc/$DESKRINCH_SESSION_COMPOSITOR_PID/comm; ps -o pgid= -p $$",
+        ])
+        .output()
+        .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        let said = String::from_utf8(output.stdout).unwrap();
+        let lines: Vec<&str> = said.lines().map(str::trim).collect();
+        let compositor = compositor();
+        let program = match compositor.as_str() {
+            "kwin" => "kwin_wayland",
+            other => other,
+        };
+        assert_eq!(lines.get(1).copied(), Some(program), "{said}");
+        assert_eq!(lines.first(), lines.get(2), "the group's leader: {said}");
+    }
+
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn gives_the_command_the_session_and_not_the_real_one() {

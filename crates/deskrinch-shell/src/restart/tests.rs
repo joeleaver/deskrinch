@@ -148,3 +148,20 @@ fn the_policy_maps_to_a_units_lines_as_written() {
     );
     assert_eq!(Restart::Never.systemd_lines(), ["Restart=no"]);
 }
+
+/// A component whose display went away ends with
+/// [`DISPLAY_LOST`](crate::exit_status::DISPLAY_LOST), which the policy
+/// reads as a failure: started again, it reaches a compositor that came
+/// back on the same socket (KWin's wrapper), and the limit ends the
+/// restarts when none does.
+#[test]
+fn a_lost_display_is_a_failure() {
+    let lost = exited(i32::from(crate::exit_status::DISPLAY_LOST));
+    assert_eq!(Exit::of(&lost), Exit::Failed);
+    let base = Instant::now();
+    let mut starts = Starts::new(POLICY, base);
+    assert_eq!(
+        starts.after_exit(Exit::of(&lost), at(base, 1.0)),
+        Verdict::Restart { start: 2 }
+    );
+}

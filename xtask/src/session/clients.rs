@@ -8,7 +8,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 
 use deskrinch_test_dbus::session::isolate;
 
-use super::{CURRENT_DESKTOP, Session, interrupt};
+use super::{COMPOSITOR_PID, CURRENT_DESKTOP, Session, interrupt};
 use crate::error::Error;
 
 /// A client [`Session::spawn`] started.
@@ -49,7 +49,8 @@ impl Session {
     /// from the real session; pointed at this compositor
     /// (`WAYLAND_DISPLAY`, and sway's `SWAYSOCK`) and at the session's bus
     /// (`DBUS_SESSION_BUS_ADDRESS`); told the session's directory
-    /// (`DESKRINCH_SESSION_DIR`), and whether the run uses no GPU
+    /// (`DESKRINCH_SESSION_DIR`) and the compositor's process id
+    /// ([`COMPOSITOR_PID`]), and whether the run uses no GPU
     /// ([`Gpu`](super::Gpu)); with standard input closed; and in the
     /// session's process group, so that whatever it leaves running ends with
     /// the session.
@@ -74,6 +75,7 @@ impl Session {
             .env("WAYLAND_DISPLAY", &self.socket)
             .env("DBUS_SESSION_BUS_ADDRESS", self.bus.address())
             .env("DESKRINCH_SESSION_DIR", &self.root)
+            .env(COMPOSITOR_PID, self.group.as_raw_nonzero().to_string())
             // The tests' guard against running in the real session reads it.
             .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
             .envs(self.compositor.client_env(&self.root.join("run")))

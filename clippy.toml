@@ -2,11 +2,14 @@
 # the workspace bans them everywhere else.
 allow-unwrap-in-tests = true
 allow-expect-in-tests = true
-# The shell's components make rinch's App through deskrinch-component, so
-# that each is made alike (DevTools off unless built with `debug`).
+# The shell's components make and run rinch's App through deskrinch-component,
+# so that each is made and ends alike (DevTools off unless built with
+# `debug`; a lost display ends it with deskrinch-shell's status).
 disallowed-methods = [
     { path = "rinch::App::new", reason = "a component's App is deskrinch_component::app::new" },
     { path = "rinch::App::windowless", reason = "a component's App is deskrinch_component::app::windowless" },
+    { path = "rinch::App::run", reason = "a component's App ends through deskrinch_component::app::run" },
+    { path = "rinch::App::try_run", reason = "a component's App ends through deskrinch_component::app::run" },
 ]
 # Proper names the docs use that `doc_markdown` would otherwise want in
 # backticks; `".."` keeps clippy's default list.
