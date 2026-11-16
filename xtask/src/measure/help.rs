@@ -23,7 +23,11 @@ Each run starts the program as the only client of a fresh nested compositor
 instructions to the first frame, in the idle window, and per frame: the
 deterministic figure, for a loaded machine. The idle window begins --settle
 seconds after the first frame there too, and each run notes the
-instructions of the settle, kept out of the window. Without it, CPU time is the
+instructions of the settle, kept out of the window. A row gives the
+instructions to the end of the settle, start-up and settle together: the
+figure to compare across pins when a start-up thread may finish on either
+side of start-up's end, since its work then moves between the two and only
+their sum stays put. Without it, CPU time is the
 figure to compare; wall time is printed apart, beside the load average, and
 is not comparable.
 
