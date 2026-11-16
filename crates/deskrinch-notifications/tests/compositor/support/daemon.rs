@@ -14,7 +14,7 @@ use deskrinch_test_component::{Component, Renderer, programs};
 use deskrinch_test_input::Input;
 use deskrinch_test_notify::{Client, Signal};
 use deskrinch_test_screen::{Rgba, Screen};
-use deskrinch_test_wait::comes_true;
+use deskrinch_test_wait::{comes_true, wait_for};
 use zbus::Variant;
 use zbus::fdo::DBusProxy;
 
@@ -117,6 +117,19 @@ impl Notifications {
             .iter()
             .rev()
             .find_map(|line| fit_of(line))
+    }
+
+    /// Waits until the fit the daemon last said is one `accept` takes, and
+    /// returns it; `what` names it for a failure.
+    pub(crate) fn wait_fit(
+        &self,
+        what: &str,
+        accept: impl Fn((usize, usize)) -> bool,
+    ) -> (usize, usize) {
+        wait_for(what, || match self.fit() {
+            Some(fit) if accept(fit) => Ok(fit),
+            said => Err((said, self.said())),
+        })
     }
 
     /// The next signal the client gets that is not an activation token.

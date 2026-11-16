@@ -110,8 +110,12 @@ fn a_change_is_one_frame_and_nothing_changing_is_none() {
 }
 
 /// The waiting set changing costs a frame like any other change: a popup
-/// into a full column (one more waits, the count line appears), and a
-/// close that brings a waiting one back.
+/// into a full column (some wait, the count line appears), and a close
+/// that brings the waiting back.
+///
+/// How many wait is the daemon's: one, or two where the room left under
+/// the full column is less than the count line's own room (the line comes
+/// for the new one and takes the room of the last shown).
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_waiting_set_changing_is_one_frame() {
@@ -121,7 +125,13 @@ fn the_waiting_set_changing_is_one_frame() {
 
     let mark = notifications.daemon().watch().lines().len();
     let one_more = notifications.client.simple(0, "One more", "", 0);
-    notifications.settled(live.len(), 1);
+    let fit = notifications.wait_fit("some waiting", |(_, waiting)| waiting > 0);
+    let (shown, waiting) = fit;
+    assert!(
+        shown + waiting == live.len() + 1 && (1..=2).contains(&waiting),
+        "a popup into a full column: {fit:?}"
+    );
+    notifications.settled(shown, waiting);
     std::thread::sleep(QUIET);
     assert_eq!(
         presented(&notifications.daemon().watch().lines(), mark),
