@@ -68,12 +68,13 @@ mod transform;
 
 use std::ffi::{OsStr, OsString};
 use std::fs::{self, File};
+use std::io;
 use std::os::unix::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 use std::time::Duration;
 
-use deskrinch_test_dbus::session::isolate;
+use deskrinch_test_dbus::session::{self as session_env, isolate};
 use deskrinch_test_dbus::{NameError, PrivateBus};
 use deskrinch_test_wait::{Deadline, PATIENCE};
 use rustix::process::Pid;
@@ -103,6 +104,20 @@ pub(crate) use self::supervisor::{
 };
 pub(crate) use self::transform::OutputTransform;
 use crate::error::Error;
+
+/// The directory the session under `root` gives `variable` (one of the
+/// session's base directories, `XDG_DATA_HOME` say), as
+/// `deskrinch-test-dbus` sets it.
+///
+/// # Errors
+///
+/// When `variable` is not one of the session's directories.
+pub(crate) fn session_dir(root: &Path, variable: &str) -> Result<PathBuf, Error> {
+    session_env::dir(root, variable).ok_or_else(|| Error::Io {
+        what: format!("find the session's directory for {variable}"),
+        source: io::ErrorKind::NotFound.into(),
+    })
+}
 
 /// The variable naming the desktop that runs, which the session leaves
 /// unset unless asked.
@@ -207,7 +222,7 @@ impl Session {
         // Before anything of the session runs: a session that could not be
         // supervised does not start.
         let mut supervisor = Supervisor::start(&root)?;
-        prepare(&root.join("data"))?;
+        prepare(&session_dir(&root, "XDG_DATA_HOME")?)?;
         let bus = PrivateBus::start()?;
 
         let log_path = root.join("compositor.log");

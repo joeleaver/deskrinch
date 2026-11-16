@@ -155,6 +155,11 @@ pub(crate) struct Args {
     /// the record of starts the launcher shows (`deskrinch/starts.toml`).
     #[arg(long, value_name = "DIR")]
     state: Option<PathBuf>,
+    /// Each run's configuration directory (`XDG_CONFIG_HOME`) starts with
+    /// a copy of this directory's contents: the configuration the program
+    /// reads, such as the wallpaper's picture (`deskrinch/config.toml`).
+    #[arg(long, value_name = "DIR")]
+    config: Option<PathBuf>,
     /// The program to measure.
     program: OsString,
     /// Its arguments.
@@ -195,6 +200,7 @@ impl Args {
             instructions: self.instructions,
             profiles: self.profiles,
             state: self.state,
+            config: self.config,
             program: self.program,
             args: self.arguments,
             summons: self
