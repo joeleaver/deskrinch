@@ -1057,6 +1057,7 @@ dependencies = [
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-theme",
+ "deskrinch-wayland-client",
  "deskrinch-window-management",
  "deskrinch-workspaces",
  "deskrinch-xdg",

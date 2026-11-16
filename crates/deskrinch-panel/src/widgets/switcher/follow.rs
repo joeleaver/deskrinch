@@ -7,21 +7,23 @@
 //! keeps the newest. A click takes the same lock to ask whether its
 //! workspace may be activated.
 //!
-//! The connection is made on a thread of its own, off the first frame's
-//! path: the switcher is empty until the compositor has answered. Where the
-//! compositor offers no workspace protocol (sway), it stays empty, and one
-//! line at info level says why: that is the switcher's expected state there,
-//! not a fault.
+//! The workspaces are followed on the panel's shared connection, made off
+//! the first frame's path ([`crate::compositor`]): the switcher is empty
+//! until the compositor has answered. Where the compositor offers no
+//! workspace protocol (sway), it stays empty, and one line at info level
+//! says why: that is the switcher's expected state there, not a fault.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use deskrinch_component::{Handover, report};
 use deskrinch_switcher::{Change, Entry, Run, Switcher};
 use deskrinch_workspaces::{
-    Action, Actions, ConnectError, Event, GroupId, Workspace, WorkspaceId, WorkspaceManager,
-    WorkspaceState, Workspaces, connect,
+    Action, Actions, Client, ConnectError, Event, GroupId, Workspace, WorkspaceId,
+    WorkspaceManager, WorkspaceState, Workspaces, connect_with,
 };
 use rinch::prelude::Signal;
+
+use crate::compositor::Follow;
 
 /// The runs the UI draws.
 pub(crate) type Runs = Arc<Vec<Run<WorkspaceId>>>;
@@ -36,25 +38,25 @@ pub(crate) struct Following {
 }
 
 impl Following {
-    /// Starts connecting to the compositor's workspaces, on a thread of its
-    /// own, and following them; returns at once.
-    pub(crate) fn start() -> Self {
+    /// The workspaces to follow, none until the panel's shared connection is
+    /// handed to the [`Follow`] returned beside it ([`crate::compositor`]).
+    pub(crate) fn new() -> (Self, Follow) {
         let model = Arc::new(Mutex::new(Switcher::new()));
         let runs: Arc<Handover<Runs>> = Arc::default();
         let manager = Arc::new(Mutex::new(None));
-        let (thread_model, thread_runs, thread_manager) =
+        let (follow_model, follow_runs, follow_manager) =
             (Arc::clone(&model), Arc::clone(&runs), Arc::clone(&manager));
-        let spawned = std::thread::Builder::new()
-            .name("switcher-connect".into())
-            .spawn(move || follow(&thread_model, &thread_runs, &thread_manager));
-        if let Err(error) = spawned {
-            report::error("starting the thread that follows the workspaces", &error);
-        }
-        Self {
+        let connect: Follow = Box::new(move |client| {
+            if let Some(client) = client {
+                follow(client, &follow_model, &follow_runs, &follow_manager);
+            }
+        });
+        let following = Self {
             model,
             runs,
             manager,
-        }
+        };
+        (following, connect)
     }
 
     /// The UI's signal of the runs, on the UI thread: none until the
@@ -77,16 +79,17 @@ impl Following {
     }
 }
 
-/// Connects to the workspaces, applying each event to `model` and handing
-/// `runs` what results, and keeps the connection in `manager`.
+/// Follows the workspaces on `client`, applying each event to `model` and
+/// handing `runs` what results, and keeps the connection in `manager`.
 fn follow(
+    client: &Client,
     model: &Arc<Mutex<Switcher<WorkspaceId, GroupId>>>,
     runs: &Arc<Handover<Runs>>,
     manager: &Mutex<Option<WorkspaceManager>>,
 ) {
     let applied = Arc::clone(model);
     let deliver = Arc::clone(runs);
-    let connected = connect(move |event| {
+    let connected = connect_with(client, move |event| {
         if let Event::Ended(reason) = &event {
             report::error("following the workspaces (the switcher is empty)", reason);
         }

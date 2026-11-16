@@ -18,6 +18,8 @@
 
 mod follow;
 
+pub(crate) use follow::Following;
+
 use std::fmt::Display;
 use std::rc::Rc;
 
@@ -27,7 +29,6 @@ use rinch::prelude::*;
 
 use crate::bar::BarWidth;
 use crate::widgets::buttons;
-use crate::widgets::switcher::follow::Following;
 
 /// The most of the bar the switcher takes, as a fraction of its width: the
 /// taskbar takes what the switcher and the clock leave, and its windows
@@ -94,7 +95,7 @@ fn items<Id>(fitted: Vec<Fitted<Id>>) -> Vec<Item<Id>> {
 /// The switcher widget, at the start of the bar.
 #[component]
 pub(crate) fn SwitcherWidget() -> NodeHandle {
-    let following = Rc::new(Following::start());
+    let following: Rc<Following> = use_context();
     let runs = following.signal();
     let BarWidth(bar_width) = use_context();
     let drawn = Memo::new(move || {

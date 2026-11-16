@@ -40,6 +40,8 @@ deskrinch-settings.workspace = true
 deskrinch-switcher.workspace = true
 deskrinch-taskbar.workspace = true
 deskrinch-theme.workspace = true
+# The one Wayland connection the taskbar and the switcher share.
+deskrinch-wayland-client.workspace = true
 # The compositor's windows, for the taskbar.
 deskrinch-window-management.workspace = true
 # The compositor's workspaces, for the switcher.

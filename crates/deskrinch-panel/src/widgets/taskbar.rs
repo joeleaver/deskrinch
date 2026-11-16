@@ -22,6 +22,7 @@ mod button;
 mod follow;
 
 pub(crate) use button::AppIcons;
+pub(crate) use follow::Following;
 
 use std::rc::Rc;
 
@@ -30,7 +31,6 @@ use rinch::prelude::*;
 use rinch::reactive::Effect;
 
 use crate::widgets::taskbar::button::{ButtonSizes, button_view, pointer};
-use crate::widgets::taskbar::follow::Following;
 
 /// The sizes buttons come in, in logical pixels.
 const SIZES: ButtonSizes = ButtonSizes {
@@ -45,7 +45,7 @@ const SIZES: ButtonSizes = ButtonSizes {
 /// The taskbar widget: it takes the room the bar gives it.
 #[component]
 pub(crate) fn TaskbarWidget() -> NodeHandle {
-    let following = Rc::new(Following::start());
+    let following: Rc<Following> = use_context();
     let buttons = following.signal();
     let width = Signal::new(0.0_f32);
     let fitted = Memo::new(move || {
