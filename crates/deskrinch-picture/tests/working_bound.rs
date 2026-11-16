@@ -225,7 +225,58 @@ fn each_fit_stays_within_its_own_bound() {
     assert!(failures.is_empty(), "{failures:#?}");
 }
 
+/// A 5120 × 2880 picture (a 5K wallpaper) fitted to 1920 × 1080, opaque
+/// and with alpha: its working memory must follow the target, not the
+/// source. Found to a MiB, then measured; the time is printed beside it.
+fn a_5k_picture_fits_in_what_follows_the_target() {
+    let (sw, sh) = (5120_u32, 2880_u32);
+    let mut failures = Vec::new();
+    for opaque in [true, false] {
+        let mut rgba = hostile::noise(sw as usize * sh as usize * 4);
+        if opaque {
+            for alpha in rgba.iter_mut().skip(3).step_by(4) {
+                *alpha = u8::MAX;
+            }
+        }
+        let source = Image::new(sw, sh, rgba).unwrap_or_else(|| panic!("a picture"));
+        for how in [Fit::Cover, Fit::Stretch] {
+            let fitting = |working: usize| fit(&source, 1920, 1080, how, &limits(working));
+            let mib = 1 << 20;
+            let (mut low, mut high) = (0, 64);
+            assert!(fitting(high * mib).is_ok(), "{how:?} never fits");
+            while high - low > 1 {
+                let mid = usize::midpoint(low, high);
+                if fitting(mid * mib).is_ok() {
+                    high = mid;
+                } else {
+                    low = mid;
+                }
+            }
+            let bound = high * mib;
+            let before = COUNTED.current_usage();
+            COUNTED.reset_peak_usage();
+            let started = std::time::Instant::now();
+            let result = fitting(bound);
+            let took = started.elapsed();
+            let peak = COUNTED.peak_usage().saturating_sub(before);
+            drop(result);
+            println!(
+                "5K {how:?}, {}: peak {peak} of {bound} ({}%), {took:?}",
+                if opaque { "opaque" } else { "with alpha" },
+                peak * 100 / bound
+            );
+            if peak > bound {
+                failures.push(format!(
+                    "5K {how:?} opaque {opaque}: {peak} bytes, bound {bound}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 fn main() {
+    a_5k_picture_fits_in_what_follows_the_target();
     each_fit_stays_within_its_own_bound();
     each_picture_stays_within_its_own_bound();
     refused_metadata_stays_within_what_the_documentation_says();

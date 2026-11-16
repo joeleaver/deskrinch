@@ -148,3 +148,146 @@ fn alpha_is_premultiplied_while_resampling() {
         assert!(q[0] > 200 && q[1] < 20 && q[2] < 20, "{q:?}");
     }
 }
+
+/// Grey `value`, opaque.
+fn grey(value: u8) -> [u8; 4] {
+    [value, value, value, 255]
+}
+
+/// Stretched so that the width shrinks and the height grows (the area
+/// smaller): the rows on the growing axis are interpolated, not repeated.
+#[test]
+fn an_axis_that_grows_is_interpolated_even_when_the_area_shrinks() {
+    let gradient = picture(8, &[[grey(0); 8], [grey(200); 8]].concat());
+    let fitted = fit(&gradient, 2, 4, Fit::Stretch, &limits()).unwrap();
+    let column: Vec<u8> = pixels(&fitted).iter().step_by(2).map(|p| p[0]).collect();
+    assert!(
+        column[0] < column[1] && column[1] < column[2] && column[2] < column[3],
+        "{column:?}"
+    );
+    assert!(column[1] > 0 && column[2] < 200, "{column:?}");
+}
+
+#[test]
+fn cover_and_contain_at_a_taller_aspect() {
+    // A picture taller than the target: 2 × 4, top half red, bottom blue.
+    let tall = picture(2, &[RED, RED, RED, RED, BLUE, BLUE, BLUE, BLUE]);
+    // Covering 2 × 2: the middle two rows, red then blue.
+    let covered = fit(&tall, 2, 2, Fit::Cover, &limits()).unwrap();
+    assert_eq!(pixels(&covered), [RED, RED, BLUE, BLUE]);
+    // Contained in 4 × 4: columns 1 and 2, clear columns at either side.
+    let contained = fit(&tall, 4, 4, Fit::Contain, &limits()).unwrap();
+    for (row, colour) in [(0, RED), (1, RED), (2, BLUE), (3, BLUE)] {
+        let p = &pixels(&contained)[row * 4..row * 4 + 4];
+        assert_eq!(p, [CLEAR, colour, colour, CLEAR], "row {row}");
+    }
+}
+
+#[test]
+fn larger_keeps_a_flat_colour() {
+    let flat = picture(2, &[[30, 140, 220, 255]; 4]);
+    let fitted = fit(&flat, 9, 7, Fit::Stretch, &limits()).unwrap();
+    for p in pixels(&fitted) {
+        assert!(near(p, [30, 140, 220, 255]), "{p:?}");
+    }
+}
+
+/// A two-pixel step made larger rises through values in between, without a
+/// dip. Catmull-Rom overshoots at an edge (its kernel has negative lobes):
+/// on a step from 50 to 200 made four times wider it goes 17 levels past
+/// each end (33 and 217), about 11% of the step; it is never past 0 or
+/// 255, which clamp it.
+#[test]
+fn larger_rises_through_a_step_and_its_overshoot_is_small_and_clamped() {
+    let step = picture(2, &[grey(50), grey(200)]);
+    let fitted = fit(&step, 8, 1, Fit::Stretch, &limits()).unwrap();
+    let row: Vec<u8> = pixels(&fitted).iter().map(|p| p[0]).collect();
+    assert!(row.windows(2).all(|w| w[0] <= w[1]), "{row:?}");
+    assert!(row.iter().any(|v| (51..200).contains(v)), "{row:?}");
+    // At most 12% of the step past either end.
+    assert!(row.iter().all(|v| (32..=218).contains(v)), "{row:?}");
+    // A step from 0 to 255 overshoots past both ends: clamped there.
+    let hard = picture(2, &[grey(0), grey(255)]);
+    let fitted = fit(&hard, 8, 1, Fit::Stretch, &limits()).unwrap();
+    let row: Vec<u8> = pixels(&fitted).iter().map(|p| p[0]).collect();
+    assert_eq!((row[0], row[7]), (0, 255), "{row:?}");
+}
+
+/// Noise, opaque or not.
+fn noise(width: u32, height: u32, opaque: bool) -> Image {
+    let mut x: u32 = 0x9e37_79b9 ^ width ^ (height << 16);
+    let rgba = (0..width * height * 4)
+        .map(|i| {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            if opaque && i % 4 == 3 {
+                255
+            } else {
+                x.to_le_bytes()[0]
+            }
+        })
+        .collect();
+    Image::new(width, height, rgba).unwrap()
+}
+
+/// Resampling in bands gives what resampling the whole at once gives.
+#[test]
+fn bands_give_the_whole_s_result() {
+    let roomy = Limits {
+        max_working_bytes: 64 << 20,
+        ..limits()
+    };
+    for opaque in [true, false] {
+        let image = noise(61, 47, opaque);
+        let crop = CropBox {
+            left: 1.3,
+            top: 2.7,
+            width: 57.1,
+            height: 41.9,
+        };
+        let size = (13, 11);
+        let whole =
+            resample::smaller_in_bands(&image, crop, size, size.1, opaque, 0, &roomy).unwrap();
+        for rows in [1, 2, 3, 5] {
+            let banded =
+                resample::smaller_in_bands(&image, crop, size, rows, opaque, 0, &roomy).unwrap();
+            assert_eq!(banded, whole, "opaque {opaque}, {rows} rows a band");
+        }
+    }
+}
+
+proptest::proptest! {
+    #![proptest_config(deskrinch_untrusted::fuzz::config())]
+
+    /// Every fit of every size from 1 to 64 a side gives the target's size.
+    #[test]
+    fn every_fit_of_every_size_gives_the_target(
+        source in (1_u32..=64, 1_u32..=64),
+        target in (1_u32..=64, 1_u32..=64),
+        opaque in proptest::bool::ANY,
+        how in proptest::sample::select(vec![
+            Fit::Cover, Fit::Contain, Fit::Stretch, Fit::Centre, Fit::Tile,
+        ]),
+    ) {
+        let roomy = Limits {
+            max_working_bytes: 64 << 20,
+            ..limits()
+        };
+        let image = noise(source.0, source.1, opaque);
+        let fitted = fit(&image, target.0, target.1, how, &roomy);
+        proptest::prop_assert!(fitted.is_ok(), "{how:?} {source:?} to {target:?}: {fitted:?}");
+        let fitted = fitted.unwrap();
+        proptest::prop_assert_eq!((fitted.width(), fitted.height()), target);
+    }
+}
+
+/// What the property test found: a 4 × 1 picture covering 27 × 26, where
+/// the resampler, given both axes at once, underflowed.
+#[test]
+fn a_narrow_crop_made_much_larger_is_resampled() {
+    for opaque in [true, false] {
+        let fitted = fit(&noise(4, 1, opaque), 27, 26, Fit::Cover, &limits()).unwrap();
+        assert_eq!((fitted.width(), fitted.height()), (27, 26));
+    }
+}

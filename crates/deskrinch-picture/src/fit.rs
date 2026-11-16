@@ -4,20 +4,21 @@
 //!
 //! # Resampling
 //!
-//! Through `fast_image_resize`, with alpha premultiplied while resampling:
+//! Through `fast_image_resize` ([`resample`] says how, and how its working
+//! memory follows the target rather than the source):
 //!
-//! - **Smaller (fewer target pixels than source pixels): in linear light,
-//!   with a box filter.** Each target pixel is the average of the light of
-//!   the source pixels it covers, which is what an eye sees of the picture
-//!   shown smaller; averaging sRGB values instead darkens fine detail, thin
-//!   lines on a light ground most of all.
-//! - **Larger: on sRGB values, with Catmull-Rom.** Interpolating sRGB
-//!   values comes closer to the picture than interpolating light (by about
-//!   1 dB, on a photograph and on line art alike), and Catmull-Rom comes
-//!   within 0.6 dB of Lanczos3 at about half its time, with less ringing.
-//!
-//! The measurements behind both choices are in the pull request that
-//! brought this module.
+//! - **Smaller on both axes: in linear light, with a box filter.** The box
+//!   filter is the definition, not a finding: each target pixel is the
+//!   average of the light of the source it covers, with no ringing.
+//! - **Larger on either axis: on sRGB values, with Catmull-Rom.** What was
+//!   measured is what settles the rest: averaging light against averaging
+//!   sRGB values (sRGB values darken thin lines on a light ground), and,
+//!   for a picture made larger, sRGB values against light (sRGB values come
+//!   about 1 dB closer, on a photograph and on line art) and the filter
+//!   (Catmull-Rom within 0.6 dB of Lanczos3 at about half its time, with
+//!   less ringing; it overshoots at an edge, about 11% of a step, clamped to
+//!   0 and 255). The
+//!   figures are in the pull request that brought this module.
 //!
 //! # Limits
 //!
@@ -28,18 +29,13 @@
 //! not counted.
 
 use deskrinch_untrusted::Image;
-use fast_image_resize::images::{Image as Pixels, ImageRef};
-use fast_image_resize::{
-    CropBox, FilterType, PixelType, ResizeAlg, ResizeOptions, Resizer, SrcCropping,
-    create_srgb_mapper,
-};
+use fast_image_resize::CropBox;
 
 use crate::limits::Limits;
 
-/// What the resampler allocates besides the pictures: its coefficient
-/// tables (a few weights for each target column and row) and scratch. Held
-/// by the working-bound test.
-const RESAMPLER_BYTES: usize = 1024 * 1024;
+mod resample;
+
+use resample::resample;
 
 /// How a picture is fitted to a target.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -204,7 +200,7 @@ fn target_bytes(width: u32, height: u32, limits: &Limits) -> Result<usize, FitEr
 }
 
 /// `bytes` if within the working bound.
-fn working(bytes: Option<usize>, limits: &Limits) -> Result<usize, FitError> {
+pub(crate) fn working(bytes: Option<usize>, limits: &Limits) -> Result<usize, FitError> {
     bytes
         .filter(|bytes| *bytes <= limits.max_working_bytes)
         .ok_or(FitError::WorkingTooLarge {
@@ -222,83 +218,6 @@ fn scaled(side: f64, scale: f64, max: u32) -> u32 {
     )]
     let pixels = (side * scale).round() as u32;
     pixels.clamp(1, max)
-}
-
-/// The part `crop` of `image` resampled to `size`: smaller in linear light
-/// with a box filter, larger on sRGB values with Catmull-Rom (see the
-/// module's documentation). `beside` bytes are held by the caller at the
-/// same time and counted.
-fn resample(
-    image: &Image,
-    crop: CropBox,
-    size: (u32, u32),
-    beside: usize,
-    limits: &Limits,
-) -> Result<Vec<u8>, FitError> {
-    let source = image.width() as usize * image.height() as usize;
-    let out = size.0 as usize * size.1 as usize;
-    // Smaller when the target has fewer pixels than the part it shows.
-    #[expect(
-        clippy::cast_precision_loss,
-        reason = "a comparison of areas; a few units off decides nothing"
-    )]
-    let smaller = (out as f64) < crop.width * crop.height;
-    // Bytes a pixel of the source and target in the resampling (16-bit
-    // linear, or 8-bit sRGB), and what the resampler holds besides: a
-    // premultiplied copy of the source and a pass of the target's width
-    // over the source's height; and its coefficient tables, at most
-    // [`RESAMPLER_BYTES`].
-    let depth = if smaller { 8 } else { 4 };
-    let pass = size.0 as usize * image.height() as usize;
-    let needed = source
-        .checked_mul(depth * if smaller { 2 } else { 1 })
-        .and_then(|n| n.checked_add(pass.checked_mul(depth)?))
-        .and_then(|n| n.checked_add(out.checked_mul(depth)?))
-        .and_then(|n| n.checked_add(if smaller { out * 4 } else { 0 }))
-        .and_then(|n| n.checked_add(beside))
-        .and_then(|n| n.checked_add(RESAMPLER_BYTES));
-    working(needed, limits)?;
-
-    let source_view = ImageRef::new(image.width(), image.height(), image.rgba(), PixelType::U8x4)
-        .map_err(|e| FitError::Resample(e.to_string()))?;
-    let mut resizer = Resizer::new();
-    if smaller {
-        let mapper = create_srgb_mapper();
-        let mut linear = Pixels::new(image.width(), image.height(), PixelType::U16x4);
-        mapper
-            .forward_map(&source_view, &mut linear)
-            .map_err(|e| FitError::Resample(e.to_string()))?;
-        let mut scaled_linear = Pixels::new(size.0, size.1, PixelType::U16x4);
-        resizer
-            .resize(&linear, &mut scaled_linear, &options(crop, FilterType::Box))
-            .map_err(|e| FitError::Resample(e.to_string()))?;
-        drop(linear);
-        let mut target = Pixels::new(size.0, size.1, PixelType::U8x4);
-        mapper
-            .backward_map(&scaled_linear, &mut target)
-            .map_err(|e| FitError::Resample(e.to_string()))?;
-        Ok(target.into_vec())
-    } else {
-        let mut target = Pixels::new(size.0, size.1, PixelType::U8x4);
-        resizer
-            .resize(
-                &source_view,
-                &mut target,
-                &options(crop, FilterType::CatmullRom),
-            )
-            .map_err(|e| FitError::Resample(e.to_string()))?;
-        Ok(target.into_vec())
-    }
-}
-
-/// The resampler's options: `filter`, over `crop` of the source, alpha
-/// premultiplied.
-fn options(crop: CropBox, filter: FilterType) -> ResizeOptions {
-    ResizeOptions {
-        algorithm: ResizeAlg::Convolution(filter),
-        cropping: SrcCropping::Crop(crop),
-        mul_div_alpha: true,
-    }
 }
 
 /// Copies `pixels`, `size`, onto `canvas`, `width` × `height`, with its top
