@@ -119,48 +119,69 @@ struct Woke {
 }
 
 impl Worker {
+    /// The worker's thread: the first tick, then [`Self::turn`] after turn
+    /// until the stop signal.
+    ///
+    /// A turn may end in a wake with nothing set ([`Self::wait`]). That costs
+    /// the next turn's re-arming of the timer for the same deadline and one
+    /// read of the wall clock, which shows nothing new before the deadline:
+    /// the zone is not read again and the subscriber is not called.
     fn run(mut self, precision: Precision) {
-        let zone = self.load_zone();
-        let (mut ticker, first) = Ticker::start(zone, precision, Timestamp::now());
-        self.tell(Event::Tick(first));
+        let mut ticker = self.begin(precision);
         let mut clock_set = false;
-        loop {
-            let deadline = ticker.deadline();
-            let armed = match self.timer.arm(deadline) {
-                Ok(fired) => {
-                    clock_set |= fired == Fired::ClockSet;
-                    true
-                }
-                Err(error) => {
-                    self.tell(Event::Error(ClockError::Timer(error)));
-                    false
-                }
-            };
-            let now = Timestamp::now();
-            let cause = if clock_set || now < deadline {
-                Cause::ClockChanged
-            } else {
-                Cause::Boundary
-            };
-            clock_set = false;
-            if let Some(tick) = ticker.observe(now, cause) {
+        while let Some(set) = self.turn(&mut ticker, clock_set) {
+            clock_set = set;
+        }
+    }
+
+    /// Reads the zone, starts the ticker and tells its first tick.
+    fn begin(&mut self, precision: Precision) -> Ticker {
+        let zone = self.load_zone();
+        let (ticker, first) = Ticker::start(zone, precision, Timestamp::now());
+        self.tell(Event::Tick(first));
+        ticker
+    }
+
+    /// One turn: arms the timer for the ticker's deadline, reads the wall
+    /// clock and tells a tick if the displayed time changed (`clock_set`:
+    /// the previous turn's wait saw the clock set); then, unless that moved
+    /// the deadline, waits and acts on what woke it. `None` on the stop
+    /// signal; otherwise whether the wait saw the clock set.
+    fn turn(&mut self, ticker: &mut Ticker, mut clock_set: bool) -> Option<bool> {
+        let deadline = ticker.deadline();
+        let armed = match self.timer.arm(deadline) {
+            Ok(fired) => {
+                clock_set |= fired == Fired::ClockSet;
+                true
+            }
+            Err(error) => {
+                self.tell(Event::Error(ClockError::Timer(error)));
+                false
+            }
+        };
+        let now = Timestamp::now();
+        let cause = if clock_set || now < deadline {
+            Cause::ClockChanged
+        } else {
+            Cause::Boundary
+        };
+        if let Some(tick) = ticker.observe(now, cause) {
+            self.tell(Event::Tick(tick));
+        }
+        if ticker.deadline() != deadline {
+            return Some(false);
+        }
+        let woke = self.wait(armed);
+        if woke.stop {
+            return None;
+        }
+        if woke.zone {
+            let zone = self.load_zone();
+            if let Some(tick) = ticker.change_zone(zone, Timestamp::now()) {
                 self.tell(Event::Tick(tick));
             }
-            if ticker.deadline() != deadline {
-                continue;
-            }
-            let woke = self.wait(armed);
-            if woke.stop {
-                return;
-            }
-            if woke.zone {
-                let zone = self.load_zone();
-                if let Some(tick) = ticker.change_zone(zone, Timestamp::now()) {
-                    self.tell(Event::Tick(tick));
-                }
-            }
-            clock_set = woke.clock_set;
         }
+        Some(woke.clock_set)
     }
 
     fn tell(&self, event: Event) {
@@ -170,6 +191,12 @@ impl Worker {
     /// Waits for the timer, the zone watch or the stop signal. When the
     /// timer is not armed, it looks at the clock every second instead: late
     /// by up to a second, the best that can be done without the timer.
+    ///
+    /// A wake may have nothing set, and the caller then waits again: a file
+    /// event in the watched directory that does not concern the zone's link
+    /// (`timedatectl` makes a new link beside it before renaming it over,
+    /// and the wake can come between the two), an interrupted wait, a
+    /// failed poll, or the unarmed second passing.
     fn wait(&mut self, armed: bool) -> Woke {
         let timeout = (!armed).then_some(&UNARMED_POLL);
         let mut fds = [
@@ -230,62 +257,4 @@ impl Worker {
 }
 
 #[cfg(test)]
-mod tests {
-    use std::fs;
-    use std::os::unix::fs::symlink;
-    use std::path::PathBuf;
-    use std::sync::mpsc;
-
-    use jiff::SignedDuration;
-
-    use super::*;
-    use deskrinch_test_wait::PATIENCE;
-
-    /// The worker does not look for a change of zone from time to time: it
-    /// blocks on the zone watch, with the timer and its stop signal, and
-    /// wakes because the watch is ready. Shown without a bound on time:
-    /// the timer is armed an hour ahead and an armed wait has no timeout,
-    /// so the wait can only return early because the zone changed.
-    #[test]
-    fn a_zone_change_wakes_a_waiting_worker_by_itself() {
-        let dir = tempfile::tempdir().unwrap();
-        let (berlin, tokyo) = (dir.path().join("berlin"), dir.path().join("tokyo"));
-        fs::write(&berlin, "b").unwrap();
-        fs::write(&tokyo, "t").unwrap();
-        let localtime = dir.path().join("localtime");
-        symlink(&berlin, &localtime).unwrap();
-
-        let mut watch = ZoneWatch::new().unwrap();
-        watch.watch(Some(&localtime)).unwrap();
-        let timer = WallTimer::new().unwrap();
-        let in_an_hour = Timestamp::now() + SignedDuration::from_hours(1);
-        assert_eq!(timer.arm(in_an_hour).unwrap(), Fired::Pending);
-        let mut worker = Worker {
-            env: Environment {
-                tz: None,
-                zoneinfo: PathBuf::from("/usr/share/zoneinfo"),
-                localtime: localtime.clone(),
-                time_locale: None,
-            },
-            timer,
-            watch,
-            stop: Arc::new(eventfd(0, EventfdFlags::CLOEXEC | EventfdFlags::NONBLOCK).unwrap()),
-            subscriber: Box::new(|_| {}),
-        };
-        let (send, woke) = mpsc::channel();
-        let waiting = thread::spawn(move || send.send(worker.wait(true)).unwrap());
-
-        // timedatectl's way: a new link renamed over the old, the two
-        // events forced apart: the worker's wake for the new link is taken
-        // before the rename.
-        let new_link = dir.path().join(".localtime.new");
-        symlink(&tokyo, &new_link).unwrap();
-        let woke = woke
-            .recv_timeout(PATIENCE)
-            .expect("the worker woke for the zone, an hour before its timer");
-        fs::rename(&new_link, &localtime).unwrap();
-        assert!(woke.zone, "{woke:?}");
-        assert!(!woke.stop && !woke.clock_set, "{woke:?}");
-        waiting.join().unwrap();
-    }
-}
+mod tests;
