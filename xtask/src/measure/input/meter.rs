@@ -1,6 +1,6 @@
-//! What a typed key costs, from just before it is typed to settled: CPU
-//! time read from `/proc` ([`CpuMeter`]), or instructions from a Callgrind
-//! dump of its own ([`CallgrindMeter`]).
+//! What a step (a key typed, a pointer move) costs, from just before it is
+//! taken to settled: CPU time read from `/proc` ([`CpuMeter`]), or
+//! instructions from a Callgrind dump of its own ([`CallgrindMeter`]).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -13,8 +13,9 @@ use crate::error::Error;
 
 /// Measures one span at a time.
 pub(crate) trait Meter {
-    /// What a row of it says was measured.
-    fn what(&self) -> &'static str;
+    /// What a row of it says was measured, from the step `from` ("key",
+    /// "move").
+    fn what(&self, from: &str) -> String;
     /// The unit of what it measures.
     fn unit(&self) -> Unit;
     /// Starts a span.
@@ -42,8 +43,8 @@ impl CpuMeter {
 }
 
 impl Meter for CpuMeter {
-    fn what(&self) -> &'static str {
-        "CPU from the key to settled"
+    fn what(&self, from: &str) -> String {
+        format!("CPU from the {from} to settled")
     }
 
     fn unit(&self) -> Unit {
@@ -91,8 +92,8 @@ impl<'a> CallgrindMeter<'a> {
 }
 
 impl Meter for CallgrindMeter<'_> {
-    fn what(&self) -> &'static str {
-        "instructions from the key to settled (Ir)"
+    fn what(&self, from: &str) -> String {
+        format!("instructions from the {from} to settled (Ir)")
     }
 
     fn unit(&self) -> Unit {

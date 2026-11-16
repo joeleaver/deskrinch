@@ -1,6 +1,6 @@
 //! What KWin grants: the shell's components what `deskrinch-shell`'s list
 //! says ([`Component::wayland_grants`]), and other programs xtask starts
-//! (test binaries, its own typist) what they use ([`client`]). KWin offers
+//! (test binaries, its own input client) what they use ([`client`]). KWin offers
 //! a restricted interface only to an executable whose installed desktop
 //! file grants it (`deskrinch-kwin-access`). Every xtask that starts such a
 //! program under KWin (`desktop`, `measure`, `compositor-tests`) installs
@@ -67,7 +67,7 @@ pub(crate) fn entry(
 }
 
 /// The desktop file granting `executable`, a program that is not one of
-/// the shell's components (a test binary, or xtask's own typist), the
+/// the shell's components (a test binary, or xtask's own input client), the
 /// restricted Wayland interfaces `wayland` and D-Bus interfaces `dbus`,
 /// under the desktop id `id` and the name `name`.
 pub(crate) fn client(

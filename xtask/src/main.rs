@@ -12,11 +12,11 @@ mod error;
 mod file_length;
 mod git;
 mod grant;
+mod input;
 mod measure;
 mod run_in_session;
 mod session;
 mod systemd_scope_tests;
-mod typist;
 
 use std::error::Error as _;
 use std::ffi::OsString;
@@ -152,11 +152,11 @@ enum Task {
         /// The session's root directory.
         root: PathBuf,
     },
-    /// The typist `measure --type` drives in its nested session: types the
-    /// key each line of its input names. Refuses outside a nested session.
-    /// Not for running by hand.
-    #[command(name = "type", hide = true)]
-    Type,
+    /// The input client `measure` drives in its nested session: takes the
+    /// step (a key typed, the pointer moved) each line of its input names.
+    /// Refuses outside a nested session. Not for running by hand.
+    #[command(name = "input", hide = true)]
+    Input,
 }
 
 impl Task {
@@ -168,7 +168,7 @@ impl Task {
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Desktop(args) => desktop::run(root, &args),
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
-            Self::Type => typist::run(),
+            Self::Input => input::run(),
             Self::Measure(args) => measure::run(&args.request()),
             Self::Session {
                 outputs,

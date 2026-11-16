@@ -119,7 +119,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 19] = [
+pub(super) const SUITES: [Suite; 20] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -387,6 +387,23 @@ pub(super) const SUITES: [Suite; 19] = [
             dbus: &[],
         }),
         compositors: ALL,
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &[],
+    },
+    // `cargo xtask input`, measure's input client: its lines reach a window
+    // of the test's own. Not under KWin: there the client, xtask's own
+    // binary, would need fake input granted, which this table grants only
+    // to a suite's test binary and the shell's components.
+    Suite {
+        target: Target {
+            package: XTASK,
+            test: "input_client",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: WLROOTS,
         passes: PLAIN,
         renders: false,
         programs: &[],

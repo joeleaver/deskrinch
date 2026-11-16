@@ -434,8 +434,8 @@ cargo xtask measure --renderer software --summon show --dismiss hide --prepares 
 
 With `--type TEXT` a query is typed after each show, one key at a time, each
 key measured from the key to settled and followed by a frame. The keys come
-from a typist measure runs in the session (`cargo xtask type`, hidden from the
-help). The program has to say two things in its log, and `--type` takes their
+from an input client measure runs in the session (`cargo xtask input`, hidden
+from the help). The program has to say two things in its log, and `--type` takes their
 words, with no default: `--keyboard-line`, the line it writes once it has the
 keyboard (the first key waits for it), and `--query-line`, the line it writes
 at the hide with `{}` where it gives how many characters it was typed (a
@@ -449,12 +449,29 @@ cargo xtask measure --summon show --dismiss hide --prepares --type term \
   --env RUST_LOG=warn,deskrinch_launcher=info target/release/deskrinch-launcher
 ```
 
-Its end-to-end tests measure stand-in scripts in isolated sessions, and are
-ignored by `cargo test` like the session's (`measure_callgrind` needs
-Valgrind; `measure_typing` types into a stand-in with the real typist):
+`--place-pointer POINT` and `--move-pointer POINT` (repeatable) move the
+pointer through the same client: placed first, unmeasured, then moved to each
+point in turn, each step measured from the move to settled and followed by a
+frame, as a key is. A point is `X,Y` on the session's first output or `N:X,Y`
+on its Nth, in logical pixels. For a program measured by its start and idle
+window, such as the panel, the steps come after the idle window, any
+`--window` window still open, so the idle figures stay those of a run without
+them; with `--summon`, after each show. A hover over the panel's taskbar is
+the pointer placed off the panel, then moved onto a button and back off:
 
 ```sh
-DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_typing -- --ignored
+cargo xtask measure --renderer software --place-pointer 640,360 \
+  --move-pointer 100,700 --move-pointer 640,360 target/release/deskrinch-panel
+```
+
+Its end-to-end tests measure stand-in scripts in isolated sessions, and are
+ignored by `cargo test` like the session's (`measure_callgrind` needs
+Valgrind; `measure_typing` and `measure_pointer` drive a stand-in with the
+real input client; that the client's lines reach a window is
+`input_client`'s, run by `cargo xtask compositor-tests`):
+
+```sh
+DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_typing --test measure_pointer -- --ignored
 ```
 
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists

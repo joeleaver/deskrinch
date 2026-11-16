@@ -19,9 +19,11 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use super::input::{CallgrindMeter, InputClient, Inputs, PointerSteps, move_pointer};
 use super::output;
 use super::probe::{self, Timing};
 use super::report::{self, Run, Unit};
+use super::settle::Running;
 use super::window::{self, Stimulus};
 use super::windows::{self, Expect, Started};
 use crate::error::Error;
@@ -42,7 +44,12 @@ pub(crate) fn valgrind_args(out: &Path) -> Vec<String> {
 /// Measures the program `command` runs under Valgrind (a session client
 /// whose program is `valgrind` with [`valgrind_args`]), asking for dumps
 /// through `control`, a session client for `callgrind_control`, and reading
-/// the frames `expect` says.
+/// the frames `expect` says; with `inputs`, its pointer's steps after the
+/// idle window, each from a dump of its own.
+#[expect(
+    clippy::too_many_arguments,
+    reason = "the session's clients, the program, its profile, and what is asked"
+)]
 pub(crate) fn measure(
     mut command: Command,
     control: impl Fn() -> Command,
@@ -51,7 +58,10 @@ pub(crate) fn measure(
     timing: Timing,
     stimulus: &Stimulus,
     expect: Expect,
+    inputs: Option<&Inputs<'_>>,
 ) -> Result<Run, Error> {
+    // The client first: its devices are made before the program starts.
+    let mut client = inputs.map(Inputs::start).transpose()?;
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -67,7 +77,16 @@ pub(crate) fn measure(
         out,
         expect,
     };
-    let result = run_child(&mut child, &watch, &profile, program, timing, stimulus);
+    let pointer = client
+        .as_mut()
+        .zip(inputs.and_then(|inputs| inputs.pointer));
+    let result = run_child(
+        &mut child, &watch, &profile, program, timing, stimulus, pointer,
+    )
+    .and_then(|run| {
+        client.take().map(InputClient::finish).transpose()?;
+        Ok(run)
+    });
     probe::stop(&mut child);
     output::with_output(result, &watch)
 }
@@ -86,6 +105,7 @@ fn run_child(
     program: &str,
     timing: Timing,
     stimulus: &Stimulus,
+    pointer: Option<(&mut InputClient, &PointerSteps)>,
 ) -> Result<Run, Error> {
     let Profile {
         control,
@@ -138,6 +158,20 @@ fn run_child(
     let since = watch.since(&mark);
     dump(control, &pid, "idle")?;
     let mut run = Run::default();
+    // The first frame's, the settle's and the idle window's dumps are 1 to
+    // 3; each pointer step's comes after them, zeroed at its start.
+    if let Some((client, steps)) = pointer {
+        let mut dumps = 3;
+        let id = child.id();
+        let mut running = Running {
+            child,
+            watch,
+            program,
+            timeout: timing.first_frame,
+        };
+        let mut meter = CallgrindMeter::new(control, id, out, &mut dumps);
+        move_pointer(&mut run, &mut running, client, steps, &mut meter, "", "")?;
+    }
     window::end(opened, &mut run)?;
     if let Some(started) = &started {
         started
