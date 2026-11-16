@@ -20,7 +20,8 @@ use crate::support::{
     write_settings,
 };
 
-/// Every window the panel has made so far, closed ones included.
+/// Every window of the panel's the watch still lists: those open, and
+/// closed ones it has not dropped (a closed window may leave the list).
 fn ever(panel: &Panel) -> BTreeSet<PerfWindow> {
     panel
         .watch()
@@ -103,7 +104,11 @@ fn an_output_turned_off_and_on_gets_exactly_one_new_bar() {
         }
     });
     assert_eq!(panel.window_on(&kept_name), kept, "{}", panel.log());
-    assert_eq!(ever(&panel), started, "a window was made: {}", panel.log());
+    assert!(
+        ever(&panel).is_subset(&started),
+        "a window was made: {}",
+        panel.log()
+    );
 
     off.restore().unwrap();
     let back = wait_for(&format!("a new bar on {gone_name} to draw"), || {
@@ -121,11 +126,10 @@ fn an_output_turned_off_and_on_gets_exactly_one_new_bar() {
             .map(|(window, _)| window)
             .ok_or_else(|| panel.log())
     });
-    let mut expected = started;
-    expected.insert(back);
+    let made: BTreeSet<PerfWindow> = ever(&panel).difference(&started).copied().collect();
     assert_eq!(
-        ever(&panel),
-        expected,
+        made,
+        [back].into(),
         "not exactly one new bar: {}",
         panel.log()
     );

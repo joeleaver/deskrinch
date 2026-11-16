@@ -171,24 +171,32 @@ impl Panel {
         self.component.watch()
     }
 
-    /// Waits until the panel has said it is placed along `edge`, `height`
-    /// high ([`deskrinch_panel::placed`], written by its main thread when it
-    /// applies the change); `Err` with its last lines when it does not. Any
-    /// line it has written counts, so a test that asks for a placement it
-    /// has had before is answered by the earlier line.
+    /// Waits until the panel has said, for each bar open now, that it is
+    /// placed along `edge`, `height` high ([`deskrinch_panel::placed`],
+    /// written by its main thread when it applies the change to that bar);
+    /// `Err` with its last lines when it does not. Any line it has written
+    /// counts, so a test that asks for a placement it has had before is
+    /// answered by the earlier line.
     pub(crate) fn wait_placed(&self, edge: Edge, height: u32) -> Result<(), String> {
         let edge = match edge {
             Edge::Top => deskrinch_settings::panel::Edge::Top,
             Edge::Bottom => deskrinch_settings::panel::Edge::Bottom,
         };
         let height = deskrinch_settings::panel::Height::try_from(height).unwrap();
-        let line = deskrinch_panel::placed(edge, height);
         let watch = self.component.watch();
-        if watch.wait_for_line(PATIENCE, |said| said.contains(&line)) {
+        let lines: Vec<String> = self
+            .bars()
+            .into_iter()
+            .map(|(_, output)| deskrinch_panel::placed(&output, edge, height))
+            .collect();
+        let said_all = lines
+            .iter()
+            .all(|line| watch.wait_for_line(PATIENCE, |said| said.contains(line.as_str())));
+        if said_all {
             Ok(())
         } else {
             Err(format!(
-                "it did not say {line:?}; its last lines:\n{}",
+                "it did not say {lines:?}, one per bar; its last lines:\n{}",
                 watch.tail()
             ))
         }
@@ -336,8 +344,9 @@ fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
 }
 
 /// Captures every output until each shows its bar at `band` against
-/// `before`; returns the first output's name, the bar a test that looks at
-/// one works with, and the pictures, taken once the screen is still
+/// `before`; returns the first output's name (the first the session made,
+/// by name: where the compositors open a window unless told otherwise), the
+/// bar a test that looks at one works with, and the pictures, taken once the screen is still
 /// ([`Pictures::still`]): KWin fades a bar in, and the band is already the
 /// band halfway through, but not yet the bar's own pixels, which a later
 /// check compares with.
@@ -353,8 +362,9 @@ pub(crate) fn wait_band(screen: &mut Screen, before: &Pictures, band: Band) -> (
         }
         let first = now
             .0
-            .first()
+            .iter()
             .map(|(name, _)| name.clone())
+            .min()
             .ok_or_else(|| "the screen lists no output".to_owned())?;
         Ok((first, now))
     })

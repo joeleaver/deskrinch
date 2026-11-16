@@ -37,6 +37,7 @@
 //! behind its opening, so a request made before the window exists reaches
 //! it once it does.
 
+use rinch::prelude::untracked;
 use rinch::{
     LayerAnchor, LayerAxes, LayerExclusiveZone, LayerKeyboard, LayerShellLayer, LayerSurface,
     OutputId, WindowHandle,
@@ -117,19 +118,38 @@ pub(crate) fn to_send(applied: &BarSurface, wanted: BarSurface) -> Option<BarSur
     (wanted != *applied).then_some(wanted)
 }
 
-/// Moves the bar whose window is `window` to `surface`, at `placement`.
-/// Called on the main thread, from one effect, so that both requests fall
-/// in one turn and one commit.
-pub(crate) fn place(window: WindowHandle, surface: &BarSurface, placement: Placement) {
+/// Moves the bar on `output`, whose window is `window`, to `surface`, at
+/// `placement`. Called on the main thread, from one effect, so that both
+/// requests fall in one turn and one commit.
+pub(crate) fn place(
+    window: WindowHandle,
+    output: OutputId,
+    surface: &BarSurface,
+    placement: Placement,
+) {
     // The width is the compositor's on a layer surface whatever is asked
-    // (`compositor_size`); the first width is asked, as the window was
-    // opened with, so that nothing here reads the window.
-    window.set_size(f64::from(FIRST_WIDTH), f64::from(surface.height));
+    // (`compositor_size`); on a compositor without the layer shell the
+    // window is an ordinary one, which keeps its width. Before the window
+    // exists its handle answers no size, and the width it opens with is
+    // the first.
+    let width = window
+        .size()
+        .map_or(f64::from(FIRST_WIDTH), |(width, _)| width);
+    window.set_size(width, f64::from(surface.height));
     window.set_layer(surface.layer.clone());
     tracing::info!(
         "{}",
-        deskrinch_panel::placed(placement.edge, placement.height)
+        deskrinch_panel::placed(&output_name(output), placement.edge, placement.height)
     );
+}
+
+/// The output's name, or its id where it has none, for a line about its
+/// bar. Read untracked: a bar's effect follows its placement, not the
+/// outputs.
+fn output_name(output: OutputId) -> String {
+    untracked(|| rinch::prelude::output(output))
+        .and_then(|output| output.name)
+        .unwrap_or_else(|| format!("{output:?}"))
 }
 
 /// Says that the bar's window on the output `output` closed (its

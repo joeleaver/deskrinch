@@ -85,9 +85,20 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     // The panel's one clock; its faces read the text.
     create_context(follow_clock(settings));
     let placement = Memo::new(move || Placement::of(&settings.get()));
+    bars(__scope, Memo::new(output_ids), placement)
+}
+
+/// A bar on each of `outputs`, at `placement`: one `Window` per output, a
+/// row keyed by the output's id. The root hands it rinch's `output_ids()`
+/// and the settings' placement; a test may hand it its own.
+pub(crate) fn bars(
+    __scope: &mut RenderScope,
+    outputs: Memo<Vec<OutputId>>,
+    placement: Memo<Placement>,
+) -> NodeHandle {
     rsx! {
         div {
-            for id in output_ids() {
+            for id in outputs.get() {
                 div {
                     key: id,
                     {bar_window(__scope, id, placement)}
@@ -134,6 +145,12 @@ fn output_bar(
     opened: BarSurface,
 ) -> NodeHandle {
     let window = WindowHandle::current();
+    if window.is_none() {
+        tracing::error!(
+            "the bar on output {output:?} has no window handle at its mount, and cannot follow the \
+             edge and height"
+        );
+    }
     // Compared first against what the window was opened with (`opened`):
     // its row read the placement a turn before this mount, and the settings
     // may have changed in between, so the first run sends the difference;
@@ -144,7 +161,7 @@ fn output_bar(
         if let Some(window) = window
             && let Some(sent) = surface::to_send(&applied, surface::bar_surface(at, output))
         {
-            surface::place(window, &sent, at);
+            surface::place(window, output, &sent, at);
             applied = sent;
         }
     });
