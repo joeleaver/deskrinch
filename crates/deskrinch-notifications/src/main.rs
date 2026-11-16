@@ -28,9 +28,10 @@
 //!
 //! One layer surface, at the top right, holds the column ([`surface`]); it
 //! exists only while a notification shows. The look is the shell's
-//! (`deskrinch-theme`), following the desktop's colour scheme. Icons come
-//! from the icon theme, by the sender's icon name or its application's
-//! ([`picture`]).
+//! (`deskrinch-theme`), following the desktop's colour scheme. A popup's
+//! icon is the first icon name of its image (`image-path`) and then its
+//! `app_icon`, else its `desktop-entry` application's icon, from the icon
+//! theme ([`picture`]); pixels and files a sender names are not drawn yet.
 //!
 //! # How it ends
 //!

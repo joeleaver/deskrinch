@@ -1,10 +1,9 @@
-//! The test binaries `cargo xtask compositor-tests` runs, and where.
-
-use deskrinch_shell::Component;
-use deskrinch_test_wayland::Transform;
+//! The test binaries `cargo xtask compositor-tests` runs, and where: the
+//! table of rows, each a [`Suite`] (`super::suite`).
 
 use super::build::{Backend, Target};
-use crate::session::{Compositor, Outputs, Scale};
+pub(super) use super::suite::{Grant, Pass, SESSION_END, Suite};
+use crate::session::Compositor;
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
@@ -28,94 +27,7 @@ pub(super) const INPUT_CLIENT: Target = Target {
 };
 const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 
-/// How many outputs the sessions have, side by side: the window-management
-/// tests move windows between two, and the screen tests tell them apart.
-const OUTPUTS: u32 = 2;
-
-/// A session the suites run in, by how its outputs are.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Pass {
-    /// Scale 1, upright: every suite.
-    Plain,
-    /// Scale 2, for the suites that check scaling.
-    Scaled,
-    /// Turned a quarter, for the suites that check transforms.
-    Rotated,
-    /// Mirrored and turned a quarter (`flipped-90`): a flip as well as a
-    /// swap of the axes, for the suites that check transforms.
-    Flipped,
-}
-
-impl Pass {
-    /// Every pass, in the order they run.
-    pub(super) const ALL: [Self; 4] = [Self::Plain, Self::Scaled, Self::Rotated, Self::Flipped];
-
-    /// The session's outputs in this pass.
-    pub(super) fn outputs(self) -> Outputs {
-        let plain = Outputs::plain(OUTPUTS);
-        match self {
-            Self::Plain => plain,
-            Self::Scaled => Outputs {
-                scale: Scale::TWO,
-                ..plain
-            },
-            Self::Rotated => Outputs {
-                transform: Transform::Rotated90.into(),
-                ..plain
-            },
-            Self::Flipped => Outputs {
-                transform: Transform::Flipped90.into(),
-                ..plain
-            },
-        }
-    }
-}
-
 const PLAIN: &[Pass] = &[Pass::Plain];
-
-/// What KWin grants a test binary.
-#[derive(Debug)]
-pub(super) struct Grant {
-    /// The desktop file id.
-    pub(super) id: &'static str,
-    pub(super) name: &'static str,
-    pub(super) wayland: &'static [&'static str],
-    pub(super) dbus: &'static [&'static str],
-}
-
-/// A test binary and how it runs.
-#[derive(Debug)]
-pub(super) struct Suite {
-    pub(super) target: Target,
-    /// What KWin grants it; nothing for a binary that checks a refusal.
-    pub(super) grant: Option<Grant>,
-    /// The compositors it runs under: what it tests exists only there.
-    pub(super) compositors: &'static [Compositor],
-    /// The sessions it runs in, by how their outputs are.
-    pub(super) passes: &'static [Pass],
-    /// Whether it draws with rinch, and so runs once per renderer the run
-    /// tests ([`super::renderers`]), told which in
-    /// `DESKRINCH_TEST_RENDERER`.
-    pub(super) renders: bool,
-    /// Every shell component its tests start, its own crate's included:
-    /// handed to its tests by path, the only way they start one
-    /// ([`deskrinch_test_component::programs`], where the rule is).
-    pub(super) programs: &'static [&'static Component],
-    /// The libtest arguments it runs with.
-    pub(super) filter: &'static [&'static str],
-}
-
-impl Suite {
-    /// Whether it is the row that ends the session (the window-management
-    /// tests of [`SESSION_END`]), after which nothing of it is left.
-    pub(super) fn ends_the_session(&self) -> bool {
-        self.filter == [SESSION_END]
-    }
-}
-
-/// The module of the window-management tests that ends the session, so
-/// runs last, on its own.
-pub(super) const SESSION_END: &str = "session_end::";
 
 /// The workspace tests that need a compositor with no workspace protocol
 /// (sway), and those that change KWin's desktops by KWin's own interface.
@@ -125,7 +37,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 21] = [
+pub(super) const SUITES: [Suite; 22] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.

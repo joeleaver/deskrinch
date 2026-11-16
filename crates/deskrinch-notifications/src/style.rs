@@ -7,6 +7,10 @@
 //! popups are transparent, so that a surface that takes only its painted
 //! pixels takes exactly the popups. So a popup has no shadow, which would
 //! paint into the gaps; its border sets it apart.
+//!
+//! The body is cut short with `-webkit-line-clamp` on purpose; rinch issue
+//! 2748 (a removed clamped element panics the next layout) is a rinch bug
+//! the daemon waits on, not a reason to clamp otherwise.
 
 use crate::policy::{BODY_LINES, ICON_SIZE, WIDTH};
 
