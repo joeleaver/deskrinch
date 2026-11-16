@@ -34,6 +34,18 @@ use crate::{style, surface};
 
 /// What the daemon says, at info level, once its root is built and rinch's
 /// event loop runs.
+///
+/// Where that is true, in rinch (at 689f87c3a): `App::try_run` reaches
+/// `try_run_rinch_with_window_props_and_menu`
+/// (`crates/rinch/src/shell/rinch_runtime/entry.rs`), which makes the event
+/// loop (`overlay_window::new_event_loop`) and then runs it; a windowless
+/// app's root is built only from inside the running loop, in its
+/// `ApplicationHandler::can_create_surfaces`
+/// (`crates/rinch/src/shell/rinch_runtime.rs`), through `start_surfaces`
+/// and `mount_windowless_root`
+/// (`crates/rinch/src/shell/rinch_runtime/open_windows.rs`). So the line,
+/// said as the root is built, comes after the display connection is made
+/// and in use.
 pub(crate) const UP_LINE: &str = deskrinch_shell::NOTIFICATIONS_UP_LINE;
 
 /// What the daemon's UI runs with.
