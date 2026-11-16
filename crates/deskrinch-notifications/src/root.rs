@@ -23,7 +23,7 @@ use deskrinch_notification_service::{Handle, NotificationId, Urgency};
 use deskrinch_theme::Theme;
 use rinch::InputRegion;
 use rinch::prelude::*;
-use rinch::reactive::Effect;
+use rinch::reactive::{Effect, untracked};
 
 use crate::column::Column;
 use crate::feed::Feed;
@@ -78,7 +78,7 @@ pub(crate) fn notifications(parts: Parts) -> NodeHandle {
     let holder = column.clone();
     Effect::new(move || {
         state.with(|_| ());
-        rinch::reactive::untracked(|| holder.hold_again());
+        untracked(|| holder.hold_again());
     });
     let shared = Shared {
         handle,

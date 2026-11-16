@@ -134,11 +134,11 @@ fn the_room_shrinking_holds_a_shown_one_back_and_its_return_shows_it() {
     assert_eq!(shown + waiting, live);
     // The oldest, last in the column's order, waits, held: given a
     // timeout, it outlives it.
-    notifications.client.simple(oldest, "Oldest", "", 2000);
+    notifications.client.simple(oldest, "Oldest", "", 6000);
     notifications
         .client
         .signals
-        .none_within(Duration::from_secs(4));
+        .none_within(Duration::from_secs(8));
     drop(panel);
     all_whole(&mut notifications, live, 0);
     assert_eq!(notifications.next_signal(), Signal::Closed(oldest, EXPIRED));
