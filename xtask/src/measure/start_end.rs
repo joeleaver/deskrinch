@@ -57,19 +57,51 @@ pub(crate) enum StartEnds {
 }
 
 impl StartEnds {
+    /// One of each end, for the forms the help and the errors list.
+    pub(crate) const EACH: [Self; 6] = [
+        Self::FirstFrame,
+        Self::Frame(1),
+        Self::Counter(String::new()),
+        Self::Line(String::new()),
+        Self::Ready,
+        Self::BusName(String::new()),
+    ];
+
+    /// How it is written on the command line, as the help names it.
+    pub(crate) fn form(&self) -> &'static str {
+        match self {
+            Self::FirstFrame => "first-frame",
+            Self::Frame(_) => "frame:N",
+            Self::Counter(_) => "counter:NAME",
+            Self::Line(_) => "line:TEXT",
+            Self::Ready => "ready",
+            Self::BusName(_) => "bus-name:NAME",
+        }
+    }
+
+    /// The forms of the ends `keep` takes, joined as a list: `a, b or c`.
+    pub(crate) fn forms(keep: impl Fn(&Self) -> bool) -> String {
+        let forms: Vec<&str> = Self::EACH
+            .iter()
+            .filter(|end| keep(end))
+            .map(Self::form)
+            .collect();
+        match forms.split_last() {
+            Some((last, rest)) if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
+            Some((last, _)) => (*last).to_owned(),
+            None => String::new(),
+        }
+    }
+
     /// `--start-ends`' value `text`.
     ///
     /// # Errors
     ///
-    /// For anything but `first-frame`, `frame:N` (N at least 1), `line:TEXT`
-    /// (TEXT not empty), `ready` or `bus-name:NAME` (NAME not empty).
+    /// For anything but one of the forms [`Self::form`] names: `frame:N`
+    /// with N at least 1, and `counter:NAME`, `line:TEXT` and
+    /// `bus-name:NAME` with a value that is not empty.
     pub(crate) fn parse(text: &str) -> Result<Self, String> {
-        let refused = || {
-            format!(
-                "{text:?}: give first-frame, frame:N (N at least 1), counter:NAME, line:TEXT, \
-                 ready or bus-name:NAME"
-            )
-        };
+        let refused = || format!("{text:?}: give {}", Self::forms(|_| true));
         match text {
             "first-frame" => return Ok(Self::FirstFrame),
             "ready" => return Ok(Self::Ready),
@@ -152,8 +184,9 @@ impl End {
                             program: program.display().to_string(),
                             why: format!(
                                 "deskrinch-shell has {} ready once started, which no moment \
-                                 marks; use first-frame, frame:N or line:TEXT",
-                                component.package
+                                 marks; use {}",
+                                component.package,
+                                StartEnds::forms(|end| *end != StartEnds::Ready)
                             ),
                         });
                     }

@@ -54,8 +54,44 @@ fn a_component_ready_once_started_has_no_ready_end_and_is_told_what_it_can_use()
         .to_string();
     assert!(error.contains("ready once started"), "{error}");
     assert!(
-        error.contains("first-frame, frame:N or line:TEXT"),
+        error.contains("use first-frame, frame:N, counter:NAME, line:TEXT or bus-name:NAME"),
         "{error}"
+    );
+}
+
+#[test]
+fn every_end_has_its_form_in_the_option_s_help_and_parses_from_it() {
+    use clap::{CommandFactory, Parser};
+
+    #[derive(Parser)]
+    struct Cli {
+        #[command(flatten)]
+        args: crate::measure::Args,
+    }
+    let command = Cli::command();
+    let help = command
+        .get_arguments()
+        .find(|argument| argument.get_id() == "start_ends")
+        .and_then(|argument| argument.get_help())
+        .map(ToString::to_string)
+        .expect("--start-ends has a help");
+    for end in &StartEnds::EACH {
+        let form = end.form();
+        assert!(
+            help.contains(form),
+            "--start-ends' help does not name {form}:\n{help}"
+        );
+        // The form, with a value where it takes one, is the end it names.
+        let written = form
+            .replace(":N", ":3")
+            .replace(":NAME", ":x")
+            .replace(":TEXT", ":x");
+        let parsed = StartEnds::parse(&written).unwrap();
+        assert_eq!(parsed.form(), form, "{written}");
+    }
+    assert_eq!(
+        StartEnds::forms(|_| true),
+        "first-frame, frame:N, counter:NAME, line:TEXT, ready or bus-name:NAME"
     );
 }
 

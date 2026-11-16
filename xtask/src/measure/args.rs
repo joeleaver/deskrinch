@@ -161,9 +161,11 @@ pub(crate) struct Args {
     #[arg(long, value_name = "DIR")]
     config: Option<PathBuf>,
     /// Where start-up ends: first-frame (the default), frame:N (each
-    /// expected window's Nth frame), line:TEXT (the first output line with
-    /// TEXT), ready (the readiness deskrinch-shell declares for the
-    /// component) or bus-name:NAME (owning NAME on the session's bus).
+    /// expected window's Nth frame), counter:NAME (each expected window's
+    /// first frame whose frame line carries the counter NAME above zero),
+    /// line:TEXT (the first output line with TEXT), ready (the readiness
+    /// deskrinch-shell declares for the component) or bus-name:NAME (owning
+    /// NAME on the session's bus).
     #[arg(
         long,
         value_name = "WHEN",
