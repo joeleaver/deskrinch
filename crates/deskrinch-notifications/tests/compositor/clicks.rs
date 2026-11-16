@@ -113,6 +113,10 @@ fn the_pointer_over_a_popup_holds_its_expiry() {
 /// A popup that moves under a resting pointer, because the one above it
 /// closed, is held as one the pointer entered: rinch tells the element now
 /// under the pointer that it was entered, with no motion of the pointer.
+///
+/// It fails until rinch issue 2766 is fixed: rinch sends no enter for an
+/// element that moves under a resting pointer
+/// (<https://github.com/joeleaver/rinch/issues/2766>).
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn a_popup_that_moves_under_a_resting_pointer_is_held() {

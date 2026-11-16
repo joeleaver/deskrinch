@@ -103,17 +103,6 @@ impl Column {
         self.fit.get().waiting.len()
     }
 
-    /// The live notifications changed (one shown, replaced or closed):
-    /// every one held is paused again, so that one held while it had no
-    /// timeout, given one by a replacement, is held too. Pausing a paused
-    /// one changes nothing.
-    pub(crate) fn hold_again(&self) {
-        let held = self.pauses.borrow().held();
-        for id in held {
-            self.tell(id, Tell::Pause);
-        }
-    }
-
     /// The pointer is over `id`'s popup (`on`) or has left it.
     pub(crate) fn pointer(&self, id: NotificationId, on: bool) {
         let tell = self.pauses.borrow_mut().set(id, Reason::Pointer, on);

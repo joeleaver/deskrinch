@@ -8,12 +8,6 @@
 //! goes. So a popup pushed out of the column while under the pointer stays
 //! paused, and a pointer leaving a popup that is now waiting does not
 //! resume it.
-//!
-//! The service's pause leaves a notification that never expires as it is,
-//! and keeps a pause through a replacement only if there was one: so one
-//! held while it had no timeout, given one by a replacement, would start
-//! its timer. The daemon pauses again every notification held
-//! ([`Pauses::held`]) when the live ones change.
 
 use std::collections::BTreeMap;
 
@@ -64,11 +58,6 @@ impl Pauses {
             (true, false) => Tell::Resume,
             _ => Tell::Nothing,
         }
-    }
-
-    /// The notifications something holds.
-    pub(crate) fn held(&self) -> Vec<NotificationId> {
-        self.reasons.keys().copied().collect()
     }
 
     /// Only the notifications in `live` are live: the others' reasons are
