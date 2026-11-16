@@ -96,12 +96,17 @@ fn a_critical_one_goes_before_newer_ones() {
     assert!(harness.paused(ids[0]));
 }
 
+/// A full column with less than the count line's room left under it (a
+/// pixel): one more popup brings the line, which takes the room of the
+/// last shown too, so exactly two wait and the line says so. The close of
+/// the newest brings both back, and the line goes. (The compositor's
+/// frames test counts that close's frames: one.)
 #[test]
 fn the_count_line_s_room_moves_the_cut() {
     let mut harness = Harness::at(800);
-    for n in 1..=3 {
-        harness.send(&summary(n), "", false);
-    }
+    let mut ids: Vec<_> = (1..=3)
+        .map(|n| harness.send(&summary(n), "", false))
+        .collect();
     let height = exact_height(&harness, 3);
     harness.resize(height);
     assert_eq!(
@@ -112,12 +117,23 @@ fn the_count_line_s_room_moves_the_cut() {
     // One more: four of the same height cannot fit where three just did,
     // and the count line takes its room under the container, so the third
     // no longer fits either.
-    harness.send(&summary(4), "", false);
+    ids.push(harness.send(&summary(4), "", false));
     harness.assert_consistent();
     assert_eq!(
         harness.fit(),
         (vec![summary(4), summary(3)], vec![summary(2), summary(1)])
     );
+    assert_eq!(harness.count_line().as_deref(), Some("2 more"));
+    assert!(harness.paused(ids[0]) && harness.paused(ids[1]));
+
+    harness.close(ids[3]);
+    harness.assert_consistent();
+    assert_eq!(
+        harness.fit(),
+        (vec![summary(3), summary(2), summary(1)], vec![])
+    );
+    assert_eq!(harness.count_line(), None);
+    assert!(ids[..3].iter().all(|id| !harness.paused(*id)));
 }
 
 #[test]

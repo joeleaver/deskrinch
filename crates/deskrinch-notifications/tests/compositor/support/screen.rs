@@ -193,16 +193,30 @@ impl Notifications {
     /// exactly when some wait, and the daemon's last fit line says `shown`
     /// shown and `waiting` waiting; the column then.
     pub(crate) fn settled(&mut self, shown: usize, waiting: usize) -> Column {
-        wait_for(&format!("{shown} shown and {waiting} waiting"), || {
+        let what = format!("{shown} shown and {waiting} waiting");
+        let (column, _) = self.settled_on(&what, |fit| fit == (shown, waiting));
+        column
+    }
+
+    /// Waits until the screen, still, agrees with the daemon's last fit
+    /// line (as [`settled`](Self::settled) has it) and `accept` takes that
+    /// fit; the column and the fit then. A fit the daemon passes through on
+    /// its way, said before the screen settles, is never taken.
+    pub(crate) fn settled_on(
+        &mut self,
+        what: &str,
+        accept: impl Fn((usize, usize)) -> bool,
+    ) -> (Column, (usize, usize)) {
+        wait_for(what, || {
             let columns = self.columns();
             let said = self.fit();
-            match columns.as_slice() {
-                [column]
+            match (columns.as_slice(), said) {
+                ([column], Some((shown, waiting)))
                     if column.popups.len() == shown
                         && column.count_line.is_some() == (waiting > 0)
-                        && said == Some((shown, waiting)) =>
+                        && accept((shown, waiting)) =>
                 {
-                    Ok(column.clone())
+                    Ok((column.clone(), (shown, waiting)))
                 }
                 _ => Err((columns, said, self.said())),
             }

@@ -113,9 +113,12 @@ fn a_change_is_one_frame_and_nothing_changing_is_none() {
 /// into a full column (some wait, the count line appears), and a close
 /// that brings the waiting back.
 ///
-/// How many wait is the daemon's: one, or two where the room left under
-/// the full column is less than the count line's own room (the line comes
-/// for the new one and takes the room of the last shown).
+/// How many wait is the daemon's, read once the screen agrees: the count
+/// line can take the room of the last shown popup too. That count, for a
+/// column of a known geometry, is the harness's to check
+/// (`view::tests::the_count_line_s_room_moves_the_cut`, in the daemon's
+/// own tests); here the screen is held to the daemon's word, and the frames
+/// counted.
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_waiting_set_changing_is_one_frame() {
@@ -125,13 +128,9 @@ fn the_waiting_set_changing_is_one_frame() {
 
     let mark = notifications.daemon().watch().lines().len();
     let one_more = notifications.client.simple(0, "One more", "", 0);
-    let fit = notifications.wait_fit("some waiting", |(_, waiting)| waiting > 0);
+    let (_, fit) = notifications.settled_on("some waiting", |(_, waiting)| waiting > 0);
     let (shown, waiting) = fit;
-    assert!(
-        shown + waiting == live.len() + 1 && (1..=2).contains(&waiting),
-        "a popup into a full column: {fit:?}"
-    );
-    notifications.settled(shown, waiting);
+    assert_eq!(shown + waiting, live.len() + 1, "{fit:?}");
     std::thread::sleep(QUIET);
     assert_eq!(
         presented(&notifications.daemon().watch().lines(), mark),
