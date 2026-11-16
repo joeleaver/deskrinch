@@ -10,6 +10,7 @@ use deskrinch_taskbar::{Button, Form, Input, PointerButton};
 use deskrinch_window_management::WindowId;
 use rinch::prelude::*;
 
+use crate::widgets::buttons;
 use crate::widgets::taskbar::follow::{Buttons, Following};
 
 /// What the buttons' icons come from, which the panel provides as a
@@ -45,26 +46,6 @@ impl ButtonSizes {
     }
 }
 
-/// The buttons' backgrounds, in the taskbar's stylesheet rather than in
-/// each button's `style`, which would win over any rule: none; the active
-/// window's, the theme's selected option; and the one under the pointer,
-/// the theme's hovered option, unless it is the active one, which keeps its
-/// mark.
-///
-/// What the hover relies on is CSS's `:hover` as rinch keeps it: it holds
-/// while the pointer is over the button or anything in it (its icon, its
-/// title), so moving within a button changes nothing; it moves from one
-/// button to the next in one restyle; and it clears when the pointer leaves
-/// the panel's window altogether (rinch #2672). A change restyles only the
-/// button whose `:hover` changed, and paints it: no layout, and nothing of
-/// the taskbar's own runs. No enter or leave handler is involved.
-pub(crate) const STYLESHEET: &str = "\
-.taskbar-button { background: transparent; }
-.taskbar-button:hover { background: var(--rinch-color-option-hover); }
-.taskbar-button.active, .taskbar-button.active:hover { \
-background: var(--rinch-color-option-selected); }
-";
-
 /// The button of the window `id`, drawn from `buttons` as it changes, in
 /// the `form` the room allows.
 pub(crate) fn button_view(
@@ -82,13 +63,7 @@ pub(crate) fn button_view(
     let title = Memo::new(move || button.get().map(|b| b.title).unwrap_or_default());
     let titled = Memo::new(move || matches!(form.get(), Form::Titled { .. }));
     let style = Memo::new(move || style(button.get().as_ref(), form.get(), sizes));
-    let class = Memo::new(move || {
-        if button.get().is_some_and(|b| b.active) {
-            "taskbar-button active"
-        } else {
-            "taskbar-button"
-        }
-    });
+    let class = Memo::new(move || buttons::classes(button.get().is_some_and(|b| b.active)));
     rsx! {
         div {
             class: {move || class.get()},
@@ -108,7 +83,7 @@ pub(crate) fn button_view(
 }
 
 /// The button's style: its width for `form`, and its marks but its
-/// background, which is the stylesheet's ([`STYLESHEET`]).
+/// background, which is the bar's stylesheet's ([`buttons::STYLESHEET`]).
 fn style(button: Option<&Button<WindowId>>, form: Form, sizes: ButtonSizes) -> String {
     let width = match form {
         Form::Titled { width } => width,

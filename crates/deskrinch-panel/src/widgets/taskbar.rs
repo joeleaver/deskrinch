@@ -2,7 +2,8 @@
 //! model, followed by [`follow`]), with its application's icon and its
 //! title cut to fit, marked while active, dimmed while minimized, marked
 //! while it asks for attention, and marked while the pointer is over it
-//! (CSS `:hover`, in the taskbar's stylesheet). A click of the primary
+//! (CSS `:hover`, in the bar's stylesheet: [`crate::widgets::buttons`]). A
+//! click of the primary
 //! button activates its window, or minimizes the active one; the middle
 //! button closes it.
 //!
@@ -28,7 +29,7 @@ use deskrinch_taskbar::{Room, fit};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
-use crate::widgets::taskbar::button::{ButtonSizes, STYLESHEET, button_view, pointer};
+use crate::widgets::taskbar::button::{ButtonSizes, button_view, pointer};
 use crate::widgets::taskbar::follow::Following;
 
 /// The sizes buttons come in, in logical pixels.
@@ -71,7 +72,6 @@ pub(crate) fn TaskbarWidget() -> NodeHandle {
             )},
             onmousedown: pointer(&following, None, true),
             onmouseup: pointer(&following, None, false),
-            style { {STYLESHEET} }
             for id in shown.get() {
                 div {
                     key: id.get().to_string(),

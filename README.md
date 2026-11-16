@@ -5,7 +5,7 @@ first (panel, launcher, notifications on `wlr-layer-shell`, running under KWin),
 then a smithay-based compositor.
 
 Early days: the libraries the shell rests on, a panel (`deskrinch-panel`:
-the taskbar and the clock), and the launcher (`deskrinch-launcher`:
+the workspace switcher, the taskbar and the clock), and the launcher (`deskrinch-launcher`:
 `deskrinch-launcher toggle` from a key binding shows and hides it). Under
 KWin the taskbar lists windows only once KWin has granted the panel its
 window-management interface, which an installed desktop file does

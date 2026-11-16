@@ -1,13 +1,25 @@
 //! `deskrinch-panel`: the desktop panel, a bar along an edge of the output
-//! that windows keep clear of, with the taskbar and, at its end, the clock.
+//! that windows keep clear of, with the workspace switcher, the taskbar
+//! and, at its end, the clock.
 //!
 //! - The window is a `wlr-layer-shell` surface (see [`surface`]): the full
 //!   width of the output, along its bottom or top edge, reserving its
 //!   height. rinch makes it one through `WindowProps::wayland_layer`; on a
 //!   compositor without the layer shell (GNOME) rinch falls back to an
 //!   ordinary window, with a warning.
-//! - The content is the [`bar`]: the taskbar, taking the room the other
-//!   [`widgets`] leave, and the end region with the clock.
+//! - The content is the [`bar`]: the workspace switcher, the taskbar,
+//!   taking the room the other [`widgets`] leave, and the end region with
+//!   the clock.
+//!
+//! # The workspace switcher
+//!
+//! A button for each workspace, showing its position; the current one
+//! marked, and a click asking the compositor to switch. The rules are
+//! `deskrinch-switcher`'s, and the widget is [`widgets`]' `switcher`. The
+//! workspaces come from `deskrinch-workspaces`, over a Wayland connection of
+//! its own: `ext_workspace_v1` (labwc) or KWin's virtual desktops, which
+//! KWin offers ungranted. Where the compositor offers neither (sway), the
+//! switcher is not shown, and one line at info level says why.
 //!
 //! # The taskbar
 //!

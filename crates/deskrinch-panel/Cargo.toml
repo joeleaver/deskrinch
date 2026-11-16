@@ -36,11 +36,14 @@ deskrinch-desktop-entries.workspace = true
 # The icon theme's index and search path.
 deskrinch-icons.workspace = true
 deskrinch-settings.workspace = true
-# The taskbar's model.
+# The taskbar's and the workspace switcher's models.
+deskrinch-switcher.workspace = true
 deskrinch-taskbar.workspace = true
 deskrinch-theme.workspace = true
 # The compositor's windows, for the taskbar.
 deskrinch-window-management.workspace = true
+# The compositor's workspaces, for the switcher.
+deskrinch-workspaces.workspace = true
 deskrinch-xdg.workspace = true
 # `gpu` adds the GPU renderer beside the software one rinch always has on
 # the desktop; which one draws is chosen at run time (see the crate docs).
@@ -56,6 +59,9 @@ tracing.workspace = true
 deskrinch-shell.workspace = true
 deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true
+# KWin's desktops added and removed, the compositor's side of the
+# switcher's tests.
+deskrinch-test-desktops.workspace = true
 deskrinch-test-input.workspace = true
 deskrinch-test-screen.workspace = true
 deskrinch-test-wait.workspace = true
