@@ -90,8 +90,8 @@ impl Pictures {
     }
 }
 
-/// The column on the screen: the output it is on and the box of what it
-/// paints there, in the screen's pixels, inclusive.
+/// The column on the screen: the output it is on and the box of its popups
+/// there, in the screen's pixels, inclusive.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Column {
     pub(crate) output: String,
@@ -101,6 +101,8 @@ pub(crate) struct Column {
     pub(crate) bottom: u32,
     /// Each popup's first and last rows, top to bottom.
     pub(crate) popups: Vec<(u32, u32)>,
+    /// The count line's first and last rows, while it shows.
+    pub(crate) count_line: Option<(u32, u32)>,
     /// The output's size in its pixels.
     pub(crate) size: (u32, u32),
     /// What changed, coarsely, for a failure to show: every eighth row
@@ -126,43 +128,86 @@ fn spans(before: &Image, now: &Image, row: u32) -> Option<String> {
     })
 }
 
+/// A run of rows that changed: its first and last rows, and the leftmost
+/// and rightmost columns that changed in it.
+#[derive(Debug, Clone, Copy)]
+struct Run {
+    first: u32,
+    last: u32,
+    left: u32,
+    right: u32,
+}
+
 /// The column on the output `output`, which showed `before` and shows `now`:
-/// the box of the pixels that differ, and the runs of rows that hold any;
-/// `None` when none differs.
-fn changed(output: &str, before: &Image, now: &Image) -> Option<Column> {
-    let mut bounds: Option<(u32, u32, u32, u32)> = None;
-    let mut runs: Vec<(u32, u32)> = Vec::new();
+/// the runs of rows whose pixels differ, the popups among them (those that
+/// span most of a popup's width at `scale`; the count line is a few words)
+/// and the popups' box (the count line's, when no popup shows); `None` when
+/// nothing differs.
+fn changed(output: &str, before: &Image, now: &Image, scale: u32) -> Option<Column> {
+    let mut runs: Vec<Run> = Vec::new();
     for y in 0..now.height() {
-        let mut any = false;
-        for x in 0..now.width() {
-            if before.pixel(x, y) != now.pixel(x, y) {
-                any = true;
-                bounds = Some(match bounds {
-                    None => (x, y, x, y),
-                    Some((l, t, r, b)) => (l.min(x), t.min(y), r.max(x), b.max(y)),
-                });
+        let differs: Vec<u32> = (0..now.width())
+            .filter(|x| before.pixel(*x, y) != now.pixel(*x, y))
+            .collect();
+        let (Some(&left), Some(&right)) = (differs.first(), differs.last()) else {
+            continue;
+        };
+        match runs.last_mut() {
+            Some(run) if run.last + 1 == y => {
+                run.last = y;
+                run.left = run.left.min(left);
+                run.right = run.right.max(right);
             }
-        }
-        if any {
-            match runs.last_mut() {
-                Some((_, end)) if *end + 1 == y => *end = y,
-                _ => runs.push((y, y)),
-            }
+            _ => runs.push(Run {
+                first: y,
+                last: y,
+                left,
+                right,
+            }),
         }
     }
-    bounds.map(|(left, top, right, bottom)| Column {
+    let popup = (WIDTH - 2 * PADDING) * scale * 3 / 4;
+    let (popups, others): (Vec<Run>, Vec<Run>) = runs
+        .into_iter()
+        .partition(|run| run.right - run.left >= popup);
+    let boxed = if popups.is_empty() { &others } else { &popups };
+    let left = boxed.iter().map(|run| run.left).min()?;
+    let right = boxed.iter().map(|run| run.right).max()?;
+    Some(Column {
         output: output.to_owned(),
         left,
-        top,
+        top: boxed.first()?.first,
         right,
-        bottom,
-        popups: runs,
+        bottom: boxed.last()?.last,
+        popups: popups.iter().map(|run| (run.first, run.last)).collect(),
+        count_line: others.last().map(|run| (run.first, run.last)),
         size: (now.width(), now.height()),
         map: (0..now.height())
             .step_by(8)
             .filter_map(|row| spans(before, now, row))
             .collect(),
     })
+}
+
+/// Whether the popup in rows `popup` of `image` is drawn whole: the middle
+/// of its last row is its border, as the middle of its first row is, and
+/// unlike the popup's own colour just inside it.
+pub(crate) fn whole(image: &Image, column: &Column, popup: (u32, u32), scale: u32) -> bool {
+    let (first, last) = popup;
+    let middle = column.left.midpoint(column.right);
+    let top = image.pixel(middle, first);
+    let bottom = image.pixel(middle, last);
+    let inside = image.pixel(middle, first + 4 * scale);
+    top.is_some() && top == bottom && top != inside
+}
+
+/// The fit a daemon's line `line` says (`showing N, M waiting`), if it is
+/// one.
+fn fit_of(line: &str) -> Option<(usize, usize)> {
+    let (_, rest) = line.split_once("showing ")?;
+    let (shown, rest) = rest.split_once(", ")?;
+    let waiting = rest.trim_end().strip_suffix(" waiting")?;
+    Some((shown.parse().ok()?, waiting.parse().ok()?))
 }
 
 /// Whether `colour` is within [`TOLERANCE`] of `wanted`.
@@ -209,6 +254,8 @@ impl Notifications {
         command.env("XDG_DATA_HOME", data.path());
         // A panic of the daemon's shows where, in the failure's lines.
         command.env("RUST_BACKTRACE", "1");
+        // Its fit lines (`showing N, M waiting`) are at info level.
+        command.env("RUST_LOG", "warn,deskrinch_notifications=info");
         let daemon = Component::start(command, Renderer::of_run()).unwrap();
         let connection = zbus::block_on(zbus::Connection::session()).unwrap();
         let bus = zbus::block_on(DBusProxy::new(&connection)).unwrap();
@@ -269,7 +316,7 @@ impl Notifications {
                 .0
                 .iter()
                 .zip(&now.0)
-                .filter_map(|((name, was), (_, is))| changed(name, was, is))
+                .filter_map(|((name, was), (_, is))| changed(name, was, is, self.scale))
                 .collect();
             match columns.as_slice() {
                 [column] if accept(column) => Ok(column.clone()),
@@ -287,6 +334,44 @@ impl Notifications {
             Some(at) => lines[at..].join("\n"),
             None => self.daemon.watch().tail(),
         }
+    }
+
+    /// The fit the daemon last said (`showing N, M waiting`): how many it
+    /// shows and how many wait; `None` before it has said one.
+    pub(crate) fn fit(&self) -> Option<(usize, usize)> {
+        self.daemon
+            .watch()
+            .lines()
+            .iter()
+            .rev()
+            .find_map(|line| fit_of(line))
+    }
+
+    /// Waits until the column shows `shown` popups, its count line is there
+    /// exactly when some wait, and the daemon's last fit line says `shown`
+    /// shown and `waiting` waiting; the column then.
+    pub(crate) fn settled(&mut self, shown: usize, waiting: usize) -> Column {
+        wait_for(&format!("{shown} shown and {waiting} waiting"), || {
+            let now = Pictures::still(&mut self.screen);
+            let columns: Vec<Column> = self
+                .before
+                .0
+                .iter()
+                .zip(&now.0)
+                .filter_map(|((name, was), (_, is))| changed(name, was, is, self.scale))
+                .collect();
+            let said = self.fit();
+            match columns.as_slice() {
+                [column]
+                    if column.popups.len() == shown
+                        && column.count_line.is_some() == (waiting > 0)
+                        && said == Some((shown, waiting)) =>
+                {
+                    Ok(column.clone())
+                }
+                _ => Err((columns, said, self.said())),
+            }
+        })
     }
 
     /// Waits until the screen is as it was before the daemon showed

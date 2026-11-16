@@ -17,8 +17,14 @@
 //!   default action are invoked and signalled; the pointer over a popup
 //!   holds its expiry.
 //! - [`frames`]: one frame for a change, none while nothing changes.
-//! - [`burst`]: changes while the window's size is asked for, every popup
-//!   drawn whole at the end and the surface the content's size.
+//! - [`burst`]: changes in quick succession, every shown popup drawn whole
+//!   at the end.
+//! - [`room`]: more popups than fit (the shown whole, the rest counted and
+//!   held), a critical one into a full column, the room shrinking under a
+//!   panel and coming back, a first popup taller than the room.
+//!
+//! The panel the room tests start ([`panel`]) is the shell's own, declared
+//! as one of this suite's programs.
 
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
 #[cfg(test)]
@@ -29,6 +35,10 @@ mod clicks;
 mod frames;
 #[cfg(test)]
 mod lifecycle;
+#[cfg(test)]
+mod panel;
+#[cfg(test)]
+mod room;
 #[cfg(test)]
 mod shown;
 #[cfg(test)]

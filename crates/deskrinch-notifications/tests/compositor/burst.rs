@@ -1,21 +1,22 @@
-//! Notifications that change the column while the window's size is being
-//! asked for: before its first frame, during it and right after, of
-//! different heights, with closes and a replacement mixed in, so that the
-//! column grows and shrinks while a size request is in flight (rinch's
-//! fork holds a request made while another is in flight, and sends it when
-//! the first ends).
+//! Changes in quick succession: notifications shown before the window's
+//! first frame, during it and right after, of different heights, with
+//! closes and a replacement mixed in.
 //!
-//! What must hold at the end, on the screen: every live notification's
-//! popup drawn whole (its bottom border as drawn as its top), so none is
-//! cut off by a window too small; and the surface's size the content's,
-//! as rinch reports the surface it painted (`surface_px`).
+//! It was written for a content-sized window, whose size request could be
+//! in flight while the column changed (rinch's fork holds a request made
+//! while another is in flight). The column's window is no longer sized by
+//! its content: its height is the compositor's and its width fixed, so no
+//! size is ever asked for, and this no longer exercises that. It still
+//! exercises the layout and the fit through a burst of changes (and it is
+//! what found rinch issue 2748, a freed line clamp panicking the next
+//! layout): at the end every shown popup is drawn whole, and those shown
+//! and those waiting are the live ones.
 
 use deskrinch_test_component::{PerfLine, perf};
 use deskrinch_test_notify::Signal;
-use deskrinch_test_screen::Image;
 use deskrinch_test_wait::PATIENCE;
 
-use crate::support::{Column, Notifications, PADDING, WIDTH};
+use crate::support::{Notifications, whole};
 
 /// A body `lines` lines long.
 fn body(lines: usize) -> String {
@@ -25,31 +26,9 @@ fn body(lines: usize) -> String {
         .join("\n")
 }
 
-/// Whether the popup in rows `popup` of `image` is drawn whole: the middle
-/// of its last row is its border, as the middle of its first row is, and
-/// unlike the popup's own colour just inside it.
-fn whole(image: &Image, column: &Column, popup: (u32, u32), scale: u32) -> bool {
-    let (first, last) = popup;
-    let middle = column.left.midpoint(column.right);
-    let top = image.pixel(middle, first);
-    let bottom = image.pixel(middle, last);
-    let inside = image.pixel(middle, first + 4 * scale);
-    top.is_some() && top == bottom && top != inside
-}
-
-/// The size of the surface rinch last painted, in pixels, from its frame
-/// lines; `None` before any.
-fn surface_px(lines: &[String]) -> Option<u64> {
-    lines
-        .iter()
-        .rev()
-        .filter(|line| matches!(perf::parse(line), Some(PerfLine::Frame { .. })))
-        .find_map(|line| perf::counter(line, "surface_px"))
-}
-
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
-fn changes_while_a_size_is_asked_for_leave_every_popup_whole() {
+fn changes_in_quick_succession_leave_every_shown_popup_whole() {
     let mut notifications = Notifications::start();
     let scale = notifications.scale;
     let watch_line = |n: &Notifications, wanted: &dyn Fn(&str) -> bool, what: &str| {
@@ -82,30 +61,19 @@ fn changes_while_a_size_is_asked_for_leave_every_popup_whole() {
     assert_eq!(notifications.next_signal(), Signal::Closed(tall, 3));
     assert_eq!(notifications.next_signal(), Signal::Closed(medium, 3));
 
-    // Left: `last` on top, `short` (now six lines) under it.
-    let column = notifications.column("two whole popups", |c| c.popups.len() == 2);
+    // Left: `last` and `short` (now six lines); both shown where the room
+    // holds them (scale 1), the second waiting where it does not (scale 2,
+    // 360 logical pixels high).
+    notifications.column("the column", |c| !c.popups.is_empty());
+    let (shown, waiting) = notifications.fit().expect("a fit said");
+    assert_eq!(shown + waiting, 2, "two live notifications");
+    let column = notifications.settled(shown, waiting);
     let image = notifications.picture(&column);
     for (at, popup) in column.popups.iter().enumerate() {
         assert!(
             whole(&image, &column, *popup, scale),
-            "popup {at} is not drawn whole: {column:?}\nthe daemon's last lines:\n{}",
-            notifications.daemon().watch().tail()
+            "popup {at} is not drawn whole: {column:?}\nthe daemon said:\n{}",
+            notifications.said()
         );
     }
-    let watch = notifications.daemon().watch();
-    let painted = surface_px(&watch.lines()).expect("a frame painted");
-    // The column's content: its width, and down to the last popup's bottom
-    // and the padding under it.
-    let padding = PADDING * scale;
-    let width = u64::from(WIDTH * scale);
-    let height = u64::from(column.bottom + 1 + padding);
-    let content = width * height;
-    // A pixel row either way, for rounding the logical height.
-    let slack = 2 * width;
-    assert!(
-        painted.abs_diff(content) <= slack,
-        "the surface ({painted} px) is not the content's ({width} x {height} = {content} px): \
-         {column:?}\nthe daemon's last lines:\n{}",
-        watch.tail()
-    );
 }

@@ -191,7 +191,8 @@ pub(super) const SUITES: [Suite; 23] = [
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
-        programs: &[&deskrinch_shell::NOTIFICATIONS],
+        // The daemon, and the panel the room tests start along the top.
+        programs: &[&deskrinch_shell::NOTIFICATIONS, &deskrinch_shell::PANEL],
         filter: &[],
     },
     // The panel's real binary, checked by the screen: it captures under
