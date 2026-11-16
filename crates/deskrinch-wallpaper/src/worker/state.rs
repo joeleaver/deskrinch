@@ -125,10 +125,17 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
     /// What is shown next, the file having `changed` or not.
     fn next(&mut self, changed: bool) -> Shown {
         let Some(path) = self.wanted.path.clone() else {
-            self.picture = None;
-            self.size = None;
+            self.forget();
             return Shown::default();
         };
+        if self.wanted.surfaces.is_empty() {
+            // No output has a size yet (a window not configured reads
+            // (0, 0), which the UI does not pass on), or none is connected:
+            // nothing to show, so nothing is decoded or said. What changes
+            // meanwhile is read afresh when an output has a size.
+            self.forget();
+            return Shown::default();
+        }
         if changed || self.size.is_none() {
             match self.read(&path) {
                 Read::Fresh => {}
