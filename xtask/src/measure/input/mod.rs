@@ -1,6 +1,6 @@
 //! Input measure gives the program: a query typed (`--type`, [`typing`])
 //! and the pointer moved (`--place-pointer`, `--move-pointer`,
-//! [`pointer`]), each step measured on its own ([`steps`]).
+//! [`pointer`](mod@pointer)), each step measured on its own ([`steps`]).
 //!
 //! A figure that depended on how fast steps arrive would not be a
 //! measurement: under Callgrind the program is far slower than any input
