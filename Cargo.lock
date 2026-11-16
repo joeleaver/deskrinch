@@ -1011,6 +1011,7 @@ dependencies = [
  "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
+ "deskrinch-test-log",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-theme",
@@ -1218,6 +1219,13 @@ dependencies = [
  "deskrinch-test-wait",
  "rustix",
  "tempfile",
+]
+
+[[package]]
+name = "deskrinch-test-log"
+version = "0.1.0"
+dependencies = [
+ "tracing",
 ]
 
 [[package]]

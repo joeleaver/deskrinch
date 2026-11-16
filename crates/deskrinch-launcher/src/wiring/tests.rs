@@ -8,9 +8,8 @@
 //! it to `rinch::window::window_focused`, as the desktop shell does.
 
 use std::cell::RefCell;
-use std::fmt::Write as _;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use deskrinch_desktop_entries::{CatalogEntry, DesktopEntry, DesktopId};
 use deskrinch_launcher::{Action, Input, Model, Visibility, query_at_hide};
@@ -332,63 +331,11 @@ fn shown_with_the_keyboard_the_field_has_it() {
 
 #[test]
 fn hiding_says_the_query_s_length_and_empties_it() {
-    let log = Log::default();
-    let wired = tracing::subscriber::with_default(log.clone(), || {
-        let mut wired = wired(true);
-        wired.app.type_text("term");
-        wired.visibility.hide();
-        wired.app.settle();
-        wired
-    });
+    let log = deskrinch_test_log::capture();
+    let mut wired = wired(true);
+    wired.app.type_text("term");
+    wired.visibility.hide();
+    wired.app.settle();
     assert_eq!(wired.model.with(|m| m.query().to_owned()), "");
     assert!(log.lines().contains(&query_at_hide(4)), "{:?}", log.lines());
-}
-
-// ── The log, as the launcher writes it ──────────────────────────────────
-
-/// A `tracing` subscriber keeping each event's message.
-#[derive(Clone, Default)]
-pub(super) struct Log(Arc<Mutex<Vec<String>>>);
-
-impl Log {
-    /// The messages so far.
-    pub(super) fn lines(&self) -> Vec<String> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-}
-
-/// An event's `message` field, written out.
-#[derive(Default)]
-struct Message(String);
-
-impl tracing::field::Visit for Message {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            let _ = write!(self.0, "{value:?}");
-        }
-    }
-}
-
-impl tracing::Subscriber for Log {
-    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
-        true
-    }
-    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        tracing::span::Id::from_u64(1)
-    }
-    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
-    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-    fn event(&self, event: &tracing::Event<'_>) {
-        let mut message = Message::default();
-        event.record(&mut message);
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(message.0);
-    }
-    fn enter(&self, _: &tracing::span::Id) {}
-    fn exit(&self, _: &tracing::span::Id) {}
 }
