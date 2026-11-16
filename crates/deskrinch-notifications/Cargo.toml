@@ -42,5 +42,22 @@ tracing.workspace = true
 # Who owns the name, when it is taken: the bus's own interface.
 zbus = { workspace = true, features = ["default-rt", "proxy"] }
 
+[dev-dependencies]
+# The compositor tests refuse to run outside a nested session, and read the
+# outputs' scale.
+deskrinch-test-client.workspace = true
+# The compositor tests start the daemon from the path the runner gives, and
+# read its frames.
+deskrinch-test-component.workspace = true
+# The pointer, which clicks the popups.
+deskrinch-test-input.workspace = true
+# The client that sends the notifications, and the signals they get back.
+deskrinch-test-notify.workspace = true
+# The screen, where the popups are found.
+deskrinch-test-screen.workspace = true
+deskrinch-test-wait.workspace = true
+# The test's own icon theme, in an `XDG_DATA_HOME` of its own.
+tempfile.workspace = true
+
 [lints]
 workspace = true

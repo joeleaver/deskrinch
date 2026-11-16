@@ -11,6 +11,7 @@ const SCREEN: &str = "deskrinch-test-screen";
 const TEST_CLIENT: &str = "deskrinch-test-client";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
+const NOTIFICATIONS: &str = "deskrinch-notifications";
 const PANEL: &str = "deskrinch-panel";
 const WALLPAPER: &str = "deskrinch-wallpaper";
 const WAYLAND_CLIENT: &str = "deskrinch-wayland-client";
@@ -118,7 +119,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 20] = [
+pub(super) const SUITES: [Suite; 21] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -251,6 +252,28 @@ pub(super) const SUITES: [Suite; 20] = [
         renders: true,
         // The launcher the tests start, and run again as a client.
         programs: &[&deskrinch_shell::LAUNCHER],
+        filter: &[],
+    },
+    // The notification daemon's real binary, sent notifications on the
+    // session's bus, its popups checked by the screen and clicked with the
+    // pointer. Not in the flipped pass, for the panel's reason: a turned
+    // output already moves the corner the column is anchored to.
+    Suite {
+        target: Target {
+            package: NOTIFICATIONS,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.NotificationsTests",
+            name: "deskrinch notifications tests",
+            wayland: &[deskrinch_test_input::KWIN_FAKE_INPUT_INTERFACE],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
+        compositors: ALL,
+        passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
+        renders: true,
+        programs: &[&deskrinch_shell::NOTIFICATIONS],
         filter: &[],
     },
     // The panel's real binary, checked by the screen: it captures under
