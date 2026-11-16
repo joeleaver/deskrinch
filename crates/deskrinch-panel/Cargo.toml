@@ -20,9 +20,10 @@ path = "src/lib.rs"
 [features]
 # rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input):
 # `RINCH_DEBUG=1 cargo run -p deskrinch-panel --features debug` (built with the
-# feature, the server still starts only when `RINCH_DEBUG=1` is set). Off in a
+# feature, the server still starts only when `RINCH_DEBUG=1` is set), and
+# rinch's DevTools keys (`deskrinch_component::app::devtools`). Off in a
 # normal build.
-debug = ["rinch/debug"]
+debug = ["rinch/debug", "deskrinch-component/debug"]
 
 [dependencies]
 deskrinch-appearance.workspace = true

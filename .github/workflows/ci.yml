@@ -83,6 +83,9 @@ jobs:
       # Every test binary runs, whatever fails before it, so that one run
       # reports every failure.
       - run: cargo test --workspace --locked --no-fail-fast
+      # deskrinch-component's other arm: a build with `debug`, where the
+      # components answer rinch's DevTools keys.
+      - run: cargo test -p deskrinch-component --locked --features debug
 
   # Every crate's documentation, as `cargo doc` builds it: a broken or
   # private intra-doc link, or any other rustdoc warning, fails it.
