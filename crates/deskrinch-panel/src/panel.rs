@@ -12,9 +12,10 @@
 //! followed on the panel's one shared connection ([`crate::compositor`]),
 //! for the taskbar and the switcher: their followers, for what the widgets
 //! ask of the compositor, and the signals of their buttons and runs, each
-//! made here, once, from its hand-over's receiving half, so that every
-//! widget reading it is told of every change and the signal lives as long
-//! as the panel.
+//! made here, once, from its hand-over's inbox, so that every widget
+//! reading it is told of every change and the signal lives as long as the
+//! panel. And the panel's one clock's text, which every clock face reads
+//! (`widgets`' `clock`).
 
 use std::rc::Rc;
 use std::sync::Arc;
@@ -28,7 +29,7 @@ use rinch::reactive::Effect;
 
 use crate::bar::Bar;
 use crate::surface::{self, Placement};
-use crate::widgets::{AppIcons, Buttons, FollowedWindows, FollowedWorkspaces, Runs};
+use crate::widgets::{AppIcons, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock};
 
 /// What the panel runs with.
 pub(crate) struct Parts {
@@ -73,6 +74,8 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     let mut placed = Placement::of(&live.initial);
     let settings = live.into_signal();
     create_context(settings);
+    // The panel's one clock; its faces read the text.
+    create_context(follow_clock(settings));
     let placement = Memo::new(move || Placement::of(&settings.get()));
     Effect::new(move || {
         let wanted = placement.get();
