@@ -6,6 +6,7 @@
 
 mod cargo_messages;
 mod ci_packages;
+mod components;
 mod compositor_tests;
 mod desktop;
 mod error;
@@ -47,6 +48,21 @@ enum Task {
         file_length::MAX_LINES,
     ))]
     FileLength,
+    /// Build the shell's components, as the desktop and the compositor tests
+    /// build them, and print PACKAGE's binary's path, or without it each
+    /// package and its binary's path, a tab between, one a line.
+    ///
+    /// One `cargo build` of every component and what the key bindings run,
+    /// unoptimised unless `--release`: the one place the components are
+    /// built, so that a binary measured or installed is the one the tests
+    /// and the desktop run.
+    BuildComponents {
+        /// Build them with Cargo's release profile.
+        #[arg(long)]
+        release: bool,
+        /// Print only this component's binary's path (all are built still).
+        package: Option<String>,
+    },
     /// Run the workspace's compositor tests in nested, headless
     /// compositors.
     ///
@@ -163,6 +179,9 @@ impl Task {
     fn run(self, root: &Path) -> Result<Outcome, Error> {
         match self {
             Self::FileLength => file_length::run(root),
+            Self::BuildComponents { release, package } => {
+                components::run(root, release, package.as_deref())
+            }
             Self::CiPackages { packages } => ci_packages::run(&packages),
             Self::CompositorTests(args) => compositor_tests::run(root, &args),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),

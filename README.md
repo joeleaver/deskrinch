@@ -382,10 +382,14 @@ What the nested desktop does not have:
 ### Measuring what a component costs
 
 `cargo xtask measure` starts a rinch program (a shell component, a rinch
-example) in fresh isolated sessions, one per run, and reports what it costs:
+example) in fresh isolated sessions, one per run, and reports what it costs.
+`cargo xtask build-components` builds the shell's components the one way
+the desktop and the compositor tests build them, all of them in one `cargo
+build` (`--release` for Cargo's release profile), and prints each package
+and its binary's path, so what is measured is what runs:
 
 ```sh
-cargo build --release -p deskrinch-panel
+cargo xtask build-components --release
 cargo xtask measure target/release/deskrinch-panel
 cargo xtask measure --shader-cache warm --renderer gpu target/release/deskrinch-panel
 cargo xtask measure --instructions --runs 1 target/release/deskrinch-panel
@@ -428,16 +432,16 @@ preparation: a launcher slow to start would otherwise be summoned before its
 start was done, and its first show would pay for it.
 
 ```sh
-cargo build --release -p deskrinch-launcher
+cargo xtask build-components --release
 cargo xtask measure --renderer software --summon show --dismiss hide --prepares target/release/deskrinch-launcher
 ```
 
 With `--type TEXT` a query is typed after each show, one key at a time, each
 key measured from the key to settled and followed by a frame. The keys come
-from an input client measure runs in the session (`cargo xtask input`, hidden
-from the help). The program has to say two things in its log, and `--type` takes their
-words, with no default: `--keyboard-line`, the line it writes once it has the
-keyboard (the first key waits for it), and `--query-line`, the line it writes
+from an input client measure runs in the session (`cargo xtask input`,
+hidden from the help). The program has to say two things in its log, and
+`--type` takes their words, with no default: `--keyboard-line`, the line it
+writes once it has the keyboard (the first key waits for it), and `--query-line`, the line it writes
 at the hide with `{}` where it gives how many characters it was typed (a
 length other than TEXT's fails the run, since a key was lost). The launcher
 writes both at info, so its log level has to let them through:

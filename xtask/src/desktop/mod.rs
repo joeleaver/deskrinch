@@ -16,7 +16,6 @@
 //! `SIGINT`, `SIGTERM` or `SIGHUP`, or when the command given after `--`
 //! exits; should it be killed, the session's supervisor ends the session.
 
-mod build;
 mod components;
 mod ending;
 mod grant;
@@ -24,7 +23,6 @@ mod guard;
 mod profile;
 mod window;
 
-use std::collections::BTreeMap;
 use std::env;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -170,18 +168,6 @@ pub(crate) enum DesktopError {
         /// By what.
         why: &'static str,
     },
-    /// `cargo` could not build the components.
-    #[error("building the shell's components failed ({status})")]
-    BuildFailed {
-        /// How `cargo` exited.
-        status: ExitStatus,
-    },
-    /// `cargo` built a component but did not report its binary.
-    #[error("cargo reported no binary for {package}")]
-    MissingBinary {
-        /// The package.
-        package: &'static str,
-    },
     /// A component exited before it was ready.
     #[error("{package} exited ({status}) before it was ready")]
     ComponentExited {
@@ -218,7 +204,21 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         .as_deref()
         .map(|name| Profile::open(root, name))
         .transpose()?;
-    let binaries = build::binaries(root, args.debug)?;
+    let build = if args.debug {
+        crate::components::Profile::Dev
+    } else {
+        crate::components::Profile::Release
+    };
+    eprintln!(
+        "desktop: building {} ({})",
+        crate::components::packages().join(", "),
+        if args.debug {
+            "unoptimised, as --debug asks"
+        } else {
+            "release; --debug builds them unoptimised"
+        }
+    );
+    let binaries = crate::components::build(root, build)?;
     let id = [LAUNCHER_TOGGLE.package]
         .iter()
         .chain(LAUNCHER_TOGGLE.args)
@@ -228,7 +228,7 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     let toggle = Binding::new(
         &id,
         LAUNCHER_CHORD,
-        binary(&binaries, LAUNCHER_TOGGLE.package)?,
+        binaries.binary(LAUNCHER_TOGGLE.package)?,
         LAUNCHER_TOGGLE.args,
     )?;
     let bindings = [toggle];
@@ -359,17 +359,6 @@ fn outer_display() -> Result<PathBuf, DesktopError> {
             why: format!("{} does not exist", socket.display()),
         })
     }
-}
-
-/// `package`'s binary in `binaries`.
-fn binary<'a>(
-    binaries: &'a BTreeMap<&'static str, PathBuf>,
-    package: &'static str,
-) -> Result<&'a Path, DesktopError> {
-    binaries
-        .get(package)
-        .map(PathBuf::as_path)
-        .ok_or(DesktopError::MissingBinary { package })
 }
 
 /// [`LAUNCHER_CHORD`] as a person reads it.

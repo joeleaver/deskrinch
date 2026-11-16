@@ -201,12 +201,15 @@ jobs:
       # renderer: a check that measure still reads rinch's frames and
       # renderer lines from a real component. It runs after a failure in the
       # compositor tests too, which must not hide what it would show.
+      # The panel is the one the compositor tests start: built by the one
+      # build of the components, whose path it prints.
       - name: Measure the panel under sway
         if: ${{ !cancelled() && matrix.compositor == 'sway' }}
         run: |
-          cargo build -p deskrinch-panel --locked
+          # On a line of its own, so that a failed build fails the step.
+          panel=$(cargo xtask build-components deskrinch-panel)
           cargo xtask measure --compositor sway --runs 1 --settle 1 --idle 5 \
-            --renderer software --expect-renderer software target/debug/deskrinch-panel
+            --renderer software --expect-renderer software "$panel"
       # Under KWin the panel binds window management, which KWin grants only
       # to an executable a desktop file names: under Callgrind that is
       # Valgrind's tool, which measure grants as the shell grants the panel.
@@ -215,10 +218,11 @@ jobs:
       - name: Measure the panel under KWin, under Callgrind
         if: matrix.compositor == 'kwin'
         run: |
-          cargo build -p deskrinch-panel --locked
+          # On a line of its own, so that a failed build fails the step.
+          panel=$(cargo xtask build-components deskrinch-panel)
           cargo xtask measure --compositor kwin --runs 1 --settle 2 --idle 2 \
             --instructions --renderer software --expect-renderer software \
-            target/debug/deskrinch-panel
+            "$panel"
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
         # It runs after a failure in the compositor tests too, which must not
         # hide what it would show; and each binary runs whatever fails before

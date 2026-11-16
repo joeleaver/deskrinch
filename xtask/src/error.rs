@@ -102,6 +102,9 @@ pub(crate) enum Error {
     /// `cargo xtask desktop` could not run.
     #[error(transparent)]
     Desktop(#[from] crate::desktop::DesktopError),
+    /// The shell's components could not be built.
+    #[error(transparent)]
+    Components(#[from] crate::components::BuildError),
     /// `cargo xtask input` stopped.
     #[error(transparent)]
     Input(#[from] crate::input::InputError),
