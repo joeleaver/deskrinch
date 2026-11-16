@@ -55,6 +55,7 @@ fn mode(path: &Path) -> u32 {
 fn hide(shown: &mut Shown) {
     shown.input.press(Key::ESCAPE).unwrap();
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
+    shown.hid_with_the_query();
 }
 
 /// The arguments of every application started so far, once there are
@@ -77,7 +78,7 @@ fn started(shown: &Shown, count: usize) -> Vec<Vec<String>> {
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn a_started_application_is_first_when_shown_again() {
     let mut shown = Shown::start("");
-    shown.input.type_text("plain").unwrap();
+    shown.type_query("plain");
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     assert!(
@@ -91,6 +92,7 @@ fn a_started_application_is_first_when_shown_again() {
     assert_eq!(mode(&state(shown.dir())), 0o700);
     assert_eq!(mode(&record_file(shown.dir())), 0o600);
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
+    shown.hid_with_the_query();
     shown.show_again();
     shown.see("the application used, with nothing typed", results_drawn);
     // Selected: Enter starts it again.
@@ -137,10 +139,11 @@ fn off_deletes_the_record_and_shows_and_records_nothing() {
     assert!(!record_file(shown.dir()).exists(), "the record was kept");
     let empty = shown.see("the launcher drawn", |image| bands(image) > 0);
     assert_eq!(bands(&empty), 1, "only the query field");
-    shown.input.type_text("plain").unwrap();
+    shown.type_query("plain");
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     assert_eq!(started(&shown, 1), [["Plain"]]);
+    shown.hid_with_the_query();
     assert!(
         stays(|| !record_file(shown.dir()).exists()),
         "a start was recorded"

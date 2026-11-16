@@ -126,6 +126,29 @@ impl Launcher {
         }
     }
 
+    /// Waits until a line written since `mark` ([`mark`](Self::mark)) has
+    /// `text` in it; `Err` with its last lines when none has within the
+    /// patience.
+    pub(crate) fn wait_said_since(&self, mark: usize, text: &str) -> Result<(), String> {
+        let watch = self.component().watch();
+        let said = || {
+            let lines = watch.lines();
+            lines
+                .get(mark..)
+                .unwrap_or_default()
+                .iter()
+                .any(|line| line.contains(text))
+        };
+        if comes_true(said) {
+            Ok(())
+        } else {
+            Err(format!(
+                "it did not say {text:?}; its last lines:\n{}",
+                watch.tail()
+            ))
+        }
+    }
+
     /// Waits, within the patience, for the hidden launcher to settle: first
     /// for it to have prepared at least once, then a [`STAYS_FOR`] window in
     /// which rinch prepares nothing more for it. A launcher that has prepared

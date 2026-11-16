@@ -55,7 +55,7 @@ fn results(image: &Image) -> Vec<(f64, f64)> {
 /// A launcher showing [`QUERY`]'s two results; their points.
 fn two_results() -> (Shown, [(f64, f64); 2]) {
     let mut shown = Shown::start("");
-    shown.input.type_text(QUERY).unwrap();
+    shown.type_query(QUERY);
     let image = shown.see("two results", |image| results(image).len() == 2);
     let found = results(&image);
     (shown, [found[0], found[1]])
@@ -79,6 +79,7 @@ fn a_click_on_the_selected_result_starts_it_with_a_token_and_hides() {
     );
     assert_eq!(args(&record), ["Plain"]);
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
+    shown.hid_with_the_query();
 }
 
 #[test]
@@ -93,6 +94,7 @@ fn a_click_on_the_other_result_starts_that_one() {
     );
     assert_eq!(args(&record), ["Other"], "not the selected one");
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
+    shown.hid_with_the_query();
 }
 
 #[test]

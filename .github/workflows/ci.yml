@@ -228,7 +228,7 @@ jobs:
         # hide what it would show; and each binary runs whatever fails before
         # it.
         if: ${{ !cancelled() }}
-        run: cargo test -p xtask --test session --test measure --test measure_windows --test measure_callgrind --locked --no-fail-fast -- --ignored
+        run: cargo test -p xtask --test session --test measure --test measure_windows --test measure_callgrind --test measure_typing --locked --no-fail-fast -- --ignored
         env:
           DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
 
