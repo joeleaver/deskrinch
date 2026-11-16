@@ -6,6 +6,7 @@
 use deskrinch_test_component::log::strip_ansi;
 use deskrinch_test_component::perf::parse;
 use deskrinch_test_component::{PerfLine, PerfWindow, counter};
+use deskrinch_test_wait::Deadline;
 
 use crate::support::Panel;
 
@@ -58,19 +59,95 @@ pub(crate) fn assert_paint_only(frame: &str, what: &str) {
     );
 }
 
-/// Asserts that the step since the panel's log line `from` made exactly one
-/// frame without reactive work, and that it was paint-only
-/// ([`assert_paint_only`]): what a `:hover` change costs. Returns the step's
-/// reactive frames, left out of the count.
-pub(crate) fn one_paint_only_frame(panel: &Panel, from: usize, what: &str) -> Vec<String> {
+/// What a hover's step (the pointer onto a button, or off the panel) was,
+/// by its frames.
+#[derive(Debug)]
+pub(crate) enum Step {
+    /// Exactly one frame without reactive work, paint-only, and no reactive
+    /// frame: the hover alone.
+    Clean,
+    /// The step had reactive frames: drawn for something else the panel
+    /// follows (the clock's minute, a title, a late arrival), or the hover's
+    /// restyle batched into one with them. They are kept for a failure's
+    /// message.
+    Crowded(Vec<String>),
+}
+
+/// The hover's step since the panel's log line `from`.
+///
+/// A step with any frame without reactive work must have exactly one, and
+/// it must be paint-only ([`assert_paint_only`]): what a `:hover` change
+/// costs; anything else fails at once. A step whose only frames are
+/// reactive, one of them restyling, is crowded: rinch batched the hover's
+/// restyle into a frame with something reactive. A step with no frame that
+/// restyled fails at once: the hover drew nothing.
+pub(crate) fn hover_step(panel: &Panel, from: usize, what: &str) -> Step {
     let (reactive, frames) = since(panel, from);
-    let [frame] = frames.as_slice() else {
-        panic!(
+    match frames.as_slice() {
+        [frame] => {
+            assert_paint_only(frame, what);
+            if reactive.is_empty() {
+                Step::Clean
+            } else {
+                Step::Crowded(reactive)
+            }
+        }
+        [] if reactive
+            .iter()
+            .any(|line| counter(line, "style_resolves").is_some()) =>
+        {
+            Step::Crowded(reactive)
+        }
+        [] => panic!("{what}: no frame restyled; the reactive frames: {reactive:#?}"),
+        _ => panic!(
             "{what}: {} frames without reactive work, not one: {frames:#?}; \
-             the reactive frames left out: {reactive:#?}",
+             the reactive frames: {reactive:#?}",
             frames.len()
+        ),
+    }
+}
+
+/// Repeats the hover's two steps, `onto` and `off`, each given `state` and
+/// giving its [`Step`], until a clean step onto and a clean step off have
+/// both been seen, or the patience runs out.
+///
+/// A step that is crowded every time is the hover's own reactive work
+/// (a handler that sets a signal, directly or deferred, on entering or on
+/// leaving); the clock or a late arrival crowds a step or two. So the
+/// patience running out without a clean step in one direction fails,
+/// naming that direction, with every step listed.
+///
+/// # Panics
+///
+/// As above, and as the steps themselves do.
+pub(crate) fn until_both_clean<S>(
+    state: &mut S,
+    mut onto: impl FnMut(&mut S) -> Step,
+    mut off: impl FnMut(&mut S) -> Step,
+) {
+    let deadline = Deadline::patience();
+    let (mut clean_onto, mut clean_off) = (false, false);
+    let mut steps = Vec::new();
+    loop {
+        match onto(state) {
+            Step::Clean => clean_onto = true,
+            Step::Crowded(frames) => steps.push(("onto", frames)),
+        }
+        match off(state) {
+            Step::Clean => clean_off = true,
+            Step::Crowded(frames) => steps.push(("off", frames)),
+        }
+        if clean_onto && clean_off {
+            return;
+        }
+        let never: Vec<&str> = [("onto", clean_onto), ("off", clean_off)]
+            .into_iter()
+            .filter_map(|(direction, clean)| (!clean).then_some(direction))
+            .collect();
+        assert!(
+            !deadline.passed(),
+            "no clean step {never:?} the button: every one had reactive work, which a hover \
+             would cause if it set a signal; the crowded steps: {steps:#?}"
         );
-    };
-    assert_paint_only(frame, what);
-    reactive
+    }
 }
