@@ -3,8 +3,7 @@
 //!
 //! The root is the document of an app with no window of its own
 //! (`App::windowless`): it draws nothing, and holds one `Window` per
-//! output, a row of a `for` over the ids of rinch's `outputs()`, keyed by
-//! the id. A row's window opens with its row and closes with it, when its
+//! output, a row of a `for` over rinch's `output_ids()`, keyed by the id. A row's window opens with its row and closes with it, when its
 //! output is disconnected or turned off, or when its output goes first
 //! ([`surface::closed`]).
 //!
@@ -14,6 +13,9 @@
 //! size and scale. An id does not change while the output is connected, so
 //! an output that is moved, rescaled, turned or given another mode keeps
 //! its row and its window, whose layer surface the compositor reconfigures.
+//! `output_ids()` is the same list while the same outputs are connected, so
+//! such a change does not even run the `for` again; only an output coming
+//! or going does.
 //! Nothing a window draws depends on its output. Before any of it, the root
 //! asks whether the display offers a layer shell at all ([`role`]), and
 //! opens nothing if it does not.
@@ -71,7 +73,7 @@ pub(crate) fn wallpaper(
     let drawn = Memo::new(move || style::css(&settings.get(), source.get().as_deref()));
     rsx! {
         div {
-            for id in outputs().into_iter().map(|output| output.id) {
+            for id in output_ids() {
                 Window {
                     key: id,
                     title: surface::TITLE.to_owned(),
