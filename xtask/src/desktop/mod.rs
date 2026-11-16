@@ -252,11 +252,7 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
             args.renderer,
             gpu.has_gpu(nodes.has_gpu()),
         ),
-        outputs: Outputs {
-            count: args.outputs,
-            scale: args.scale,
-            transform: args.transform,
-        },
+        outputs: Outputs::new(args.outputs, args.scale, args.transform),
         current_desktop: args.current_desktop.as_deref(),
         display: Display::Window(outer),
         home: profile.as_ref().map_or(Home::Fresh, |profile| {

@@ -51,21 +51,12 @@ impl Pass {
 
     /// The session's outputs in this pass.
     pub(super) fn outputs(self) -> Outputs {
-        let plain = Outputs::plain(OUTPUTS);
+        let normal = Transform::Normal.into();
         match self {
-            Self::Plain => plain,
-            Self::Scaled => Outputs {
-                scale: Scale::TWO,
-                ..plain
-            },
-            Self::Rotated => Outputs {
-                transform: Transform::Rotated90.into(),
-                ..plain
-            },
-            Self::Flipped => Outputs {
-                transform: Transform::Flipped90.into(),
-                ..plain
-            },
+            Self::Plain => Outputs::plain(OUTPUTS),
+            Self::Scaled => Outputs::new(OUTPUTS, Scale::TWO, normal),
+            Self::Rotated => Outputs::new(OUTPUTS, Scale::ONE, Transform::Rotated90.into()),
+            Self::Flipped => Outputs::new(OUTPUTS, Scale::ONE, Transform::Flipped90.into()),
         }
     }
 }

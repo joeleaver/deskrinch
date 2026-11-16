@@ -96,8 +96,8 @@ pub(crate) enum ShaderCache {
 pub(crate) struct Request {
     pub(crate) compositor: Compositor,
     pub(crate) runs: u32,
-    /// How many outputs each run's session has.
-    pub(crate) outputs: u32,
+    /// Each run's session's outputs: how many, and how large.
+    pub(crate) outputs: Outputs,
     pub(crate) renderer: Option<Renderer>,
     /// With `--expect-renderer`: the renderer every run must have presented
     /// with, or the task fails naming what did.
@@ -176,7 +176,7 @@ impl Request {
         Self {
             compositor: Compositor::Kwin,
             runs: 1,
-            outputs: 1,
+            outputs: Outputs::plain(1),
             renderer: None,
             expect_renderer: None,
             shader_cache: ShaderCache::Cold,
@@ -208,7 +208,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         seed::check(layer, dir)?;
     }
     if let Some(pointer) = &request.pointer {
-        pointer.check(request.outputs)?;
+        pointer.check(request.outputs.count)?;
     }
     let program = request.program.to_string_lossy().into_owned();
     let end = End::resolve(
@@ -413,7 +413,7 @@ fn in_session<T>(
     let session = Session::start(
         request.compositor,
         request.compositor_renderer(),
-        Outputs::plain(request.outputs),
+        request.outputs,
         None,
         // The program measured chooses its renderer as asked.
         Gpu::Machine,

@@ -49,11 +49,35 @@ fn sway_config(options: &Options<'_>) -> String {
         });
     format!(
         "output * scale {} transform {}\n\
+         {}\
          default_border none\n\
          default_floating_border none\n\
          {bindings}",
         options.outputs.scale,
-        options.outputs.transform.sway_name()
+        options.outputs.transform.sway_name(),
+        sway_sizes(options)
+    )
+}
+
+/// sway's lines for the outputs' sizes, if any were asked for: each
+/// headless output (`HEADLESS-1`, `HEADLESS-2`, ... in the order made) at
+/// its mode and its place side by side. None in a window, whose outputs
+/// take the window's size.
+fn sway_sizes(options: &Options<'_>) -> String {
+    if !options.outputs.has_sizes() || options.display != Display::Headless {
+        return String::new();
+    }
+    options.outputs.layout().iter().enumerate().fold(
+        String::new(),
+        |mut lines, (index, (size, (x, y)))| {
+            // Writing to a `String` cannot fail.
+            let _ = writeln!(
+                lines,
+                "output HEADLESS-{} mode {size} position {x} {y}",
+                index + 1
+            );
+            lines
+        },
     )
 }
 

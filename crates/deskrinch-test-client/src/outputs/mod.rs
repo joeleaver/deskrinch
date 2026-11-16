@@ -282,6 +282,20 @@ pub fn wlroots_outputs_at(socket: &Path) -> Result<Vec<OutputState>, Error> {
     Ok(Manager::bind(&connect_at(socket)?)?.layout())
 }
 
+/// Makes the outputs of the wlroots compositor listening on the Wayland
+/// socket at `socket` `layout`, each stated in full (a mode the output does
+/// not list is set as a custom mode), and returns once it has applied it:
+/// for a session's runner, which is not one of its clients.
+///
+/// # Errors
+///
+/// When the compositor does not offer `zwlr_output_manager_v1`
+/// ([`Error::NoOutputManagement`]), refuses the layout, or the connection
+/// fails.
+pub fn set_wlroots_outputs_at(socket: &Path, layout: &[OutputState]) -> Result<(), Error> {
+    applying(&connect_at(socket)?, |_| layout.to_vec())
+}
+
 /// Changes the output named `name` of the compositor `WAYLAND_DISPLAY`
 /// names, every other output stated as it is, and returns once the
 /// compositor has applied the change, with the output's state from before
