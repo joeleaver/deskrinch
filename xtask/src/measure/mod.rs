@@ -45,10 +45,10 @@ mod probe;
 mod procfs;
 mod renderer;
 mod report;
+mod seed;
 mod settle;
 mod show;
 mod smaps;
-mod state;
 mod system;
 mod window;
 mod windows;
@@ -108,6 +108,9 @@ pub(crate) struct Request {
     pub(crate) profiles: Option<PathBuf>,
     /// With `--state`: what each run's state directory starts with.
     pub(crate) state: Option<PathBuf>,
+    /// With `--config`: what each run's configuration directory starts
+    /// with.
+    pub(crate) config: Option<PathBuf>,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
     /// With `--summon`: the program starts hidden, and each show is measured
@@ -140,6 +143,17 @@ impl Request {
         self.pointer.is_some() || self.summons.as_ref().is_some_and(|s| s.typing.is_some())
     }
 
+    /// The session directories each run starts seeded, and from where:
+    /// `--state`, then `--config`.
+    fn seeds(&self) -> impl Iterator<Item = (seed::Layer, &Path)> {
+        [
+            (seed::Layer::State, self.state.as_deref()),
+            (seed::Layer::Configuration, self.config.as_deref()),
+        ]
+        .into_iter()
+        .filter_map(|(layer, dir)| dir.map(|dir| (layer, dir)))
+    }
+
     /// What each run's compositor renders with: the GPU when rinch's GPU
     /// renderer is asked for under sway or labwc, the only session it can
     /// present on there ([`CompositorRenderer::for_client`]).
@@ -163,6 +177,7 @@ impl Request {
             instructions: false,
             profiles: None,
             state: None,
+            config: None,
             program,
             args: Vec::new(),
             summons: None,
@@ -178,8 +193,8 @@ impl Request {
 
 /// Runs the measurement and prints its report.
 pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
-    if let Some(state) = &request.state {
-        state::check(state)?;
+    for (layer, dir) in request.seeds() {
+        seed::check(layer, dir)?;
     }
     if let Some(pointer) = &request.pointer {
         pointer.check(request.outputs)?;
@@ -255,8 +270,8 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         runs.push(run);
     }
     println!("{}", header(request));
-    if let Some(note) = state::note(request.state.as_deref()) {
-        println!("{note}");
+    for (layer, dir) in request.seeds() {
+        println!("{}", seed::note(layer, dir));
     }
     report::note_odd_steps(&mut runs);
     println!("{}", report::render(&program, &runs));
@@ -348,11 +363,10 @@ fn in_session<T>(
             Ok(())
         },
     )?;
-    let result = match &request.state {
-        Some(state) => state::seed(state, &session.root().join("state")),
-        None => Ok(()),
-    }
-    .and_then(|()| measure(&session));
+    let result = request
+        .seeds()
+        .try_for_each(|(layer, dir)| seed::seed(layer, dir, session.root()))
+        .and_then(|()| measure(&session));
     let ended = session.end();
     let value = result?;
     ended?;
