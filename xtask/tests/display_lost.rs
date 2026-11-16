@@ -7,10 +7,10 @@
 //! session` of the run's compositor, nested in the one `cargo xtask
 //! compositor-tests` runs this binary in: ending that session's compositor
 //! must not end the suite's. The component's stderr goes to a file; the
-//! test waits, in Rust, for its first presented frame there (`RINCH_PERF`),
-//! then lets the session's command kill the compositor
-//! (`DESKRINCH_SESSION_COMPOSITOR_PID`), wait for the component and write
-//! its status. `xtask session` waits for its command whatever happens to
+//! test waits, in Rust, for its first frame there (`RINCH_PERF`): presented,
+//! or prepared for the launcher started hidden. It then lets the session's
+//! command kill the compositor (`DESKRINCH_SESSION_COMPOSITOR_PID`), wait
+//! for the component and write its status. `xtask session` waits for its command whatever happens to
 //! the compositor, so the status and the last lines come out before the
 //! session ends.
 
@@ -49,10 +49,33 @@ echo "$?" > "$DIR/status""#;
             .expect("run by cargo xtask compositor-tests (DESKRINCH_TEST_COMPOSITOR)")
     }
 
+    /// What the test waits for before the compositor is killed: the
+    /// component's first frame of this kind, of any window.
+    #[derive(Clone, Copy, Debug)]
+    enum First {
+        /// A presented frame: a component with a window shown.
+        Presented,
+        /// A prepared frame: a component that starts hidden.
+        Prepared,
+    }
+
+    impl First {
+        /// Whether the log at `path` has such a frame line.
+        fn in_log(self, path: &Path) -> bool {
+            fs::read_to_string(path).is_ok_and(|log| {
+                log.lines().any(|line| match (self, parse(line)) {
+                    (Self::Presented, Some(PerfLine::Frame { .. }))
+                    | (Self::Prepared, Some(PerfLine::Prepared { .. })) => true,
+                    _ => false,
+                })
+            })
+        }
+    }
+
     /// The component `package` with `args`, in a session of its own whose
-    /// compositor is killed once the component has presented its first
+    /// compositor is killed once the component has drawn its `first`
     /// frame: its exit status and what it wrote to stderr.
-    fn ended_with_its_display(package: &str, args: &[&str]) -> (i32, String) {
+    fn ended_with_its_display(package: &str, args: &[&str], first: First) -> (i32, String) {
         let dir = tempfile::tempdir().unwrap();
         let component = program(package).unwrap();
         let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
@@ -69,8 +92,8 @@ echo "$?" > "$DIR/status""#;
             .stderr(Stdio::null());
         let mut session = deskrinch_test_lifetime::spawn(command).unwrap();
         let stderr = dir.path().join("stderr");
-        eventually("the component's first presented frame", || {
-            presented(&stderr)
+        eventually(&format!("the component's first frame ({first:?})"), || {
+            first.in_log(&stderr)
         });
         fs::write(dir.path().join("go"), "").unwrap();
         let ended = wait_ended(&mut session);
@@ -78,14 +101,6 @@ echo "$?" > "$DIR/status""#;
         let status = fs::read_to_string(dir.path().join("status")).unwrap();
         let said = fs::read_to_string(&stderr).unwrap();
         (status.trim().parse().unwrap(), said)
-    }
-
-    /// Whether the log at `path` has a presented frame line, of any window.
-    fn presented(path: &Path) -> bool {
-        fs::read_to_string(path).is_ok_and(|log| {
-            log.lines()
-                .any(|line| matches!(parse(line), Some(PerfLine::Frame { .. })))
-        })
     }
 
     /// The session's status once it has ended, within the patience.
@@ -101,8 +116,8 @@ echo "$?" > "$DIR/status""#;
     }
 
     #[track_caller]
-    fn ends_with_display_lost(package: &str, args: &[&str]) {
-        let (status, said) = ended_with_its_display(package, args);
+    fn ends_with_display_lost(package: &str, args: &[&str], first: First) {
+        let (status, said) = ended_with_its_display(package, args, first);
         assert_eq!(
             status,
             i32::from(DISPLAY_LOST),
@@ -117,18 +132,27 @@ echo "$?" > "$DIR/status""#;
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_wallpaper_ends_with_display_lost() {
-        ends_with_display_lost("deskrinch-wallpaper", &[]);
+        ends_with_display_lost("deskrinch-wallpaper", &[], First::Presented);
     }
 
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_panel_ends_with_display_lost() {
-        ends_with_display_lost("deskrinch-panel", &[]);
+        ends_with_display_lost("deskrinch-panel", &[], First::Presented);
     }
 
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_launcher_shown_ends_with_display_lost() {
-        ends_with_display_lost("deskrinch-launcher", &["--show"]);
+        ends_with_display_lost("deskrinch-launcher", &["--show"], First::Presented);
+    }
+
+    /// The launcher as it nearly always is, and as it is when a compositor
+    /// it was a client of crashes: hidden, its frame prepared but never
+    /// presented.
+    #[test]
+    #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+    fn the_launcher_hidden_ends_with_display_lost() {
+        ends_with_display_lost("deskrinch-launcher", &[], First::Prepared);
     }
 }
