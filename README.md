@@ -5,12 +5,12 @@ first (panel, launcher, notifications on `wlr-layer-shell`, running under KWin),
 then a smithay-based compositor.
 
 Early days: the libraries the shell rests on, a panel (`deskrinch-panel`:
-the taskbar and the clock), and the launcher (`deskrinch-launcher`:
-`deskrinch-launcher toggle` from a key binding shows and hides it). Under
-KWin the taskbar lists windows only once KWin has granted the panel its
-window-management interface, which an installed desktop file does
-(`deskrinch-kwin-access`); until deskrinch installs one, the taskbar is
-empty there, and says why in the log.
+the workspace switcher, the taskbar and the clock), and the launcher
+(`deskrinch-launcher`: `deskrinch-launcher toggle` from a key binding shows
+and hides it). Under KWin the taskbar lists windows only once KWin has
+granted the panel its window-management interface, which an installed
+desktop file does (`deskrinch-kwin-access`); until deskrinch installs one,
+the taskbar is empty there, and says why in the log.
 
 The configuration file, `~/.config/deskrinch/config.toml`, is documented in
 the `deskrinch-settings` crate (`cargo doc -p deskrinch-settings --open`).
@@ -463,6 +463,20 @@ cargo xtask measure --summon show --dismiss hide --prepares --type term \
   --keyboard-line "the launcher has the keyboard" \
   --query-line "hidden with a query of {} characters" \
   --env RUST_LOG=warn,deskrinch_launcher=info target/release/deskrinch-launcher
+```
+
+`--step-command CMD` (repeatable) runs another program's command in the
+session (`sh -c`) as a measured step after the idle window: from just before
+it to settled, its own process not counted, its frames every window's and
+the windows it opened and closed in the run's notes. A status other than 0,
+or a step after which no window drew, opened or closed, fails the run. The
+wallpaper's settings change is a second configuration copied over the one
+`--config` seeded:
+
+```sh
+cargo xtask measure --outputs 2 --windows 2 --config /tmp/wallpaper-config \
+  --step-command 'cp /tmp/wallpaper-config-2/deskrinch/config.toml "$XDG_CONFIG_HOME/deskrinch/"' \
+  target/release/deskrinch-wallpaper
 ```
 
 `--place-pointer POINT` and `--move-pointer POINT` (repeatable) move the

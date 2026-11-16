@@ -9,18 +9,21 @@
 //! which keeps the newest: an older list of buttons is of no use once a
 //! newer one exists. The UI's presses and releases take the same lock.
 //!
-//! The connection is made on a thread of its own, off the first frame's
-//! path: the taskbar is empty until the compositor has answered with its
-//! windows, and stays empty, with why reported once, when it offers none.
+//! The window list is followed on the panel's shared connection, made off
+//! the first frame's path ([`crate::compositor`]): the taskbar is empty
+//! until the compositor has answered with its windows, and stays empty,
+//! with why reported once, when it offers none.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use deskrinch_component::{Handover, report};
 use deskrinch_taskbar::{Answer, Button, Change, Input, TaskWindow, Taskbar};
 use deskrinch_window_management::{
-    Event, Window, WindowId, WindowManagement, WindowManager, connect,
+    Client, Event, Window, WindowId, WindowManagement, WindowManager, connect_with,
 };
 use rinch::prelude::Signal;
+
+use crate::compositor::Follow;
 
 /// The buttons the UI draws.
 pub(crate) type Buttons = Arc<Vec<Button<WindowId>>>;
@@ -35,29 +38,28 @@ pub(crate) struct Following {
 }
 
 impl Following {
-    /// Starts connecting to the compositor's window list, on a thread of
-    /// its own, and following it; returns at once. When it cannot connect,
-    /// the taskbar shows nothing, and why is reported once.
-    pub(crate) fn start() -> Self {
+    /// The window list to follow, empty until the panel's shared connection
+    /// is handed to the [`Follow`] returned beside it
+    /// ([`crate::compositor`]). When the taskbar cannot follow the windows,
+    /// it shows nothing, and why is reported once.
+    pub(crate) fn new() -> (Self, Follow) {
         let model = Arc::new(Mutex::new(Taskbar::new()));
         let buttons: Arc<Handover<Buttons>> = Arc::default();
         let manager = Arc::new(Mutex::new(None));
-        let (thread_model, thread_buttons, thread_manager) = (
+        let (follow_model, follow_buttons, follow_manager) = (
             Arc::clone(&model),
             Arc::clone(&buttons),
             Arc::clone(&manager),
         );
-        let spawned = std::thread::Builder::new()
-            .name("taskbar-connect".into())
-            .spawn(move || follow(&thread_model, &thread_buttons, &thread_manager));
-        if let Err(error) = spawned {
-            report::error("starting the thread that follows the windows", &error);
-        }
-        Self {
+        let connect: Follow = Box::new(move |client| {
+            follow(client, &follow_model, &follow_buttons, &follow_manager);
+        });
+        let following = Self {
             model,
             buttons,
             manager,
-        }
+        };
+        (following, connect)
     }
 
     /// The UI's signal of the buttons, on the UI thread: none until the
@@ -87,16 +89,23 @@ impl Following {
     }
 }
 
-/// Connects to the window list, applying each event to `model` and handing
-/// `buttons` what results, and keeps the connection in `manager`.
+/// Follows the window list on `client`, applying each event to `model` and
+/// handing `buttons` what results, and keeps the connection in `manager`;
+/// with no `client` (no connection could be made, reported), the taskbar is
+/// unavailable.
 fn follow(
+    client: Option<&Client>,
     model: &Arc<Mutex<Taskbar<WindowId>>>,
     buttons: &Arc<Handover<Buttons>>,
     manager: &Mutex<Option<WindowManager>>,
 ) {
+    let Some(client) = client else {
+        *lock(model) = Taskbar::unavailable();
+        return;
+    };
     let applied = Arc::clone(model);
     let deliver = Arc::clone(buttons);
-    let connected = connect(move |event| {
+    let connected = connect_with(client, move |event| {
         let Some(change) = change(event) else {
             return;
         };

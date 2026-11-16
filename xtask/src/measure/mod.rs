@@ -61,7 +61,7 @@ pub(crate) use input::MeasuredInputError;
 pub(crate) use windows::WindowsError;
 
 use self::environment::parse_env;
-use self::input::{Inputs, Point, Pointer, QueryLine, Typing, parse_text};
+use self::input::{Commands, Inputs, Point, Pointer, QueryLine, Typing, parse_text};
 use self::renderer::{Expected, Renderer};
 use self::show::Summons;
 use self::start_end::StartEnds;
@@ -117,6 +117,9 @@ pub(crate) struct Request {
     pub(crate) config: Option<PathBuf>,
     /// Where each run's start-up ends (`--start-ends`).
     pub(crate) start_ends: StartEnds,
+    /// `--step-command`: commands run as measured steps after the idle
+    /// window.
+    pub(crate) step_commands: Vec<String>,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
     /// With `--summon`: the program starts hidden, and each show is measured
@@ -185,6 +188,7 @@ impl Request {
             state: None,
             config: None,
             start_ends: StartEnds::FirstFrame,
+            step_commands: Vec::new(),
             program,
             args: Vec::new(),
             summons: None,
@@ -254,6 +258,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                         &Stimulus::of(session, request.window.as_deref()),
                         start(request, &end, session),
                         inputs,
+                        None,
                     )
                     .map(drop),
                 }
@@ -322,11 +327,25 @@ fn measure_run(
     let ask = |args: &[OsString]| asked(session, request, cache, args);
     let stimulus = || Stimulus::of(session, request.window.as_deref());
     let start = start(request, end, session);
+    let shell = || session.client("sh".as_ref());
+    let commands = Commands {
+        list: &request.step_commands,
+        shell: &shell,
+    };
+    let commands = (!request.step_commands.is_empty()).then_some(&commands);
     if !request.instructions {
         let command = program_client(session, request, cache);
         return match &request.summons {
             Some(summons) => show::measure(command, &ask, inputs, program, timing, summons),
-            None => probe::measure(command, program, timing, &stimulus(), start, inputs),
+            None => probe::measure(
+                command,
+                program,
+                timing,
+                &stimulus(),
+                start,
+                inputs,
+                commands,
+            ),
         };
     }
     let dir = request.profiles.as_ref().map_or_else(
@@ -358,6 +377,7 @@ fn measure_run(
             &stimulus(),
             start,
             inputs,
+            commands,
         ),
     }
 }

@@ -1,21 +1,35 @@
 //! `deskrinch-panel`: the desktop panel, a bar along an edge of the output
-//! that windows keep clear of, with the taskbar and, at its end, the clock.
+//! that windows keep clear of, with the workspace switcher, the taskbar
+//! and, at its end, the clock.
 //!
 //! - The window is a `wlr-layer-shell` surface (see [`surface`]): the full
 //!   width of the output, along its bottom or top edge, reserving its
 //!   height. rinch makes it one through `WindowProps::wayland_layer`; on a
 //!   compositor without the layer shell (GNOME) rinch falls back to an
 //!   ordinary window, with a warning.
-//! - The content is the [`bar`]: the taskbar, taking the room the other
-//!   [`widgets`] leave, and the end region with the clock.
+//! - The content is the [`bar`]: the workspace switcher, the taskbar,
+//!   taking the room the other [`widgets`] leave, and the end region with
+//!   the clock.
+//!
+//! # The workspace switcher
+//!
+//! A button for each workspace, showing its position; the current one
+//! marked, and a click asking the compositor to switch. The rules are
+//! `deskrinch-switcher`'s, and the widget is [`widgets`]' `switcher`. The
+//! workspaces come from `deskrinch-workspaces`, over the Wayland connection
+//! it shares with the taskbar ([`compositor`]): `ext_workspace_v1` (labwc)
+//! or KWin's virtual desktops, which KWin offers ungranted. Where the
+//! compositor offers neither (sway), the switcher is not shown, and one line
+//! at info level says why.
 //!
 //! # The taskbar
 //!
 //! A button for each open window, in the order they opened, with its
 //! application's icon and its title cut to fit; the rules are
 //! `deskrinch-taskbar`'s, and the widget is [`widgets`]' `taskbar`. The
-//! windows come from `deskrinch-window-management`, over a Wayland
-//! connection of its own: the wlroots protocol, or KWin's, which KWin
+//! windows come from `deskrinch-window-management`, over the Wayland
+//! connection it shares with the switcher: the wlroots protocol, or KWin's,
+//! which KWin
 //! offers only to a program it has granted it to by an installed desktop
 //! file (`deskrinch-kwin-access`). Without a window list (not granted, or
 //! a compositor that offers none) the taskbar is empty, and says why once
@@ -69,6 +83,7 @@
 //! alone. A normal build has none.
 
 mod bar;
+mod compositor;
 mod panel;
 mod surface;
 mod widgets;
@@ -94,11 +109,16 @@ fn main() -> ExitCode {
     let window = surface::window_props(surface::Placement::of(&live.initial));
     let first_theme = theme.initial();
     let env = Environment::from_process();
+    let (windows, follow_windows) = widgets::FollowedWindows::new();
+    let (workspaces, follow_workspaces) = widgets::FollowedWorkspaces::new();
+    compositor::start(vec![follow_windows, follow_workspaces]);
     let parts = panel::Parts {
         live,
         theme,
         installed: Installed::start(&env),
         icons: Icons::start(SearchPath::new(&base_dirs)),
+        windows,
+        workspaces,
     };
     deskrinch_component::app::run(
         deskrinch_component::app::new(move |scope| panel::panel(scope, parts))

@@ -19,7 +19,9 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::input::{CallgrindMeter, InputClient, Inputs, PointerSteps, move_pointer};
+use super::input::{
+    CallgrindMeter, Commands, InputClient, Inputs, PointerSteps, move_pointer, run_commands,
+};
 use super::output;
 use super::probe::{self, Timing};
 use super::report::{self, Run, Unit};
@@ -60,6 +62,7 @@ pub(crate) fn measure(
     stimulus: &Stimulus,
     start: Start<'_>,
     inputs: Option<&Inputs<'_>>,
+    commands: Option<&Commands<'_>>,
 ) -> Result<Run, Error> {
     // The client first: its devices are made before the program starts.
     let mut client = inputs.map(Inputs::start).transpose()?;
@@ -77,6 +80,7 @@ pub(crate) fn measure(
         control: &control,
         out,
         start,
+        commands,
     };
     let pointer = client
         .as_mut()
@@ -97,6 +101,8 @@ struct Profile<'a> {
     control: &'a dyn Fn() -> Command,
     out: &'a Path,
     start: Start<'a>,
+    /// With `--step-command`: the command steps, after the pointer's.
+    commands: Option<&'a Commands<'a>>,
 }
 
 fn run_child(
@@ -112,6 +118,7 @@ fn run_child(
         control,
         out,
         start: ends,
+        ..
     } = *profile;
     let expect = ends.expect;
     let pid = child.id().to_string();
@@ -185,19 +192,15 @@ fn run_child(
             timing.settle.as_secs()
         ),
     );
-    // The pointer's steps, after the idle window and its rows; each step
-    // zeroed at its start and read from the dump named for it.
-    if let Some((client, steps)) = pointer {
-        let id = child.id();
-        let mut running = Running {
-            child,
-            watch,
-            program,
-            timeout: timing.first_frame,
-        };
-        let mut meter = CallgrindMeter::new(control, id, out);
-        move_pointer(&mut run, &mut running, client, steps, &mut meter, "", "")?;
-    }
+    // The steps, after the idle window and its rows; each step zeroed at its
+    // start and read from the dump named for it.
+    let mut running = Running {
+        child,
+        watch,
+        program,
+        timeout: timing.first_frame,
+    };
+    steps_after_idle(&mut run, &mut running, profile, pointer)?;
     window::end(opened, &mut run)?;
     run.note(format!("load average at {}", ends.end.at()), load);
     run.note("renderer", watch.renderer());
@@ -222,6 +225,26 @@ fn push_start(run: &mut Run, end: &End, first: u64, settle: u64) {
         Unit::Count,
         first + settle,
     );
+}
+
+/// The pointer's steps, then the command steps, each counted from a dump of
+/// its own, after the idle window.
+fn steps_after_idle(
+    run: &mut Run,
+    running: &mut Running<'_>,
+    profile: &Profile<'_>,
+    pointer: Option<(&mut InputClient, &PointerSteps)>,
+) -> Result<(), Error> {
+    let id = running.child.id();
+    if let Some((client, steps)) = pointer {
+        let mut meter = CallgrindMeter::new(profile.control, id, profile.out);
+        move_pointer(run, running, client, steps, &mut meter, "", "")?;
+    }
+    if let Some(commands) = profile.commands {
+        let mut meter = CallgrindMeter::new(profile.control, id, profile.out);
+        run_commands(run, running, commands, &mut meter)?;
+    }
+    Ok(())
 }
 
 /// Asks Callgrind in process `pid` to write a dump with the hint `label`

@@ -6,15 +6,15 @@ use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 
-use deskrinch_bus::Bus;
 use deskrinch_test_wait::{Deadline, waited_in_vain};
 use deskrinch_workspaces::{
     Action, Client, EndReason, Event, Workspace, WorkspaceId, WorkspaceManager, WorkspaceState,
     Workspaces, connect, connect_with,
 };
-use zbus::{OwnedVariant, Variant};
 
 pub(crate) use deskrinch_test_client::Compositor;
+/// KWin's desktops, through its own D-Bus interface on the session's bus.
+pub(crate) use deskrinch_test_desktops as kwin;
 
 /// The workspaces every test has: labwc's sessions configure four, and the
 /// KWin tests make four.
@@ -148,119 +148,6 @@ impl Watcher {
     }
 }
 
-/// KWin's desktops, through its own D-Bus interface on the session's bus.
-pub(crate) mod kwin {
-    use super::{Bus, OwnedVariant, Variant};
-
-    const SERVICE: &str = "org.kde.KWin";
-    const PATH: &str = "/VirtualDesktopManager";
-    const INTERFACE: &str = "org.kde.KWin.VirtualDesktopManager";
-    const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
-
-    fn connection() -> zbus::Connection {
-        zbus::block_on(Bus::Session.connect()).unwrap()
-    }
-
-    fn get(property: &str) -> OwnedVariant {
-        let reply = zbus::block_on(connection().call_method(
-            Some(SERVICE),
-            PATH,
-            Some(PROPERTIES),
-            "Get",
-            &(INTERFACE, property),
-        ))
-        .unwrap_or_else(|error| panic!("KWin's {property}: {error}"));
-        reply.body().deserialize::<OwnedVariant>().unwrap()
-    }
-
-    fn set(property: &str, value: Variant<'_>) {
-        zbus::block_on(connection().call_method(
-            Some(SERVICE),
-            PATH,
-            Some(PROPERTIES),
-            "Set",
-            &(INTERFACE, property, value),
-        ))
-        .unwrap_or_else(|error| panic!("setting KWin's {property}: {error}"));
-    }
-
-    /// Each desktop's (position, id, name).
-    pub(crate) fn desktops() -> Vec<(u32, String, String)> {
-        Vec::try_from(get("desktops")).unwrap()
-    }
-
-    /// The current desktop's name.
-    pub(crate) fn current_name() -> String {
-        let current = String::try_from(get("current")).unwrap();
-        desktops()
-            .into_iter()
-            .find(|(_, id, _)| *id == current)
-            .map_or_else(
-                || panic!("KWin's current desktop {current} is not listed"),
-                |(_, _, name)| name,
-            )
-    }
-
-    /// Makes the desktop named `name` current, as KWin's own interface does.
-    pub(crate) fn set_current(name: &str) {
-        let id = desktops()
-            .into_iter()
-            .find(|(_, _, listed)| listed == name)
-            .map_or_else(|| panic!("KWin has no desktop {name}"), |(_, id, _)| id);
-        set("current", id.as_str().into());
-    }
-
-    /// Lays the desktops out in `rows` rows.
-    pub(crate) fn set_rows(rows: u32) {
-        set("rows", rows.into());
-    }
-
-    /// Adds a desktop named `name` at the end.
-    pub(crate) fn create(name: &str) {
-        let count = u32::try_from(desktops().len()).unwrap();
-        zbus::block_on(connection().call_method(
-            Some(SERVICE),
-            PATH,
-            Some(INTERFACE),
-            "createDesktop",
-            &(count, name),
-        ))
-        .unwrap_or_else(|error| panic!("KWin's createDesktop: {error}"));
-    }
-
-    /// Removes the desktop named `name`.
-    pub(crate) fn remove(name: &str) {
-        let id = desktops()
-            .into_iter()
-            .find(|(_, _, listed)| listed == name)
-            .map_or_else(|| panic!("KWin has no desktop {name}"), |(_, id, _)| id);
-        zbus::block_on(connection().call_method(
-            Some(SERVICE),
-            PATH,
-            Some(INTERFACE),
-            "removeDesktop",
-            &(id,),
-        ))
-        .unwrap_or_else(|error| panic!("KWin's removeDesktop: {error}"));
-    }
-
-    /// At least [`super::COUNT`] desktops, the first current, in one row.
-    /// Returns the first desktop's name.
-    pub(crate) fn set_up() -> String {
-        while desktops().len() < super::COUNT {
-            create(&format!("Desktop {}", desktops().len() + 1));
-        }
-        set_rows(1);
-        let first = desktops()
-            .into_iter()
-            .min_by_key(|(position, _, _)| *position)
-            .map(|(_, _, name)| name)
-            .unwrap();
-        set_current(&first);
-        first
-    }
-}
-
 /// The compositor's workspaces as each test starts: at least
 /// [`COUNT`], the first active. labwc's sessions have four; KWin's are made
 /// with its own interface.
@@ -270,7 +157,7 @@ pub(crate) fn set_up(compositor: Compositor, watcher: &Watcher) {
             // Made current through KWin's own interface: the watcher sees
             // it only once its events say so, and until then would take
             // an earlier test's desktop for the active one.
-            let first = kwin::set_up();
+            let first = kwin::set_up(COUNT);
             watcher.wait_active(&first);
         }
         Compositor::Labwc => {
