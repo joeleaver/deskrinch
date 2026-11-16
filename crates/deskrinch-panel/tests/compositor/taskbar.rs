@@ -78,9 +78,20 @@ impl Bar {
     /// The pointer and keyboard, then the panel at the bottom with the
     /// test's applications, once it is on the screen.
     pub(crate) fn start() -> Self {
+        Self::start_with("")
+    }
+
+    /// [`start`](Self::start), in the colour scheme `scheme` (`"dark"` or
+    /// `"light"`, the `[general]` `color-scheme` setting).
+    pub(crate) fn start_in(scheme: &str) -> Self {
+        Self::start_with(&format!("[general]\ncolor-scheme = \"{scheme}\"\n"))
+    }
+
+    /// [`start`](Self::start), with `more` settings beside the panel's.
+    fn start_with(more: &str) -> Self {
         in_nested_session();
         let input = Input::connect().unwrap();
-        write_settings(&panel_table(Edge::Bottom, HEIGHT));
+        write_settings(&format!("{more}{}", panel_table(Edge::Bottom, HEIGHT)));
         let dirs = tempfile::tempdir().unwrap();
         install(dirs.path());
         let mut screen = Screen::connect().unwrap();
@@ -210,12 +221,47 @@ impl Bar {
     /// Clicks `button` on the middle of `icon`, a box in the screen's
     /// pixels.
     pub(crate) fn click(&mut self, icon: (u32, u32, u32, u32), button: Button) {
+        self.point_at(icon);
+        self.input.click(button).unwrap();
+    }
+
+    /// Moves the pointer onto the middle of `icon`, a box in the screen's
+    /// pixels: onto its button, over its icon.
+    pub(crate) fn point_at(&mut self, icon: (u32, u32, u32, u32)) {
         let (left, top, right, bottom) = icon;
         let scale = f64::from(self.scale);
         let x = f64::from(left + right + 1) / 2.0 / scale;
         let y = f64::from(top + bottom + 1) / 2.0 / scale;
         self.input.move_pointer(&self.output, x, y).unwrap();
-        self.input.click(button).unwrap();
+    }
+
+    /// Moves the pointer off the panel, to the middle of its output.
+    pub(crate) fn point_off(&mut self) {
+        let image = self.screen.capture(&self.output.clone()).unwrap();
+        let scale = f64::from(self.scale);
+        let x = f64::from(image.width()) / 2.0 / scale;
+        let y = f64::from(image.height()) / 2.0 / scale;
+        self.input.move_pointer(&self.output, x, y).unwrap();
+    }
+
+    /// The background of the button whose icon is `icon`: inside its
+    /// padding, left of the icon.
+    pub(crate) fn beside(image: &Image, icon: (u32, u32, u32, u32)) -> Option<Rgba> {
+        let (left, top, _, bottom) = icon;
+        image.pixel(left.saturating_sub(2), u32::midpoint(top, bottom))
+    }
+
+    /// The bar's own colour, in the row of `icon`: at its left end, in the
+    /// bar's padding before the taskbar, where no button reaches on any
+    /// output however narrow.
+    pub(crate) fn bar(image: &Image, icon: (u32, u32, u32, u32)) -> Option<Rgba> {
+        let (_, top, _, bottom) = icon;
+        image.pixel(1, u32::midpoint(top, bottom))
+    }
+
+    /// The panel, for its log.
+    pub(crate) fn panel(&self) -> &Panel {
+        &self.panel
     }
 
     /// The output's width in logical pixels.
@@ -258,7 +304,7 @@ impl fmt::Debug for Unseen {
 }
 
 /// Whether `a` is within [`TOLERANCE`] of `b` in each colour channel.
-fn near(a: Rgba, b: Rgba) -> bool {
+pub(crate) fn near(a: Rgba, b: Rgba) -> bool {
     [(a.r, b.r), (a.g, b.g), (a.b, b.b)]
         .into_iter()
         .all(|(a, b)| a.abs_diff(b) <= TOLERANCE)
