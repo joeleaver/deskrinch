@@ -22,6 +22,8 @@ mod covered;
 #[cfg(test)]
 mod first_frame;
 #[cfg(test)]
+mod frames;
+#[cfg(test)]
 mod live;
 #[cfg(test)]
 mod placement;

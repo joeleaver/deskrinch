@@ -47,6 +47,7 @@ mod args;
 mod bounded;
 mod build;
 mod component_rule;
+mod granted;
 mod leaks;
 pub(crate) mod renderers;
 mod repeat;
@@ -137,6 +138,8 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
 /// the run lasts.
 struct Built {
     tests: BTreeMap<usize, PathBuf>,
+    /// By row, the binaries granted with its suite ([`granted`]).
+    granted: BTreeMap<usize, Vec<(&'static str, PathBuf)>>,
     programs: BTreeMap<&'static str, PathBuf>,
     _kept: Option<RunDir>,
 }
@@ -158,19 +161,25 @@ fn build(root: &Path, selection: &Selection) -> Result<Built, Error> {
         }
     }
     let built = build::test_binaries(root, &targets)?;
-    let tests = selection
-        .rows()
+    let of_row = |row: usize| {
+        let at = targets
+            .iter()
+            .position(|target| *target == SUITES[row].target);
+        &built[at.unwrap_or_default()]
+    };
+    let rows = selection.rows();
+    let tests = rows
         .iter()
-        .map(|&row| {
-            let at = targets
-                .iter()
-                .position(|target| *target == SUITES[row].target);
-            (row, built[at.unwrap_or_default()].clone())
-        })
+        .map(|&row| (row, of_row(row).test.clone()))
+        .collect();
+    let granted = rows
+        .iter()
+        .map(|&row| (row, of_row(row).granted.clone()))
         .collect();
     if !needs_components(selection.rows()) {
         return Ok(Built {
             tests,
+            granted,
             programs: BTreeMap::new(),
             _kept: None,
         });
@@ -187,6 +196,7 @@ fn build(root: &Path, selection: &Selection) -> Result<Built, Error> {
         .collect::<Result<_, Error>>()?;
     Ok(Built {
         tests,
+        granted,
         programs,
         _kept: Some(kept),
     })
@@ -371,6 +381,11 @@ fn grant_all(built: &Built, data_home: &Path) -> Result<(), Error> {
         };
         let entry = crate::grant::client(grant.id, grant.name, binary, grant.wayland, grant.dbus)?;
         crate::grant::install_entry(&entry, data_home)?;
+        for (bin, path) in built.granted.get(&row).into_iter().flatten() {
+            let id = granted::id(grant.id, bin);
+            let entry = crate::grant::client(&id, grant.name, path, grant.wayland, grant.dbus)?;
+            crate::grant::install_entry(&entry, data_home)?;
+        }
     }
     for &row in built.tests.keys() {
         for program in SUITES[row].programs {

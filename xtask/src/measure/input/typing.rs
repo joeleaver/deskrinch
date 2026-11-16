@@ -1,14 +1,6 @@
-//! `--type`: what it costs a shown program to take a query typed into it,
-//! one key at a time.
+//! `--type`: a query typed into a shown program, one key at a time
+//! ([`super::steps`]).
 //!
-//! A figure that depended on how fast keys arrive would not be a
-//! measurement: under Callgrind the program is far slower than any typist,
-//! and keys would pile into one frame. So each key is typed alone: the key,
-//! then the program left to settle (the settle `--summon` waits for), then
-//! the next. Each key is measured from just before it is typed to settled
-//! ([`Meter`]), and must lead to a frame.
-//!
-//! The keys come from [`Typist`], `cargo xtask type` run in the session.
 //! What measure cannot see from outside, the program says in its output,
 //! in words `--type` is given and holds none of itself
 //! ([`Typing::keyboard_line`], [`QueryLine`]): that a key typed now reaches
@@ -16,19 +8,16 @@
 //! characters it was typed, which must be the text's. A key lost would
 //! otherwise make the figure that of a shorter query, without saying so.
 
-mod meter;
-mod typist;
-
-pub(crate) use meter::{CallgrindMeter, CpuMeter, Meter};
-pub(crate) use typist::Typist;
-
 use std::time::{Duration, Instant};
 
 use deskrinch_test_input::Key;
 
-use super::report::{Run, Unit};
-use super::show::Running;
+use super::super::report::Run;
+use super::super::settle::Running;
+use super::steps::{Measured, Rows, measure_steps};
+use super::{InputClient, MeasuredInputError, Meter};
 use crate::error::Error;
+use crate::input::Step;
 use crate::session::interrupt;
 
 /// What `--type` asks for.
@@ -52,7 +41,8 @@ impl Typing {
 }
 
 /// `--type`'s text: one key a character, each one a key types on a US
-/// layout without a modifier (as the typist types it), and at least one.
+/// layout without a modifier (as the input client types it), and at least
+/// one.
 ///
 /// # Errors
 ///
@@ -99,7 +89,7 @@ impl QueryLine {
     }
 
     /// The length `line` gives, if it is such a line.
-    fn length(&self, line: &str) -> Option<usize> {
+    pub(super) fn length(&self, line: &str) -> Option<usize> {
         let (_, rest) = line.split_once(&self.before)?;
         let digits = rest.len() - rest.trim_start_matches(|c: char| c.is_ascii_digit()).len();
         let (number, tail) = rest.split_at(digits);
@@ -109,86 +99,19 @@ impl QueryLine {
     }
 
     /// The pattern, as given.
-    fn pattern(&self) -> String {
+    pub(super) fn pattern(&self) -> String {
         format!("{}{{}}{}", self.before, self.after)
-    }
-}
-
-/// Why a typed show could not be measured.
-#[derive(Debug, thiserror::Error)]
-pub(crate) enum TypingError {
-    /// The program never said a key would reach where it types.
-    #[error(
-        "{program} never wrote a line with {line:?} after show {show} (waited {waited:?}): a \
-         program that cannot say a key typed reaches it cannot be measured typed\nIts last \
-         output:\n{output}"
-    )]
-    NoKeyboardLine {
-        program: String,
-        show: u32,
-        line: String,
-        waited: Duration,
-        output: String,
-    },
-    /// A key led to no frame.
-    #[error(
-        "{program} presented no frame for key {key} of {of} ({typed:?}) in show {show} \
-         (waited {waited:?})\nIts last output:\n{output}"
-    )]
-    NoFrame {
-        program: String,
-        show: u32,
-        key: usize,
-        of: usize,
-        typed: char,
-        waited: Duration,
-        output: String,
-    },
-    /// The program wrote no line giving its query's length at the hide.
-    #[error(
-        "{program} wrote no line like {pattern:?} at hide {show} (waited {waited:?})\nIts last \
-         output:\n{output}"
-    )]
-    NoQueryLine {
-        program: String,
-        show: u32,
-        pattern: String,
-        waited: Duration,
-        output: String,
-    },
-    /// The query had another length than the text typed: a key was lost.
-    #[error(
-        "{program} said at hide {show} its query had {said} characters, but {typed} were typed: \
-         a key was lost, and the figures would be a shorter query's\nIts last output:\n{output}"
-    )]
-    WrongLength {
-        program: String,
-        show: u32,
-        typed: usize,
-        said: usize,
-        output: String,
-    },
-    /// The typist could not be run, or stopped.
-    #[error("the typist (cargo xtask type) {what}{}", stderr_of(.stderr))]
-    Typist { what: String, stderr: String },
-}
-
-fn stderr_of(stderr: &str) -> String {
-    if stderr.trim().is_empty() {
-        String::new()
-    } else {
-        format!("; it said:\n{}", stderr.trim_end())
     }
 }
 
 /// After show `show`'s first frame: waits for the program to say a key
 /// typed reaches it (in its output after the first `mark` lines, those
-/// before the summon), lets it settle, and types `typing`'s text
-/// ([`type_query`]).
+/// before the summon), lets it settle, and types `typing`'s text a key at a
+/// time.
 pub(crate) fn after_show(
     run: &mut Run,
     running: &mut Running<'_>,
-    typist: &mut Typist,
+    client: &mut InputClient,
     typing: &Typing,
     meter: &mut dyn Meter,
     mark: usize,
@@ -196,7 +119,29 @@ pub(crate) fn after_show(
 ) -> Result<(), Error> {
     wait_keyboard_line(running, typing, mark, show)?;
     running.settle()?;
-    type_query(run, running, typist, typing, meter, show)
+    let keys = typing.keys();
+    let steps: Vec<Measured> = typing
+        .text
+        .chars()
+        .enumerate()
+        .map(|(index, typed)| Measured {
+            step: Step::Key(typed),
+            row: format!("key {} of {keys}", index + 1),
+            named: format!("key {} of {keys} ({typed:?})", index + 1),
+            dump: format!("show-{show}-key-{}", index + 1),
+        })
+        .collect();
+    let prefix = format!("show {show}: ");
+    let during = format!(" in show {show}");
+    let sum = format!("typing {keys} characters, the keys' sum");
+    let rows = Rows {
+        prefix: &prefix,
+        during: &during,
+        from: "key",
+        sum: &sum,
+        frames: "typing: frames presented",
+    };
+    measure_steps(run, running, client, &steps, &rows, meter)
 }
 
 /// Waits, within the running program's timeout, for it to write
@@ -209,7 +154,7 @@ fn wait_keyboard_line(
 ) -> Result<(), Error> {
     let found = wait_line(running, mark, |line| line.contains(&typing.keyboard_line))?;
     found.map(drop).ok_or_else(|| {
-        TypingError::NoKeyboardLine {
+        MeasuredInputError::NoKeyboardLine {
             program: running.program.to_owned(),
             show,
             line: typing.keyboard_line.clone(),
@@ -232,7 +177,7 @@ pub(crate) fn check_query_line(
         typing.query_line.length(line).is_some()
     })?;
     let Some(line) = found else {
-        return Err(TypingError::NoQueryLine {
+        return Err(MeasuredInputError::NoQueryLine {
             program: running.program.to_owned(),
             show,
             pattern: typing.query_line.pattern(),
@@ -245,7 +190,7 @@ pub(crate) fn check_query_line(
     if said == typing.keys() {
         Ok(())
     } else {
-        Err(TypingError::WrongLength {
+        Err(MeasuredInputError::WrongLength {
             program: running.program.to_owned(),
             show,
             typed: typing.keys(),
@@ -282,79 +227,3 @@ fn wait_line(
         std::thread::sleep(Duration::from_millis(50));
     }
 }
-
-/// Types `typing`'s text into the shown program a key at a time, each key
-/// followed by a frame and then the settle, and records, for show `show`,
-/// what `meter` measured of each key and of them all, and the frames.
-fn type_query(
-    run: &mut Run,
-    running: &mut Running<'_>,
-    typist: &mut Typist,
-    typing: &Typing,
-    meter: &mut dyn Meter,
-    show: u32,
-) -> Result<(), Error> {
-    let keys = typing.keys();
-    let frames_before = running.watch.frames();
-    let mut total = 0;
-    for (index, typed) in typing.text.chars().enumerate() {
-        let key = index + 1;
-        let frames = running.watch.frames();
-        meter.start()?;
-        typist.key(typed)?;
-        if !frame_after(running, frames)? {
-            return Err(TypingError::NoFrame {
-                program: running.program.to_owned(),
-                show,
-                key,
-                of: keys,
-                typed,
-                waited: running.timeout,
-                output: running.watch.tail(),
-            }
-            .into());
-        }
-        running.settle()?;
-        let cost = meter.stop(&format!("show-{show}-key-{key}"))?;
-        run.push(
-            format!("show {show}: key {key} of {keys}: {}", meter.what()),
-            meter.unit(),
-            cost,
-        );
-        total += cost;
-    }
-    run.push(
-        format!(
-            "show {show}: typing {keys} characters, the keys' sum: {}",
-            meter.what()
-        ),
-        meter.unit(),
-        total,
-    );
-    run.push(
-        format!("show {show}: typing: frames presented"),
-        Unit::Count,
-        running.watch.frames() - frames_before,
-    );
-    Ok(())
-}
-
-/// Waits, within the running program's timeout, for a frame after the
-/// first `frames`; whether one came.
-fn frame_after(running: &mut Running<'_>, frames: u64) -> Result<bool, Error> {
-    let start = Instant::now();
-    while !running
-        .watch
-        .wait_frame_after(frames, Duration::from_millis(100))
-    {
-        interrupt::check()?;
-        running.alive()?;
-        if start.elapsed() >= running.timeout {
-            return Ok(false);
-        }
-    }
-    Ok(true)
-}
-
-#[cfg(test)]
-mod tests;
