@@ -8,6 +8,8 @@
 //!   looking at the screen.
 //! - [`screen`]: keys typed into it, what it draws, and what it starts.
 //! - [`click`]: the pointer's clicks on its results.
+//! - [`left`]: another surface taking the keyboard while it is shown hides
+//!   it.
 //! - [`frequent`]: the applications used most, on an empty query, and the
 //!   record of starts they come from.
 //! - [`prepared`]: the hidden window prepared for its next show when what
@@ -23,6 +25,8 @@ mod click;
 mod devtools;
 #[cfg(test)]
 mod frequent;
+#[cfg(test)]
+mod left;
 #[cfg(test)]
 mod prepared;
 #[cfg(test)]
