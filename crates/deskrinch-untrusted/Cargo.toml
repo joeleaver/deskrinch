@@ -14,11 +14,14 @@ publish.workspace = true
 proptest = ["dep:proptest"]
 
 [dependencies]
-png.workspace = true
+libc.workspace = true
 proptest = { workspace = true, optional = true }
+thiserror.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+rustix = { workspace = true, features = ["fs"] }
+tempfile.workspace = true
 
 [lints]
 workspace = true

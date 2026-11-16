@@ -34,6 +34,7 @@ deskrinch-gestures = { path = "crates/deskrinch-gestures" }
 deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
+deskrinch-picture = { path = "crates/deskrinch-picture" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-shell = { path = "crates/deskrinch-shell" }
 deskrinch-start-record = { path = "crates/deskrinch-start-record" }
@@ -46,6 +47,7 @@ deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
 deskrinch-test-desktops = { path = "crates/deskrinch-test-desktops" }
 deskrinch-test-input = { path = "crates/deskrinch-test-input" }
 deskrinch-test-lifetime = { path = "crates/deskrinch-test-lifetime" }
+deskrinch-test-pictures = { path = "crates/deskrinch-test-pictures" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
 deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }
@@ -60,6 +62,9 @@ deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
 futures-core = "0.3.34"
 futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
+# The versions `image` already locks: deskrinch-picture uses the decoders
+# directly, each with limits of its own, so there is one copy of each.
+gif = "0.14.2"
 # The version the tree already locks; its keyed default hasher (foldhash),
 # for tables whose keys live outside them (`HashTable`).
 hashbrown = { version = "0.17.1", default-features = false, features = ["default-hasher"] }
@@ -71,6 +76,7 @@ icu_properties = "2.4.0"
 icu_provider = { version = "2.4.0", default-features = false }
 # The version and formats rinch decodes pictures with.
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp"] }
+image-webp = "0.2.4"
 jiff = { version = "0.2.42", default-features = false }
 jiff-icu = { version = "0.2.4", default-features = false }
 # A StatusNotifierItem implementation, only for the status-notifier host's
@@ -78,6 +84,12 @@ jiff-icu = { version = "0.2.4", default-features = false }
 # less.
 ksni = { version = "0.3.7", default-features = false, features = ["async-io", "blocking"] }
 libc = "0.2.191"
+# The colour management `image` already brings, with the features it has
+# there, for converting an embedded ICC profile to sRGB.
+moxcms = "0.8.1"
+# A counting global allocator, for deskrinch-picture's test of its working
+# bound.
+peak_alloc = "0.3.0"
 percent-encoding = "2.3.2"
 # The version rinch's image stack already locks; it has no default features.
 png = "0.18.1"
@@ -103,6 +115,8 @@ wayland-protocols-misc = "0.3.12"
 wayland-protocols-plasma = "0.3.12"
 wayland-protocols-wlr = "0.3.12"
 zbus = { version = "6.2.1", default-features = false }
+zune-core = "0.5.3"
+zune-jpeg = "0.5.15"
 
 # One lint policy for the whole repository; every member opts in with
 # `[lints] workspace = true`. Lints are set to `warn` and CI turns every

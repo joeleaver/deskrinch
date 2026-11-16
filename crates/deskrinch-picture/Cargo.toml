@@ -1,0 +1,39 @@
+[package]
+name = "deskrinch-picture"
+description = "Pictures (PNG, JPEG, GIF, WebP) decoded under the caller's limits into straight RGBA8."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+bitflags.workspace = true
+deskrinch-untrusted.workspace = true
+gif.workspace = true
+# EXIF orientation only: `image::metadata::Orientation`.
+image.workspace = true
+image-webp.workspace = true
+moxcms.workspace = true
+png.workspace = true
+thiserror.workspace = true
+zune-core.workspace = true
+zune-jpeg.workspace = true
+
+[dev-dependencies]
+deskrinch-test-pictures.workspace = true
+deskrinch-untrusted = { workspace = true, features = ["proptest"] }
+peak_alloc.workspace = true
+proptest.workspace = true
+rustix = { workspace = true, features = ["fs"] }
+tempfile.workspace = true
+
+[[test]]
+# Its own binary, without the harness: it counts every allocation of the
+# process, so nothing else may run while it measures.
+name = "working_bound"
+harness = false
+
+[lints]
+workspace = true
