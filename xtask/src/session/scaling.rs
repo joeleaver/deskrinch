@@ -4,10 +4,12 @@
 use std::ffi::OsStr;
 
 use deskrinch_test_client::{
-    KSCREEN_DOCTOR, OutputChange, OutputInfo, TestClient, configure_every_output, kscreen_settings,
+    KSCREEN_DOCTOR, Mode, OutputChange, OutputInfo, OutputState, TestClient,
+    configure_every_output, kscreen_add_mode, kscreen_select_mode, kscreen_settings,
+    set_wlroots_outputs_at, wlroots_outputs_at,
 };
 
-use super::{Doing, Outputs, Session};
+use super::{Doing, OutputSize, Outputs, Session};
 use crate::error::Error;
 
 /// How a compositor's outputs get their scale and transform.
@@ -40,6 +42,9 @@ impl Session {
         if !outputs.is_plain() {
             match self.compositor.scaling() {
                 Scaling::StartUp => {}
+                Scaling::OutputManagement if outputs.has_sizes() => {
+                    self.lay_out_through_output_management(outputs)?;
+                }
                 Scaling::OutputManagement => self.set_up_through_output_management(outputs)?,
                 Scaling::KscreenDoctor => self.set_up_through_kscreen_doctor(outputs)?,
             }
@@ -55,29 +60,96 @@ impl Session {
     /// Sets every output through `wlr-output-management`, the way a test's
     /// `configure_output` does, and returns once it applies.
     fn set_up_through_output_management(&self, outputs: Outputs) -> Result<(), Error> {
-        let change = OutputChange {
-            scale: Some(outputs.scale.get()),
-            transform: Some(outputs.transform.get()),
-            position: None,
-        };
-        configure_every_output(&self.socket_path(), change).map_err(|source| Error::OutputSetup {
+        configure_every_output(&self.socket_path(), change_of(outputs))
+            .map_err(|source| self.setup_failed(outputs, source))
+    }
+
+    /// Lays every output out through `wlr-output-management` as `outputs`
+    /// asks, its mode (a custom one, which a headless output takes), its
+    /// place side by side, its scale and transform, and returns once it
+    /// applies.
+    fn lay_out_through_output_management(&self, outputs: Outputs) -> Result<(), Error> {
+        let socket = self.socket_path();
+        let current =
+            wlroots_outputs_at(&socket).map_err(|source| self.setup_failed(outputs, source))?;
+        let names = self.connect_client()?.output_names();
+        let layout: Vec<OutputState> = names
+            .iter()
+            .zip(outputs.layout())
+            .filter_map(|(name, (size, position))| {
+                let output = current.iter().find(|output| &output.name == name)?;
+                Some(OutputState {
+                    enabled: true,
+                    position,
+                    mode: Some(Mode {
+                        width: size.width,
+                        height: size.height,
+                        // The compositor's choice, as a headless output has.
+                        refresh_mhz: 0,
+                    }),
+                    scale: outputs.scale.get(),
+                    transform: outputs.transform.get(),
+                    ..output.clone()
+                })
+            })
+            .collect();
+        set_wlroots_outputs_at(&socket, &layout)
+            .map_err(|source| self.setup_failed(outputs, source))
+    }
+
+    fn setup_failed(&self, outputs: Outputs, source: deskrinch_test_client::Error) -> Error {
+        Error::OutputSetup {
             compositor: self.compositor.name(),
             what: format!("set up {outputs}"),
             source: Box::new(source),
             log: self.log(),
-        })
+        }
     }
 
     /// Sets every output with `kscreen-doctor`, run as a client of the
-    /// session like any other (its environment, its process group).
+    /// session like any other (its environment, its process group): first
+    /// each size asked for that an output does not list (KWin's virtual
+    /// outputs list only the mode they started with), added as a custom
+    /// mode; then each output's mode and place, where sizes were asked
+    /// for, and its scale and transform.
     fn set_up_through_kscreen_doctor(&self, outputs: Outputs) -> Result<(), Error> {
         let names = self.connect_client()?.output_names();
-        let change = OutputChange {
-            scale: Some(outputs.scale.get()),
-            transform: Some(outputs.transform.get()),
-            position: None,
+        let sized: Vec<(&String, Mode, (i32, i32))> = if outputs.has_sizes() {
+            names
+                .iter()
+                .zip(outputs.layout())
+                .map(|(name, (size, position))| (name, kscreen_mode(size), position))
+                .collect()
+        } else {
+            Vec::new()
         };
-        let settings = names.iter().flat_map(|name| kscreen_settings(name, change));
+        let added: Vec<String> = sized
+            .iter()
+            .filter(|(_, mode, _)| *mode != kscreen_mode(OutputSize::DEFAULT))
+            .map(|(name, mode, _)| kscreen_add_mode(name, *mode))
+            .collect();
+        if !added.is_empty() {
+            self.kscreen_doctor(added)?;
+        }
+        let change = change_of(outputs);
+        let mut settings: Vec<String> = sized
+            .iter()
+            .flat_map(|(name, mode, position)| {
+                let placed = OutputChange {
+                    position: Some(*position),
+                    ..OutputChange::default()
+                };
+                kscreen_settings(name, placed)
+                    .into_iter()
+                    .chain([kscreen_select_mode(name, *mode)])
+            })
+            .collect();
+        settings.extend(names.iter().flat_map(|name| kscreen_settings(name, change)));
+        self.kscreen_doctor(settings)
+    }
+
+    /// Runs `kscreen-doctor` with `settings` as a client of the session.
+    fn kscreen_doctor(&self, settings: Vec<String>) -> Result<(), Error> {
         let output = self
             .client(OsStr::new(KSCREEN_DOCTOR))
             // Qt 5 picks X11 by default, and there is no X server here;
@@ -113,9 +185,10 @@ impl Session {
         let wrong: Vec<String> = client
             .output_names()
             .into_iter()
-            .filter_map(|name| {
+            .enumerate()
+            .filter_map(|(index, name)| {
                 let info = client.output_info(&name).unwrap_or_default();
-                mismatch(outputs, info).map(|why| format!("{name} {why}"))
+                mismatch(outputs, outputs.size(index), info).map(|why| format!("{name} {why}"))
             })
             .collect();
         if wrong.is_empty() {
@@ -147,9 +220,39 @@ impl Session {
     }
 }
 
-/// Why an output reporting `info` is not as `outputs` asks, if it is not.
-fn mismatch(outputs: Outputs, info: OutputInfo) -> Option<String> {
+/// The change of scale and transform `outputs` asks of each output.
+fn change_of(outputs: Outputs) -> OutputChange {
+    OutputChange {
+        scale: Some(outputs.scale.get()),
+        transform: Some(outputs.transform.get()),
+        position: None,
+    }
+}
+
+/// `size` as `KScreen` gives a mode: at 60 Hz, as KWin's virtual outputs
+/// run.
+fn kscreen_mode(size: OutputSize) -> Mode {
+    Mode {
+        width: size.width,
+        height: size.height,
+        refresh_mhz: 60_000,
+    }
+}
+
+/// Why an output reporting `info` is not as `outputs` asks, if it is not,
+/// `size` being the mode asked of it.
+fn mismatch(outputs: Outputs, size: OutputSize, info: OutputInfo) -> Option<String> {
     let (scale, transform) = (outputs.scale, outputs.transform);
+    let asked = (
+        i32::try_from(size.width).unwrap_or(i32::MAX),
+        i32::try_from(size.height).unwrap_or(i32::MAX),
+    );
+    if outputs.has_sizes()
+        && let Some(mode) = info.mode
+        && mode != asked
+    {
+        return Some(format!("has a {}x{} mode, not {size}", mode.0, mode.1));
+    }
     if info.transform != transform.get() {
         return Some(format!(
             "reports transform {}, not {transform}",
@@ -200,29 +303,69 @@ mod tests {
     }
 
     fn outputs(scale: &str, transform: &str) -> Outputs {
-        Outputs {
-            count: 1,
-            scale: scale.parse().unwrap(),
-            transform: transform.parse().unwrap(),
-        }
+        Outputs::new(1, scale.parse().unwrap(), transform.parse().unwrap())
+    }
+
+    /// An output asked for a size has a mode of that size; without one,
+    /// the mode is not judged (an output in a window takes the window's).
+    #[test]
+    fn an_output_asked_for_a_size_must_have_it() {
+        let size: OutputSize = "1920x1080".parse().unwrap();
+        let sized = Outputs::plain(1).sized(&[size]).unwrap();
+        let reported = |mode: (i32, i32)| OutputInfo {
+            mode: Some(mode),
+            logical_size: Some(mode),
+            ..info(1, mode)
+        };
+        assert_eq!(mismatch(sized, size, reported((1920, 1080))), None);
+        assert_eq!(
+            mismatch(sized, size, reported((1280, 720))).as_deref(),
+            Some("has a 1280x720 mode, not 1920x1080")
+        );
+        let plain = outputs("1", "normal");
+        assert_eq!(
+            mismatch(plain, OutputSize::DEFAULT, reported((1920, 1080))),
+            None
+        );
     }
 
     #[test]
     fn a_fractional_scale_is_told_from_the_whole_one_above() {
         let at = |scale| outputs(scale, "normal");
-        assert_eq!(mismatch(at("1.5"), info(2, (853, 480))), None);
-        assert_eq!(mismatch(at("1.5"), info(2, (854, 480))), None);
-        let rounded = mismatch(at("1.5"), info(2, (640, 360))).unwrap();
+        assert_eq!(
+            mismatch(at("1.5"), OutputSize::DEFAULT, info(2, (853, 480))),
+            None
+        );
+        assert_eq!(
+            mismatch(at("1.5"), OutputSize::DEFAULT, info(2, (854, 480))),
+            None
+        );
+        let rounded = mismatch(at("1.5"), OutputSize::DEFAULT, info(2, (640, 360))).unwrap();
         assert!(rounded.contains("640x360"), "{rounded}");
-        assert_eq!(mismatch(at("2"), info(2, (640, 360))), None);
-        assert!(mismatch(at("2"), info(2, (853, 480))).is_some());
+        assert_eq!(
+            mismatch(at("2"), OutputSize::DEFAULT, info(2, (640, 360))),
+            None
+        );
+        assert!(mismatch(at("2"), OutputSize::DEFAULT, info(2, (853, 480))).is_some());
     }
 
     #[test]
     fn the_whole_scale_must_match_too() {
-        let ignored = mismatch(outputs("2", "normal"), info(1, (1280, 720))).unwrap();
+        let ignored = mismatch(
+            outputs("2", "normal"),
+            OutputSize::DEFAULT,
+            info(1, (1280, 720)),
+        )
+        .unwrap();
         assert!(ignored.contains("whole scale 1"), "{ignored}");
-        assert_eq!(mismatch(outputs("1", "normal"), info(1, (1280, 720))), None);
+        assert_eq!(
+            mismatch(
+                outputs("1", "normal"),
+                OutputSize::DEFAULT,
+                info(1, (1280, 720))
+            ),
+            None
+        );
     }
 
     #[test]
@@ -231,16 +374,27 @@ mod tests {
             transform: Transform::Rotated90,
             ..info(2, (360, 640))
         };
-        assert_eq!(mismatch(outputs("2", "90"), turned), None);
-        let unturned = mismatch(outputs("2", "90"), info(2, (640, 360))).unwrap();
+        assert_eq!(
+            mismatch(outputs("2", "90"), OutputSize::DEFAULT, turned),
+            None
+        );
+        let unturned =
+            mismatch(outputs("2", "90"), OutputSize::DEFAULT, info(2, (640, 360))).unwrap();
         assert!(unturned.contains("transform normal, not 90"), "{unturned}");
         let wrong_size = OutputInfo {
             logical_size: Some((640, 360)),
             ..turned
         };
-        assert!(mismatch(outputs("2", "90"), wrong_size).is_some());
+        assert!(mismatch(outputs("2", "90"), OutputSize::DEFAULT, wrong_size).is_some());
         // Upright, a turned logical size is wrong.
-        assert!(mismatch(outputs("2", "normal"), info(2, (360, 640))).is_some());
+        assert!(
+            mismatch(
+                outputs("2", "normal"),
+                OutputSize::DEFAULT,
+                info(2, (360, 640))
+            )
+            .is_some()
+        );
     }
 
     #[test]
@@ -249,6 +403,6 @@ mod tests {
             logical_size: None,
             ..info(2, (0, 0))
         };
-        assert!(mismatch(outputs("2", "normal"), silent).is_some());
+        assert!(mismatch(outputs("2", "normal"), OutputSize::DEFAULT, silent).is_some());
     }
 }
