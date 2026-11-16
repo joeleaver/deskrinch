@@ -47,7 +47,7 @@ pub(crate) fn view(
             value: {move || model.with(|m| m.query().to_owned())},
             oninput: move |text: String| on_query(text),
             onkeydown: move |key| on_key(&key.key),
-            onfocus: move || on_focus(),
+            onfocus: on_focus,
         }
     };
     let content = rsx! {
