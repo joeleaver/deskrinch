@@ -63,30 +63,22 @@ impl Meter for CpuMeter {
 }
 
 /// The instructions Callgrind counts in the program over a span: zeroed at
-/// its start, dumped at its end, the dump read.
+/// its start, dumped at its end with the span's name as the hint, and read
+/// from the dump that names it.
 pub(crate) struct CallgrindMeter<'a> {
     control: &'a dyn Fn() -> Command,
     pid: String,
     out: &'a Path,
-    /// The dumps asked for so far in this run, which Callgrind numbers in
-    /// that order.
-    dumps: &'a mut u32,
 }
 
 impl<'a> CallgrindMeter<'a> {
     /// A meter of process `pid`, run under Callgrind writing to `out`,
-    /// asked through `control`; `dumps` counts the run's dumps.
-    pub(crate) fn new(
-        control: &'a dyn Fn() -> Command,
-        pid: u32,
-        out: &'a Path,
-        dumps: &'a mut u32,
-    ) -> Self {
+    /// asked through `control`.
+    pub(crate) fn new(control: &'a dyn Fn() -> Command, pid: u32, out: &'a Path) -> Self {
         Self {
             control,
             pid: pid.to_string(),
             out,
-            dumps,
         }
     }
 }
@@ -105,8 +97,6 @@ impl Meter for CallgrindMeter<'_> {
     }
 
     fn stop(&mut self, name: &str) -> Result<u64, Error> {
-        callgrind::control(self.control, &["--dump", name, &self.pid])?;
-        *self.dumps += 1;
-        callgrind::totals(self.out, *self.dumps)
+        callgrind::dump(self.control, &self.pid, self.out, name)
     }
 }
