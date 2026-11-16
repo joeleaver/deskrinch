@@ -129,7 +129,16 @@ fn a_loop_that_does_not_end_is_ended_by_the_signal_after_the_bound() {
         ended.after
     );
     assert!(ended.said.contains(&asked_line(SIGTERM)), "{}", ended.said);
-    assert!(ended.said.contains(&bound_line(SIGTERM)), "{}", ended.said);
+    let line = bound_line(SIGTERM, SHORT_BOUND);
+    assert!(ended.said.contains(&line), "{}", ended.said);
+    assert!(
+        ended
+            .said
+            .lines()
+            .any(|said| said.contains(&line) && said.contains(" WARN ")),
+        "the bound's line is not a warning: {}",
+        ended.said
+    );
 }
 
 #[test]

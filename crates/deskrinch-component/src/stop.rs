@@ -18,9 +18,15 @@
 //!   twice, is not kept waiting. (`SIGKILL` is never caught.)
 //! - **A stuck loop:** if the process is still running [`BOUND`] after the
 //!   first signal, the thread ends it by that signal's default action,
-//!   saying so first ([`bound_line`]). Nothing makes a component
-//!   unkillable by one `SIGTERM`; deskrinch-shell's restart rules read an
-//!   end by any of the three as clean, as they always have.
+//!   saying so first as a warning ([`bound_line`]). Nothing makes a
+//!   component unkillable by one `SIGTERM`; deskrinch-shell's restart rules
+//!   read an end by any of the three as clean, as they always have.
+//!
+//! The asked line is at info level: being asked to stop is the normal end
+//! of a component, not worth a reader's attention by default. The bound's
+//! line is a warning: a component that had to be ended by the bound has a
+//! fault (its loop was stuck, or its end took longer than it may), and a
+//! reader of its log sees it with the default filter (`warn`).
 //! - **A signal ignored when the process started** stays ignored. A
 //!   component started under `nohup`, or by a shell that ignores `SIGINT`
 //!   for a background job, inherits `SIG_IGN`, and installing a handler
@@ -60,12 +66,12 @@ pub fn asked_line(signal: i32) -> String {
     deskrinch_shell::exit_status::asked_to_stop_line(name(signal))
 }
 
-/// The line said when the process, asked to stop by `signal`, has not
-/// ended within the bound and is ended by the signal.
+/// The line said, as a warning, when the process, asked to stop by
+/// `signal`, has not ended within `bound` and is ended by the signal.
 #[must_use]
-pub fn bound_line(signal: i32) -> String {
+pub fn bound_line(signal: i32, bound: Duration) -> String {
     format!(
-        "still running {BOUND:?} after {}; ending by it",
+        "still running {bound:?} after {}; ending by it",
         name(signal)
     )
 }
@@ -94,14 +100,16 @@ pub fn install_once(ask: impl Fn() + Send + 'static, bound: Duration) -> Result<
     INSTALLED.get_or_init(|| install(ask, bound)).clone()
 }
 
-/// Why the stop could not be installed.
+/// Why the stop could not be installed: a handler could not be registered
+/// or the signal thread started. Shared (`Arc`), so that the one result
+/// [`install_once`] keeps can be handed to each caller.
 #[derive(Debug, Clone, thiserror::Error)]
-#[error("could not install the handler for the signals that stop a component: {0}")]
-pub struct StopError(String);
+#[error("could not register the handlers or start their thread")]
+pub struct StopError(#[source] Arc<io::Error>);
 
 impl From<io::Error> for StopError {
     fn from(error: io::Error) -> Self {
-        Self(error.to_string())
+        Self(Arc::new(error))
     }
 }
 
@@ -130,7 +138,7 @@ fn install(ask: impl Fn() + Send + 'static, bound: Duration) -> Result<(), StopE
             tracing::info!("{}", asked_line(signal));
             ask();
             std::thread::sleep(bound);
-            tracing::info!("{}", bound_line(signal));
+            tracing::warn!("{}", bound_line(signal, bound));
             // Ends the process by the signal's default action.
             drop(emulate_default_handler(signal));
         })?;

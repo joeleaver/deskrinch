@@ -115,7 +115,11 @@ where
     F: FnOnce(&mut RenderScope) -> NodeHandle + 'static,
 {
     if let Err(error) = crate::stop::install_once(rinch::exit, crate::stop::BOUND) {
-        crate::report::error("asked to stop, it would end by the signal instead", &error);
+        crate::report::error(
+            "installing the handlers for the signals that stop a component (asked to stop, it \
+             ends by the signal instead)",
+            &error,
+        );
     }
     match app.try_run() {
         Ok(()) => ExitCode::SUCCESS,
