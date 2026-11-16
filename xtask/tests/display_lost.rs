@@ -3,10 +3,18 @@
 //! deskrinch-shell's `DISPLAY_LOST` status, having said
 //! `DISPLAY_LOST_LINE`.
 //!
-//! Each test runs the component in a session of its own ([`in_session`]):
-//! once it has drawn its first frame (presented, or prepared for the
-//! launcher started hidden), the session's compositor is killed, and the
-//! component's status and what it said are read.
+//! Each test runs the component in a session of its own ([`in_session`]),
+//! granted what the shell grants it: once it has drawn its first frame
+//! (presented, or prepared for the launcher started hidden), the session's
+//! compositor is killed, and the component's status and what it said are
+//! read.
+//!
+//! Up to the moment the compositor was ended, the component must have
+//! logged nothing at error level: it started as it starts on the desktop.
+//! What it says after is its own matter (the display-lost line is a
+//! warning by design, and a part of it that had a connection of its own
+//! may say that connection ended), so the cut is that moment, which
+//! `cargo xtask in-session` records, not a line the component writes.
 
 #[cfg(test)]
 mod in_session;
@@ -31,6 +39,11 @@ mod lost {
             ended.said.contains(DISPLAY_LOST_LINE),
             "{package} did not say {DISPLAY_LOST_LINE:?}; it said:\n{}",
             ended.said
+        );
+        assert!(
+            !ended.before().contains(" ERROR "),
+            "{package} logged an error before its display went away; it said then:\n{}",
+            ended.before()
         );
     }
 

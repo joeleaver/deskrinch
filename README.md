@@ -282,6 +282,15 @@ cleanly. `--outputs N` sets the number of outputs (1280x720 each), `--keep`
 keeps the session's directory (with the compositor's log);
 `cargo xtask session --help` has the details.
 
+`--grant PACKAGE=PATH` (repeatable) grants one of the shell's components,
+run from the executable `PATH`, what `deskrinch-shell` grants it, as the
+desktop and `cargo xtask measure` do: the panel run as
+`--grant deskrinch-panel=target/debug/deskrinch-panel` sees KWin's window
+list. Under KWin its desktop file is installed in the session's data
+directory before KWin starts, since KWin sees one installed later only once
+its service cache is refreshed; sway and labwc restrict nothing, and it
+does nothing there.
+
 `--scale S` (a positive decimal, such as `2` or `1.5`) puts every output at
 that scale before the command starts, so it never sees scale 1: sway through
 its configuration, labwc through `wlr-output-management`, and KWin with KDE's
