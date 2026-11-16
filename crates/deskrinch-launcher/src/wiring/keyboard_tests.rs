@@ -4,19 +4,12 @@
 //! show, and takes it with each hide, as the compositor does.
 
 use deskrinch_launcher::HAS_KEYBOARD;
-use tracing::subscriber::DefaultGuard;
+use deskrinch_test_log::Capture;
 
-use super::tests::{Log, Mount, Wired, wired, wired_as};
-
-/// The log, kept for the rest of the test.
-fn logged() -> (Log, DefaultGuard) {
-    let log = Log::default();
-    let guard = tracing::subscriber::set_default(log.clone());
-    (log, guard)
-}
+use super::tests::{Mount, Wired, wired, wired_as};
 
 /// How many times the line was said.
-fn said(log: &Log) -> usize {
+fn said(log: &Capture) -> usize {
     log.lines()
         .iter()
         .filter(|line| line.as_str() == HAS_KEYBOARD)
@@ -34,7 +27,7 @@ fn hide_and_show(wired: &mut Wired) {
 
 #[test]
 fn started_shown_it_says_it_has_the_keyboard_once() {
-    let (log, _guard) = logged();
+    let log = deskrinch_test_log::capture();
     let mut wired = wired(true);
     wired.app.settle();
     assert_eq!(said(&log), 1, "{:?}", log.lines());
@@ -42,7 +35,7 @@ fn started_shown_it_says_it_has_the_keyboard_once() {
 
 #[test]
 fn each_show_says_it_once() {
-    let (log, _guard) = logged();
+    let log = deskrinch_test_log::capture();
     let mut wired = wired(true);
     wired.app.settle();
     hide_and_show(&mut wired);
@@ -53,7 +46,7 @@ fn each_show_says_it_once() {
 
 #[test]
 fn the_field_taking_the_focus_back_within_a_show_says_nothing_more() {
-    let (log, _guard) = logged();
+    let log = deskrinch_test_log::capture();
     let mut wired = wired_as(Mount {
         shown: true,
         made_shown: true,
@@ -68,7 +61,7 @@ fn the_field_taking_the_focus_back_within_a_show_says_nothing_more() {
 
 #[test]
 fn nothing_is_said_before_the_field_has_the_focus() {
-    let (log, _guard) = logged();
+    let log = deskrinch_test_log::capture();
     // Hidden, with the window's keyboard (the harness gives it at the
     // mount) and the field not focused.
     let mut wired = wired(false);
@@ -82,7 +75,7 @@ fn nothing_is_said_before_the_field_has_the_focus() {
 
 #[test]
 fn nothing_is_said_while_another_element_has_the_focus() {
-    let (log, _guard) = logged();
+    let log = deskrinch_test_log::capture();
     // The window has the keyboard (the harness gives it at the mount); the
     // field is not focused, and another element takes the focus.
     let mut wired = wired_as(Mount {

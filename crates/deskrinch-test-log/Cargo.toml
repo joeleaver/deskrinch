@@ -1,0 +1,15 @@
+[package]
+name = "deskrinch-test-log"
+description = "What a test's own thread logged through `tracing`, captured by one subscriber for the whole test process."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+[lints]
+workspace = true
