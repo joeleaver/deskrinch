@@ -1026,6 +1026,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-dbus",
+ "deskrinch-test-notify",
  "deskrinch-test-wait",
  "deskrinch-untrusted",
  "futures-core",
@@ -1195,6 +1196,15 @@ dependencies = [
  "deskrinch-test-wait",
  "rustix",
  "tempfile",
+]
+
+[[package]]
+name = "deskrinch-test-notify"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-wait",
+ "futures-core",
+ "zbus 6.2.1",
 ]
 
 [[package]]

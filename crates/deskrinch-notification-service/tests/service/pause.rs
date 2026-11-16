@@ -2,7 +2,7 @@
 
 use std::time::Duration;
 
-use crate::common::{Client, PrivateBus, Signal, id, start};
+use crate::common::{PrivateBus, Signal, id, start};
 use crate::time::Time;
 use deskrinch_notification_service::OperationError;
 
@@ -10,7 +10,7 @@ use deskrinch_notification_service::OperationError;
 fn a_paused_notification_expires_only_after_it_resumes() {
     let bus = PrivateBus::start();
     let (service, events, clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let time = Time {
         client: &client,
         clock: &clock,
@@ -33,7 +33,7 @@ fn a_paused_notification_expires_only_after_it_resumes() {
 fn a_paused_notification_still_closes_when_dismissed() {
     let bus = PrivateBus::start();
     let (service, _events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let n = client.simple(0, "a", "", 1000);
     let handle = service.handle();
     handle.pause(id(n)).unwrap();

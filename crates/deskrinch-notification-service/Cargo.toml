@@ -23,6 +23,8 @@ zbus = { workspace = true, features = ["default-rt", "service", "proxy"] }
 [dev-dependencies]
 deskrinch-test-wait.workspace = true
 deskrinch-test-dbus.workspace = true
+# The client of the interface the tests send with, and its signals.
+deskrinch-test-notify.workspace = true
 # The property tests' shared configuration.
 deskrinch-untrusted = { workspace = true, features = ["proptest"] }
 proptest.workspace = true
