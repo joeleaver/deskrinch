@@ -41,6 +41,9 @@ tracing.workspace = true
 
 [dev-dependencies]
 deskrinch-test-log.workspace = true
+# Pictures with an EXIF orientation or a colour profile, for the compositor
+# tests.
+deskrinch-test-pictures.workspace = true
 deskrinch-test-wait.workspace = true
 # The compositor tests: the session's outputs, turned, and turned off and
 # on; the wallpaper started and watched; the screen captured.

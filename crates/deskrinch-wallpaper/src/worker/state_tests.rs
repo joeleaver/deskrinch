@@ -21,10 +21,6 @@ enum File {
 }
 
 /// A state whose decoder reads `file`, counting its decodes.
-#[expect(
-    clippy::type_complexity,
-    reason = "a test's decoder closure, named once"
-)]
 fn state(
     file: &Rc<RefCell<File>>,
     decodes: &Rc<RefCell<u32>>,
@@ -271,4 +267,26 @@ fn a_burst_is_one_step_and_one_decode() {
     assert_eq!(*decodes.borrow(), 1);
     assert_eq!(shown.pictures.len(), 1);
     assert_eq!(names(&shown).len(), 2);
+}
+
+#[test]
+fn a_file_missing_at_the_first_load_cannot_be_shown_rather_than_gone() {
+    let (file, decodes) = files();
+    *file.borrow_mut() = File::Gone;
+    let mut state = state(&file, &decodes);
+    let capture = deskrinch_test_log::capture();
+    assert_eq!(
+        state.step([wanted(Fit::Cover, &[(1, surface(1280, 720))])]),
+        None
+    );
+    let lines = capture.lines();
+    assert_eq!(lines.len(), 1, "{lines:?}");
+    assert!(
+        lines[0].starts_with(&format!("wallpaper: cannot show {PICTURE}: the file: ")),
+        "{lines:?}"
+    );
+    assert!(
+        lines[0].ends_with("; showing the colour alone"),
+        "{lines:?}"
+    );
 }

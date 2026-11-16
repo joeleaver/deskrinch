@@ -185,7 +185,7 @@ fn axis(length: u32, shown: u32, centred: bool) -> (u32, u32) {
     if !centred {
         return (0, shown);
     }
-    let part = if (length - shown) % 2 == 0 {
+    let part = if (length - shown).is_multiple_of(2) {
         shown
     } else {
         shown + 1
@@ -199,7 +199,7 @@ fn axis(length: u32, shown: u32, centred: bool) -> (u32, u32) {
 /// pixel. Of two as near, the shorter. Where no length of that parity is
 /// within `most`, `most` itself.
 fn parity_nearest(exact: f64, side: u32, most: u32) -> u32 {
-    let smallest = if side % 2 == 0 { 2 } else { 1 };
+    let smallest = if side.is_multiple_of(2) { 2 } else { 1 };
     // Candidates of that parity: `smallest + 2k`.
     let k = ((exact - f64::from(smallest)) / 2.0).max(0.0);
     #[expect(

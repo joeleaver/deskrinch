@@ -10,6 +10,15 @@
 //!   of the settings repaints every output; a picture is fitted as `fit`
 //!   says; a picture that cannot be shown leaves the colour and is
 //!   reported with its path.
+//! - [`exact`]: a picture larger than its output, covered or contained, is
+//!   drawn one device pixel per pixel, as `deskrinch-picture` fitted it at
+//!   the output's device size, in every pass.
+//! - [`file`]: the picture's file replaced whole or rewritten in place is
+//!   shown; replaced by one that cannot be shown, the last good picture
+//!   stays and is said; taken away, the colour; over the wallpaper's
+//!   limits (a side, the decoded size, the file's size), the colour and
+//!   which limit; a picture stored turned is shown upright, and one with a
+//!   colour profile converted.
 //! - [`first_frame`]: each window's first frame is drawn at its output's
 //!   scale.
 //! - [`layers`]: a window is above the wallpaper, and so is the panel.
@@ -56,6 +65,10 @@
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
 #[cfg(test)]
 mod cover;
+#[cfg(test)]
+mod exact;
+#[cfg(test)]
+mod file;
 #[cfg(test)]
 mod first_frame;
 #[cfg(test)]

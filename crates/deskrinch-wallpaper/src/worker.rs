@@ -50,6 +50,12 @@ impl Worker {
                 while let Ok(first) = inputs.recv() {
                     let more = inputs.try_iter();
                     if let Some(shown) = state.step(std::iter::once(first).chain(more)) {
+                        tracing::debug!(
+                            "wallpaper: {} images for {} outputs: {:?}",
+                            shown.pictures.len(),
+                            shown.names.len(),
+                            shown.names
+                        );
                         deliver.deliver(shown);
                     }
                 }
@@ -59,6 +65,7 @@ impl Worker {
 
     /// What the UI wants now.
     pub(crate) fn want(&self, wanted: Wanted) {
+        tracing::debug!("wallpaper: wanted {wanted:?}");
         // The worker ends only when every sender is gone, and this one is
         // not: the send cannot fail.
         self.input.send(Input::Wanted(wanted)).ok();

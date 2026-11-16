@@ -159,7 +159,7 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
                 self.picture = Some(image);
                 Read::Fresh
             }
-            Err(error) if gone(&error) => {
+            Err(error) if gone(&error) && self.size.is_some() => {
                 tracing::warn!(
                     "wallpaper: {} is gone; showing the colour alone",
                     path.display()
