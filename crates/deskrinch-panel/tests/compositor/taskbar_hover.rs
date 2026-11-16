@@ -99,9 +99,11 @@ fn hover(scheme: &str, apart: bool) {
         "red's button is not the bar's colour before the pointer: {before:?} against {:?}",
         colours.plain
     );
+    let window = bar.panel().window_on(bar.output());
     frames::until_clean_round(
         &mut bar,
         Bar::panel,
+        &window,
         |bar| point_onto(bar, red, &colours),
         |bar| point_off(bar, red, &colours),
     );

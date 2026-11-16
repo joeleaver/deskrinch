@@ -1,10 +1,19 @@
-//! The panel's root: its settings as a signal, the window following them,
-//! and what the widgets share.
+//! The panel's root: its settings as a signal, a bar on every output, and
+//! what the bars share.
 //!
-//! The settings the panel started with made its window. Every later change
-//! from the configuration arrives in a `Signal<PanelSettings>`, which the
-//! widgets read through the context. A change of edge or height moves the
-//! window ([`surface::place`]); anything else leaves it alone.
+//! The root is the document of an app with no window of its own
+//! (`App::windowless`): it holds one `Window` per output, a row of a `for`
+//! over rinch's `output_ids()`, keyed by the id, each a bar
+//! ([`output_bar`]). The row's item is the output's id alone, not rinch's
+//! whole `Output`, which changes with the output's position, size and scale:
+//! an output moved, rescaled or turned keeps its row and its window, whose
+//! layer surface the compositor reconfigures; only an output coming or
+//! going adds or removes a row ([`surface`]'s "When a window closes").
+//!
+//! Every change of the settings arrives in a `Signal<PanelSettings>`, which
+//! the widgets read through the context. A change of edge or height moves
+//! every bar, each from an effect of its own window ([`surface::place`]);
+//! anything else leaves them alone.
 //!
 //! The installed applications and the icon theme's index, followed
 //! (`deskrinch-applications`), are the taskbar's icons, also through the
@@ -24,6 +33,7 @@ use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::{Inbox, LiveSettings};
 use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
+use rinch::OutputId;
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
@@ -70,17 +80,45 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     create_context(Rc::new(workspaces));
     create_context(buttons.into_signal(Arc::default()));
     create_context(runs.into_signal(Arc::default()));
-    // Where the window was made.
-    let mut placed = Placement::of(&live.initial);
     let settings = live.into_signal();
     create_context(settings);
     // The panel's one clock; its faces read the text.
     create_context(follow_clock(settings));
     let placement = Memo::new(move || Placement::of(&settings.get()));
+    rsx! {
+        div {
+            for id in output_ids() {
+                Window {
+                    key: id,
+                    title: surface::TITLE.to_owned(),
+                    width: surface::FIRST_WIDTH,
+                    height: untracked(|| placement.get()).height.get(),
+                    borderless: true,
+                    app_id: Some(surface::NAMESPACE.to_owned()),
+                    wayland_layer: Some(surface::layer_surface(untracked(|| placement.get()), id)),
+                    on_closed: move || surface::closed(id),
+                    {output_bar(__scope, id, placement)}
+                }
+            }
+        }
+    }
+}
+
+/// The bar on the output whose id is `output`, inside that output's window:
+/// it follows `placement`, moving its window when the edge or height
+/// changes ([`surface::place`], from an effect of this window's, so that
+/// rinch's current window is this one).
+fn output_bar(
+    __scope: &mut RenderScope,
+    output: OutputId,
+    placement: Memo<Placement>,
+) -> NodeHandle {
+    // Where the window was made: the placement when its row was drawn.
+    let mut placed = untracked(|| placement.get());
     Effect::new(move || {
         let wanted = placement.get();
         if wanted != placed {
-            surface::place(wanted);
+            surface::place(wanted, output);
             placed = wanted;
         }
     });

@@ -260,6 +260,11 @@ impl Bar {
     }
 
     /// The panel, for its log.
+    /// The output the bar under test is on.
+    pub(crate) fn output(&self) -> &str {
+        &self.output
+    }
+
     pub(crate) fn panel(&self) -> &Panel {
         &self.panel
     }

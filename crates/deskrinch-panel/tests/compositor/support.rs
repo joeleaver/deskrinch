@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_component::{Component, Renderer, Watch, programs};
+use deskrinch_test_component::{Component, PerfWindow, Renderer, Watch, log, programs};
 use deskrinch_test_screen::{Image, Screen};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
@@ -93,14 +93,72 @@ impl Panel {
     }
 
     /// [`start`](Self::start), with `command` (from
-    /// [`command`](Self::command)).
+    /// [`command`](Self::command)): returns once each of the session's
+    /// outputs has a bar whose window has presented its first frame
+    /// (rinch's per-window lines, `[PERF] window N frame`), having checked
+    /// that the run's renderer is what presented.
     pub(crate) fn start_with(command: Command) -> Self {
         let renderer = Renderer::of_run();
         let component = Component::start(command, renderer).unwrap();
-        if let Err(why) = component.wait_presented_with(renderer) {
-            panic!("the panel: {why}");
-        }
+        let watch = component.watch();
+        let said = watch.wait_for_line(PATIENCE, |line| {
+            log::presents_with_software(line) || log::adapter(line).is_some()
+        });
+        assert!(
+            said,
+            "the panel never said what it presents with; its last lines:\n{}",
+            watch.tail()
+        );
+        let as_asked = match renderer {
+            Renderer::Software => watch.presents_with_software(),
+            Renderer::Gpu => {
+                !watch.presents_with_software()
+                    && watch
+                        .adapter()
+                        .is_some_and(|adapter| !adapter.is_software())
+            }
+        };
+        assert!(
+            as_asked,
+            "the panel was to present with the {} renderer; its last lines:\n{}",
+            renderer.env(),
+            watch.tail()
+        );
+        let outputs = TestClient::connect().unwrap().output_names().len();
+        assert!(
+            watch.wait_first_frames(outputs, PATIENCE).is_some(),
+            "the panel did not present a frame in a bar on each of {outputs} outputs; its \
+             windows: {:?}",
+            watch.windows()
+        );
         Self { component }
+    }
+
+    /// The bars open now: each window and the output its `opened` line
+    /// names.
+    pub(crate) fn bars(&self) -> Vec<(PerfWindow, String)> {
+        self.component
+            .watch()
+            .windows()
+            .into_iter()
+            .filter(|state| !state.closed)
+            .filter_map(|state| Some((state.window, state.opened?.output?)))
+            .collect()
+    }
+
+    /// The window of the bar on the output `output`.
+    ///
+    /// # Panics
+    ///
+    /// When no bar is open there.
+    pub(crate) fn window_on(&self, output: &str) -> PerfWindow {
+        self.bars()
+            .into_iter()
+            .find(|(_, on)| on == output)
+            .map_or_else(
+                || panic!("no bar on {output}: {:?}", self.bars()),
+                |(window, _)| window,
+            )
     }
 
     /// The panel's last lines of output, for a failure to show.

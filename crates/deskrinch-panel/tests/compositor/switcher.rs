@@ -249,6 +249,7 @@ impl Pager {
         // From the last, so that making the first current is a change.
         self.activate(&shown[shown.len() - 1]);
         let mut previous = self.wait_mark("the last workspace's mark", |m| m.is_some());
+        let window = self.panel.window_on(&self.output);
         let mut from = frames::step(&self.panel);
         let deadline = Deadline::patience();
         let mut boxes: Vec<Option<Columns>> = vec![None; shown.len()];
@@ -260,7 +261,7 @@ impl Pager {
                 let mark = self.wait_mark(&format!("{}'s mark", workspace.name), |m| {
                     m.is_some() && (m != previous || shown.len() == 1)
                 });
-                let (drawn, end) = frames::drawn_since(&self.panel, from);
+                let (drawn, end) = frames::drawn_since(&self.panel, &window, from);
                 from = end;
                 assert!(
                     !drawn.is_empty(),
@@ -349,9 +350,11 @@ fn the_button_under_the_pointer_is_marked_until_it_leaves() {
     // the left once the pointer is on it.
     let first = boxes[0];
     let last = boxes[boxes.len() - 1];
+    let window = pager.panel.window_on(&pager.output);
     frames::until_clean_round(
         &mut pager,
         |pager| &pager.panel,
+        &window,
         |pager| {
             pager.point_at(first);
             let mark = pager.wait_mark("the first button marked under the pointer", |m| {

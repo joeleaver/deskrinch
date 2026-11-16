@@ -1,15 +1,19 @@
-//! `deskrinch-panel`: the desktop panel, a bar along an edge of the output
-//! that windows keep clear of, with the workspace switcher, the taskbar
-//! and, at its end, the clock.
+//! `deskrinch-panel`: the desktop panel, a bar along an edge of every
+//! output that windows keep clear of, with the workspace switcher, the
+//! taskbar and, at its end, the clock.
 //!
-//! - The window is a `wlr-layer-shell` surface (see [`surface`]): the full
-//!   width of the output, along its bottom or top edge, reserving its
-//!   height. rinch makes it one through `WindowProps::wayland_layer`; on a
-//!   compositor without the layer shell (GNOME) rinch falls back to an
-//!   ordinary window, with a warning.
+//! - One process for all the outputs: an app with no window of its own
+//!   that keeps one bar per output ([`panel`]), following outputs added,
+//!   removed, moved, rescaled and turned without a restart. The bars share
+//!   one Wayland connection, one clock and one copy of what they show.
+//! - Each bar's window is a `wlr-layer-shell` surface on its output (see
+//!   [`surface`]): the full width of the output, along its bottom or top
+//!   edge, reserving its height. rinch makes it one through
+//!   `WindowProps::wayland_layer`; on a compositor without the layer shell
+//!   (GNOME) rinch falls back to an ordinary window, with a warning.
 //! - The content is the [`bar`]: the workspace switcher, the taskbar,
 //!   taking the room the other [`widgets`] leave, and the end region with
-//!   the clock.
+//!   the clock. Every bar shows every window for now.
 //!
 //! # The workspace switcher
 //!
@@ -106,7 +110,6 @@ fn main() -> ExitCode {
     let configuration = Configuration::start(&base_dirs);
     let live = configuration.follow::<PanelSettings>();
     let theme = Theme::start(&configuration, Bus::Session);
-    let window = surface::window_props(surface::Placement::of(&live.initial));
     let first_theme = theme.initial();
     let env = Environment::from_process();
     let (windows, buttons, follow_windows) = widgets::FollowedWindows::new();
@@ -123,8 +126,7 @@ fn main() -> ExitCode {
         runs,
     };
     deskrinch_component::app::run(
-        deskrinch_component::app::new(move |scope| panel::panel(scope, parts))
-            .window_props(window)
+        deskrinch_component::app::windowless(move |scope| panel::panel(scope, parts))
             .theme(first_theme),
     )
 }
