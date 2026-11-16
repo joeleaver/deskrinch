@@ -2,8 +2,8 @@
 //! the query field's own `focus` event, once per show; and where a key goes
 //! once a press elsewhere in the launcher has taken the focus from the
 //! field. In rinch's test harness, which gives the window the keyboard at
-//! its mount; a show's keyboard is given and taken with `window_focus`, as
-//! the compositor does.
+//! its mount and with each show, and takes it with each hide, as the
+//! compositor does.
 
 use deskrinch_launcher::HAS_KEYBOARD;
 use rinch::prelude::*;
@@ -26,16 +26,12 @@ fn said(log: &Log) -> usize {
         .count()
 }
 
-/// Ends the show and starts another, as the shell and the compositor do:
-/// the launcher hidden and the window's keyboard taken, then shown and
-/// given it again.
+/// Ends the show and starts another: the launcher hidden (its window, and
+/// so its keyboard, taken), then shown again.
 fn hide_and_show(wired: &mut Wired) {
     wired.visibility.hide();
     wired.app.settle();
-    wired.app.window_focus(false);
     wired.visibility.show();
-    wired.app.settle();
-    wired.app.window_focus(true);
     wired.app.settle();
 }
 
@@ -90,28 +86,20 @@ fn nothing_is_said_before_the_field_has_the_focus() {
 #[test]
 fn nothing_is_said_while_another_element_has_the_focus() {
     let (log, _guard) = logged();
+    // The window has the keyboard (the harness gives it at the mount); the
+    // field is not focused, and another element takes the focus.
     let mut wired = wired_as(Mount {
-        shown: true,
-        made_shown: true,
+        shown: false,
+        made_shown: false,
         other: true,
     });
-    wired.app.settle();
-    assert_eq!(said(&log), 1, "{:?}", log.lines());
-    // A new show, whose field focus another element takes before the
-    // window has the keyboard: the keyboard comes to that element.
-    wired.visibility.hide();
-    wired.app.settle();
-    wired.app.window_focus(false);
-    wired.visibility.show();
-    wired.app.settle();
     wired.app.focus(".other");
-    wired.app.window_focus(true);
     wired.app.settle();
-    assert_eq!(said(&log), 1, "{:?}", log.lines());
+    assert_eq!(said(&log), 0, "{:?}", log.lines());
     // The field taking it says so, once.
     wired.app.focus(".launcher-query");
     wired.app.settle();
-    assert_eq!(said(&log), 2, "{:?}", log.lines());
+    assert_eq!(said(&log), 1, "{:?}", log.lines());
 }
 
 /// A press off the field, `press`, made after "te" is typed into the shown

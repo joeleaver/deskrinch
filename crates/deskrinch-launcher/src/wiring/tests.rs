@@ -3,11 +3,9 @@
 //! the desktop shell sends it, and what reached the model, `act` and the
 //! log read back. What needs a compositor (the window shown and hidden, the
 //! activation token, the application started) is the compositor tests'. So
-//! is what follows the window's keyboard focus (hiding when it is lost):
-//! `TestApp` sends the focus change but does not publish it to
-//! `rinch::window::window_focused`, as the desktop shell does. The
-//! has-keyboard line, which follows the field's focus, is
-//! [`super::keyboard_tests`]'.
+//! is what follows the window's keyboard focus (hiding when it is lost, the
+//! has-keyboard line): `TestApp` sends the focus change but does not publish
+//! it to `rinch::window::window_focused`, as the desktop shell does.
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
