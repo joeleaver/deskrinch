@@ -6,7 +6,7 @@
 //!   (bold, italic, underlined): the service parsed the sender's markup, so
 //!   nothing a sender wrote is ever markup here. A long body is cut short
 //!   after [`BODY_LINES`](crate::policy::BODY_LINES) lines.
-//! - The actions ([`actions`](crate::actions)); a click on the summary or
+//! - The actions ([`actions`]); a click on the summary or
 //!   body invokes the default one, when there is one.
 //! - A critical notification has the theme's red border.
 //!

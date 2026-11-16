@@ -7,7 +7,7 @@
 //!   are none: the space around the popups is the column's own padding,
 //!   the theme's spacing.
 //! - Sized by its content (rinch's `size_to_content`): the column is
-//!   [`WIDTH`](crate::policy::WIDTH) wide, which is also the window's
+//!   [`WIDTH`] wide, which is also the window's
 //!   maximum, and as high as its popups, at most the output's height; a
 //!   column taller than that scrolls.
 //! - Transparent: nothing paints but each popup its own background. Every
