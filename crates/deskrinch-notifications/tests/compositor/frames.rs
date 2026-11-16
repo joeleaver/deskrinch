@@ -14,7 +14,7 @@ use deskrinch_test_component::drew;
 use deskrinch_test_notify::Signal;
 use deskrinch_test_wait::comes_true;
 
-use crate::support::Notifications;
+use crate::support::{Notifications, close_button};
 
 /// How long the daemon is watched for a frame it must not draw: a frame
 /// asked for by a change comes within a few of the compositor's refreshes.
@@ -132,6 +132,28 @@ fn the_waiting_set_changing_is_one_frame() {
         presented(&notifications.daemon().watch().lines(), mark),
         1,
         "a close bringing a waiting one back:\n{}",
+        notifications.daemon().watch().tail()
+    );
+}
+
+/// A pointer resting on a button draws nothing: no tooltip, no frame. Its
+/// coming may draw (a hover style); once it has come, nothing.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn a_pointer_resting_on_a_button_draws_nothing() {
+    let mut notifications = Notifications::start();
+    notifications.client.simple(0, "Rest", "on its close button", 0);
+    let column = notifications.column("the popup", |c| c.popups.len() == 1);
+    let image = notifications.picture(&column);
+    let (x, y) = close_button(&image, &column, column.popups[0], notifications.scale);
+    notifications.point(&column, x, y);
+    std::thread::sleep(QUIET);
+    let mark = notifications.daemon().watch().lines().len();
+    std::thread::sleep(QUIET);
+    assert_eq!(
+        presented(&notifications.daemon().watch().lines(), mark),
+        0,
+        "frames while the pointer rested on the close button:\n{}",
         notifications.daemon().watch().tail()
     );
 }

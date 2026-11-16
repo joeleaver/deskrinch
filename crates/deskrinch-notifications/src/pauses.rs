@@ -9,7 +9,7 @@
 //! paused, and a pointer leaving a popup that is now waiting does not
 //! resume it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use deskrinch_notification_service::NotificationId;
 
@@ -33,27 +33,29 @@ pub(crate) enum Tell {
     Nothing,
 }
 
-/// Each notification's reasons to be held.
+/// Each notification's reasons to be held: a notification is in the map
+/// exactly while some reason holds it.
 #[derive(Debug, Default)]
 pub(crate) struct Pauses {
-    reasons: BTreeMap<NotificationId, (bool, bool)>,
+    reasons: BTreeMap<NotificationId, BTreeSet<Reason>>,
 }
 
 impl Pauses {
     /// `reason` now holds `id` (`on`) or no longer does; what to tell the
     /// service.
     pub(crate) fn set(&mut self, id: NotificationId, reason: Reason, on: bool) -> Tell {
-        let entry = self.reasons.entry(id).or_default();
-        let before = entry.0 || entry.1;
-        match reason {
-            Reason::Pointer => entry.0 = on,
-            Reason::Waiting => entry.1 = on,
+        let reasons = self.reasons.entry(id).or_default();
+        let held_before = !reasons.is_empty();
+        if on {
+            reasons.insert(reason);
+        } else {
+            reasons.remove(&reason);
         }
-        let after = entry.0 || entry.1;
-        if !after {
+        let held_after = !reasons.is_empty();
+        if !held_after {
             self.reasons.remove(&id);
         }
-        match (before, after) {
+        match (held_before, held_after) {
             (false, true) => Tell::Pause,
             (true, false) => Tell::Resume,
             _ => Tell::Nothing,
@@ -71,10 +73,7 @@ impl Pauses {
     fn holds(&self, id: NotificationId, reason: Reason) -> bool {
         self.reasons
             .get(&id)
-            .is_some_and(|(pointer, waiting)| match reason {
-                Reason::Pointer => *pointer,
-                Reason::Waiting => *waiting,
-            })
+            .is_some_and(|reasons| reasons.contains(&reason))
     }
 }
 

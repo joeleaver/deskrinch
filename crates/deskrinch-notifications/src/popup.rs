@@ -94,7 +94,6 @@ pub(crate) fn popup(__scope: &mut RenderScope, id: NotificationId, shared: &Shar
                 span { class: "app", {move || app.get()} }
                 button {
                     class: "close",
-                    title: "Dismiss",
                     onclick: move || {
                         let _gone = dismiss.dismiss(id);
                     },
@@ -182,7 +181,10 @@ fn icon_path(
 }
 
 /// One action's button: its icon, when it has one the theme has, else its
-/// label.
+/// label. No tooltip: rinch draws one inside the window (rinch issue 2552),
+/// where it showed nothing and cost a frame each time the pointer rested;
+/// an action drawn as its icon has no visible label until then, as the
+/// sender asked with action icons.
 fn action_button(
     __scope: &mut RenderScope,
     button: Button,
@@ -190,19 +192,17 @@ fn action_button(
     id: NotificationId,
     index: Signal<Option<Arc<Index>>>,
 ) -> NodeHandle {
-    let icon = button.icon.clone();
+    let Button { key, label, icon } = button;
     let src = Memo::new(move || {
         let index = index.get()?;
         let name = icon.as_ref()?;
         let scale = icon_scale(scale_factor());
         deskrinch_applications::path_of_name(&index, name.as_str(), ICON_SIZE, scale)
     });
-    let (handle, key, label) = (handle.clone(), button.key.clone(), button.label.clone());
-    let title = button.label;
+    let handle = handle.clone();
     rsx! {
         button {
             class: "action",
-            title: title,
             onclick: move || actions::invoke(handle.clone(), id, key.clone()),
             if let Some(src) = src.get() {
                 img { class: "icon", src: src }

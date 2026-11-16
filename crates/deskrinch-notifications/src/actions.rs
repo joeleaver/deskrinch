@@ -4,7 +4,8 @@
 //!   invokes that action, when the sender offers one. It has no button.
 //! - Every other action is a button, in the sender's order: its label, or,
 //!   when the sender asks for action icons and the key is an icon name,
-//!   that icon with the label as its accessible name.
+//!   that icon alone (its label comes back as a tooltip with rinch issue
+//!   2552, which shows one outside a surface).
 //!
 //! Invoking asks the compositor first for an activation token for the
 //! sender (`rinch::prelude::request_activation_token`, from the click), so
@@ -20,7 +21,7 @@ use rinch::prelude::request_activation_token;
 pub(crate) struct Button {
     /// The key the sender gets back.
     pub(crate) key: String,
-    /// The text, shown, or the icon's accessible name.
+    /// The text, shown when the action is not drawn as its icon.
     pub(crate) label: String,
     /// The icon to draw instead of the text.
     pub(crate) icon: Option<IconName>,
