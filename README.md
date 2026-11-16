@@ -382,10 +382,14 @@ What the nested desktop does not have:
 ### Measuring what a component costs
 
 `cargo xtask measure` starts a rinch program (a shell component, a rinch
-example) in fresh isolated sessions, one per run, and reports what it costs:
+example) in fresh isolated sessions, one per run, and reports what it costs.
+`cargo xtask build-components` builds the shell's components the one way
+the desktop and the compositor tests build them, all of them in one `cargo
+build` (`--release` for Cargo's release profile), and prints each package
+and its binary's path, so what is measured is what runs:
 
 ```sh
-cargo build --release -p deskrinch-panel
+cargo xtask build-components --release
 cargo xtask measure target/release/deskrinch-panel
 cargo xtask measure --shader-cache warm --renderer gpu target/release/deskrinch-panel
 cargo xtask measure --instructions --runs 1 target/release/deskrinch-panel
@@ -422,11 +426,14 @@ A component that starts hidden and is summoned, such as the launcher, is
 measured by its shows instead: `--summon` and `--dismiss` give the program's
 own arguments that show and hide it, and each show's CPU time (or
 instructions) is taken from the summon command to the first frame after it,
-the first show cold and the later ones after a hide:
+the first show cold and the later ones after a hide. The launcher prepares
+its hidden window, so `--prepares` makes the first settle wait for its first
+preparation: a launcher slow to start would otherwise be summoned before its
+start was done, and its first show would pay for it.
 
 ```sh
-cargo build --release -p deskrinch-launcher
-cargo xtask measure --renderer software --summon show --dismiss hide target/release/deskrinch-launcher
+cargo xtask build-components --release
+cargo xtask measure --renderer software --summon show --dismiss hide --prepares target/release/deskrinch-launcher
 ```
 
 With `--type TEXT` a query is typed after each show, one key at a time, each
@@ -440,7 +447,7 @@ length other than TEXT's fails the run, since a key was lost). The launcher
 writes both at info, so its log level has to let them through:
 
 ```sh
-cargo xtask measure --summon show --dismiss hide --type term \
+cargo xtask measure --summon show --dismiss hide --prepares --type term \
   --keyboard-line "the launcher has the keyboard" \
   --query-line "hidden with a query of {} characters" \
   --env RUST_LOG=warn,deskrinch_launcher=info target/release/deskrinch-launcher

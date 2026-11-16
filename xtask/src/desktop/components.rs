@@ -10,8 +10,6 @@
 //! component. A component started again that ends before it is ready has
 //! failed again, and is decided again.
 
-use std::collections::BTreeMap;
-use std::path::PathBuf;
 use std::process::ExitStatus;
 use std::time::Instant;
 
@@ -20,7 +18,8 @@ use deskrinch_shell::{COMPONENTS, Component, Ready, Restart};
 use deskrinch_test_component::RINCH_RENDERER_VARIABLE;
 use deskrinch_test_wait::Deadline;
 
-use super::{DesktopError, Renderer, binary};
+use super::{DesktopError, Renderer};
+use crate::components::Built;
 use crate::error::Error;
 use crate::session::{ClientId, POLL, Session, interrupt};
 
@@ -37,7 +36,7 @@ struct Running {
 /// The shell's components, running in a desktop's session.
 #[derive(Debug)]
 pub(super) struct Components<'a> {
-    binaries: &'a BTreeMap<&'static str, PathBuf>,
+    binaries: &'a Built,
     renderer: Option<Renderer>,
     running: Vec<Running>,
 }
@@ -46,7 +45,7 @@ impl<'a> Components<'a> {
     /// Starts the components in order, each once the one before is ready.
     pub(super) fn start(
         session: &mut Session,
-        binaries: &'a BTreeMap<&'static str, PathBuf>,
+        binaries: &'a Built,
         renderer: Option<Renderer>,
     ) -> Result<Self, Error> {
         let mut components = Self {
@@ -72,7 +71,7 @@ impl<'a> Components<'a> {
         session: &mut Session,
         component: &'static Component,
     ) -> Result<ClientId, Error> {
-        let mut command = session.client(binary(self.binaries, component.package)?.as_os_str());
+        let mut command = session.client(self.binaries.binary(component.package)?.as_os_str());
         command.args(component.args);
         if let Some(renderer) = self.renderer {
             command.env(RINCH_RENDERER_VARIABLE, renderer.rinch());

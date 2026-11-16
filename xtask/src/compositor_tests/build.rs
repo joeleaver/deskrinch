@@ -112,47 +112,6 @@ fn build(
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Builds each of `packages`' binary of the same name (the programs the
-/// chosen suites declare) in one `cargo build`, and returns their
-/// executables, in the same order. A test target's build makes its own
-/// package's binaries only, so another package's needs a build of its own.
-pub(super) fn programs(root: &Path, packages: &[&'static str]) -> Result<Vec<PathBuf>, Error> {
-    if packages.is_empty() {
-        return Ok(Vec::new());
-    }
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut command = Command::new(&cargo);
-    command.current_dir(root).arg("build");
-    for package in packages {
-        command.args(["--package", package, "--bin", package]);
-    }
-    let output = command
-        .args(["--locked", "--message-format=json-render-diagnostics"])
-        .stderr(Stdio::inherit())
-        .output()
-        .map_err(|source| Error::Spawn {
-            program: "cargo".into(),
-            source,
-        })?;
-    if !output.status.success() {
-        return Err(Error::BuildFailed {
-            status: output.status,
-        });
-    }
-    let messages = String::from_utf8_lossy(&output.stdout);
-    packages
-        .iter()
-        .map(|&package| {
-            cargo_messages::executable(&messages, package, package, Kind::Bin).ok_or(
-                Error::MissingTestBinary {
-                    package,
-                    name: package,
-                },
-            )
-        })
-        .collect()
-}
-
 /// The executable of `target` in Cargo's JSON messages.
 fn test_executable(messages: &str, target: Target) -> Option<PathBuf> {
     cargo_messages::executable(messages, target.package, target.test, Kind::Test)

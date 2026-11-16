@@ -44,6 +44,7 @@ mod probe;
 mod procfs;
 mod renderer;
 mod report;
+mod settle;
 mod show;
 mod smaps;
 mod state;
@@ -429,6 +430,14 @@ fn header(request: &Request) -> String {
             format!("{header}\nWindows: {n} expected; start-up ends at the last one's first frame")
         }
         None => header,
+    };
+    let header = if request.summons.as_ref().is_some_and(|s| s.prepares) {
+        format!(
+            "{header}\nPrepares (--prepares): the first show waited for the program's first \
+             preparation, then a quiet second"
+        )
+    } else {
+        header
     };
     let header = match request.summons.as_ref().and_then(|s| s.typing.as_ref()) {
         Some(typing) => format!(

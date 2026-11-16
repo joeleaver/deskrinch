@@ -51,6 +51,14 @@ too, from the dismiss command to settled, with its prepared frames. Memory
 is read once, hidden and settled, before the first show (without
 --instructions); the idle window is not measured.
 
+A quiet second does not say the program has started: one starved of CPU
+before its first turn passes it having done nothing, and its first show then
+pays for its start. --prepares, for a program that prepares its hidden
+window (rinch's [PERF] prepared lines), makes the first settle wait for its
+first preparation, and fails the run, recording nothing, if none comes within
+--first-frame-timeout. Without it, a run whose show 1 came before any
+prepared frame says so in its notes.
+
 --type TEXT, with --summon, types TEXT into the program after each show,
 one key at a time, and measures each key: from the key to settled, CPU time
 (or with --instructions the instructions, each key read from its own dump),

@@ -102,6 +102,9 @@ pub(crate) enum Error {
     /// `cargo xtask desktop` could not run.
     #[error(transparent)]
     Desktop(#[from] crate::desktop::DesktopError),
+    /// The shell's components could not be built.
+    #[error(transparent)]
+    Components(#[from] crate::components::BuildError),
     /// `cargo xtask type` stopped.
     #[error(transparent)]
     Typist(#[from] crate::typist::TypistError),
@@ -380,6 +383,21 @@ pub(crate) enum Error {
     /// a show or hide.
     #[error("{program} did not settle within {} s; its last output:\n{output}", waited.as_secs())]
     NeverSettled {
+        /// The program.
+        program: String,
+        /// How long it was given.
+        waited: std::time::Duration,
+        /// Its last lines of output.
+        output: String,
+    },
+    /// A program said to prepare its hidden window (`--prepares`) never
+    /// did.
+    #[error(
+        "{program} prepared nothing within {} s, though --prepares says it prepares its hidden \
+         window; its last output:\n{output}",
+        waited.as_secs()
+    )]
+    NeverPrepared {
         /// The program.
         program: String,
         /// How long it was given.
