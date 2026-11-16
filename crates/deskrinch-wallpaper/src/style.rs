@@ -1,6 +1,12 @@
 //! What each output's surface draws, as CSS: the colour, and over it the
-//! picture fitted as the settings say. rinch scales the picture to each
-//! output when it paints, from the one decoded copy it keeps.
+//! output's image fitted as the settings say.
+//!
+//! The CSS is each fit's, whatever image the output was handed
+//! ([`crate::plan`]): an image made to the output's exact size is drawn
+//! one pixel per pixel by `cover`, `contain` or `100% 100%` alike, a crop
+//! is placed and repeated as the whole picture was, and the picture itself
+//! is scaled by rinch as before. While a new image is made after a change
+//! of shape, the old one stays, fitted by the same CSS.
 
 use std::fmt::Write as _;
 

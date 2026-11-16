@@ -21,16 +21,18 @@ debug = ["rinch/debug", "deskrinch-component/debug"]
 [dependencies]
 deskrinch-appearance.workspace = true
 deskrinch-component.workspace = true
+# The picture decoded under the wallpaper's limits (colour converted,
+# upright) and fitted to each output, off the UI thread.
+deskrinch-picture.workspace = true
 deskrinch-settings.workspace = true
 # The status it ends with where it cannot run (no layer shell); and, for
 # the layering test, the panel by its package as the shell names it.
 deskrinch-shell.workspace = true
 deskrinch-theme.workspace = true
+# The decoded picture's shared buffer, which rinch is handed as it is.
+deskrinch-untrusted.workspace = true
 deskrinch-watch.workspace = true
 deskrinch-xdg.workspace = true
-# Reading a picture's header, to say at once why one cannot be shown; rinch
-# decodes it, with the same crate and formats.
-image.workspace = true
 # `gpu` adds the GPU renderer beside the software one rinch always has on
 # the desktop; which one draws is chosen at run time (see the crate docs).
 # `theme`: the look's variables.
@@ -38,6 +40,7 @@ rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
 tracing.workspace = true
 
 [dev-dependencies]
+deskrinch-test-log.workspace = true
 deskrinch-test-wait.workspace = true
 # The compositor tests: the session's outputs, turned, and turned off and
 # on; the wallpaper started and watched; the screen captured.
@@ -45,6 +48,9 @@ deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true
 deskrinch-test-screen.workspace = true
 deskrinch-test-wayland.workspace = true
+# Pictures the compositor tests write.
+image.workspace = true
+proptest.workspace = true
 tempfile.workspace = true
 
 # The compositor tests run inside nested compositors that

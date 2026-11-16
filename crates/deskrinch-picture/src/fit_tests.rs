@@ -291,3 +291,43 @@ fn a_narrow_crop_made_much_larger_is_resampled() {
         assert_eq!((fitted.width(), fitted.height()), (27, 26));
     }
 }
+
+/// A part is its pixels as they are, and a part not within the picture, or
+/// over a bound, is refused.
+#[test]
+fn a_crop_is_the_part_as_it_is() {
+    let image = noise(5, 4, false);
+    let part = crop(&image, 1, 2, 3, 2, &limits()).unwrap();
+    assert_eq!((part.width(), part.height()), (3, 2));
+    for r in 0..2 {
+        let from = ((2 + r) * 5 + 1) * 4;
+        assert_eq!(
+            &part.rgba()[r * 12..r * 12 + 12],
+            &image.rgba()[from..from + 12]
+        );
+    }
+    let whole = crop(&image, 0, 0, 5, 4, &limits()).unwrap();
+    assert_eq!(whole.rgba(), image.rgba());
+    for (x, y, w, h) in [
+        (3, 0, 3, 1),
+        (0, 4, 1, 1),
+        (0, 0, 0, 1),
+        (u32::MAX, 0, 2, 1),
+    ] {
+        assert!(
+            matches!(
+                crop(&image, x, y, w, h, &limits()),
+                Err(FitError::Outside { .. })
+            ),
+            "{x},{y} {w}x{h}"
+        );
+    }
+    let tight = Limits {
+        max_working_bytes: 3 * 2 * 4,
+        ..limits()
+    };
+    assert!(matches!(
+        crop(&image, 1, 2, 3, 2, &tight),
+        Err(FitError::WorkingTooLarge { .. })
+    ));
+}
