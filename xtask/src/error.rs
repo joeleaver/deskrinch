@@ -387,6 +387,21 @@ pub(crate) enum Error {
         /// Its last lines of output.
         output: String,
     },
+    /// A program said to prepare its hidden window (`--prepares`) never
+    /// did.
+    #[error(
+        "{program} prepared nothing within {} s, though --prepares says it prepares its hidden \
+         window; its last output:\n{output}",
+        waited.as_secs()
+    )]
+    NeverPrepared {
+        /// The program.
+        program: String,
+        /// How long it was given.
+        waited: std::time::Duration,
+        /// Its last lines of output.
+        output: String,
+    },
     /// The command that summons or dismisses the program failed.
     #[error("`{command}` failed ({status})")]
     SummonFailed {

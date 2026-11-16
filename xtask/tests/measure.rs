@@ -18,6 +18,8 @@
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
 mod report;
+#[cfg(test)]
+mod stand_in;
 
 #[cfg(test)]
 mod measure {
@@ -28,6 +30,7 @@ mod measure {
     use rustix::process::{Pid, test_kill_process};
 
     use crate::report::number_after;
+    use crate::stand_in::{draws_when_shown, summons};
 
     /// The compositor to test with.
     fn compositor() -> String {
@@ -172,28 +175,15 @@ mod measure {
         assert_session_ended(dir.path());
     }
 
-    /// The stand-in's summon and dismiss: scripts in `dir` that `sh` runs
-    /// when the measurement runs the program (`sh`) with their paths. The
-    /// summon asks the stand-in to draw, through a file it watches.
-    fn summons(dir: &Path) -> (String, String) {
-        let summon = dir.join("summon.sh");
-        fs::write(&summon, format!("touch {}/show\n", dir.display())).unwrap();
-        let dismiss = dir.join("dismiss.sh");
-        fs::write(&dismiss, "true\n").unwrap();
-        (summon.display().to_string(), dismiss.display().to_string())
-    }
-
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn reports_each_show() {
         let dir = tempfile::tempdir().unwrap();
         let (summon, dismiss) = summons(dir.path());
-        let shown = dir.path().join("show");
         let script = format!(
-            "{}n=0; while :; do if [ -e {flag} ]; then rm {flag}; n=$((n + 1)); \
-             echo \"[PERF] frame $n: paint_frames=1\" >&2; fi; sleep 0.05; done",
+            "{}{}",
             record(dir.path(), false),
-            flag = shown.display()
+            draws_when_shown(dir.path())
         );
         let output = measure(
             &["--summon", &summon, "--dismiss", &dismiss, "--shows", "2"],

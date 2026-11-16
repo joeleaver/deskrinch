@@ -44,6 +44,7 @@ mod probe;
 mod procfs;
 mod renderer;
 mod report;
+mod settle;
 mod show;
 mod smaps;
 mod state;

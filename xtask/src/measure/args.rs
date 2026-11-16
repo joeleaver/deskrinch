@@ -67,6 +67,12 @@ pub(crate) struct Args {
     /// the cold one.
     #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=20))]
     shows: u32,
+    /// With `--summon`: the program prepares its hidden window, so its start
+    /// is done only once it has: the first settle waits for its first
+    /// prepared frame, and the run fails if none comes within
+    /// `--first-frame-timeout`.
+    #[arg(long, requires = "summon")]
+    prepares: bool,
     /// With `--summon`: type TEXT into the program after each show, a
     /// key at a time, each measured to settled. Needs `--keyboard-line`
     /// and `--query-line`.
@@ -173,7 +179,11 @@ impl Args {
             summons: self
                 .summon
                 .zip(self.dismiss)
-                .map(|(summon, dismiss)| Summons::new(&summon, &dismiss, shows, typing)),
+                .map(|(summon, dismiss)| Summons {
+                    typing,
+                    prepares: self.prepares,
+                    ..Summons::new(&summon, &dismiss, shows)
+                }),
             window: self.window,
             windows: self.windows,
             component: self.component,

@@ -10,9 +10,11 @@
 //! it is left to settle before the next show.
 //!
 //! Settled means a window in which its threads ran almost nothing and rinch
-//! prepared no frame for its hidden window (`[PERF] prepared N:`), so a show
-//! is never summoned while a preparation goes on; the report gives the
-//! prepared frames before each show. With `--instructions` each hide is
+//! prepared no frame for its hidden window ([`super::settle`]), so a show is
+//! never summoned while a preparation goes on; with `--prepares` the first
+//! settle also waits for the program's first preparation. The report gives
+//! the prepared frames before each show, and a run's notes say when show 1
+//! came before any without `--prepares`. With `--instructions` each hide is
 //! counted too, from the dismiss command to settled, with the prepared
 //! frames in that span: what a preparation after a hide costs.
 //!
@@ -33,9 +35,10 @@ use std::time::{Duration, Instant};
 
 use super::callgrind;
 use super::output;
-use super::probe::{self, Timing};
+use super::probe::{self, Timing, nanos};
 use super::procfs::{self, cpu_between};
 use super::report::{Run, Unit};
+use super::settle::{alive, settle, settle_hidden};
 use super::typing::{self, CallgrindMeter, CpuMeter, Typing, Typist};
 use crate::error::Error;
 use crate::session::interrupt;
@@ -43,12 +46,6 @@ use deskrinch_test_component::Watch;
 
 /// How often threads are sampled during a show.
 const SAMPLE: Duration = Duration::from_millis(2);
-/// A program counts as settled when its threads ran less than this much
-/// CPU time over [`SETTLE_WINDOW`].
-const SETTLED_CPU: Duration = Duration::from_millis(5);
-/// The window [`SETTLED_CPU`] is measured over.
-const SETTLE_WINDOW: Duration = Duration::from_secs(1);
-
 /// What `--summon` asks for.
 #[derive(Debug, Clone)]
 pub(crate) struct Summons {
@@ -60,18 +57,23 @@ pub(crate) struct Summons {
     pub(crate) shows: u32,
     /// With `--type`: what is typed after each show ([`typing`]).
     pub(crate) typing: Option<Typing>,
+    /// `--prepares`: the program prepares its hidden window, and the first
+    /// settle waits for its first preparation.
+    pub(crate) prepares: bool,
 }
 
 impl Summons {
     /// `summon` and `dismiss` as the program's arguments, split at white
-    /// space, `shows` shows, and what is typed after each, if anything.
-    pub(crate) fn new(summon: &str, dismiss: &str, shows: u32, typing: Option<Typing>) -> Self {
+    /// space, and `shows` shows; nothing typed, and no preparation waited
+    /// for.
+    pub(crate) fn new(summon: &str, dismiss: &str, shows: u32) -> Self {
         let words = |text: &str| text.split_whitespace().map(OsString::from).collect();
         Self {
             summon: words(summon),
             dismiss: words(dismiss),
             shows,
-            typing,
+            typing: None,
+            prepares: false,
         }
     }
 }
@@ -127,14 +129,20 @@ pub(crate) fn measure(
     let (mut child, watch) = start(command, program)?;
     let result = (|| {
         let mut typist = start_typist(summons, typist)?;
-        settle_hidden(&mut child, &watch, program, timing.first_frame)?;
+        settle_hidden(
+            &mut child,
+            &watch,
+            program,
+            timing.first_frame,
+            summons.prepares,
+        )?;
         let mut run = Run::default();
         // What it holds hidden, settled, before the first show: with a
         // window it prepared, what preparing costs.
         probe::memory(&mut run, child.id(), program)?;
         let pid = child.id();
         for show in 1..=summons.shows {
-            push_prepared(&mut run, show, &watch);
+            push_prepared(&mut run, show, &watch, summons);
             let mark = watch.lines().len();
             let (cpu, wall) = one_show(&mut child, &watch, ask, program, timing, summons)?;
             run.push(
@@ -197,13 +205,19 @@ pub(crate) fn measure_instructions(
         let mut typist = start_typist(summons, typist)?;
         let id = child.id();
         let pid = id.to_string();
-        settle_hidden(&mut child, &watch, program, timing.first_frame)?;
+        settle_hidden(
+            &mut child,
+            &watch,
+            program,
+            timing.first_frame,
+            summons.prepares,
+        )?;
         let mut run = Run::default();
         // Callgrind numbers its dumps in the order they are asked for: a
         // show's, each key's, then its hide's.
         let mut dumps = 0;
         for show in 1..=summons.shows {
-            push_prepared(&mut run, show, &watch);
+            push_prepared(&mut run, show, &watch, summons);
             let mark = watch.lines().len();
             callgrind::control(control, &["--zero", &pid])?;
             let frames = watch.frames();
@@ -263,14 +277,25 @@ pub(crate) fn measure_instructions(
     output::with_output(result, &watch)
 }
 
-/// Records the main window's prepared frames so far, before show `show`.
-fn push_prepared(run: &mut Run, show: u32, watch: &Watch) {
+/// Records the main window's prepared frames so far, before show `show`;
+/// and notes it when show 1 comes before any without `--prepares` (with it,
+/// the first settle waited for one).
+fn push_prepared(run: &mut Run, show: u32, watch: &Watch, summons: &Summons) {
+    let prepared = watch.prepared();
     run.push(
         format!("show {show}: prepared frames before it, in all"),
         Unit::Count,
-        watch.prepared(),
+        prepared,
     );
+    if show == 1 && prepared == 0 && !summons.prepares {
+        run.note("show 1", NOT_PREPARED);
+    }
 }
+
+/// The note for a show 1 that came before any prepared frame.
+const NOT_PREPARED: &str = "summoned before the program prepared anything: if it \
+     prepares its hidden window, its start may not have been done, and --prepares waits for its \
+     first preparation";
 
 fn start(mut command: Command, program: &str) -> Result<(Child, Watch), Error> {
     let mut child = command
@@ -388,77 +413,6 @@ fn first_frame_after(
     Ok(())
 }
 
-/// Waits for the program, just started, to settle, hidden: a frame before
-/// the first summon means it did not start hidden.
-fn settle_hidden(
-    child: &mut Child,
-    watch: &Watch,
-    program: &str,
-    timeout: Duration,
-) -> Result<(), Error> {
-    settle(child, watch, program, timeout)?;
-    if watch.frames() > 0 {
-        return Err(Error::ShownBeforeSummon {
-            program: program.to_owned(),
-            output: watch.tail(),
-        });
-    }
-    Ok(())
-}
-
-/// Waits until the program's threads run less than [`SETTLED_CPU`] over
-/// [`SETTLE_WINDOW`].
-fn settle(child: &mut Child, watch: &Watch, program: &str, timeout: Duration) -> Result<(), Error> {
-    let pid = child.id();
-    let start = Instant::now();
-    let mut before = procfs::read_threads(pid);
-    let mut prepared = watch.prepared();
-    loop {
-        let window_end = Instant::now() + SETTLE_WINDOW;
-        while Instant::now() < window_end {
-            interrupt::check()?;
-            alive(child, watch, program)?;
-            std::thread::sleep(Duration::from_millis(100));
-        }
-        let now = procfs::read_threads(pid);
-        let prepared_now = watch.prepared();
-        if settled(cpu_between(&before, &now), prepared, prepared_now) {
-            return Ok(());
-        }
-        if start.elapsed() >= timeout {
-            return Err(Error::NeverSettled {
-                program: program.to_owned(),
-                waited: timeout,
-                output: watch.tail(),
-            });
-        }
-        before = now;
-        prepared = prepared_now;
-    }
-}
-
-/// Whether a settle window was quiet: its threads ran less than
-/// [`SETTLED_CPU`] (`cpu_ns`), and no prepared frame came in it (the main
-/// window's prepared frames went from `prepared_before` to
-/// `prepared_after`). A preparation queued but not yet run shows in
-/// neither until it runs; one that ran shows in the second however little
-/// CPU it took, so a show is never summoned while a preparation goes on.
-fn settled(cpu_ns: u64, prepared_before: u64, prepared_after: u64) -> bool {
-    cpu_ns < nanos(SETTLED_CPU) && prepared_after == prepared_before
-}
-
-/// Fails if the program has exited.
-fn alive(child: &mut Child, watch: &Watch, program: &str) -> Result<(), Error> {
-    match child.try_wait() {
-        Ok(Some(status)) => Err(Error::MeasuredExited {
-            program: program.to_owned(),
-            status,
-            output: watch.last_words(),
-        }),
-        _ => Ok(()),
-    }
-}
-
 fn summon_failed(args: &[OsString], status: std::process::ExitStatus) -> Error {
     Error::SummonFailed {
         command: words(args),
@@ -473,21 +427,9 @@ fn words(args: &[OsString]) -> String {
         .join(" ")
 }
 
-fn nanos(duration: Duration) -> u64 {
-    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn settled_wants_quiet_threads_and_no_prepared_frame() {
-        let quiet = nanos(SETTLED_CPU) - 1;
-        assert!(settled(quiet, 2, 2));
-        assert!(!settled(quiet, 2, 3), "a preparation ran in the window");
-        assert!(!settled(nanos(SETTLED_CPU), 2, 2), "the threads ran");
-    }
 
     #[test]
     fn a_command_is_written_as_its_words() {
