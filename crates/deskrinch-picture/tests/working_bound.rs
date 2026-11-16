@@ -16,8 +16,9 @@
 //! Its own binary without the test harness, so that nothing else allocates
 //! while a decode is counted.
 
-use deskrinch_picture::{Formats, Ignored, Limits, MAX_PROFILE_BYTES, Profile, decode};
+use deskrinch_picture::{Fit, Formats, Ignored, Limits, MAX_PROFILE_BYTES, Profile, decode, fit};
 use deskrinch_test_pictures::hostile::{self, Case};
+use deskrinch_untrusted::Image;
 use peak_alloc::PeakAlloc;
 use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
@@ -170,7 +171,113 @@ fn mutated_pictures_stay_within_the_bound() {
         .unwrap_or_else(|failure| panic!("{failure}"));
 }
 
+/// Each fit, smaller and larger, at the smallest working bound that
+/// accepts it: the measured peak must stay within it.
+fn each_fit_stays_within_its_own_bound() {
+    let source = Image::new(1200, 800, hostile::noise(1200 * 800 * 4))
+        .unwrap_or_else(|| panic!("a picture"));
+    let fitting = |how: Fit, (w, h): (u32, u32), working: usize| {
+        let limits = Limits {
+            max_working_bytes: working,
+            ..limits(working)
+        };
+        fit(&source, w, h, how, &limits)
+    };
+    let mut failures = Vec::new();
+    for how in [
+        Fit::Cover,
+        Fit::Contain,
+        Fit::Stretch,
+        Fit::Centre,
+        Fit::Tile,
+    ] {
+        for target in [(1920, 1080), (640, 360), (2400, 1600)] {
+            let accepted = |working: usize| fitting(how, target, working).is_ok();
+            let mut high = 512 << 20;
+            assert!(accepted(high), "{how:?} {target:?} never fits");
+            let mut low = 0;
+            while high - low > 1 {
+                let mid = low + (high - low) / 2;
+                if accepted(mid) {
+                    high = mid;
+                } else {
+                    low = mid;
+                }
+            }
+            let before = COUNTED.current_usage();
+            COUNTED.reset_peak_usage();
+            let result = fitting(how, target, high);
+            let peak = COUNTED.peak_usage().saturating_sub(before);
+            drop(result);
+            println!(
+                "fit {how:?} to {}x{}: peak {peak} of {high} ({}%)",
+                target.0,
+                target.1,
+                peak * 100 / high
+            );
+            if peak > high {
+                failures.push(format!(
+                    "{how:?} {target:?}: {peak} bytes at its peak, bound {high}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A 5120 × 2880 picture (a 5K wallpaper) fitted to 1920 × 1080, opaque
+/// and with alpha: its working memory must follow the target, not the
+/// source. Found to a MiB, then measured; the time is printed beside it.
+fn a_5k_picture_fits_in_what_follows_the_target() {
+    let (sw, sh) = (5120_u32, 2880_u32);
+    let mut failures = Vec::new();
+    for opaque in [true, false] {
+        let mut rgba = hostile::noise(sw as usize * sh as usize * 4);
+        if opaque {
+            for alpha in rgba.iter_mut().skip(3).step_by(4) {
+                *alpha = u8::MAX;
+            }
+        }
+        let source = Image::new(sw, sh, rgba).unwrap_or_else(|| panic!("a picture"));
+        for how in [Fit::Cover, Fit::Stretch] {
+            let fitting = |working: usize| fit(&source, 1920, 1080, how, &limits(working));
+            let mib = 1 << 20;
+            let (mut low, mut high) = (0, 64);
+            assert!(fitting(high * mib).is_ok(), "{how:?} never fits");
+            while high - low > 1 {
+                let mid = usize::midpoint(low, high);
+                if fitting(mid * mib).is_ok() {
+                    high = mid;
+                } else {
+                    low = mid;
+                }
+            }
+            let bound = high * mib;
+            let before = COUNTED.current_usage();
+            COUNTED.reset_peak_usage();
+            let started = std::time::Instant::now();
+            let result = fitting(bound);
+            let took = started.elapsed();
+            let peak = COUNTED.peak_usage().saturating_sub(before);
+            drop(result);
+            println!(
+                "5K {how:?}, {}: peak {peak} of {bound} ({}%), {took:?}",
+                if opaque { "opaque" } else { "with alpha" },
+                peak * 100 / bound
+            );
+            if peak > bound {
+                failures.push(format!(
+                    "5K {how:?} opaque {opaque}: {peak} bytes, bound {bound}"
+                ));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 fn main() {
+    a_5k_picture_fits_in_what_follows_the_target();
+    each_fit_stays_within_its_own_bound();
     each_picture_stays_within_its_own_bound();
     refused_metadata_stays_within_what_the_documentation_says();
     hostile_pictures_stay_within_the_bound();

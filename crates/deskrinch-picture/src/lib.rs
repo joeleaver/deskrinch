@@ -76,6 +76,12 @@
 //! before its `IDAT` is and one after it is not, and a WebP's EXIF chunk,
 //! which its specification puts after the image data, is not applied.
 //!
+//! # Fitting
+//!
+//! [`fit`] fits a decoded picture to a target size, as the wallpaper fits
+//! one to an output ([`Fit`]: cover, contain, stretch, centre, tile), under
+//! the same kind of limits.
+//!
 //! # Example
 //!
 //! ```
@@ -96,6 +102,7 @@
 mod colour;
 mod decode;
 mod error;
+mod fit;
 mod gif;
 mod jpeg;
 mod limits;
@@ -108,5 +115,6 @@ mod webp;
 pub use colour::{Ignored, MAX_CURVE_ENTRIES, MAX_GRID_POINTS, MAX_PROFILE_BYTES, Profile};
 pub use decode::{Decoded, decode, decode_file};
 pub use error::DecodeError;
+pub use fit::{Fit, FitError, fit};
 pub use jpeg::MAX_SCANS;
 pub use limits::{Format, Formats, Limits};

@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 bitflags.workspace = true
 deskrinch-untrusted.workspace = true
+# Fitting: resampling, in linear light and on sRGB values.
+fast_image_resize.workspace = true
 gif.workspace = true
 # EXIF orientation only: `image::metadata::Orientation`.
 image.workspace = true
