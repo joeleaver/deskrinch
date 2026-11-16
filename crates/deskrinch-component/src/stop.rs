@@ -27,6 +27,12 @@
 //!   over it would undo what its starter asked for. The disposition is
 //!   read when [`install_once`] is called.
 //!
+//! Once the handlers are in place it says so, at debug level, naming the
+//! process (deskrinch-shell's `stops_in_order_line`): from then on a stop
+//! signal ends it in order. A starter that must know (a test that sends
+//! one) waits for that line; a signal before it ends the component by the
+//! signal's default action.
+//!
 //! The asked line is at info level: being asked to stop is the normal end
 //! of a component, not worth a reader's attention by default. The bound's
 //! line is a warning: a component that had to be ended by the bound has a
@@ -142,6 +148,10 @@ fn install(ask: impl Fn() + Send + 'static, bound: Duration) -> Result<(), StopE
             // Ends the process by the signal's default action.
             drop(emulate_default_handler(signal));
         })?;
+    tracing::debug!(
+        "{}",
+        deskrinch_shell::exit_status::stops_in_order_line(std::process::id())
+    );
     Ok(())
 }
 

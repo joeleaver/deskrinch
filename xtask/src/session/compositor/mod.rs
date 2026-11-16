@@ -14,10 +14,6 @@ use super::display::{Display, Options};
 use super::{RenderNodes, Scaling};
 use crate::error::Error;
 
-/// Each output's size, where the compositor takes one: the mode of a
-/// headless output, the first size of a window.
-const OUTPUT_SIZE: (u32, u32) = (1280, 720);
-
 /// A compositor a session can run.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub(crate) enum Compositor {
