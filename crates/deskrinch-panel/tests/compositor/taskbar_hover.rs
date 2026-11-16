@@ -11,7 +11,7 @@
 //! the mark comes and goes.
 //!
 //! What each change costs is read from rinch's own counters on the panel's
-//! frame lines ([`frames::hover_step`], [`frames::until_both_clean`]):
+//! frame lines, round by round ([`frames::until_clean_round`]):
 //!
 //! - A step (the pointer onto the button, or off the panel) with any frame
 //!   without reactive work (no `signal_notifies`) has exactly one, and it
@@ -19,17 +19,19 @@
 //! - A step with reactive frames is crowded: drawn for something else the
 //!   panel follows (the clock's minute, a window's title, an icon index
 //!   landing late on a loaded machine), or the hover's restyle batched into
-//!   one frame with such a change. The pointer goes on and off again until
-//!   a clean step onto the button and a clean step off it have both been
-//!   seen: one frame without reactive work, and no reactive frame.
+//!   one frame with such a change.
+//! - The pointer goes on and off again until a round after the first is
+//!   clean in both its steps: one frame without reactive work each, and no
+//!   reactive frame. The steps' windows are contiguous, so a frame between
+//!   two steps is read too.
 //! - A hover that came to set a signal, on entering or on leaving, directly
-//!   or deferred, crowds every step in its direction, and the test fails at
-//!   the patience, naming that direction; the clock or a late arrival
-//!   crowds a step or two.
+//!   or deferred by less than a round, crowds every round, and the test fails
+//!   at the patience; the clock or a late arrival crowds a round or two. Work
+//!   deferred by longer than a round is the rule's limit.
 
 use deskrinch_test_screen::Rgba;
 
-use crate::frames::{self, Step, hover_step};
+use crate::frames;
 use crate::taskbar::{Bar, GREEN, RED, near};
 use crate::taskbar_clicks::open_active;
 
@@ -69,7 +71,7 @@ struct Colours {
 }
 
 /// Red's window, then green's, active; the pointer onto red's button, then
-/// off the panel, again while no step has been free of reactive frames.
+/// off the panel, round after round until one after the first is clean.
 /// `apart` is whether the hovered and the selected option are different
 /// colours in `scheme`.
 fn hover(scheme: &str, apart: bool) {
@@ -97,17 +99,17 @@ fn hover(scheme: &str, apart: bool) {
         "red's button is not the bar's colour before the pointer: {before:?} against {:?}",
         colours.plain
     );
-    frames::until_both_clean(
+    frames::until_clean_round(
         &mut bar,
+        Bar::panel,
         |bar| point_onto(bar, red, &colours),
         |bar| point_off(bar, red, &colours),
     );
 }
 
-/// The pointer onto red's button (its icon `red`): the mark comes. Returns
-/// what the step was ([`hover_step`]).
-fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> Step {
-    let from = frames::step(bar.panel());
+/// The pointer onto red's button (its icon `red`): returns once the mark
+/// has come and the screen keeps still.
+fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) {
     bar.point_at(red);
     bar.see("red's button marked under the pointer", |_, image| {
         Bar::beside(image, red).is_some_and(|p| !near(p, colours.plain))
@@ -125,20 +127,17 @@ fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> St
             colours.active
         );
     }
-    hover_step(bar.panel(), from, "onto red's button")
 }
 
-/// The pointer off the panel: red's mark goes. Returns what the step was
-/// ([`hover_step`]).
-fn point_off(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) -> Step {
-    let from = frames::step(bar.panel());
+/// The pointer off the panel: returns once red's mark has gone and the
+/// screen keeps still.
+fn point_off(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) {
     bar.point_off();
     bar.see(
         "red's mark gone with the pointer off the panel",
         |_, image| Bar::beside(image, red).is_some_and(|p| near(p, colours.plain)),
     );
     let _ = bar.settled(|image| Bar::beside(image, red));
-    hover_step(bar.panel(), from, "off the panel")
 }
 
 /// Whether `a` and `b` differ by more than [`ROUNDING`] in some colour

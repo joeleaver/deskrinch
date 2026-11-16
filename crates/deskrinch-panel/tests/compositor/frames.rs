@@ -15,7 +15,7 @@ pub(crate) fn step(panel: &Panel) -> usize {
     panel.watch().lines().len()
 }
 
-/// The panel's frame lines since its log line `from`, as (reactive, not
+/// The frame lines among `lines` (the panel's log), as (reactive, not
 /// reactive): a frame that notified a signal did reactive work, and is
 /// kept whatever it painted, since that work is the step's to account for.
 ///
@@ -24,9 +24,8 @@ pub(crate) fn step(panel: &Panel) -> usize {
 /// `paint_frames`), drew nothing, and is left out. rinch logs one as a
 /// frame line (seen on rinch b31389bb when the pointer left the panel and
 /// no `:hover` rule had anything to change).
-pub(crate) fn since(panel: &Panel, from: usize) -> (Vec<String>, Vec<String>) {
-    let lines = panel.watch().lines();
-    let (reactive, frames): (Vec<String>, Vec<String>) = lines[from..]
+fn split(lines: &[String]) -> (Vec<String>, Vec<String>) {
+    let (reactive, frames): (Vec<String>, Vec<String>) = lines
         .iter()
         .filter(|line| {
             matches!(
@@ -73,45 +72,26 @@ pub(crate) fn assert_paint_only(frame: &str, what: &str) {
     );
 }
 
-/// What a hover's step (the pointer onto a button, or off the panel) was,
-/// by its frames.
-#[derive(Debug)]
-pub(crate) enum Step {
-    /// Exactly one frame without reactive work, paint-only, and no reactive
-    /// frame: the hover alone.
-    Clean,
-    /// The step had reactive frames: drawn for something else the panel
-    /// follows (the clock's minute, a title, a late arrival), or the hover's
-    /// restyle batched into one with them. They are kept for a failure's
-    /// message.
-    Crowded(Vec<String>),
-}
-
-/// The hover's step since the panel's log line `from`.
+/// The hover's step since the panel's log line `from`: its reactive frames
+/// (none when the step was clean, the hover alone), and the line its read
+/// stopped at, where the next step's window begins.
 ///
 /// A step with any frame without reactive work must have exactly one, and
 /// it must be paint-only ([`assert_paint_only`]): what a `:hover` change
-/// costs; anything else fails at once. A step whose only frames are
-/// reactive, one of them restyling, is crowded: rinch batched the hover's
-/// restyle into a frame with something reactive. A step with no frame that
-/// restyled fails at once: the hover drew nothing.
-pub(crate) fn hover_step(panel: &Panel, from: usize, what: &str) -> Step {
-    let (reactive, frames) = since(panel, from);
+/// costs; anything else fails at once. A step with reactive frames is
+/// crowded: drawn for something else the panel follows (the clock's
+/// minute, a title, a late arrival), or the hover's restyle batched into
+/// one frame with something reactive, when no frame without reactive work
+/// is left. A step with no frame that restyled at all fails at once: the
+/// hover drew nothing.
+fn hover_step(panel: &Panel, from: usize, what: &str) -> (Vec<String>, usize) {
+    let lines = panel.watch().lines();
+    let (reactive, frames) = split(&lines[from..]);
     match frames.as_slice() {
-        [frame] => {
-            assert_paint_only(frame, what);
-            if reactive.is_empty() {
-                Step::Clean
-            } else {
-                Step::Crowded(reactive)
-            }
-        }
+        [frame] => assert_paint_only(frame, what),
         [] if reactive
             .iter()
-            .any(|line| counter(line, "style_resolves").is_some()) =>
-        {
-            Step::Crowded(reactive)
-        }
+            .any(|line| counter(line, "style_resolves").is_some()) => {}
         [] => panic!("{what}: no frame restyled; the reactive frames: {reactive:#?}"),
         _ => panic!(
             "{what}: {} frames without reactive work, not one: {frames:#?}; \
@@ -119,49 +99,62 @@ pub(crate) fn hover_step(panel: &Panel, from: usize, what: &str) -> Step {
             frames.len()
         ),
     }
+    (reactive, lines.len())
 }
 
-/// Repeats the hover's two steps, `onto` and `off`, each given `state` and
-/// giving its [`Step`], until a clean step onto and a clean step off have
-/// both been seen, or the patience runs out.
+/// Repeats rounds of the hover's two steps, `onto` (the pointer onto the
+/// button) and `off` (off the panel), each given `state` and returning once
+/// the screen shows what it did, until a round after the first is clean in
+/// both its steps, or the patience runs out. `panel` gives `state`'s panel,
+/// whose frame lines are read after each step ([`hover_step`]).
 ///
-/// A step that is crowded every time is the hover's own reactive work
-/// (a handler that sets a signal, directly or deferred, on entering or on
-/// leaving); the clock or a late arrival crowds a step or two. So the
-/// patience running out without a clean step in one direction fails,
-/// naming that direction, with every step listed.
+/// The steps' windows are contiguous: the first begins where the panel's
+/// log stood before the first round, and each later one where the previous
+/// step's read stopped, so no frame between two steps goes unread.
+///
+/// Reactive work the hover causes (a handler that sets a signal, on
+/// entering or on leaving, directly or deferred by less than a round)
+/// crowds every round: work caused on entering lands in the round's own
+/// step onto the button or step off it; work caused on leaving lands in
+/// that step off, or in the next round's step onto. The first round is not
+/// counted as clean, since no leave comes before its step onto: work
+/// deferred from its leave past its own read would be seen only in the
+/// round after. The clock's minute, a title or a late arrival crowds a round
+/// or two. So the patience running out without a clean round fails, with
+/// every round's steps listed.
+///
+/// The rule's limit: work deferred by longer than a round (the two steps,
+/// each a pointer move, the screen showing it, and the screen keeping still
+/// for the stability window, under a second on a quiet machine) can land in
+/// a round after the one it belongs to, behind a clean round, and is not
+/// seen.
 ///
 /// # Panics
 ///
 /// As above, and as the steps themselves do.
-pub(crate) fn until_both_clean<S>(
+pub(crate) fn until_clean_round<S>(
     state: &mut S,
-    mut onto: impl FnMut(&mut S) -> Step,
-    mut off: impl FnMut(&mut S) -> Step,
+    panel: impl Fn(&S) -> &Panel,
+    mut onto: impl FnMut(&mut S),
+    mut off: impl FnMut(&mut S),
 ) {
     let deadline = Deadline::patience();
-    let (mut clean_onto, mut clean_off) = (false, false);
-    let mut steps = Vec::new();
-    loop {
-        match onto(state) {
-            Step::Clean => clean_onto = true,
-            Step::Crowded(frames) => steps.push(("onto", frames)),
-        }
-        match off(state) {
-            Step::Clean => clean_off = true,
-            Step::Crowded(frames) => steps.push(("off", frames)),
-        }
-        if clean_onto && clean_off {
+    let mut from = step(panel(state));
+    let mut rounds = Vec::new();
+    for round in 1_u32.. {
+        onto(state);
+        let (onto_frames, after_onto) = hover_step(panel(state), from, "onto the button");
+        off(state);
+        let (off_frames, after_off) = hover_step(panel(state), after_onto, "off the panel");
+        from = after_off;
+        if round > 1 && onto_frames.is_empty() && off_frames.is_empty() {
             return;
         }
-        let never: Vec<&str> = [("onto", clean_onto), ("off", clean_off)]
-            .into_iter()
-            .filter_map(|(direction, clean)| (!clean).then_some(direction))
-            .collect();
+        rounds.push((round, ("onto", onto_frames), ("off", off_frames)));
         assert!(
             !deadline.passed(),
-            "no clean step {never:?} the button: every one had reactive work, which a hover \
-             would cause if it set a signal; the crowded steps: {steps:#?}"
+            "no clean round after the first: each had reactive work, which a hover would \
+             cause if it set a signal; the rounds: {rounds:#?}"
         );
     }
 }
