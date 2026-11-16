@@ -308,7 +308,7 @@ mod measure {
                 seeded,
                 "{option}"
             );
-            let note = format!("{name} seeded from {seed_arg}: {file}");
+            let note = format!("{name} ({variable}) seeded from {seed_arg}: {file}");
             assert!(stdout.contains(&note), "no {note:?} in:\n{stdout}");
             // Nothing is written back.
             assert_eq!(fs::read_to_string(seed.join(file)).unwrap(), seeded);

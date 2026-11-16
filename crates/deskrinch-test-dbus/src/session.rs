@@ -28,7 +28,7 @@ use std::ffi::OsString;
 use std::fs::DirBuilder;
 use std::io;
 use std::os::unix::fs::DirBuilderExt as _;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// Variables of the real session that would lead a program back to it (its
@@ -71,6 +71,16 @@ pub const SEARCH_PATHS: [(&str, &str); 2] = [
     ("XDG_CONFIG_DIRS", "/etc/xdg"),
     ("XDG_DATA_DIRS", "/usr/local/share/:/usr/share/"),
 ];
+
+/// The directory the session under `root` gives `variable`, one of
+/// [`SESSION_DIRS`]' (`XDG_DATA_HOME`, say); `None` for any other.
+#[must_use]
+pub fn dir(root: &Path, variable: &str) -> Option<PathBuf> {
+    SESSION_DIRS
+        .iter()
+        .find(|(name, _)| *name == variable)
+        .map(|(_, sub)| root.join(sub))
+}
 
 /// Creates the session's directories under `root`, each one only its owner
 /// may enter (as `XDG_RUNTIME_DIR` must be).
@@ -134,6 +144,21 @@ pub fn isolate(command: &mut Command, root: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_variable_s_directory_is_the_one_the_session_gives_it() {
+        let root = Path::new("/tmp/deskrinch-session-x");
+        assert_eq!(dir(root, "XDG_DATA_HOME"), Some(root.join("data")));
+        assert_eq!(dir(root, "XDG_CONFIG_HOME"), Some(root.join("config")));
+        assert_eq!(dir(root, "XDG_STATE_HOME"), Some(root.join("state")));
+        assert_eq!(dir(root, "PATH"), None);
+        // The same as the session's environment says.
+        for (variable, value) in environment(root) {
+            if let Some(dir) = dir(root, variable) {
+                assert_eq!(dir.into_os_string(), value, "{variable}");
+            }
+        }
+    }
 
     fn isolated(root: &Path) -> Vec<(OsString, Option<OsString>)> {
         let mut command = Command::new("true");

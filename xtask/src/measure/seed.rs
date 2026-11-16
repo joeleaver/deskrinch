@@ -12,7 +12,7 @@
 
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use crate::error::Error;
 
@@ -42,13 +42,12 @@ impl Layer {
         }
     }
 
-    /// The session's directory for it, under the session's root
-    /// (`deskrinch-test-dbus`'s session directories).
-    pub(super) fn under(self, root: &Path) -> PathBuf {
-        root.join(match self {
-            Self::State => "state",
-            Self::Configuration => "config",
-        })
+    /// The session's variable for it.
+    fn variable(self) -> &'static str {
+        match self {
+            Self::State => "XDG_STATE_HOME",
+            Self::Configuration => "XDG_CONFIG_HOME",
+        }
     }
 }
 
@@ -72,7 +71,7 @@ pub(super) fn check(layer: Layer, dir: &Path) -> Result<(), Error> {
 /// Copies `dir`'s contents into the session's directory for `layer` under
 /// `root`, keeping each file's permissions.
 pub(super) fn seed(layer: Layer, dir: &Path, root: &Path) -> Result<(), Error> {
-    let target = layer.under(root);
+    let target = crate::session::session_dir(root, layer.variable())?;
     copy_tree(dir, &target).map_err(|source| Error::Io {
         what: format!(
             "seed the session's {} {} from {}",
@@ -95,7 +94,12 @@ pub(super) fn note(layer: Layer, dir: &Path) -> String {
     } else {
         files.join(", ")
     };
-    format!("{} seeded from {}: {held}", layer.name(), dir.display())
+    format!(
+        "{} ({}) seeded from {}: {held}",
+        layer.name(),
+        layer.variable(),
+        dir.display()
+    )
 }
 
 /// The files under `dir`, each as `prefix` joined with its path in `dir`.
@@ -140,7 +144,7 @@ mod tests {
         assert_eq!(
             note(Layer::Configuration, dir.path()),
             format!(
-                "configuration seeded from {}: deskrinch/config.toml, kdeglobals",
+                "configuration (XDG_CONFIG_HOME) seeded from {}: deskrinch/config.toml, kdeglobals",
                 dir.path().display()
             )
         );
