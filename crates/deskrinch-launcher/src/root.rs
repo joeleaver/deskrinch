@@ -23,7 +23,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deskrinch_applications::{Icons, Installed};
-use deskrinch_component::LiveSettings;
+use deskrinch_component::{Inbox, LiveSettings};
 use deskrinch_desktop_entries::{CatalogEntry, Environment};
 use deskrinch_icons::Index;
 use deskrinch_launcher::{Action, Drawn, Model, Preparation, Visibility, frequent, preparing};
@@ -44,6 +44,9 @@ pub(crate) struct Parts {
     /// `[general]`, for the terminal applications run in.
     pub(crate) general: LiveSettings<GeneralSettings>,
     pub(crate) visibility: Arc<Visibility>,
+    /// The window's half of the visibility's hand-over
+    /// ([`Visibility::new`]).
+    pub(crate) window: Inbox<bool>,
     /// Whether the window was made shown.
     pub(crate) made_shown: bool,
     pub(crate) installed: Installed,
@@ -62,6 +65,7 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
         theme,
         general,
         visibility,
+        window,
         made_shown,
         installed,
         icons,
@@ -76,11 +80,11 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
     // The ones shown in menus: unchanged by a change to the others.
     let entries = Memo::new(move || installed.with(|all| all.shown()));
     let model = Signal::new(Model::new());
-    let shown = visibility.signal();
+    let shown = window.into_signal(visibility.is_shown());
     let record = record.into_signal();
 
     icons.follow_theme(applied.icon_theme);
-    let index = icons.signal();
+    let index = icons.into_signal();
 
     // The applications changed: search them again for the same query.
     Effect::new(move || {

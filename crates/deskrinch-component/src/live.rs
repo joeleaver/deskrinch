@@ -7,7 +7,7 @@ use deskrinch_config::{Event, Section, Settings, Subscription, Watcher};
 use rinch::prelude::Signal;
 
 use crate::configuration::Shared;
-use crate::handover::Handover;
+use crate::handover::{Inbox, handover};
 use crate::report;
 
 /// One table of the configuration, from [`Configuration::follow`]: read
@@ -17,7 +17,7 @@ use crate::report;
 /// making its window. [`into_signal`](Self::into_signal), in the root
 /// component, hands the table to the UI: a `Signal<T>` that every later
 /// change is sent to with [`Signal::send`], rinch's write from another
-/// thread. Changes that came before are held until then (a [`Handover`]). Diagnostics are
+/// thread. Changes that came before are held until then (a [`handover`](crate::handover)). Diagnostics are
 /// [reported](report::diagnostic) as they come; a broken file leaves the
 /// last good settings in place (the configuration crate's rule).
 ///
@@ -28,7 +28,7 @@ use crate::report;
 pub struct LiveSettings<T: Settings> {
     /// The table when the component started.
     pub initial: T,
-    inbox: Arc<Handover<T>>,
+    inbox: Inbox<T>,
     // Declared before `shared`: deliveries stop before the watcher can go.
     subscription: Option<Subscription>,
     shared: Arc<Shared>,
@@ -37,8 +37,7 @@ pub struct LiveSettings<T: Settings> {
 impl<T: Settings> LiveSettings<T> {
     /// Subscribes `section` to `watcher`, which `shared` holds.
     pub(crate) fn subscribe(watcher: &Watcher, section: Section<T>, shared: Arc<Shared>) -> Self {
-        let inbox = Arc::new(Handover::default());
-        let deliver = Arc::clone(&inbox);
+        let (deliver, inbox) = handover();
         let (subscription, resolved) = watcher.subscribe(section, move |event| match event {
             Event::Changed(settings) => deliver.deliver(settings),
             Event::Diagnostics(diagnostics) => diagnostics.iter().for_each(report::diagnostic),
@@ -56,7 +55,7 @@ impl<T: Settings> LiveSettings<T> {
     pub(crate) fn fixed(initial: T, shared: Arc<Shared>) -> Self {
         Self {
             initial,
-            inbox: Arc::default(),
+            inbox: handover().1,
             subscription: None,
             shared,
         }
@@ -66,8 +65,15 @@ impl<T: Settings> LiveSettings<T> {
     /// signal holding the newest settings, which every later change is
     /// written to. The table is followed until the component is disposed.
     pub fn into_signal(self) -> Signal<T> {
-        let signal = self.inbox.signal(self.initial.clone());
-        rinch::reactive::on_cleanup(move || drop(self));
+        let Self {
+            initial,
+            inbox,
+            subscription,
+            shared,
+        } = self;
+        let signal = inbox.into_signal(initial);
+        // In this order: deliveries stop before the watcher can go.
+        rinch::reactive::on_cleanup(move || drop((subscription, shared)));
         signal
     }
 }

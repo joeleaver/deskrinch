@@ -15,13 +15,12 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use deskrinch_component::{Handover, report};
+use deskrinch_component::{Handover, Inbox, handover, report};
 use deskrinch_switcher::{Change, Entry, Run, Switcher};
 use deskrinch_workspaces::{
     Action, Actions, Client, ConnectError, Event, GroupId, Workspace, WorkspaceId,
     WorkspaceManager, WorkspaceState, Workspaces, connect_with,
 };
-use rinch::prelude::Signal;
 
 use crate::compositor::Follow;
 
@@ -31,7 +30,6 @@ pub(crate) type Runs = Arc<Vec<Run<WorkspaceId>>>;
 /// The workspaces followed for the switcher.
 pub(crate) struct Following {
     model: Arc<Mutex<Switcher<WorkspaceId, GroupId>>>,
-    runs: Arc<Handover<Runs>>,
     /// `None` until connected, and when the compositor offers no workspace
     /// protocol.
     manager: Arc<Mutex<Option<WorkspaceManager>>>,
@@ -39,30 +37,21 @@ pub(crate) struct Following {
 
 impl Following {
     /// The workspaces to follow, none until the panel's shared connection is
-    /// handed to the [`Follow`] returned beside it ([`crate::compositor`]).
-    pub(crate) fn new() -> (Self, Follow) {
+    /// handed to the [`Follow`] returned beside it ([`crate::compositor`]);
+    /// and the UI's half of the runs' hand-over, which the panel's root
+    /// turns into the runs' signal, once (none until the compositor has
+    /// answered), for every switcher to read.
+    pub(crate) fn new() -> (Self, Inbox<Runs>, Follow) {
         let model = Arc::new(Mutex::new(Switcher::new()));
-        let runs: Arc<Handover<Runs>> = Arc::default();
+        let (runs, inbox) = handover();
         let manager = Arc::new(Mutex::new(None));
-        let (follow_model, follow_runs, follow_manager) =
-            (Arc::clone(&model), Arc::clone(&runs), Arc::clone(&manager));
+        let (follow_model, follow_manager) = (Arc::clone(&model), Arc::clone(&manager));
         let connect: Follow = Box::new(move |client| {
             if let Some(client) = client {
-                follow(client, &follow_model, &follow_runs, &follow_manager);
+                follow(client, &follow_model, &runs, &follow_manager);
             }
         });
-        let following = Self {
-            model,
-            runs,
-            manager,
-        };
-        (following, connect)
-    }
-
-    /// The UI's signal of the runs, on the UI thread: none until the
-    /// compositor has answered.
-    pub(crate) fn signal(&self) -> Signal<Runs> {
-        self.runs.signal(Arc::default())
+        (Self { model, manager }, inbox, connect)
     }
 
     /// A click on `id`'s button: asks the compositor to activate it, where
@@ -84,11 +73,11 @@ impl Following {
 fn follow(
     client: &Client,
     model: &Arc<Mutex<Switcher<WorkspaceId, GroupId>>>,
-    runs: &Arc<Handover<Runs>>,
+    runs: &Handover<Runs>,
     manager: &Mutex<Option<WorkspaceManager>>,
 ) {
     let applied = Arc::clone(model);
-    let deliver = Arc::clone(runs);
+    let deliver = runs.clone();
     let connected = connect_with(client, move |event| {
         if let Event::Ended(reason) = &event {
             report::error("following the workspaces (the switcher is empty)", reason);

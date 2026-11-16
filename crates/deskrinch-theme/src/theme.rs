@@ -2,12 +2,11 @@
 //! and applied.
 
 use std::fmt;
-use std::sync::Arc;
 use std::sync::mpsc;
 use std::time::Duration;
 
 use deskrinch_appearance::{Appearance, Bus, Event, IconThemes, Preferences};
-use deskrinch_component::{Configuration, Handover, LiveSettings, report};
+use deskrinch_component::{Configuration, Inbox, LiveSettings, handover, report};
 use deskrinch_settings::general::{ColorSchemeSetting, GeneralSettings, IconThemeSetting};
 use rinch::prelude::{Memo, ThemeProviderProps};
 use rinch::reactive::Effect;
@@ -34,7 +33,7 @@ const FIRST_ANSWER: Duration = Duration::from_secs(1);
 pub struct Theme {
     general: LiveSettings<GeneralSettings>,
     /// The portal's answers (`None`: no portal), for the UI.
-    portal: Arc<Handover<Option<Preferences>>>,
+    portal: Inbox<Option<Preferences>>,
     /// The portal's answer when the component started.
     first_portal: Option<Preferences>,
     /// Kept while the component runs; `None` when the bus could not be
@@ -52,9 +51,8 @@ impl Theme {
     #[must_use]
     pub fn start(configuration: &Configuration, bus: Bus) -> Self {
         let general = configuration.follow::<GeneralSettings>();
-        let portal = Arc::new(Handover::default());
+        let (deliver, portal) = handover();
         let (first, first_answer) = mpsc::channel();
-        let deliver = Arc::clone(&portal);
         let appearance = Appearance::start(bus, move |event| {
             let answer = match event {
                 Event::Preferences(preferences) => Some(preferences),
@@ -112,7 +110,7 @@ impl Theme {
     pub fn apply(self) -> Applied {
         let mut applied = self.initial_scheme();
         let general = self.general.into_signal();
-        let portal = self.portal.signal(self.first_portal);
+        let portal = self.portal.into_signal(self.first_portal);
         let scheme = Memo::new(move || {
             let preferred = portal.with(|p| p.as_ref().map(|p| p.color_scheme));
             resolve(general.with(|g| g.color_scheme), preferred)
