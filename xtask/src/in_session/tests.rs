@@ -118,6 +118,8 @@ fn the_waits_on_the_bus_need_the_name() {
             until,
             "--name",
             "org.freedesktop.Notifications",
+            "--said",
+            "up",
             "--then",
             "kill-compositor",
             "/c",
@@ -125,6 +127,34 @@ fn the_waits_on_the_bus_need_the_name() {
         let args = parsed(&with).unwrap();
         assert_eq!(args.name.as_deref(), Some("org.freedesktop.Notifications"));
     }
+}
+
+#[test]
+fn owned_needs_the_line_too() {
+    let without = [
+        "--dir",
+        "/d",
+        "--until",
+        "owned",
+        "--name",
+        "n",
+        "--then",
+        "kill-compositor",
+        "/c",
+    ];
+    assert!(parsed(&without).is_err());
+    let notified = [
+        "--dir",
+        "/d",
+        "--until",
+        "notified",
+        "--name",
+        "n",
+        "--then",
+        "kill-compositor",
+        "/c",
+    ];
+    assert!(parsed(&notified).is_ok());
 }
 
 #[test]

@@ -48,9 +48,9 @@ pub(crate) enum Until {
     Presented,
     /// Its first prepared frame: a component that starts hidden.
     Prepared,
-    /// Its bus name owned on the session's bus: the notification daemon
-    /// with nothing to show.
-    Owned(&'static str),
+    /// Its bus name owned on the session's bus, then a line it writes once
+    /// it is up: the notification daemon up, with nothing to show.
+    Owned(&'static str, &'static str),
     /// Its bus name owned, then a notification sent, then a presented
     /// frame: the notification daemon showing a popup.
     Notified(&'static str),
@@ -61,7 +61,7 @@ impl Until {
     const ALL: [Self; 4] = [
         Self::Presented,
         Self::Prepared,
-        Self::Owned("org.example.Name"),
+        Self::Owned("org.example.Name", "up"),
         Self::Notified("org.example.Name"),
     ];
 
@@ -70,7 +70,7 @@ impl Until {
         match self {
             Self::Presented => vec!["--until", "presented"],
             Self::Prepared => vec!["--until", "prepared"],
-            Self::Owned(name) => vec!["--until", "owned", "--name", name],
+            Self::Owned(name, said) => vec!["--until", "owned", "--name", name, "--said", said],
             Self::Notified(name) => vec!["--until", "notified", "--name", name],
         }
     }

@@ -69,6 +69,11 @@ pub(crate) struct Args {
         required_if_eq_any([("until", "owned"), ("until", "notified")])
     )]
     name: Option<String>,
+    /// For `--until owned`: a line the component writes once it is up
+    /// (its UI built, its display connection in use), waited for after the
+    /// name.
+    #[arg(long, value_name = "TEXT", required_if_eq("until", "owned"))]
+    said: Option<String>,
     /// What to do then.
     #[arg(long, value_enum)]
     then: Then,
@@ -91,8 +96,8 @@ pub(crate) enum Until {
     Presented,
     /// A prepared frame: a component that starts hidden.
     Prepared,
-    /// Its bus name (`--name`) owned on the session's bus, and no window
-    /// made: the notification daemon with nothing to show.
+    /// Its bus name (`--name`) owned on the session's bus, then the line
+    /// `--said` written: the notification daemon up, with nothing to show.
     Owned,
     /// Its bus name owned, then a notification sent to
     /// `org.freedesktop.Notifications`, then a presented frame: the
@@ -168,6 +173,14 @@ pub(crate) enum InSessionError {
     NotOwned {
         /// The name.
         name: String,
+        /// Its standard error.
+        said: String,
+    },
+    /// The line `--said` names did not come within the patience.
+    #[error("the component did not say {line:?} within {PATIENCE:?}; it said:\n{said}")]
+    NotSaid {
+        /// The line.
+        line: String,
         /// Its standard error.
         said: String,
     },
@@ -308,6 +321,27 @@ fn wait_until(
     if until == Until::Notified {
         let sent = bus::notify(connection).map_err(InSessionError::Bus)?;
         return wait_frame(component, until, log).map(|()| Some(sent));
+    }
+    // `--said` is required for `owned` by its argument's definition.
+    let line = args.said.as_deref().unwrap_or_default();
+    while !said(log).contains(line) {
+        if let Some(status) = component
+            .try_wait()
+            .map_err(io("look whether the component ended"))?
+        {
+            return Err(InSessionError::EndedEarly {
+                until,
+                status,
+                said: said(log),
+            });
+        }
+        if deadline.passed() {
+            return Err(InSessionError::NotSaid {
+                line: line.to_owned(),
+                said: said(log),
+            });
+        }
+        std::thread::sleep(POLL);
     }
     Ok(None)
 }
