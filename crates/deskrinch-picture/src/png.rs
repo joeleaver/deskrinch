@@ -26,6 +26,7 @@ use crate::colour::{self, Ignored};
 use crate::decode::{Embedded, Raw};
 use crate::error::DecodeError;
 use crate::limits::{Format, Limits};
+use crate::orient;
 use crate::rgba::{self, Channels};
 use crate::walk;
 
@@ -87,11 +88,7 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
     // EXIF before the image data is what is shown; after it, not
     // (see the crate's documentation).
     let orientation = if metadata.exif_first {
-        info.exif_metadata
-            .as_deref()
-            .map(strip_exif_prefix)
-            .and_then(Orientation::from_exif_chunk)
-            .unwrap_or(Orientation::NoTransforms)
+        orient::from_exif(info.exif_metadata.as_deref())
     } else {
         Orientation::NoTransforms
     };
@@ -151,11 +148,6 @@ fn fault(error: DecodingError) -> DecodeError {
         },
         other => DecodeError::malformed(Format::Png, other),
     }
-}
-
-/// EXIF data without the `Exif\0\0` some writers put before it.
-pub(crate) fn strip_exif_prefix(exif: &[u8]) -> &[u8] {
-    exif.strip_prefix(b"Exif\0\0").unwrap_or(exif)
 }
 
 /// The width and height the header of `bytes` gives: the first chunk must

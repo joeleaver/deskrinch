@@ -58,15 +58,13 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
     let (out, channels) = output(header.input)?;
     // A profile over the cap is not taken: its size is the walk's.
     let profile = if metadata.profile == 0 {
-        Embedded::None
+        Profile::None
     } else if metadata.profile > colour::MAX_PROFILE_BYTES {
-        Embedded::Ignored(Ignored::TooLarge {
-            size: metadata.profile,
-        })
+        Profile::TooLarge
     } else {
-        Embedded::Bytes(Vec::new())
+        Profile::AfterDecode
     };
-    let ours = if matches!(profile, Embedded::Bytes(_)) {
+    let ours = if profile == Profile::AfterDecode {
         metadata.profile
     } else {
         0
@@ -117,8 +115,18 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         .map_err(malformed)?;
     rgba::widen(&mut rgba, result_bytes / 4, channels);
     let icc = match profile {
-        Embedded::Bytes(_) => Embedded::from(decoder.icc_profile()),
-        other => other,
+        Profile::None => Embedded::None,
+        Profile::TooLarge => Embedded::Ignored(Ignored::TooLarge {
+            size: metadata.profile,
+        }),
+        // The walk found its pieces; zune gives nothing when they do not
+        // make a whole (one missing, or misnumbered).
+        Profile::AfterDecode => match decoder.icc_profile() {
+            Some(icc) => Embedded::Bytes(icc),
+            None => Embedded::Ignored(Ignored::Malformed {
+                fault: "its pieces do not make a whole profile".to_owned(),
+            }),
+        },
     };
     Ok(Raw {
         width: header.width,
@@ -158,11 +166,7 @@ fn read_header(bytes: &[u8]) -> Result<Header, DecodeError> {
         components: usize::from(info.components),
         progressive: info.sof.is_progressive(),
         input,
-        orientation: info
-            .exif_data
-            .as_deref()
-            .and_then(Orientation::from_exif_chunk)
-            .unwrap_or(Orientation::NoTransforms),
+        orientation: orient::from_exif(info.exif_data.as_deref()),
     })
 }
 
@@ -181,6 +185,17 @@ fn output(input: ColorSpace) -> Result<(ColorSpace, Channels), DecodeError> {
             });
         }
     })
+}
+
+/// What is done with a JPEG's colour profile, as the walk finds it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Profile {
+    /// It has none.
+    None,
+    /// Its pieces are over the cap: not put together.
+    TooLarge,
+    /// Its pieces are within the cap: put together after the decode.
+    AfterDecode,
 }
 
 /// What the header read says.

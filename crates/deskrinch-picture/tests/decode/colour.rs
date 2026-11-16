@@ -247,3 +247,23 @@ fn a_png_profile_that_inflates_past_the_decoder_s_limit_is_ignored() {
             .image
     );
 }
+
+/// A JPEG profile in pieces that do not make a whole: one piece that says
+/// it is the first of two, the second absent.
+#[test]
+fn a_jpeg_profile_whose_pieces_do_not_make_a_whole_is_ignored() {
+    let mut piece = b"ICC_PROFILE\0".to_vec();
+    piece.extend([1, 2]);
+    piece.extend(icc::display_p3());
+    let bytes = jpeg::with_segment(fixtures::BASELINE_JPEG, 0xe2, &piece);
+    let decoded = decoded(&bytes).unwrap();
+    assert!(
+        matches!(decoded.profile, Profile::Ignored(Ignored::Malformed { .. })),
+        "{:?}",
+        decoded.profile
+    );
+    assert_eq!(
+        decoded.image,
+        crate::decoded(fixtures::BASELINE_JPEG).unwrap().image
+    );
+}

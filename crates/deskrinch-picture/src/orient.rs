@@ -5,6 +5,15 @@
 
 use image::metadata::Orientation;
 
+/// The orientation EXIF data gives, as a decoder hands it over: a TIFF
+/// structure, with or without the `Exif\0\0` some writers put before it.
+/// No EXIF, or EXIF without a valid orientation, is shown as stored.
+pub(crate) fn from_exif(exif: Option<&[u8]>) -> Orientation {
+    exif.map(|exif| exif.strip_prefix(b"Exif\0\0").unwrap_or(exif))
+        .and_then(Orientation::from_exif_chunk)
+        .unwrap_or(Orientation::NoTransforms)
+}
+
 /// What applying `orientation` to a result of `decoded` bytes allocates.
 pub(crate) fn extra(orientation: Orientation, decoded: usize) -> usize {
     if swaps_sides(orientation) { decoded } else { 0 }

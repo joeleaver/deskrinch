@@ -36,7 +36,7 @@ use crate::decode::{Embedded, Raw};
 use crate::error::DecodeError;
 use crate::limits::{Format, Limits};
 use crate::rgba::{self, Channels};
-use crate::{png, walk};
+use crate::{orient, walk};
 
 /// What the decoder allocates for itself however small the picture.
 const FIXED_BYTES: usize = 512 * 1024;
@@ -89,16 +89,14 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
     // documentation); one before it is read under what was charged for it.
     let orientation = if metadata.exif_first.is_some() {
         decoder.set_memory_limit(exif);
-        let read = decoder
-            .exif_metadata()
-            .map_err(|_| DecodeError::WorkingTooLarge {
+        let read = decoder.exif_metadata().map_err(|error| match error {
+            image_webp::DecodingError::MemoryLimitExceeded => DecodeError::WorkingTooLarge {
                 needed: None,
                 max: limits.max_working_bytes,
-            })?;
-        read.as_deref()
-            .map(png::strip_exif_prefix)
-            .and_then(Orientation::from_exif_chunk)
-            .unwrap_or(Orientation::NoTransforms)
+            },
+            other => DecodeError::malformed(Format::WebP, other),
+        })?;
+        orient::from_exif(read.as_deref())
     } else {
         Orientation::NoTransforms
     };
