@@ -1,63 +1,30 @@
-//! What the daemon's compositor tests share: the daemon started in the
-//! session with the run's renderer and an icon theme of the test's own, a
-//! client sending to it on the session's bus, and the column found on the
-//! screen.
+//! The column read from the screen.
 //!
 //! The column is found by what changed: every output is captured, still,
 //! before the daemon shows anything, and the column is the pixels that
 //! differ since. The popups are the runs of rows that differ inside it,
-//! apart from each other by the column's gaps, which paint nothing.
+//! apart from each other by the column's gaps, which paint nothing; the
+//! count line is the run under them that spans only a few words.
 
-use std::collections::HashMap;
-use std::fs;
-use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 
-use deskrinch_notification_service::NAME;
-use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_component::{Component, Renderer, programs};
-use deskrinch_test_input::{Button, Input};
-use deskrinch_test_notify::{Client, Signal};
 use deskrinch_test_screen::{Image, Rgba, Screen};
-use deskrinch_test_wait::{Deadline, comes_true, wait_for};
-use tempfile::TempDir;
-use zbus::Variant;
-use zbus::fdo::DBusProxy;
+use deskrinch_test_wait::{Deadline, wait_for};
+
+use super::{Notifications, PADDING, WIDTH};
 
 /// How long the screen must not change to count as still: longer than the
 /// longest close animation KWin runs by default (its fading popups, 600 ms);
 /// sway and labwc animate nothing.
 const STILL: Duration = Duration::from_millis(600);
 
-/// The colour of the test's icon for an action, `test-red`.
-pub(crate) const RED_ICON: Rgba = Rgba::opaque(220, 30, 30);
-
-/// The name of that icon in the test's theme.
-pub(crate) const RED_ICON_NAME: &str = "test-red";
-
 /// How far a colour on the screen may be from the one looked for, per
 /// channel: a compositor's rounding, far less than between two colours.
 const TOLERANCE: u8 = 8;
 
-/// The theme's spacing the column is padded with (`--rinch-spacing-sm`),
-/// in logical pixels: the popups start this far from the output's edges.
-pub(crate) const PADDING: u32 = 12;
-
-/// The column's width in logical pixels, its padding included: the
-/// daemon's.
-pub(crate) const WIDTH: u32 = 380;
-
-/// Panics unless the tests run in a nested session started by `cargo xtask
-/// compositor-tests`: run anywhere else they would take the real session's
-/// notifications and photograph its screen. Every test calls it first.
-fn in_nested_session() {
-    let _compositor = Compositor::current();
-}
-
 /// Each output's picture, by name.
 #[derive(Debug, PartialEq, Eq)]
-struct Pictures(Vec<(String, Image)>);
+pub(super) struct Pictures(Vec<(String, Image)>);
 
 impl Pictures {
     fn take(screen: &mut Screen) -> Self {
@@ -75,7 +42,7 @@ impl Pictures {
 
     /// Each output once it is still: the same in two captures [`STILL`]
     /// apart.
-    fn still(screen: &mut Screen) -> Self {
+    pub(super) fn still(screen: &mut Screen) -> Self {
         let deadline = Deadline::patience();
         let mut last = Self::take(screen);
         loop {
@@ -101,8 +68,9 @@ pub(crate) struct Column {
     pub(crate) bottom: u32,
     /// Each popup's first and last rows, top to bottom.
     pub(crate) popups: Vec<(u32, u32)>,
-    /// The count line's first and last rows, while it shows.
-    pub(crate) count_line: Option<(u32, u32)>,
+    /// The box of the count line's text, while it shows: left, top, right
+    /// and bottom, inclusive.
+    pub(crate) count_line: Option<(u32, u32, u32, u32)>,
     /// The output's size in its pixels.
     pub(crate) size: (u32, u32),
     /// What changed, coarsely, for a failure to show: every eighth row
@@ -185,7 +153,9 @@ fn changed(output: &str, before: &Image, now: &Image, scale: u32) -> Option<Colu
         right,
         bottom: boxed.last()?.last,
         popups: popups.iter().map(|run| (run.first, run.last)).collect(),
-        count_line: others.last().map(|run| (run.first, run.last)),
+        count_line: others
+            .last()
+            .map(|run| (run.left, run.first, run.right, run.last)),
         size: (now.width(), now.height()),
         map: (0..now.height())
             .step_by(8)
@@ -194,135 +164,24 @@ fn changed(output: &str, before: &Image, now: &Image, scale: u32) -> Option<Colu
     })
 }
 
-/// Whether the popup in rows `popup` of `image` is drawn whole: the middle
-/// of its last row is its border, as the middle of its first row is, and
-/// unlike the popup's own colour just inside it.
-pub(crate) fn whole(image: &Image, column: &Column, popup: (u32, u32), scale: u32) -> bool {
-    let (first, last) = popup;
-    let middle = column.left.midpoint(column.right);
-    let top = image.pixel(middle, first);
-    let bottom = image.pixel(middle, last);
-    let inside = image.pixel(middle, first + 4 * scale);
-    top.is_some() && top == bottom && top != inside
-}
-
-/// The fit a daemon's line `line` says (`showing N, M waiting`), if it is
-/// one.
-fn fit_of(line: &str) -> Option<(usize, usize)> {
-    let (_, rest) = line.split_once("showing ")?;
-    let (shown, rest) = rest.split_once(", ")?;
-    let waiting = rest.trim_end().strip_suffix(" waiting")?;
-    Some((shown.parse().ok()?, waiting.parse().ok()?))
-}
-
-/// Whether `colour` is within [`TOLERANCE`] of `wanted`.
-pub(crate) fn near(colour: Rgba, wanted: Rgba) -> bool {
-    colour.r.abs_diff(wanted.r) <= TOLERANCE
-        && colour.g.abs_diff(wanted.g) <= TOLERANCE
-        && colour.b.abs_diff(wanted.b) <= TOLERANCE
-}
-
-/// Whether `colour` is clearly red: the theme's red border, whatever its
-/// shade.
-pub(crate) fn reddish(colour: Rgba) -> bool {
-    colour.r >= 180 && colour.g <= 120 && colour.b <= 120
-}
-
-/// The daemon in a session, a client of it, and the screen and pointer.
-pub(crate) struct Notifications {
-    _data: TempDir,
-    daemon: Component,
-    pub(crate) client: Client,
-    screen: Screen,
-    input: Input,
-    before: Pictures,
-    /// The session's scale: the screen's pixels per logical pixel.
-    pub(crate) scale: u32,
-}
-
 impl Notifications {
-    /// The pointer, then the daemon with the test's icon theme, once it
-    /// owns the name; nothing shown yet.
-    pub(crate) fn start() -> Self {
-        in_nested_session();
-        let input = Input::connect().unwrap();
-        let data = tempfile::tempdir().unwrap();
-        install(data.path());
-        let mut screen = Screen::connect().unwrap();
-        // Out of the way of the column, so that nothing is under it.
-        let first = screen.outputs()[0].clone();
-        let mut input = input;
-        input.move_pointer(&first, 1.0, 1.0).ok();
-        let before = Pictures::still(&mut screen);
-        let mut command =
-            Command::new(programs::program(deskrinch_shell::NOTIFICATIONS.package).unwrap());
-        command.env("XDG_DATA_HOME", data.path());
-        // A panic of the daemon's shows where, in the failure's lines.
-        command.env("RUST_BACKTRACE", "1");
-        // Its fit lines (`showing N, M waiting`) are at info level.
-        command.env("RUST_LOG", "warn,deskrinch_notifications=info");
-        let daemon = Component::start(command, Renderer::of_run()).unwrap();
-        let connection = zbus::block_on(zbus::Connection::session()).unwrap();
-        let bus = zbus::block_on(DBusProxy::new(&connection)).unwrap();
-        let owned = comes_true(|| {
-            zbus::block_on(bus.get_connection_unix_process_id(NAME.try_into().unwrap()))
-                .is_ok_and(|pid| pid == daemon.id())
-        });
-        assert!(
-            owned,
-            "the daemon did not take {NAME}; its last lines:\n{}",
-            daemon.watch().tail()
-        );
-        let client = Client::on(&connection);
-        let scale = TestClient::connect()
-            .unwrap()
-            .output_info(&first)
-            .unwrap()
-            .scale
-            .cast_unsigned();
-        Self {
-            _data: data,
-            daemon,
-            client,
-            screen,
-            input,
-            before,
-            scale,
-        }
-    }
-
-    /// Sends a notification from "Test" with `actions` and `hints`.
-    pub(crate) fn send(
-        &self,
-        replaces: u32,
-        summary: &str,
-        body: &str,
-        actions: &[&str],
-        hints: &HashMap<&str, Variant<'_>>,
-        timeout: i32,
-    ) -> u32 {
-        self.client
-            .send(replaces, summary, body, actions, hints, timeout)
-            .unwrap()
-    }
-
-    /// The daemon's component, for its frames and lines.
-    pub(crate) fn daemon(&self) -> &Component {
-        &self.daemon
+    /// The columns on the screen now, once it is still: one per output
+    /// where something changed since before the daemon showed anything.
+    fn columns(&mut self) -> Vec<Column> {
+        let now = Pictures::still(&mut self.screen);
+        self.before
+            .0
+            .iter()
+            .zip(&now.0)
+            .filter_map(|((name, was), (_, is))| changed(name, was, is, self.scale))
+            .collect()
     }
 
     /// Waits until the column on the screen is one `accept` takes, and
     /// returns it.
     pub(crate) fn column(&mut self, what: &str, accept: impl Fn(&Column) -> bool) -> Column {
         wait_for(what, || {
-            let now = Pictures::still(&mut self.screen);
-            let columns: Vec<Column> = self
-                .before
-                .0
-                .iter()
-                .zip(&now.0)
-                .filter_map(|((name, was), (_, is))| changed(name, was, is, self.scale))
-                .collect();
+            let columns = self.columns();
             match columns.as_slice() {
                 [column] if accept(column) => Ok(column.clone()),
                 _ => Err((columns, self.said())),
@@ -330,41 +189,12 @@ impl Notifications {
         })
     }
 
-    /// What the daemon said, for a failure: from its panic on, whole, when
-    /// it panicked (a backtrace is longer than a tail); else its last
-    /// lines.
-    pub(crate) fn said(&self) -> String {
-        let lines = self.daemon.watch().lines();
-        match lines.iter().position(|line| line.contains("panicked at")) {
-            Some(at) => lines[at..].join("\n"),
-            None => self.daemon.watch().tail(),
-        }
-    }
-
-    /// The fit the daemon last said (`showing N, M waiting`): how many it
-    /// shows and how many wait; `None` before it has said one.
-    pub(crate) fn fit(&self) -> Option<(usize, usize)> {
-        self.daemon
-            .watch()
-            .lines()
-            .iter()
-            .rev()
-            .find_map(|line| fit_of(line))
-    }
-
     /// Waits until the column shows `shown` popups, its count line is there
     /// exactly when some wait, and the daemon's last fit line says `shown`
     /// shown and `waiting` waiting; the column then.
     pub(crate) fn settled(&mut self, shown: usize, waiting: usize) -> Column {
         wait_for(&format!("{shown} shown and {waiting} waiting"), || {
-            let now = Pictures::still(&mut self.screen);
-            let columns: Vec<Column> = self
-                .before
-                .0
-                .iter()
-                .zip(&now.0)
-                .filter_map(|((name, was), (_, is))| changed(name, was, is, self.scale))
-                .collect();
+            let columns = self.columns();
             let said = self.fit();
             match columns.as_slice() {
                 [column]
@@ -399,25 +229,6 @@ impl Notifications {
         self.screen.capture(&column.output).unwrap()
     }
 
-    /// Moves the pointer to `(x, y)`, the screen's pixels on `column`'s
-    /// output.
-    pub(crate) fn point(&mut self, column: &Column, x: u32, y: u32) {
-        let scale = f64::from(self.scale);
-        let (x, y) = ((f64::from(x) + 0.5) / scale, (f64::from(y) + 0.5) / scale);
-        self.input.move_pointer(&column.output, x, y).unwrap();
-    }
-
-    /// Clicks the primary button at `(x, y)`, as [`point`](Self::point).
-    pub(crate) fn click(&mut self, column: &Column, x: u32, y: u32) {
-        self.point(column, x, y);
-        self.input.click(Button::PRIMARY).unwrap();
-    }
-
-    /// Moves the pointer off the column, to the output's top-left corner.
-    pub(crate) fn point_away(&mut self, column: &Column) {
-        self.input.move_pointer(&column.output, 1.0, 1.0).unwrap();
-    }
-
     /// Whether `column` sits in its output's top-right corner: its right and
     /// top edges within the padding (and a shadow's few pixels) of the
     /// output's, and no wider than the column.
@@ -428,16 +239,31 @@ impl Notifications {
             && column.top <= reach
             && column.left + WIDTH * self.scale >= width
     }
+}
 
-    /// The next signal the client gets that is not an activation token.
-    pub(crate) fn next_signal(&self) -> Signal {
-        loop {
-            match self.client.signals.next() {
-                Signal::ActivationToken(..) => {}
-                other => return other,
-            }
-        }
-    }
+/// Whether the popup in rows `popup` of `image` is drawn whole: the middle
+/// of its last row is its border, as the middle of its first row is, and
+/// unlike the popup's own colour just inside it.
+pub(crate) fn whole(image: &Image, column: &Column, popup: (u32, u32), scale: u32) -> bool {
+    let (first, last) = popup;
+    let middle = column.left.midpoint(column.right);
+    let top = image.pixel(middle, first);
+    let bottom = image.pixel(middle, last);
+    let inside = image.pixel(middle, first + 4 * scale);
+    top.is_some() && top == bottom && top != inside
+}
+
+/// Whether `colour` is within [`TOLERANCE`] of `wanted`.
+fn near(colour: Rgba, wanted: Rgba) -> bool {
+    colour.r.abs_diff(wanted.r) <= TOLERANCE
+        && colour.g.abs_diff(wanted.g) <= TOLERANCE
+        && colour.b.abs_diff(wanted.b) <= TOLERANCE
+}
+
+/// Whether `colour` is clearly red: the theme's red border, whatever its
+/// shade.
+pub(crate) fn reddish(colour: Rgba) -> bool {
+    colour.r >= 180 && colour.g <= 120 && colour.b <= 120
 }
 
 /// The box of the pixels near `colour` in rows `rows` of `image`, if any.
@@ -489,22 +315,3 @@ pub(crate) fn close_button(
     // The mark's middle: a few of its pixels left of its right edge.
     (x.saturating_sub(2 * scale), y + 2 * scale)
 }
-
-/// Installs the test's icons under `data`: a `hicolor` theme, which every
-/// theme's lookups end in, with [`RED_ICON_NAME`] in [`RED_ICON`].
-fn install(data: &Path) {
-    let icons = data.join("icons/hicolor/scalable/actions");
-    fs::create_dir_all(&icons).unwrap();
-    fs::write(data.join("icons/hicolor/index.theme"), HICOLOR).unwrap();
-    let Rgba { r, g, b, .. } = RED_ICON;
-    let svg = format!(
-        "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\" \
-         viewBox=\"0 0 16 16\"><rect width=\"16\" height=\"16\" \
-         fill=\"#{r:02x}{g:02x}{b:02x}\"/></svg>\n"
-    );
-    fs::write(icons.join(format!("{RED_ICON_NAME}.svg")), svg).unwrap();
-}
-
-/// The test's `hicolor`: one directory of scalable action icons.
-const HICOLOR: &str = "[Icon Theme]\nName=Hicolor\nDirectories=scalable/actions\n\n\
-                       [scalable/actions]\nSize=16\nMinSize=8\nMaxSize=512\nType=Scalable\n";

@@ -22,9 +22,12 @@
 //! - [`room`]: more popups than fit (the shown whole, the rest counted and
 //!   held), a critical one into a full column, the room shrinking under a
 //!   panel and coming back, a first popup taller than the room.
+//! - [`through`]: the pointer pressed on the gaps, the padding, the count
+//!   line, the strip below the column and a hidden popup reaches a window
+//!   under the column; pressed on a shown popup, it does not.
 //!
-//! The panel the room tests start ([`panel`]) is the shell's own, declared
-//! as one of this suite's programs.
+//! The panel the room and pass-through tests start ([`panel`]) is the
+//! shell's own, declared as one of this suite's programs.
 
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
 #[cfg(test)]
@@ -43,3 +46,5 @@ mod room;
 mod shown;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod through;

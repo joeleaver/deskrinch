@@ -43,8 +43,8 @@ tracing.workspace = true
 zbus = { workspace = true, features = ["default-rt", "proxy"] }
 
 [dev-dependencies]
-# The compositor tests refuse to run outside a nested session, and read the
-# outputs' scale.
+# The compositor tests refuse to run outside a nested session, read the
+# outputs' scale, and put windows that hear the pointer under the column.
 deskrinch-test-client.workspace = true
 # The compositor tests start the daemon from the path the runner gives, and
 # read its frames.

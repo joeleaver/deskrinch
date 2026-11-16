@@ -142,7 +142,9 @@ fn the_waiting_set_changing_is_one_frame() {
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn a_pointer_resting_on_a_button_draws_nothing() {
     let mut notifications = Notifications::start();
-    notifications.client.simple(0, "Rest", "on its close button", 0);
+    notifications
+        .client
+        .simple(0, "Rest", "on its close button", 0);
     let column = notifications.column("the popup", |c| c.popups.len() == 1);
     let image = notifications.picture(&column);
     let (x, y) = close_button(&image, &column, column.popups[0], notifications.scale);
