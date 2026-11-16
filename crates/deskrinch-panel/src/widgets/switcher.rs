@@ -18,7 +18,7 @@
 
 mod follow;
 
-pub(crate) use follow::Following;
+pub(crate) use follow::{Following, Runs};
 
 use std::fmt::Display;
 use std::rc::Rc;
@@ -96,7 +96,7 @@ fn items<Id>(fitted: Vec<Fitted<Id>>) -> Vec<Item<Id>> {
 #[component]
 pub(crate) fn SwitcherWidget() -> NodeHandle {
     let following: Rc<Following> = use_context();
-    let runs = following.signal();
+    let runs: Signal<Runs> = use_context();
     let BarWidth(bar_width) = use_context();
     let drawn = Memo::new(move || {
         let room = Room {

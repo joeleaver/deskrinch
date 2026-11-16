@@ -241,7 +241,8 @@ pub(super) fn wired(shown: bool) -> Wired {
 /// ([`launcher_window`]).
 pub(super) fn wired_as(mount: Mount) -> Wired {
     let acts = Rc::new(RefCell::new(Vec::new()));
-    let visibility = Arc::new(Visibility::new(mount.shown));
+    let (visibility, window) = Visibility::new(mount.shown);
+    let visibility = Arc::new(visibility);
     let model_slot: Slot<Signal<Model>> = Rc::default();
     let (a, v, slot) = (
         Rc::clone(&acts),
@@ -252,7 +253,7 @@ pub(super) fn wired_as(mount: Mount) -> Wired {
         let model = Signal::new(Model::new());
         *slot.borrow_mut() = Some(model);
         let all = entries();
-        let shown = v.signal();
+        let shown = window.into_signal(v.is_shown());
         let content = wire(
             __scope,
             Wiring {

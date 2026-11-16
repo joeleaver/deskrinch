@@ -5,9 +5,9 @@
 //! an application is drawn from ([`path_of`]).
 
 use std::sync::Arc;
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Sender};
 
-use deskrinch_component::{Handover, report};
+use deskrinch_component::{Handover, Inbox, handover, report};
 use deskrinch_desktop_entries::Icon;
 use deskrinch_icons::{Event, Index, Request, SearchPath, Watcher};
 use deskrinch_theme::{IconThemeChoice, resolve_icon_theme};
@@ -18,7 +18,7 @@ use rinch::reactive::Effect;
 pub struct Icons {
     themes: Sender<String>,
     search_path: SearchPath,
-    index: Arc<Handover<Option<Arc<Index>>>>,
+    index: Inbox<Option<Arc<Index>>>,
 }
 
 impl Icons {
@@ -26,8 +26,7 @@ impl Icons {
     #[must_use]
     pub fn start(search_path: SearchPath) -> Self {
         let (themes, asked) = mpsc::channel();
-        let index: Arc<Handover<Option<Arc<Index>>>> = Arc::default();
-        let deliver = Arc::clone(&index);
+        let (deliver, index) = handover::<Option<Arc<Index>>>();
         let thread_path = search_path.clone();
         let spawned = std::thread::Builder::new()
             .name("icons".into())
@@ -63,11 +62,12 @@ impl Icons {
         Effect::new(move || drop(themes.send(theme.get())));
     }
 
-    /// The UI's signal of the index, on the UI thread: `None` until the
+    /// The UI's signal of the index, on the UI thread, in the component's
+    /// root and after [`follow_theme`](Self::follow_theme): `None` until the
     /// first is built.
     #[must_use]
-    pub fn signal(&self) -> Signal<Option<Arc<Index>>> {
-        self.index.signal(None)
+    pub fn into_signal(self) -> Signal<Option<Arc<Index>>> {
+        self.index.into_signal(None)
     }
 }
 
@@ -83,8 +83,8 @@ impl std::fmt::Debug for Icons {
 /// it until another is asked for.
 fn follow(
     search_path: &SearchPath,
-    asked: &Receiver<String>,
-    deliver: &Arc<Handover<Option<Arc<Index>>>>,
+    asked: &mpsc::Receiver<String>,
+    deliver: &Handover<Option<Arc<Index>>>,
 ) {
     // The watcher of the theme followed now; replacing it ends the last.
     let mut current: Option<Watcher> = None;
@@ -92,7 +92,7 @@ fn follow(
         while let Ok(newer) = asked.try_recv() {
             theme = newer;
         }
-        let changes = Arc::clone(deliver);
+        let changes = deliver.clone();
         let started = Watcher::start(search_path.clone(), &theme, move |event| match event {
             Event::Changed(index) => changes.deliver(Some(index)),
             Event::Error(error) => report::error("following the icon theme", &error),
