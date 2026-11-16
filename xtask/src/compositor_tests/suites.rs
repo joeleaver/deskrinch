@@ -29,6 +29,10 @@ const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 
 const PLAIN: &[Pass] = &[Pass::Plain];
 
+/// The panel's tests of a full taskbar on [`Pass::UhdBesideFullHd`]'s wide
+/// output: run by that pass's row alone.
+const PANEL_WIDE_TESTS: &str = "uhd_beside_full_hd::";
+
 /// The test client's tests of [`Pass::UhdBesideFullHd`]'s outputs: run by
 /// that pass's row alone.
 const UHD_BESIDE_FULL_HD_TESTS: &str = "uhd_beside_full_hd::";
@@ -85,7 +89,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 23] = [
+pub(super) const SUITES: [Suite; 24] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -261,7 +265,22 @@ pub(super) const SUITES: [Suite; 23] = [
         // The panel itself, declared so that it is granted what the shell
         // grants it: its taskbar follows the window list.
         programs: &[&deskrinch_shell::PANEL],
-        filter: &[],
+        filter: &["--skip", PANEL_WIDE_TESTS],
+    },
+    // The same binary's full taskbar on a wide output, on those outputs
+    // alone.
+    Suite {
+        target: Target {
+            package: PANEL,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: &[Pass::UhdBesideFullHd],
+        renders: true,
+        programs: &[&deskrinch_shell::PANEL],
+        filter: &[PANEL_WIDE_TESTS],
     },
     // The wallpaper's real binary, checked by the screen on every output; the
     // panel, declared as its program, built with it and handed to its tests,

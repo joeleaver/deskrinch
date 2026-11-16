@@ -58,6 +58,18 @@ pub(crate) fn drawn_since(panel: &Panel, window: &PerfWindow, from: usize) -> (V
     (drawn, lines.len())
 }
 
+/// The frames the bar `window` drew since the panel's log line `from`
+/// without reactive work, as [`split`] keeps them: what something other
+/// than the panel's state (a hover) made it draw.
+pub(crate) fn drawn_without_reactive_work_since(
+    panel: &Panel,
+    window: &PerfWindow,
+    from: usize,
+) -> Vec<String> {
+    let lines = panel.watch().lines();
+    split(&lines[from..], window).1
+}
+
 /// What keeps `frame` from being paint-only, if anything, by rinch's
 /// counters on it: it repainted (`paint_frames`) and resolved no layout,
 /// rinch's layout pass entered but each entry skipping Taffy because

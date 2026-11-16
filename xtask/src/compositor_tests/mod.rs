@@ -460,8 +460,9 @@ mod tests {
             refused.to_string().contains("--output-size cannot change"),
             "{refused}"
         );
-        let panel = Selection::new(&["deskrinch-panel compositor".to_owned()], None).unwrap();
-        let sized = sessions(&[Compositor::Kwin], &[size], &plan, &panel).unwrap();
+        let wallpaper =
+            Selection::new(&["deskrinch-wallpaper compositor".to_owned()], None).unwrap();
+        let sized = sessions(&[Compositor::Kwin], &[size], &plan, &wallpaper).unwrap();
         assert!(sized.iter().all(|(place, _)| place.outputs.size(0) == size));
     }
 }

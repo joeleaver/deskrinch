@@ -24,6 +24,8 @@ mod first_frame;
 #[cfg(test)]
 mod frames;
 #[cfg(test)]
+mod icon_scales;
+#[cfg(test)]
 mod live;
 #[cfg(test)]
 mod outputs;
@@ -39,5 +41,7 @@ mod taskbar;
 mod taskbar_clicks;
 #[cfg(test)]
 mod taskbar_hover;
+#[cfg(test)]
+mod uhd_beside_full_hd;
 #[cfg(test)]
 mod zone;

@@ -220,3 +220,44 @@ fn every_bar_follows_a_window_opened_and_retitled() {
     window.set_title("Retitled").unwrap();
     wait_each_bar_drew_since(&panel, &mark, "for the title changed");
 }
+
+/// The clock's one worker paints every bar's face once a tick: with
+/// seconds shown, over several ticks each bar draws as many frames as the
+/// others, within the one tick that may fall between two bars' reads.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn the_clock_paints_each_bar_once_a_tick() {
+    let (panel, _screen, _) = start_bars();
+    write_settings(&format!(
+        "{}\n[panel.clock]\nseconds = true\n",
+        panel_table(Edge::Bottom, 40)
+    ));
+    // The clock restarted at seconds: count from a tick after that.
+    let settled = panel.watch().mark();
+    wait_each_bar_drew_since(&panel, &settled, "for the clock's first second");
+    let mark = panel.watch().mark();
+    let counts = wait_for("three ticks on every bar", || {
+        let since = panel.watch().since(&mark);
+        let counts: Vec<u64> = open(&panel)
+            .iter()
+            .map(|window| {
+                since
+                    .iter()
+                    .find(|s| s.window == *window)
+                    .map_or(0, |s| s.frames)
+            })
+            .collect();
+        if counts.iter().all(|&frames| frames >= 3) {
+            Ok(counts)
+        } else {
+            Err(counts)
+        }
+    });
+    let (fewest, most) = (counts.iter().min(), counts.iter().max());
+    assert!(
+        most.zip(fewest)
+            .is_some_and(|(most, fewest)| most - fewest <= 1),
+        "the bars drew {counts:?} frames over the same ticks: {}",
+        panel.log()
+    );
+}

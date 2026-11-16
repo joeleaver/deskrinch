@@ -100,6 +100,7 @@ fn hover(scheme: &str, apart: bool) {
         colours.plain
     );
     let window = bar.panel().window_on(bar.output());
+    let from = frames::step(bar.panel());
     frames::until_clean_round(
         &mut bar,
         Bar::panel,
@@ -107,6 +108,18 @@ fn hover(scheme: &str, apart: bool) {
         |bar| point_onto(bar, red, &colours),
         |bar| point_off(bar, red, &colours),
     );
+    // The hover was on one bar: no other bar drew for it (one that drew at
+    // all drew with reactive work, the panel's own state: a clock's minute).
+    for (other, output) in bar.panel().bars() {
+        if other == window {
+            continue;
+        }
+        let drawn = frames::drawn_without_reactive_work_since(bar.panel(), &other, from);
+        assert!(
+            drawn.is_empty(),
+            "{output}'s bar drew for a hover on another bar: {drawn:#?}"
+        );
+    }
 }
 
 /// The pointer onto red's button (its icon `red`): returns once the mark
