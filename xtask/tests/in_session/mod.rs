@@ -25,6 +25,16 @@ pub(crate) struct Ended {
     pub(crate) status: i32,
     /// What it wrote to its standard error.
     pub(crate) said: String,
+    /// How much of that it had written when it was acted on.
+    acted: usize,
+}
+
+impl Ended {
+    /// What it said before it was acted on (the compositor ended, a
+    /// signal sent).
+    pub(crate) fn before(&self) -> &str {
+        self.said.get(..self.acted).unwrap_or(&self.said)
+    }
 }
 
 /// What to wait for before acting: `cargo xtask in-session`'s `--until`.
@@ -64,20 +74,19 @@ impl Then {
 }
 
 /// The component `package` with `args`, run in a session of its own with
-/// the software renderer and rinch's frame lines; once it has drawn its
-/// first `until` frame, `then` is done. How the component ended.
+/// the software renderer and rinch's frame lines, and granted what the
+/// shell grants it (`cargo xtask session --grant`), as on the desktop;
+/// once it has drawn its first `until` frame, `then` is done. How the
+/// component ended.
 pub(crate) fn run(package: &str, args: &[&str], until: Until, then: Then) -> Ended {
     let dir = tempfile::tempdir().unwrap();
     let component = program(package).unwrap();
     let session_stderr = dir.path().join("session-stderr");
     let mut command = Command::new(env!("CARGO_BIN_EXE_xtask"));
     command
-        .args([
-            "session",
-            &compositor(),
-            env!("CARGO_BIN_EXE_xtask"),
-            "in-session",
-        ])
+        .args(["session", "--grant"])
+        .arg(format!("{package}={}", component.display()))
+        .args([&compositor(), env!("CARGO_BIN_EXE_xtask"), "in-session"])
         .arg("--dir")
         .arg(dir.path())
         .args(["--until", until.argument(), "--then", then.argument()])
@@ -96,9 +105,10 @@ pub(crate) fn run(package: &str, args: &[&str], until: Until, then: Then) -> End
         "the session ended {ended}; it said:\n{}\nthe component said:\n{said}",
         fs::read_to_string(&session_stderr).unwrap_or_default()
     );
-    let status = fs::read_to_string(dir.path().join("status")).unwrap();
+    let read = |name: &str| fs::read_to_string(dir.path().join(name)).unwrap();
     Ended {
-        status: status.trim().parse().unwrap(),
+        status: read("status").trim().parse().unwrap(),
+        acted: read("acted").trim().parse().unwrap(),
         said,
     }
 }

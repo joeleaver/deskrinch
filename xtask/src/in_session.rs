@@ -15,7 +15,9 @@
 //! 2. waits, reading that file, for the component's first frame of the
 //!    kind [`Until`] names (rinch's `RINCH_PERF` lines, which the caller
 //!    turns on), within the patience;
-//! 3. does what [`Then`] names;
+//! 3. writes how many bytes the component had written to its standard
+//!    error to `DIR/acted`, then does what [`Then`] names: what came
+//!    before is what the component said before it was acted on;
 //! 4. waits, within the patience, for the component to end, and writes its
 //!    status to `DIR/status` as a shell would give it: its exit code, or
 //!    128 and the signal's number when a signal ended it.
@@ -180,6 +182,16 @@ fn step(args: &Args) -> Result<(), InSessionError> {
     if let Err(error) = wait_frame(&mut component, args.until, &stderr_path) {
         end(&mut component);
         return Err(error);
+    }
+    let acted = fs::metadata(&stderr_path)
+        .map(|metadata| metadata.len())
+        .and_then(|written| fs::write(args.dir.join("acted"), format!("{written}\n")));
+    if let Err(source) = acted {
+        end(&mut component);
+        return Err(InSessionError::Io {
+            what: "write how much the component had said when acted on",
+            source,
+        });
     }
     if let Err(error) = act(args.then) {
         end(&mut component);
