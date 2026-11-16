@@ -59,6 +59,7 @@ mod popup;
 mod root;
 mod style;
 mod surface;
+mod view;
 
 use std::process::ExitCode;
 use std::sync::Arc;

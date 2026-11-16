@@ -7,7 +7,10 @@
 //! column and the gaps between popups are transparent. A popup has no
 //! shadow, which would paint into the gaps; its border sets it apart.
 //!
-//! The column fills the window's height, the room. The popups' container
+//! The column fills the window's height (through the content's own root,
+//! `.window`), the room. Its padding, its gap and the popups' gap are one
+//! spacing (`--rinch-spacing-sm`): the fit reads the gap between two
+//! popups as the column's padding ([`fit::shown`](crate::fit::shown)). The popups' container
 //! is a flex column that wraps: the popups that fit whole are in its first
 //! column, and the rest wrap into a second one, clipped away
 //! (`overflow: hidden`). The count line sits under the container, and
@@ -24,7 +27,7 @@ use crate::policy::{BODY_LINES, ICON_SIZE, WIDTH};
 /// The window's stylesheet.
 pub(crate) fn sheet() -> String {
     format!(
-        "html, body {{ background: transparent; margin: 0; height: 100%; }}
+        "html, body, .window {{ background: transparent; margin: 0; height: 100%; }}
 .column {{
     box-sizing: border-box; width: {WIDTH}px; height: 100%;
     display: flex; flex-direction: column;

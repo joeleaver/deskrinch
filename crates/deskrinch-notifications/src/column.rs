@@ -3,7 +3,8 @@
 //! notification's expiry is held ([`pauses`](crate::pauses)).
 //!
 //! Each popup reports its box after each layout ([`Column::place`]); the
-//! root reports the popups' container, the room ([`Column::room`]). The fit
+//! content reports the popups' container, the room, with the column around
+//! it ([`Column::room`]). The fit
 //! follows both. When it changes, the waiting ones are paused and the shown
 //! ones resumed (unless the pointer holds them), the count line follows,
 //! and one line is logged at info level ([`fit_line`]).
@@ -32,8 +33,18 @@ pub(crate) struct Column {
     pauses: Rc<RefCell<Pauses>>,
     order: Memo<Vec<NotificationId>>,
     places: Signal<BTreeMap<NotificationId, Place>>,
-    room: Signal<Option<Place>>,
+    room: Signal<Option<Room>>,
     fit: Memo<Fit>,
+}
+
+/// Where the layout put the popups' container, and the column around it.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct Room {
+    /// The popups' container.
+    pub(crate) container: Place,
+    /// The column: its padding, the container, and the count line while it
+    /// shows.
+    pub(crate) column: Place,
 }
 
 impl Column {
@@ -41,11 +52,12 @@ impl Column {
     /// [`fit::order`]), acting through `handle`.
     pub(crate) fn new(handle: Handle, order: Memo<Vec<NotificationId>>) -> Self {
         let places: Signal<BTreeMap<NotificationId, Place>> = Signal::new(BTreeMap::new());
-        let room: Signal<Option<Place>> = Signal::new(None);
+        let room: Signal<Option<Room>> = Signal::new(None);
         let fit = Memo::new(move || {
             let order = order.get();
             match room.get() {
-                Some(room) => places.with(|places| fit::shown(&order, places, room)),
+                Some(room) => places
+                    .with(|places| fit::shown(&order, places, room.container, Some(room.column))),
                 // Before the first layout nothing is shown or waiting yet.
                 None => Fit::default(),
             }
@@ -67,8 +79,8 @@ impl Column {
         column
     }
 
-    /// The popups' container is at `room`.
-    pub(crate) fn room(&self, room: Place) {
+    /// The popups' container and the column are at `room`.
+    pub(crate) fn room(&self, room: Room) {
         self.room.set_if_changed(Some(room));
     }
 

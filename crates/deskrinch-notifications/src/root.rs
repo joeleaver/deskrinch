@@ -8,18 +8,19 @@
 //! the root is built the daemon says so ([`UP_LINE`]): from then on rinch's
 //! event loop runs.
 //!
-//! The column holds a [`popup`] per live notification, in [`fit::order`]'s
-//! order: the critical ones first, then the others, the newest first within
-//! each. The popups' container wraps: those that fit whole are shown, the
-//! rest wrap out of the window and wait ([`Column`]), and a line under the
-//! container says how many wait. Each popup is its notification's id, and
-//! reads its content from the state, so a replacement redraws a popup in
-//! its place and a closing removes only its own.
+//! The window's content ([`view`]) holds a popup per live notification, in
+//! [`fit::order`](crate::fit::order)'s order: the critical ones first, then the others, the
+//! newest first within each. The popups' container wraps: those that fit
+//! whole are shown, the rest wrap out of the window and wait ([`Column`]),
+//! and a line under the container says how many wait. Each popup is its
+//! notification's id, and reads its content from the state, so a
+//! replacement redraws a popup in its place and a closing removes only its
+//! own.
 
 use std::sync::Arc;
 
 use deskrinch_applications::{Icons, Installed};
-use deskrinch_notification_service::{Handle, NotificationId, Urgency};
+use deskrinch_notification_service::Handle;
 use deskrinch_theme::Theme;
 use rinch::InputRegion;
 use rinch::prelude::*;
@@ -27,10 +28,9 @@ use rinch::reactive::Effect;
 
 use crate::column::Column;
 use crate::feed::Feed;
-use crate::fit::{self, Place};
 use crate::policy::WIDTH;
-use crate::popup::{self, Shared};
-use crate::{style, surface};
+use crate::popup::Shared;
+use crate::{surface, view};
 
 /// What the daemon says, at info level, once its root is built and rinch's
 /// event loop runs.
@@ -76,16 +76,7 @@ pub(crate) fn notifications(parts: Parts) -> NodeHandle {
             exit();
         }
     });
-    let order = Memo::new(move || {
-        state.with(|state| {
-            let live: Vec<(NotificationId, bool)> = state
-                .live
-                .iter()
-                .map(|n| (n.id, n.urgency == Urgency::Critical))
-                .collect();
-            fit::order(&live)
-        })
-    });
+    let order = view::order(state);
     let column = Column::new(handle.clone(), order);
     let shared = Shared {
         handle,
@@ -95,11 +86,6 @@ pub(crate) fn notifications(parts: Parts) -> NodeHandle {
         column: column.clone(),
     };
     let showing = Memo::new(move || !order.get().is_empty());
-    let container: Signal<Option<NodeHandle>> = Signal::new(None);
-    report_room(container, &column);
-    let counted = column.clone();
-    let waiting = Memo::new(move || counted.waiting_count());
-    let sheet = style::sheet();
     tracing::info!("{UP_LINE}");
     rsx! {
         div {
@@ -113,41 +99,9 @@ pub(crate) fn notifications(parts: Parts) -> NodeHandle {
                     width: WIDTH,
                     height: surface::FIRST_HEIGHT,
                     input_region: InputRegion::Marked,
-                    style { {sheet.clone()} }
-                    div {
-                        class: "column",
-                        div {
-                            ref: container,
-                            class: "popups",
-                            for id in order.get() {
-                                div { key: id, class: "slot", {popup::popup(__scope, id, &shared)} }
-                            }
-                        }
-                        if waiting.get() > 0 {
-                            div { class: "count", {move || format!("{} more", waiting.get())} }
-                        }
-                    }
+                    {view::content(__scope, order, &shared)}
                 }
             }
         }
     }
-}
-
-/// Reports to `column`, after each layout, where the popups' container (the
-/// room, once `container` holds it) is.
-fn report_room(container: Signal<Option<NodeHandle>>, column: &Column) {
-    let column = column.clone();
-    Effect::new(move || {
-        if let Some(node) = container.get() {
-            let bounds = node.bounds_signal().get();
-            if bounds.height > 0.0 {
-                column.room(Place {
-                    x: bounds.x,
-                    y: bounds.y,
-                    width: bounds.width,
-                    height: bounds.height,
-                });
-            }
-        }
-    });
 }

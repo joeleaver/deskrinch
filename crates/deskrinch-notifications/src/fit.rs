@@ -64,15 +64,42 @@ pub(crate) struct Fit {
 }
 
 /// The fit of the popups in `order`, given where each landed (`places`,
-/// those laid out so far) inside the popups' container at `room`: a popup
-/// is shown when it lies in the container's first column (its left edge
-/// within the first column's width of the container's) and wholly within
-/// the container's height.
+/// those laid out so far) inside the popups' container at `room`, in the
+/// column at `column`: a popup is shown when it lies in the container's
+/// first column (its left edge within the first column's width of the
+/// container's) and wholly within the container's height.
+///
+/// The one judgment the daemon makes beyond reading the layout: the count
+/// line must not hold its own room. While some wait the line takes its
+/// height and the column's gap from the room, so a popup that would fit
+/// once the line went would wait for ever, the line staying because it
+/// waits. So while some wait, when every popup together (their heights, and
+/// the gap between each two) fits in the room the column would give the
+/// container with no line, none waits: the line goes, and the layout then
+/// puts them all in the first column. Otherwise the layout's fit stands,
+/// its prefix decided with the line present: with two waiting and room for
+/// one more, both wait.
+///
+/// That room is read from the column's box, which is there whether or not
+/// the line is: from the container's top to the column's inner bottom (its
+/// box less its padding, the container's distance from its top). With no
+/// line it is the container's own height, so the judgment never goes
+/// against the layout then. The gap between two popups is the column's
+/// padding too: the style gives the padding and both gaps one spacing
+/// ([`style`](crate::style)). Nothing is assumed of a column, or of a
+/// popup, not laid out yet.
+///
+/// The sum is held to a pixel ([`ROUNDING`]) under that room, never over
+/// it: declared fitting where the layout would wrap, the line would come
+/// back at once and the two fits would take turns. So within that pixel a
+/// popup that would just fit waits, the line staying, and stays waiting:
+/// both states hold, neither turns into the other.
 #[must_use]
 pub(crate) fn shown(
     order: &[NotificationId],
     places: &BTreeMap<NotificationId, Place>,
     room: Place,
+    column: Option<Place>,
 ) -> Fit {
     let mut fit = Fit::default();
     for id in order {
@@ -87,7 +114,36 @@ pub(crate) fn shown(
             fit.waiting.push(*id);
         }
     }
+    if !fit.waiting.is_empty() && all_fit_without_the_line(order, places, room, column) {
+        return Fit {
+            shown: order.to_vec(),
+            waiting: Vec::new(),
+        };
+    }
     fit
+}
+
+/// Whether every popup of `order` together fits in the room the column at
+/// `column` gives the container at `room` with no count line.
+fn all_fit_without_the_line(
+    order: &[NotificationId],
+    places: &BTreeMap<NotificationId, Place>,
+    room: Place,
+    column: Option<Place>,
+) -> bool {
+    let Some(column) = column.filter(|column| column.height > 0.0 && room.y >= column.y) else {
+        return false;
+    };
+    let padding = room.y - column.y;
+    let without_line = column.bottom() - padding - room.y;
+    let mut total = 0.0;
+    for (at, id) in order.iter().enumerate() {
+        let Some(place) = places.get(id).filter(|place| place.height > 0.0) else {
+            return false;
+        };
+        total += place.height + if at > 0 { padding } else { 0.0 };
+    }
+    total + ROUNDING <= without_line
 }
 
 #[cfg(test)]

@@ -43,6 +43,15 @@ tracing.workspace = true
 zbus = { workspace = true, features = ["default-rt", "proxy"] }
 
 [dev-dependencies]
+# rinch's test harness (`rinch::testing::TestApp`): the column's content
+# mounted at the heights the fit tests choose. A dev-dependency only, so the
+# daemon built for use has no `testing` (resolver 3 keeps dev-dependency
+# features out of a plain build).
+rinch = { workspace = true, features = ["desktop", "testing", "theme"] }
+# The fit tests' service, on a private bus of their own.
+deskrinch-test-dbus.workspace = true
+# The least height of the panel the compositor tests start.
+deskrinch-settings.workspace = true
 # The compositor tests refuse to run outside a nested session, read the
 # outputs' scale, and put windows that hear the pointer under the column.
 deskrinch-test-client.workspace = true

@@ -14,11 +14,32 @@ use deskrinch_test_component::drew;
 use deskrinch_test_notify::Signal;
 use deskrinch_test_wait::comes_true;
 
-use crate::support::{Notifications, close_button};
+use crate::panel::{PANEL_LEAST, Panel};
+use crate::support::{Notifications, PADDING, close_button};
 
 /// How long the daemon is watched for a frame it must not draw: a frame
 /// asked for by a change comes within a few of the compositor's refreshes.
 const QUIET: Duration = Duration::from_secs(2);
+
+/// Fills the column, with no room to spare for another popup: popups until
+/// one waits, then the newest closed. The live ones, oldest first, all
+/// shown.
+fn full_column(notifications: &mut Notifications) -> Vec<u32> {
+    let mut live = Vec::new();
+    loop {
+        live.push(notifications.client.simple(0, "Filling", "", 0));
+        notifications.column("the column", |_| true);
+        let (shown, waiting) = notifications.fit().expect("a fit said");
+        notifications.settled(shown, waiting);
+        if waiting > 0 {
+            let newest = live.pop().unwrap();
+            notifications.client.close(newest).unwrap();
+            assert_eq!(notifications.next_signal(), Signal::Closed(newest, 3));
+            notifications.settled(live.len(), 0);
+            return live;
+        }
+    }
+}
 
 /// The frames that drew something in `lines` from line `from` on.
 fn presented(lines: &[String], from: usize) -> usize {
@@ -95,21 +116,7 @@ fn a_change_is_one_frame_and_nothing_changing_is_none() {
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_waiting_set_changing_is_one_frame() {
     let mut notifications = Notifications::start();
-    // A full column: popups until one waits, then the newest closed.
-    let mut live = Vec::new();
-    loop {
-        live.push(notifications.client.simple(0, "Filling", "", 0));
-        notifications.column("the column", |_| true);
-        let (shown, waiting) = notifications.fit().expect("a fit said");
-        notifications.settled(shown, waiting);
-        if waiting > 0 {
-            let newest = live.pop().unwrap();
-            notifications.client.close(newest).unwrap();
-            assert_eq!(notifications.next_signal(), Signal::Closed(newest, 3));
-            notifications.settled(live.len(), 0);
-            break;
-        }
-    }
+    let live = full_column(&mut notifications);
     std::thread::sleep(QUIET);
 
     let mark = notifications.daemon().watch().lines().len();
@@ -156,6 +163,62 @@ fn a_pointer_resting_on_a_button_draws_nothing() {
         presented(&notifications.daemon().watch().lines(), mark),
         0,
         "frames while the pointer rested on the close button:\n{}",
+        notifications.daemon().watch().tail()
+    );
+}
+
+/// The room coming back by less than the count line's own room: the
+/// waiting popup comes back and the line goes, in one frame (the fit's one
+/// judgment beyond the layout, `fit::shown`, which the layout without the
+/// line then confirms).
+///
+/// A full column first, with the room left under it few pixels (fewer
+/// than the line's room: its line, some 17 pixels, and its gap, 12): as
+/// filled where that is already so, else with the panel along the top
+/// taking all but `LEFT` of it. Then the room is taken by a few more
+/// pixels, so that the oldest waits, and given back: the panel made taller
+/// and then as it was, or, where there was none, started and then ended.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn a_popup_back_as_the_count_line_goes_is_one_frame() {
+    /// The pixels left under the full column, fewer than the line's room.
+    const LEFT: u32 = 4;
+    /// How much more is taken, so that the oldest waits.
+    const MORE: u32 = 8;
+    let mut notifications = Notifications::start();
+    let live = full_column(&mut notifications);
+    let column = notifications.settled(live.len(), 0);
+    let scale = notifications.scale;
+    let (_, height) = column.size;
+    let (_, last) = *column.popups.last().expect("a shown popup");
+    // The room left under the last popup, in logical pixels.
+    let spare = (height - PADDING * scale - (last + 1)) / scale;
+    let (panel, base) = if spare >= PANEL_LEAST + LEFT {
+        let base = spare - LEFT;
+        let panel = Panel::along_the_top(base);
+        notifications.settled(live.len(), 0);
+        std::thread::sleep(QUIET);
+        panel.set_height(base + MORE);
+        (panel, Some(base))
+    } else {
+        // Few pixels left already: a panel of its least height, or a few
+        // more, takes them all and more.
+        (Panel::along_the_top((spare + MORE).max(PANEL_LEAST)), None)
+    };
+    notifications.settled(live.len() - 1, 1);
+    std::thread::sleep(QUIET);
+
+    let mark = notifications.daemon().watch().lines().len();
+    match base {
+        Some(base) => panel.set_height(base),
+        None => drop(panel),
+    }
+    notifications.settled(live.len(), 0);
+    std::thread::sleep(QUIET);
+    assert_eq!(
+        presented(&notifications.daemon().watch().lines(), mark),
+        1,
+        "a popup back as the count line went:\n{}",
         notifications.daemon().watch().tail()
     );
 }

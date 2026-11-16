@@ -5,7 +5,11 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
 
+use deskrinch_settings::panel::Height;
 use deskrinch_test_component::{Component, Renderer, programs};
+
+/// The least height the panel takes, in logical pixels: its settings'.
+pub(crate) const PANEL_LEAST: u32 = *Height::RANGE.start();
 
 /// The panel, running along the top `height` logical pixels high; ended
 /// when dropped, and its settings with it.
@@ -17,13 +21,7 @@ impl Panel {
     /// Starts the panel along the top, `height` high, and returns once it
     /// has presented.
     pub(crate) fn along_the_top(height: u32) -> Self {
-        let path = settings_file();
-        fs::create_dir_all(path.parent().unwrap()).unwrap();
-        fs::write(
-            &path,
-            format!("[panel]\nedge = \"top\"\nheight = {height}\n"),
-        )
-        .unwrap();
+        write_settings(height);
         let program = programs::program(deskrinch_shell::PANEL.package).unwrap();
         let renderer = Renderer::of_run();
         let component = Component::start(Command::new(program), renderer).unwrap();
@@ -34,6 +32,25 @@ impl Panel {
             component: Some(component),
         }
     }
+
+    /// The running panel made `height` high, through its settings, which it
+    /// follows: one change of what it reserves, with no new surface. The
+    /// test waits for what the change does to the column.
+    pub(crate) fn set_height(&self, height: u32) {
+        assert!(self.component.is_some(), "the panel has ended");
+        write_settings(height);
+    }
+}
+
+/// The panel's settings: along the top, `height` high.
+fn write_settings(height: u32) {
+    let path = settings_file();
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        format!("[panel]\nedge = \"top\"\nheight = {height}\n"),
+    )
+    .unwrap();
 }
 
 impl Drop for Panel {
