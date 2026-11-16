@@ -17,8 +17,12 @@
 //!   default action are invoked and signalled; the pointer over a popup
 //!   holds its expiry.
 //! - [`frames`]: one frame for a change, none while nothing changes.
+//! - [`burst`]: changes while the window's size is asked for, every popup
+//!   drawn whole at the end and the surface the content's size.
 
 // `cfg(test)` marks them as test code, where clippy allows `unwrap`.
+#[cfg(test)]
+mod burst;
 #[cfg(test)]
 mod clicks;
 #[cfg(test)]

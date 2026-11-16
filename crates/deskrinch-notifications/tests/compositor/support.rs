@@ -103,6 +103,27 @@ pub(crate) struct Column {
     pub(crate) popups: Vec<(u32, u32)>,
     /// The output's size in its pixels.
     pub(crate) size: (u32, u32),
+    /// What changed, coarsely, for a failure to show: every eighth row
+    /// that changed, with the spans of its columns that did.
+    pub(crate) map: Vec<String>,
+}
+
+/// The spans of `row`'s pixels that differ between `before` and `now`, as
+/// `"y: x0-x1 x2-x3"`; `None` when none does.
+fn spans(before: &Image, now: &Image, row: u32) -> Option<String> {
+    let mut spans: Vec<(u32, u32)> = Vec::new();
+    for x in 0..now.width() {
+        if before.pixel(x, row) != now.pixel(x, row) {
+            match spans.last_mut() {
+                Some((_, end)) if *end + 1 == x => *end = x,
+                _ => spans.push((x, x)),
+            }
+        }
+    }
+    (!spans.is_empty()).then(|| {
+        let spans: Vec<String> = spans.iter().map(|(a, b)| format!("{a}-{b}")).collect();
+        format!("{row}: {}", spans.join(" "))
+    })
 }
 
 /// The column on the output `output`, which showed `before` and shows `now`:
@@ -137,6 +158,10 @@ fn changed(output: &str, before: &Image, now: &Image) -> Option<Column> {
         bottom,
         popups: runs,
         size: (now.width(), now.height()),
+        map: (0..now.height())
+            .step_by(8)
+            .filter_map(|row| spans(before, now, row))
+            .collect(),
     })
 }
 

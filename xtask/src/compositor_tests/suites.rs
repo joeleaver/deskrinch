@@ -430,6 +430,7 @@ pub(super) const SUITES: [Suite; 21] = [
         renders: false,
         programs: &[
             &deskrinch_shell::WALLPAPER,
+            &deskrinch_shell::NOTIFICATIONS,
             &deskrinch_shell::LAUNCHER,
             &deskrinch_shell::PANEL,
         ],
