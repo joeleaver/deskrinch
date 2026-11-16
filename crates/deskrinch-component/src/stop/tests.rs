@@ -18,6 +18,8 @@ use deskrinch_test_wait::PATIENCE;
 use signal_hook::consts::{SIGHUP, SIGINT, SIGTERM};
 use signal_hook::low_level::raise;
 
+use deskrinch_shell::exit_status::stops_in_order_line;
+
 use super::{BOUND, asked_line, bound_line, install_once};
 
 /// The variable naming the case the child runs.
@@ -26,11 +28,13 @@ const CASE: &str = "DESKRINCH_STOP_CASE";
 /// The bound of the stuck case: short, so the test is.
 const SHORT_BOUND: Duration = Duration::from_millis(300);
 
-/// How the child ended, how long after it was started, and what it said.
+/// How the child ended, how long after it was started, what it said, and
+/// its process id.
 struct Ended {
     status: ExitStatus,
     after: Duration,
     said: String,
+    pid: u32,
 }
 
 /// Runs the child with `case`, through `sh -c 'PREFIX exec "$0" "$@"'`
@@ -58,16 +62,20 @@ fn run_child_with(case: &str, prefix: Option<&str>) -> Ended {
     command
         .args(test_args)
         .env(CASE, case)
-        .env("RUST_LOG", "info")
+        .env("RUST_LOG", "debug")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::piped());
     let started = Instant::now();
-    let output = command.output().unwrap();
+    let child = command.spawn().unwrap();
+    // With a prefix, `exec` keeps the shell's process: the id is the child's.
+    let pid = child.id();
+    let output = child.wait_with_output().unwrap();
     Ended {
         status: output.status,
         after: started.elapsed(),
         said: String::from_utf8_lossy(&output.stderr).into_owned(),
+        pid,
     }
 }
 
@@ -91,6 +99,12 @@ fn ended_in_order(ended: &Ended, signal: i32) {
         ended.said
     );
     assert!(!ended.said.contains("still running"), "{}", ended.said);
+    let installed = stops_in_order_line(ended.pid);
+    assert!(
+        ended.said.contains(&installed),
+        "it did not say {installed:?}; it said:\n{}",
+        ended.said
+    );
 }
 
 #[test]
