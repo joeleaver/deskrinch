@@ -41,7 +41,6 @@ use deskrinch_settings::general::GeneralSettings;
 use deskrinch_start_record::Store;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
-use rinch::prelude::*;
 
 /// The launcher, or a request to the running one.
 #[derive(Debug, Parser)]
@@ -188,7 +187,7 @@ fn run(show: bool) -> ExitCode {
         starts,
         record,
     };
-    App::new(move |scope| root::launcher(scope, parts))
+    deskrinch_component::app::new(move |scope| root::launcher(scope, parts))
         .window_props(surface::window_props(show))
         .theme(first_theme)
         .run();

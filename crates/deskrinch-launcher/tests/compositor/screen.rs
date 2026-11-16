@@ -201,7 +201,11 @@ const SYSTEM_DATA_DIRS: [&str; 2] = ["/usr/local/share", "/usr/share"];
 /// `command` with only the test's directories: its applications, its
 /// configuration, its state (the record of starts, in `state/`), and a
 /// `PATH` with nothing on it (no `xdg-terminal-exec`). What the launcher
-/// says of the record is logged (`RUST_LOG`), for the tests to wait on.
+/// says of the record is logged (`RUST_LOG`), for the tests to wait on, and
+/// so is what rinch says when its DevTools window opens or its inspect mode
+/// changes. `RINCH_DEVTOOLS` is removed, so that the launcher answers
+/// rinch's DevTools keys as it was built to.
+///
 /// The system's data directories are replaced by stand-ins that hold only
 /// their `vulkan` directory: the Vulkan loader finds its drivers there
 /// (`vulkan/icd.d`), which the GPU renderer needs, and the launcher finds
@@ -224,8 +228,14 @@ fn in_dirs(mut command: Command, dirs: &Path) -> Command {
         .env("XDG_CONFIG_HOME", dirs.join("config"))
         .env("XDG_CONFIG_DIRS", &none)
         .env("XDG_STATE_HOME", dirs.join("state"))
-        .env("RUST_LOG", "warn,deskrinch_launcher=info")
-        .env("PATH", &none);
+        .env(
+            "RUST_LOG",
+            "warn,deskrinch_launcher=info,rinch::shell::rinch_runtime::devtools=info",
+        )
+        .env("PATH", &none)
+        // The launcher's own choice of rinch's DevTools keys, whatever the
+        // session holds: rinch's environment variable would override it.
+        .env_remove(rinch::app::DEVTOOLS_ENV);
     command
 }
 

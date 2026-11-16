@@ -81,7 +81,6 @@ use deskrinch_icons::SearchPath;
 use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
-use rinch::prelude::*;
 
 fn main() {
     // Before the configuration is read, so that its diagnostics are shown.
@@ -99,7 +98,7 @@ fn main() {
         installed: Installed::start(&env),
         icons: Icons::start(SearchPath::new(&base_dirs)),
     };
-    App::new(move |scope| panel::panel(scope, parts))
+    deskrinch_component::app::new(move |scope| panel::panel(scope, parts))
         .window_props(window)
         .theme(first_theme)
         .run();
