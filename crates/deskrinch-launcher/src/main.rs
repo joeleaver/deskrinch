@@ -143,7 +143,8 @@ fn forget_starts() -> ExitCode {
 
 /// Runs the launcher until the session ends.
 fn run(show: bool) -> ExitCode {
-    let visibility = Arc::new(Visibility::new(show));
+    let (visibility, window) = Visibility::new(show);
+    let visibility = Arc::new(visibility);
     // The bus may ask to forget before the record's thread runs: that
     // waits for it.
     let (starts, waiting) = starts::channel();
@@ -181,6 +182,7 @@ fn run(show: bool) -> ExitCode {
         theme,
         general,
         visibility,
+        window,
         made_shown: show,
         installed,
         icons,
