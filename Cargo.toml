@@ -61,6 +61,9 @@ deskrinch-wayland-client = { path = "crates/deskrinch-wayland-client" }
 deskrinch-workspaces = { path = "crates/deskrinch-workspaces" }
 deskrinch-window-management = { path = "crates/deskrinch-window-management" }
 deskrinch-xdg = { path = "crates/deskrinch-xdg" }
+# Resampling for deskrinch-picture's fit: SIMD, and a 16-bit linear-light
+# path of its own.
+fast_image_resize = "6.1.0"
 futures-core = "0.3.34"
 futures-util = { version = "0.3.34", default-features = false, features = ["alloc"] }
 # The versions `image` already locks: deskrinch-picture uses the decoders
