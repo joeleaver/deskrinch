@@ -275,14 +275,15 @@ mod tests {
         let (send, woke) = mpsc::channel();
         let waiting = thread::spawn(move || send.send(worker.wait(true)).unwrap());
 
-        // timedatectl's way: a new link renamed over the old.
+        // timedatectl's way: a new link renamed over the old, the two
+        // events forced apart: the worker's wake for the new link is taken
+        // before the rename.
         let new_link = dir.path().join(".localtime.new");
         symlink(&tokyo, &new_link).unwrap();
-        fs::rename(&new_link, &localtime).unwrap();
-
         let woke = woke
             .recv_timeout(PATIENCE)
             .expect("the worker woke for the zone, an hour before its timer");
+        fs::rename(&new_link, &localtime).unwrap();
         assert!(woke.zone, "{woke:?}");
         assert!(!woke.stop && !woke.clock_set, "{woke:?}");
         waiting.join().unwrap();
