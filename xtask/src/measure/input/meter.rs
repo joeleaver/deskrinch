@@ -1,6 +1,6 @@
-//! What a typed key costs, from just before it is typed to settled: CPU
-//! time read from `/proc` ([`CpuMeter`]), or instructions from a Callgrind
-//! dump of its own ([`CallgrindMeter`]).
+//! What a step (a key typed, a pointer move) costs, from just before it is
+//! taken to settled: CPU time read from `/proc` ([`CpuMeter`]), or
+//! instructions from a Callgrind dump of its own ([`CallgrindMeter`]).
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -13,8 +13,9 @@ use crate::error::Error;
 
 /// Measures one span at a time.
 pub(crate) trait Meter {
-    /// What a row of it says was measured.
-    fn what(&self) -> &'static str;
+    /// What a row of it says was measured, from the step `from` ("key",
+    /// "move").
+    fn what(&self, from: &str) -> String;
     /// The unit of what it measures.
     fn unit(&self) -> Unit;
     /// Starts a span.
@@ -42,8 +43,8 @@ impl CpuMeter {
 }
 
 impl Meter for CpuMeter {
-    fn what(&self) -> &'static str {
-        "CPU from the key to settled"
+    fn what(&self, from: &str) -> String {
+        format!("CPU from the {from} to settled")
     }
 
     fn unit(&self) -> Unit {
@@ -62,37 +63,29 @@ impl Meter for CpuMeter {
 }
 
 /// The instructions Callgrind counts in the program over a span: zeroed at
-/// its start, dumped at its end, the dump read.
+/// its start, dumped at its end with the span's name as the hint, and read
+/// from the dump that names it.
 pub(crate) struct CallgrindMeter<'a> {
     control: &'a dyn Fn() -> Command,
     pid: String,
     out: &'a Path,
-    /// The dumps asked for so far in this run, which Callgrind numbers in
-    /// that order.
-    dumps: &'a mut u32,
 }
 
 impl<'a> CallgrindMeter<'a> {
     /// A meter of process `pid`, run under Callgrind writing to `out`,
-    /// asked through `control`; `dumps` counts the run's dumps.
-    pub(crate) fn new(
-        control: &'a dyn Fn() -> Command,
-        pid: u32,
-        out: &'a Path,
-        dumps: &'a mut u32,
-    ) -> Self {
+    /// asked through `control`.
+    pub(crate) fn new(control: &'a dyn Fn() -> Command, pid: u32, out: &'a Path) -> Self {
         Self {
             control,
             pid: pid.to_string(),
             out,
-            dumps,
         }
     }
 }
 
 impl Meter for CallgrindMeter<'_> {
-    fn what(&self) -> &'static str {
-        "instructions from the key to settled (Ir)"
+    fn what(&self, from: &str) -> String {
+        format!("instructions from the {from} to settled (Ir)")
     }
 
     fn unit(&self) -> Unit {
@@ -104,8 +97,6 @@ impl Meter for CallgrindMeter<'_> {
     }
 
     fn stop(&mut self, name: &str) -> Result<u64, Error> {
-        callgrind::control(self.control, &["--dump", name, &self.pid])?;
-        *self.dumps += 1;
-        callgrind::totals(self.out, *self.dumps)
+        callgrind::dump(self.control, &self.pid, self.out, name)
     }
 }

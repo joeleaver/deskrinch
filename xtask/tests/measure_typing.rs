@@ -1,6 +1,6 @@
 //! `cargo xtask measure --type` end to end, on a stand-in for a rinch
-//! program in an isolated session, typed into by the real typist (`cargo
-//! xtask type`). The stand-in hears no keys: it says it has the keyboard
+//! program in an isolated session, typed into by the real input client
+//! (`cargo xtask input`). The stand-in hears no keys: it says it has the keyboard
 //! when shown, presents a frame every 0.3 s while shown (so every key is
 //! followed by one), and at the hide says its query had a length the test
 //! chooses. What is checked is the orchestration: each key measured, the
@@ -113,6 +113,14 @@ mod measure_typing {
                 "show {show}: typing 3 characters, the keys' sum: CPU from the key to settled"
             );
             assert!(stdout.contains(&total), "no {total:?} in:\n{stdout}");
+            for key in 1..=3 {
+                let row = format!("show {show}: key {key} of 3: frames presented");
+                assert!(number_after(&stdout, &row) >= 1, "{row}:\n{stdout}");
+                // The keys have the two rows the pointer's steps have:
+                // this stand-in's frames are paints alone.
+                let row = format!("show {show}: key {key} of 3: of them with reactive work");
+                assert_eq!(number_after(&stdout, &row), 0, "{row}:\n{stdout}");
+            }
             let frames = number_after(&stdout, &format!("show {show}: typing: frames presented"));
             assert!(
                 frames >= 3,

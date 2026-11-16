@@ -51,10 +51,18 @@ impl Target {
     }
 }
 
+/// What building a target gave: its test binary, and the binaries of its
+/// package granted with it ([`super::granted`]), by `[[bin]]` name.
+#[derive(Debug, Clone)]
+pub(super) struct Binaries {
+    pub(super) test: PathBuf,
+    pub(super) granted: Vec<(&'static str, PathBuf)>,
+}
+
 /// Builds `targets`, one `cargo test --no-run` per backend, and returns
 /// their binaries, in the same order.
-pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<PathBuf>, Error> {
-    let mut binaries: Vec<Option<PathBuf>> = vec![None; targets.len()];
+pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<Binaries>, Error> {
+    let mut binaries: Vec<Option<Binaries>> = vec![None; targets.len()];
     for backend in [Backend::Rust, Backend::System] {
         let built: Vec<(usize, Target)> = targets
             .iter()
@@ -67,12 +75,19 @@ pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<PathB
         }
         let messages = build(root, backend, built.iter().map(|&(_, target)| target))?;
         for (index, target) in built {
-            binaries[index] = Some(test_executable(&messages, target).ok_or(
-                Error::MissingTestBinary {
-                    package: target.package,
-                    name: target.test,
-                },
-            )?);
+            let missing = |name| Error::MissingTestBinary {
+                package: target.package,
+                name,
+            };
+            let test = test_executable(&messages, target).ok_or(missing(target.test))?;
+            let granted = super::granted::with(target)
+                .map(|bin| {
+                    cargo_messages::executable(&messages, target.package, bin, Kind::Bin)
+                        .map(|path| (bin, path))
+                        .ok_or(missing(bin))
+                })
+                .collect::<Result<_, _>>()?;
+            binaries[index] = Some(Binaries { test, granted });
         }
     }
     Ok(binaries.into_iter().flatten().collect())

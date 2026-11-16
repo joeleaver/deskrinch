@@ -19,6 +19,7 @@ mod report;
 #[cfg(test)]
 mod measure_callgrind {
     use std::fs;
+    use std::path::{Path, PathBuf};
     use std::process::{Command, Stdio};
 
     use crate::report::number_after;
@@ -169,5 +170,162 @@ mod measure_callgrind {
             !stdout.contains("process CPU when"),
             "CPU rows under Callgrind:\n{stdout}"
         );
+    }
+
+    /// A stand-in, run by `bash`, that presents a frame every half second
+    /// once shown (from the start when `shown` is 1), and shows and hides
+    /// when `fifo` is written `s` and `h`. It waits with `read -t` on the
+    /// FIFO, opened for reading and writing so that its opening never
+    /// blocks: a builtin, so that it forks nothing under Callgrind. Each
+    /// word is one byte (`read -n 1`): `read` takes a pipe a byte at a time,
+    /// and a longer word could be cut by the timeout, slow under Callgrind.
+    fn every_half_second(fifo: &Path, shown: u8) -> String {
+        format!(
+            "exec 3<>{fifo}; n=0; shown={shown}; \
+             if [ $shown = 1 ]; then n=1; echo '[PERF] frame 1: a' >&2; fi; \
+             while :; do \
+             if read -t 0.5 -n 1 -u 3 asked; then \
+             if [ \"$asked\" = s ]; then shown=1; n=$((n + 1)); \
+             echo \"[PERF] frame $n: a\" >&2; fi; \
+             if [ \"$asked\" = h ]; then shown=0; fi; \
+             elif [ $shown = 1 ]; then n=$((n + 1)); echo \"[PERF] frame $n: a\" >&2; fi; \
+             done",
+            fifo = fifo.display()
+        )
+    }
+
+    /// A FIFO in `dir`, for [`every_half_second`].
+    fn fifo(dir: &Path) -> PathBuf {
+        let fifo = dir.join("asked");
+        let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
+        assert!(made.success(), "mkfifo: {made}");
+        fifo
+    }
+
+    #[test]
+    #[ignore = "needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn each_pointer_step_reads_its_own_dump_after_the_idle_window() {
+        // Each instruction row must be the total of the dump Callgrind wrote
+        // for its span, which names the span in its description (its hint):
+        // checked against the profile, kept with --profiles. Counts alone
+        // cannot tell: the stand-in's spans are whole numbers of loop turns,
+        // and two of a turn's length count within a few instructions.
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = fifo(dir.path());
+        let profiles = dir.path().join("profiles");
+        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .args(["measure", "--compositor", &compositor(), "--runs", "1"])
+            .args(["--instructions", "--settle", "1", "--idle", "6"])
+            .arg("--profiles")
+            .arg(&profiles)
+            .args(["--place-pointer", "640,360"])
+            .args(["--move-pointer", "600,300", "--move-pointer", "640,360"])
+            .args(["bash", "-c", &every_half_second(&fifo, 1)])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        let dumps = named_dumps(&profiles.join("run-1"));
+        for (row, hint) in [
+            ("instructions to first frame (Ir)", "first-frame"),
+            ("instructions in the idle window (Ir)", "idle"),
+            (
+                "pointer step 1 of 2 (to 1:600,300): instructions from the move to settled (Ir)",
+                "pointer-1",
+            ),
+            (
+                "pointer step 2 of 2 (to 1:640,360): instructions from the move to settled (Ir)",
+                "pointer-2",
+            ),
+        ] {
+            assert_eq!(
+                Some(number_after(&stdout, row)),
+                dumps.get(hint).copied(),
+                "{row:?} is not the dump {hint:?}'s total; the dumps: {dumps:?}\n{stdout}"
+            );
+        }
+        for step in ["1 of 2 (to 1:600,300)", "2 of 2 (to 1:640,360)"] {
+            let frames = number_after(&stdout, &format!("pointer step {step}: frames presented"));
+            assert!(frames >= 1, "{stdout}");
+        }
+    }
+
+    /// Each dump of the profile in `dir` (`callgrind.out.N`), by the hint it
+    /// was written with (`desc: Trigger: dump HINT`): its total.
+    fn named_dumps(dir: &Path) -> std::collections::BTreeMap<String, u64> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+            .filter_map(|text| {
+                let hint = text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("desc: Trigger: dump "))?
+                    .trim_end()
+                    .to_owned();
+                let total = text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("totals: "))?
+                    .trim()
+                    .parse()
+                    .ok()?;
+                Some((hint, total))
+            })
+            .collect()
+    }
+
+    #[test]
+    #[ignore = "needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn each_pointer_step_reads_its_own_dump_after_each_show() {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = fifo(dir.path());
+        let summon = dir.path().join("summon.sh");
+        fs::write(&summon, format!("printf s > {}\n", fifo.display())).unwrap();
+        let dismiss = dir.path().join("dismiss.sh");
+        fs::write(&dismiss, format!("printf h > {}\n", fifo.display())).unwrap();
+        let summon = summon.display().to_string();
+        let dismiss = dismiss.display().to_string();
+        let profiles = dir.path().join("profiles");
+        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .args(["measure", "--compositor", &compositor(), "--runs", "1"])
+            .args(["--instructions", "--settle", "1", "--idle", "1"])
+            .arg("--profiles")
+            .arg(&profiles)
+            .args(["--summon", &summon, "--dismiss", &dismiss, "--shows", "2"])
+            .args(["--place-pointer", "640,360", "--move-pointer", "600,300"])
+            .args(["bash", "-c", &every_half_second(&fifo, 0)])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        let dumps = named_dumps(&profiles.join("run-1"));
+        for show in 1..=2 {
+            let step = format!("show {show}: pointer step 1 of 1 (to 1:600,300)");
+            for (row, hint) in [
+                (
+                    format!("show {show}: instructions from the summon to its first frame (Ir)"),
+                    format!("show-{show}"),
+                ),
+                (
+                    format!("{step}: instructions from the move to settled (Ir)"),
+                    format!("show-{show}-pointer-1"),
+                ),
+                (
+                    format!("hide {show}: instructions from the dismiss to settled (Ir)"),
+                    format!("hide-{show}"),
+                ),
+            ] {
+                assert_eq!(
+                    Some(number_after(&stdout, &row)),
+                    dumps.get(&hint).copied(),
+                    "{row:?} is not the dump {hint:?}'s total; the dumps: {dumps:?}\n{stdout}"
+                );
+            }
+            let frames = number_after(&stdout, &format!("{step}: frames presented"));
+            assert!(frames >= 1, "{stdout}");
+        }
     }
 }

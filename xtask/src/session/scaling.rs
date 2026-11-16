@@ -131,6 +131,12 @@ impl Session {
     }
 
     /// A Wayland client of the session, for setting it up.
+    /// The session's outputs' names, in the order the compositor announced
+    /// them: the order the session made them.
+    pub(crate) fn output_names(&self) -> Result<Vec<String>, Error> {
+        Ok(self.connect_client()?.output_names())
+    }
+
     fn connect_client(&self) -> Result<TestClient, Error> {
         TestClient::connect_to(&self.socket_path()).map_err(|source| Error::OutputSetup {
             compositor: self.compositor.name(),

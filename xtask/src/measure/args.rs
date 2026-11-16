@@ -5,7 +5,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::{
-    Expected, QueryLine, Renderer, Request, ShaderCache, Summons, Typing, parse_env, parse_text,
+    Expected, Point, Pointer, QueryLine, Renderer, Request, ShaderCache, Summons, Typing,
+    parse_env, parse_text,
 };
 use crate::session::Compositor;
 
@@ -97,6 +98,26 @@ pub(crate) struct Args {
         value_parser = QueryLine::parse
     )]
     query_line: Option<QueryLine>,
+    /// Put the pointer at this point first, unmeasured, the program then
+    /// left to settle: `X,Y` on the session's first output, `N:X,Y` on its
+    /// Nth, in that output's logical pixels. Needs `--move-pointer`.
+    #[arg(
+        long,
+        value_name = "POINT",
+        requires = "move_pointer",
+        value_parser = Point::parse
+    )]
+    place_pointer: Option<Point>,
+    /// Move the pointer to this point, a measured step (repeatable, in
+    /// order): after the idle window, or with `--summon` after each show.
+    /// Each step must lead to a frame. Needs `--place-pointer`.
+    #[arg(
+        long,
+        value_name = "POINT",
+        requires = "place_pointer",
+        value_parser = Point::parse
+    )]
+    move_pointer: Vec<Point>,
     /// Open one window with this app id at the idle window's start, and
     /// keep it open to its end: the idle figures then include what it
     /// costs the program. A run fails if it cannot be opened or is gone
@@ -189,6 +210,10 @@ impl Args {
             component: self.component,
             allow_errors: self.allow_errors,
             env: self.env,
+            pointer: self.place_pointer.map(|place| Pointer {
+                place,
+                moves: self.move_pointer,
+            }),
         }
     }
 }

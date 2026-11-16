@@ -105,13 +105,13 @@ pub(crate) enum Error {
     /// The shell's components could not be built.
     #[error(transparent)]
     Components(#[from] crate::components::BuildError),
-    /// `cargo xtask type` stopped.
+    /// `cargo xtask input` stopped.
     #[error(transparent)]
-    Typist(#[from] crate::typist::TypistError),
-    /// `cargo xtask measure --type` could not type, or the program did not
-    /// take what was typed.
+    Input(#[from] crate::input::InputError),
+    /// `cargo xtask measure` could not type or point, or the program did not
+    /// take what was typed, or drew nothing for a step.
     #[error(transparent)]
-    Typing(#[from] crate::measure::TypingError),
+    MeasuredInput(#[from] crate::measure::MeasuredInputError),
     /// A test binary cannot be granted what KWin restricts.
     #[error("could not write a test binary's desktop file")]
     DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),
@@ -389,6 +389,20 @@ pub(crate) enum Error {
         waited: std::time::Duration,
         /// Its last lines of output.
         output: String,
+    },
+    /// Two dumps of one Callgrind profile carry the same hint, so which one
+    /// a figure is cannot be told.
+    #[error(
+        "the Callgrind profile has {} dumps with the hint {label:?}, where a run makes each \
+         hint once: {}",
+        files.len(),
+        files.iter().map(|file| file.display().to_string()).collect::<Vec<_>>().join(", ")
+    )]
+    CallgrindHintRepeated {
+        /// The hint.
+        label: String,
+        /// The dumps that carry it.
+        files: Vec<PathBuf>,
     },
     /// A program said to prepare its hidden window (`--prepares`) never
     /// did.

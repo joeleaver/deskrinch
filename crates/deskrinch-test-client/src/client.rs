@@ -4,12 +4,12 @@
 use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::{Arc, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
 use deskrinch_test_wait::Deadline;
-use deskrinch_test_wayland::{Globals, WaitError, dispatch_until, roundtrip};
+use deskrinch_test_wayland::{BindError, Globals, WaitError, dispatch_until, roundtrip};
 
 use wayland_client::backend::ObjectId;
 use wayland_client::protocol::wl_buffer::{self, WlBuffer};
@@ -28,13 +28,15 @@ use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1
 use wayland_protocols::xdg::shell::client::xdg_toplevel::XdgToplevel;
 use wayland_protocols::xdg::shell::client::xdg_wm_base::{self, XdgWmBase};
 use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::ZxdgOutputManagerV1;
+use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::ZwlrLayerShellV1;
 
 use crate::keyboard::Keyboard;
+use crate::layer::TestLayer;
 use crate::output_info::OutputInfo;
 use crate::pointer::Pointer;
 use crate::seat::Windows;
 use crate::synced::Synced;
-use crate::window::{Shared, Status, TestWindow};
+use crate::window::{Shared, TestWindow};
 use crate::{Error, Paint, lock, waited};
 use deskrinch_test_wait::PATIENCE;
 
@@ -70,6 +72,9 @@ pub struct TestClient {
     /// compositor gives it (sway and labwc otherwise draw borders and a
     /// title bar inside a maximised or tiled window's area).
     decorations: Option<ZxdgDecorationManagerV1>,
+    /// `wlr-layer-shell`, for [`open_overlay`](Self::open_overlay), or why
+    /// it could not be bound.
+    layer_shell: Result<ZwlrLayerShellV1, BindError>,
     outputs: Arc<Mutex<HashMap<String, WlOutput>>>,
     infos: Arc<Mutex<HashMap<ObjectId, OutputInfo>>>,
     windows: Windows,
@@ -117,6 +122,8 @@ impl TestClient {
         // Logical sizes, where the compositor offers them (all three do).
         let xdg_outputs: Option<ZxdgOutputManagerV1> = globals.bind(&qh, 1..=3, ()).ok();
         let decorations: Option<ZxdgDecorationManagerV1> = globals.bind(&qh, 1..=1, ()).ok();
+        // Version 1 has the exclusive keyboard an overlay asks for.
+        let layer_shell = globals.bind(&qh, 1..=4, ());
         // The seat, where there is one: windows hear its keyboard and pointer.
         let _seat: Option<WlSeat> = globals.bind(&qh, 1..=7, ()).ok();
         let announced = globals.all();
@@ -153,6 +160,7 @@ impl TestClient {
             compositor,
             wm_base,
             decorations,
+            layer_shell,
             outputs,
             infos,
             windows,
@@ -276,14 +284,7 @@ impl TestClient {
             })
             .transpose()?;
         let surface = self.compositor.create_surface(&self.queue, ());
-        let shared = Arc::new(Shared {
-            title: title.to_owned(),
-            surface: surface.clone(),
-            paint,
-            status: Mutex::new(Status::default()),
-            changed: Condvar::new(),
-            decoration: Mutex::new(None),
-        });
+        let shared = Arc::new(Shared::new(title, surface.clone(), paint));
         lock(&self.windows).insert(surface.id(), Arc::clone(&shared));
         let xdg_surface = self
             .wm_base
@@ -312,19 +313,52 @@ impl TestClient {
             xdg_surface,
             shared,
         );
-        window.wait_drawn("its first buffer", |_| true)?;
-        // The first buffer is committed, but perhaps not yet processed:
-        // until the compositor has, the window is not mapped, and a client
-        // that lists windows (a taskbar, `deskrinch-window-management`) on
-        // another connection may not see it. The compositor answers a sync
-        // only after everything sent before it.
+        self.mapped(&window.shared, "mapping the window")?;
+        Ok(window)
+    }
+
+    /// Opens a layer surface on the overlay layer that takes the keyboard
+    /// exclusively, as a launcher or a lock screen does, and returns once
+    /// it is mapped, as [`open`](Self::open) does: while it is, it has the
+    /// seat's keyboard (see [`TestLayer`] for which compositors give it).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Bind`] when the compositor does not offer
+    /// `zwlr_layer_shell_v1`; otherwise as [`open`](Self::open).
+    pub fn open_overlay(&self) -> Result<TestLayer, Error> {
+        let shell = self
+            .layer_shell
+            .as_ref()
+            .map_err(|error| Error::Bind(error.clone()))?;
+        let surface = self.compositor.create_surface(&self.queue, ());
+        let layer = TestLayer::open(
+            self.connection.clone(),
+            Arc::clone(&self.windows),
+            shell,
+            &surface,
+            &self.queue,
+        )?;
+        self.mapped(&layer.shared, "mapping the overlay")?;
+        Ok(layer)
+    }
+
+    /// Waits for the surface `shared` describes to draw its first buffer,
+    /// then for the compositor to have processed it, `what` naming the wait.
+    ///
+    /// The first buffer is committed, but perhaps not yet processed: until
+    /// the compositor has, the surface is not mapped, and a client that
+    /// lists windows (a taskbar, `deskrinch-window-management`) on another
+    /// connection may not see it. The compositor answers a sync only after
+    /// everything sent before it.
+    fn mapped(&self, shared: &Shared, what: &'static str) -> Result<(), Error> {
+        shared.wait_drawn("its first buffer", |status| status.drawn)?;
         let synced = Arc::new(Synced::default());
         self.connection
             .display()
             .sync(&self.queue, Arc::clone(&synced));
         self.connection.flush().map_err(Error::Send)?;
-        synced.wait("mapping the window")?;
-        Ok(window)
+        synced.wait(what)
     }
 }
 
@@ -398,6 +432,7 @@ impl Dispatch<XdgWmBase, ()> for Client {
 
 delegate_noop!(Client: WlCompositor);
 delegate_noop!(Client: ZxdgDecorationManagerV1);
+delegate_noop!(Client: ZwlrLayerShellV1);
 // The mode the compositor settles on is its own business: a window asks for
 // client-side decorations and draws none either way.
 delegate_noop!(Client: ignore ZxdgToplevelDecorationV1);

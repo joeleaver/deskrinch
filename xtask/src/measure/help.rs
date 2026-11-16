@@ -62,8 +62,9 @@ prepared frame says so in its notes.
 --type TEXT, with --summon, types TEXT into the program after each show,
 one key at a time, and measures each key: from the key to settled, CPU time
 (or with --instructions the instructions, each key read from its own dump),
-and in all. The keys come from a typist (cargo xtask type) that measure runs
-in the session, granted the keyboard KWin restricts. The program must say
+and in all. The keys come from the input client (cargo xtask input) that
+measure runs in the session, started before the program and granted the
+input KWin restricts. The program must say
 two things in its output, and --type requires the words of both, with no
 default: --keyboard-line TEXT, a line it writes once a key typed reaches
 where it types (the first key waits for it, after the show's first frame),
@@ -72,6 +73,33 @@ gives how many characters it was typed (checked after the dismiss). A run
 fails, recording nothing, if the keyboard line never comes, if a key leads
 to no frame, or if the query line is missing or gives another length than
 TEXT's: a key lost would otherwise make the figure that of a shorter query.
+
+--place-pointer POINT --move-pointer POINT... moves the pointer, through
+the same input client: first to the --place-pointer point, unmeasured, the
+program then left to settle; then to each --move-pointer point in order,
+each a step measured from the move to settled (CPU time, or with
+--instructions the instructions, each step from its own dump), and in all,
+with the frames. A point is X,Y on the session's first output or N:X,Y on
+its Nth, in that output's logical pixels; an N past --outputs is refused
+before any session starts. The steps come after the idle window, with any
+--window window kept open through them, so the idle figures are those of a
+run without them; with --summon, after each show (and its typed query). A
+run fails, recording nothing, if a step leads to no frame within
+--first-frame-timeout, or if the client refuses a step or ends.
+
+Each step, a key of --type's or a pointer move, reports its frames and how
+many of them ran reactive work (a signal notified, as rinch's frame lines
+say). A reactive frame is no anomaly in itself: typing changes a query. With
+two runs or more, a run whose pair for a step (frames presented, of them
+reactive) matches no other run's is noted, with both pairs (\"2 presented, 1
+reactive, against 1 and 0 in the other runs\"): the runs differ in that
+step, and the dearer figure may include work that is not the step's, such as
+a clock's minute. With one run nothing is
+noted, and the rows are the reader's to compare. The frames are read once
+the step is measured (under --instructions, once its dump is written), so a
+frame presented before the dump is counted; a frame's line comes when it is
+presented, after its work, so one whose work came just before the step
+began is counted in it too.
 
 --window APP_ID opens one window with that app id in the session at the
 idle window's start (once it has had its first configure and drawn), and

@@ -6,6 +6,9 @@
 //!   application. Its [`TestWindow`]s are mapped `xdg_toplevel`s that draw
 //!   a [`Paint`] (nothing, one colour, or four quarters) at whatever size
 //!   the compositor asks for, with a buffer scale of 1.
+//! - A [`TestLayer`] ([`TestClient::open_overlay`]) is a small layer surface
+//!   on the overlay layer that takes the keyboard exclusively, for taking
+//!   the keyboard from another client (a launcher) and giving it back.
 //! - The keyboard: the client takes the seat's keyboard whenever the seat
 //!   has one (on a headless wlroots compositor, only once
 //!   `deskrinch-test-input` has made a virtual keyboard). A window notes
@@ -50,6 +53,7 @@ mod connect;
 mod converge;
 mod keyboard;
 mod kscreen;
+mod layer;
 pub mod layout;
 mod output_info;
 mod outputs;
@@ -65,6 +69,7 @@ use std::time::Duration;
 pub use client::TestClient;
 pub use compositor::Compositor;
 pub use kscreen::{KSCREEN_DOCTOR, kscreen_outputs, kscreen_settings};
+pub use layer::TestLayer;
 pub use layout::{
     Mode, OutputState, RestoreOutputs, change_output, layout_differences, outputs, turn_output_off,
 };
