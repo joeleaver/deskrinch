@@ -6,7 +6,7 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 use deskrinch_desktop_entries::{BaseDirs, DesktopEntry, DesktopId, Environment, LaunchContext};
-use deskrinch_test_dbus::session::REAL_SESSION_VARIABLES;
+use deskrinch_test_dbus::session;
 use deskrinch_test_wait::wait_for;
 
 /// Writes `text` to `dir/relative`, creating directories, through a rename
@@ -41,9 +41,9 @@ pub(crate) fn environment(home: &Path, system: &[&Path]) -> Environment {
 /// `context` launching without any of the real session's variables, for
 /// tests that run no session of their own.
 pub(crate) fn without_real_session(context: LaunchContext) -> LaunchContext {
-    REAL_SESSION_VARIABLES
-        .iter()
-        .fold(context, |context, variable| context.without_env(*variable))
+    session::to_remove()
+        .into_iter()
+        .fold(context, LaunchContext::without_env)
 }
 
 /// An application entry parsed from `text`.
@@ -154,12 +154,12 @@ impl PrivateBus {
     /// `context` with the variables that point what it launches at this
     /// bus's isolated session (its XDG directories and the bus).
     pub(crate) fn isolate(&self, context: LaunchContext) -> LaunchContext {
-        let session = self.0.session_env();
-        let context = REAL_SESSION_VARIABLES
-            .iter()
-            .filter(|variable| !session.iter().any(|(name, _)| name == *variable))
-            .fold(context, |context, variable| context.without_env(*variable));
-        session.into_iter().fold(context, |context, (name, value)| {
+        let set = self.0.session_env();
+        let context = session::to_remove()
+            .into_iter()
+            .filter(|variable| !set.iter().any(|(name, _)| variable == name))
+            .fold(context, LaunchContext::without_env);
+        set.into_iter().fold(context, |context, (name, value)| {
             context.with_env(name, value)
         })
     }
