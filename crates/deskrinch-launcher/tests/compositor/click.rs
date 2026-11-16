@@ -1,6 +1,9 @@
 //! Clicks on the launcher's results, through `deskrinch-test-input`'s
 //! pointer, on [`crate::screen`]'s fixture: a press and a release of the
-//! primary button on one result start it, on two different ones nothing.
+//! primary button on one result start it. A press on one result and a
+//! release on another is the launcher's own tests': the view names each
+//! (`wiring::tests` in the binary) and the model makes no click of them
+//! ([`deskrinch_launcher::Model`]'s tests).
 //!
 //! The results are found on the screen, not where a theme puts them: the
 //! runs of pixel rows, below the query field's, in which something across
@@ -12,7 +15,6 @@ use deskrinch_test_input::Button;
 use deskrinch_test_screen::{Image, Rgba};
 
 use crate::screen::{COLUMN, HEIGHT, Shown, WIDTH, args, at_centre, the_one_started, token};
-use crate::support::stays;
 
 /// The query both tests' results come from: "Plain Recorder" first (its
 /// name starts with it) and selected, then "Recorder Plain".
@@ -95,27 +97,4 @@ fn a_click_on_the_other_result_starts_that_one() {
     assert_eq!(args(&record), ["Other"], "not the selected one");
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
     shown.hid_with_the_query();
-}
-
-#[test]
-#[ignore = "needs a compositor: cargo xtask compositor-tests"]
-fn down_on_one_result_and_up_on_another_starts_nothing() {
-    let (mut shown, [first, second]) = two_results();
-    let output = shown.output.clone();
-    shown.input.move_pointer(&output, first.0, first.1).unwrap();
-    shown.input.press_button(Button::PRIMARY).unwrap();
-    shown
-        .input
-        .move_pointer(&output, second.0, second.1)
-        .unwrap();
-    shown.input.release_button(Button::PRIMARY).unwrap();
-    assert!(
-        stays(|| shown.started().is_empty()),
-        "{:?}",
-        shown.started()
-    );
-    let image = shown.see("the launcher still shown", |image| {
-        at_centre(image).is_some()
-    });
-    assert_eq!(results(&image).len(), 2, "its results still there");
 }
