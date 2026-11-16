@@ -4,9 +4,9 @@
 //! each renderer the run tests (`DESKRINCH_TEST_RENDERER`).
 //!
 //! The panel is checked by the screen's pixels (`deskrinch-test-screen`):
-//! every output is captured before it starts, and afterwards exactly one
-//! output differs, there in a band of the configured height along the
-//! configured edge and nowhere else; a maximised test window stops at that
+//! every output is captured before it starts, and afterwards every output
+//! differs, each in a band of the configured height along the configured
+//! edge and nowhere else (a bar per output); a maximised test window stops at that
 //! band; the taskbar lists the windows, its buttons' clicks act on them
 //! (`taskbar_clicks`), and the button under the pointer is marked until the
 //! pointer leaves (`taskbar_hover`); an edit of the settings file moves and resizes

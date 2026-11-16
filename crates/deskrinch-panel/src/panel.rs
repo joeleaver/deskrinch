@@ -33,12 +33,12 @@ use deskrinch_applications::{Icons, Installed};
 use deskrinch_component::{Inbox, LiveSettings};
 use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
-use rinch::OutputId;
 use rinch::prelude::*;
 use rinch::reactive::Effect;
+use rinch::{OutputId, WindowHandle};
 
 use crate::bar::Bar;
-use crate::surface::{self, Placement};
+use crate::surface::{self, BarSurface, Placement};
 use crate::widgets::{AppIcons, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock};
 
 /// What the panel runs with.
@@ -88,38 +88,64 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     rsx! {
         div {
             for id in output_ids() {
-                Window {
+                div {
                     key: id,
-                    title: surface::TITLE.to_owned(),
-                    width: surface::FIRST_WIDTH,
-                    height: untracked(|| placement.get()).height.get(),
-                    borderless: true,
-                    app_id: Some(surface::NAMESPACE.to_owned()),
-                    wayland_layer: Some(surface::layer_surface(untracked(|| placement.get()), id)),
-                    on_closed: move || surface::closed(id),
-                    {output_bar(__scope, id, placement)}
+                    {bar_window(__scope, id, placement)}
                 }
             }
         }
     }
 }
 
-/// The bar on the output whose id is `output`, inside that output's window:
-/// it follows `placement`, moving its window when the edge or height
-/// changes ([`surface::place`], from an effect of this window's, so that
-/// rinch's current window is this one).
-fn output_bar(
+/// The window of the bar on the output whose id is `output`, drawn with its
+/// row: opened at the placement as it is now, which its bar is handed as
+/// what its window was opened with.
+fn bar_window(
     __scope: &mut RenderScope,
     output: OutputId,
     placement: Memo<Placement>,
 ) -> NodeHandle {
-    // Where the window was made: the placement when its row was drawn.
-    let mut placed = untracked(|| placement.get());
+    let opened = surface::bar_surface(untracked(|| placement.get()), output);
+    let height = opened.height;
+    let layer = opened.layer.clone();
+    rsx! {
+        Window {
+            title: surface::TITLE.to_owned(),
+            width: surface::FIRST_WIDTH,
+            height: height,
+            borderless: true,
+            app_id: Some(surface::NAMESPACE.to_owned()),
+            wayland_layer: Some(layer),
+            on_closed: move || surface::closed(output),
+            {output_bar(__scope, output, placement, opened)}
+        }
+    }
+}
+
+/// The bar on the output whose id is `output`, inside that output's window:
+/// it follows `placement`, moving its window through the window's handle
+/// when the edge or height changes ([`surface::place`]). The handle is the
+/// window's own: rinch's current window while its content is built, which
+/// is when this runs.
+fn output_bar(
+    __scope: &mut RenderScope,
+    output: OutputId,
+    placement: Memo<Placement>,
+    opened: BarSurface,
+) -> NodeHandle {
+    let window = WindowHandle::current();
+    // Compared first against what the window was opened with (`opened`):
+    // its row read the placement a turn before this mount, and the settings
+    // may have changed in between, so the first run sends the difference;
+    // rinch queues it behind the window's opening.
+    let mut applied = opened;
     Effect::new(move || {
-        let wanted = placement.get();
-        if wanted != placed {
-            surface::place(wanted, output);
-            placed = wanted;
+        let at = placement.get();
+        if let Some(window) = window
+            && let Some(sent) = surface::to_send(&applied, surface::bar_surface(at, output))
+        {
+            surface::place(window, &sent, at);
+            applied = sent;
         }
     });
     rsx! {

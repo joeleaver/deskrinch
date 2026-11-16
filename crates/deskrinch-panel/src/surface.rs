@@ -24,20 +24,22 @@
 //! while keeping the output would leave that output without a bar until it
 //! is turned off and on again.
 //!
-//! [`place`] moves a running bar: the window's new height and its new
-//! anchors and zone, asked for together from one effect on the main thread,
-//! inside the bar's window, which is then rinch's current window.
-//! rinch guarantees that on a layer surface what one turn of its event loop
-//! asks through `set_current_window_size`, `set_current_window_layer` and
-//! `set_current_window_position` reaches the compositor in one commit,
-//! whatever the order of the calls (joeleaver/rinch#2464, documented on
-//! those functions). So the compositor arranges the moved panel once, never
-//! at its new height with its old zone.
+//! A bar's [`BarSurface`] (its height and layer surface, one value) is a
+//! pure function of the settings' placement and its output. Its window is
+//! opened with it, and [`place`] moves a running bar to another: the new
+//! height and the new anchors and zone, asked for together through the
+//! window's handle, from one effect on the main thread. rinch guarantees
+//! that on a layer surface what one turn of its event loop asks of a
+//! window, its size and its layer, reaches the compositor in one commit,
+//! whatever the order of the calls (joeleaver/rinch#2464). So the
+//! compositor arranges the moved bar once, never at its new height with
+//! its old zone. A handle's requests are addressed to its window and queued
+//! behind its opening, so a request made before the window exists reaches
+//! it once it does.
 
-use rinch::windows::{current_window_size, set_current_window_layer, set_current_window_size};
 use rinch::{
     LayerAnchor, LayerAxes, LayerExclusiveZone, LayerKeyboard, LayerShellLayer, LayerSurface,
-    OutputId,
+    OutputId, WindowHandle,
 };
 
 use deskrinch_settings::panel::{Edge, Height, PanelSettings};
@@ -72,9 +74,28 @@ pub(crate) const TITLE: &str = "deskrinch panel";
 /// output's (and the window's on a compositor without the layer shell).
 pub(crate) const FIRST_WIDTH: u32 = 800;
 
+/// What a bar's window is: its height and its layer surface, as one value,
+/// so that a change of either is one change.
+#[derive(Debug, Clone, PartialEq)]
+pub(crate) struct BarSurface {
+    /// Its height, which it also reserves.
+    pub(crate) height: u32,
+    /// Its layer surface.
+    pub(crate) layer: LayerSurface,
+}
+
+/// The window of the bar on the output whose id is `output`, at
+/// `placement`.
+pub(crate) fn bar_surface(placement: Placement, output: OutputId) -> BarSurface {
+    BarSurface {
+        height: placement.height.get(),
+        layer: layer_surface(placement, output),
+    }
+}
+
 /// The layer surface of the bar on the output whose id is `output`, at
 /// `placement`.
-pub(crate) fn layer_surface(placement: Placement, output: OutputId) -> LayerSurface {
+fn layer_surface(placement: Placement, output: OutputId) -> LayerSurface {
     let edge = match placement.edge {
         Edge::Bottom => LayerAnchor::BOTTOM,
         Edge::Top => LayerAnchor::TOP,
@@ -90,16 +111,21 @@ pub(crate) fn layer_surface(placement: Placement, output: OutputId) -> LayerSurf
     }
 }
 
-/// Moves the running bar on `output` to `placement`. Called on the main
-/// thread, from one effect inside the bar's window (rinch's current window
-/// there), so that both requests fall in one turn and one commit.
-pub(crate) fn place(placement: Placement, output: OutputId) {
-    // The width is the compositor's on a layer surface whatever is asked;
-    // the current one is asked so that a compositor without the layer
-    // shell keeps it too.
-    let width = current_window_size().map_or(f64::from(FIRST_WIDTH), |(width, _)| width);
-    set_current_window_size(width, f64::from(placement.height.get()));
-    set_current_window_layer(layer_surface(placement, output));
+/// What to ask of a bar's window, if anything: `wanted`, when it differs
+/// from what the window was opened with or last asked for (`applied`).
+pub(crate) fn to_send(applied: &BarSurface, wanted: BarSurface) -> Option<BarSurface> {
+    (wanted != *applied).then_some(wanted)
+}
+
+/// Moves the bar whose window is `window` to `surface`, at `placement`.
+/// Called on the main thread, from one effect, so that both requests fall
+/// in one turn and one commit.
+pub(crate) fn place(window: WindowHandle, surface: &BarSurface, placement: Placement) {
+    // The width is the compositor's on a layer surface whatever is asked
+    // (`compositor_size`); the first width is asked, as the window was
+    // opened with, so that nothing here reads the window.
+    window.set_size(f64::from(FIRST_WIDTH), f64::from(surface.height));
+    window.set_layer(surface.layer.clone());
     tracing::info!(
         "{}",
         deskrinch_panel::placed(placement.edge, placement.height)
@@ -147,6 +173,27 @@ mod tests {
         // By its id, which every output has, named or not.
         assert_eq!(surface.output_id, Some(OUTPUT));
         assert_eq!(surface.output, None);
+    }
+
+    /// A bar's window is asked for its surface only when it differs from
+    /// what it was opened with or last asked for: the edge, the height, or
+    /// both together, as one request.
+    #[test]
+    fn a_window_is_asked_only_for_a_surface_it_does_not_have() {
+        let opened = bar_surface(placement(Edge::Bottom, 40), OUTPUT);
+        assert_eq!(
+            to_send(&opened, bar_surface(placement(Edge::Bottom, 40), OUTPUT)),
+            None
+        );
+        let moved = bar_surface(placement(Edge::Top, 40), OUTPUT);
+        assert_eq!(to_send(&opened, moved.clone()), Some(moved.clone()));
+        let taller = bar_surface(placement(Edge::Bottom, 56), OUTPUT);
+        assert_eq!(to_send(&opened, taller.clone()), Some(taller));
+        let both = bar_surface(placement(Edge::Top, 56), OUTPUT);
+        assert_eq!(to_send(&moved, both.clone()), Some(both));
+        // Another output's bar is another surface.
+        let elsewhere = bar_surface(placement(Edge::Bottom, 40), OutputId::from_raw(8));
+        assert_eq!(to_send(&opened, elsewhere.clone()), Some(elsewhere));
     }
 
     #[test]

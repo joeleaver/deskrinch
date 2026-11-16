@@ -307,60 +307,56 @@ fn changed_box(before: &Image, after: &Image) -> Option<(u32, u32, u32, u32)> {
     bounds
 }
 
-/// What is wrong with `now` against `before` for a panel at `band`, if
-/// anything: exactly one output changed, and there the changed pixels'
-/// bounding box is the band exactly (the full width, its first and last
-/// rows). A pixel of the panel may equal what was under it, so not every
+/// What is wrong with `now` against `before` for a bar on every output at
+/// `band`, if anything: every output changed, and on each the changed
+/// pixels' bounding box is the band exactly (the full width, its first and
+/// last rows). A pixel of a bar may equal what was under it, so not every
 /// pixel of the band need have changed.
 fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
-    let mut showing = Vec::new();
-    for ((name, was), (_, is)) in before.0.iter().zip(&now.0) {
-        if let Some(bounds) = changed_box(was, is) {
-            showing.push((name.clone(), bounds, is.width(), is.height()));
-        }
-    }
-    match showing.as_slice() {
-        [] => Some("no output shows the panel".into()),
-        [(name, bounds, width, height)] => {
-            let rows = band.rows_in(*height);
+    let faults: Vec<String> = before
+        .0
+        .iter()
+        .zip(&now.0)
+        .filter_map(|((name, was), (_, is))| {
+            let Some(bounds) = changed_box(was, is) else {
+                return Some(format!("{name} shows no bar"));
+            };
+            let (width, height) = (is.width(), is.height());
+            let rows = band.rows_in(height);
             let wanted = (0, rows.start, width - 1, rows.end - 1);
-            (*bounds != wanted).then(|| {
+            (bounds != wanted).then(|| {
                 format!(
                     "{name} changed in {bounds:?} (left, top, right, bottom), not the band \
                      {wanted:?} of a {width}x{height} output"
                 )
             })
-        }
-        several => Some(format!(
-            "more than one output changed: {:?}",
-            several.iter().map(|(name, ..)| name).collect::<Vec<_>>()
-        )),
-    }
+        })
+        .collect();
+    (!faults.is_empty()).then(|| faults.join("; "))
 }
 
-/// Captures every output until exactly one shows the panel at `band`
-/// against `before`, the others unchanged; returns that output's name and
-/// pictures, taken once the screen is still ([`Pictures::still`]): KWin
-/// fades a panel in, and the band is already the band halfway through, but
-/// not yet the panel's own pixels, which a later check compares with.
+/// Captures every output until each shows its bar at `band` against
+/// `before`; returns the first output's name, the bar a test that looks at
+/// one works with, and the pictures, taken once the screen is still
+/// ([`Pictures::still`]): KWin fades a bar in, and the band is already the
+/// band halfway through, but not yet the bar's own pixels, which a later
+/// check compares with.
 ///
 /// # Panics
 ///
 /// When that is not so within [`PATIENCE`], saying how it is instead.
 pub(crate) fn wait_band(screen: &mut Screen, before: &Pictures, band: Band) -> (String, Pictures) {
-    wait_for(&format!("the panel to be at {band:?}"), || {
+    wait_for(&format!("a bar on every output at {band:?}"), || {
         let now = Pictures::still(screen);
         if let Some(why) = wrong(before, &now, band) {
             return Err(why);
         }
-        let shown = before
+        let first = now
             .0
-            .iter()
-            .zip(&now.0)
-            .find(|((_, was), (_, is))| was != is)
-            .map(|((name, _), _)| name.clone())
-            .unwrap();
-        Ok((shown, now))
+            .first()
+            .map(|(name, _)| name.clone())
+            .ok_or_else(|| "the screen lists no output".to_owned())?;
+        Ok((first, now))
     })
 }
 
@@ -404,36 +400,38 @@ mod tests {
         let before = pictures(vec![image(4, 6, &[]), image(4, 6, &[])]);
         let bottom = Band::of(Edge::Bottom, 2, 1);
         // Corners of the band's box changed, a pixel inside not.
-        let at_bottom = pictures(vec![image(4, 6, &[(0, 4), (3, 5)]), image(4, 6, &[])]);
+        let band = [(0, 4), (3, 5)];
+        let at_bottom = pictures(vec![image(4, 6, &band), image(4, 6, &band)]);
         assert_eq!(wrong(&before, &at_bottom, bottom), None);
-        let short = pictures(vec![image(4, 6, &[(0, 5), (3, 5)]), image(4, 6, &[])]);
+        let short = pictures(vec![image(4, 6, &[(0, 5), (3, 5)]), image(4, 6, &band)]);
         assert!(wrong(&before, &short, bottom).is_some());
-        let narrow = pictures(vec![image(4, 6, &[(1, 4), (3, 5)]), image(4, 6, &[])]);
+        let narrow = pictures(vec![image(4, 6, &[(1, 4), (3, 5)]), image(4, 6, &band)]);
         assert!(wrong(&before, &narrow, bottom).is_some());
         let stray = pictures(vec![
             image(4, 6, &[(0, 4), (3, 5), (2, 1)]),
-            image(4, 6, &[]),
+            image(4, 6, &band),
         ]);
         assert!(wrong(&before, &stray, bottom).is_some());
     }
 
     #[test]
-    fn exactly_one_output_shows_it() {
+    fn every_output_shows_its_bar() {
         let before = pictures(vec![image(4, 6, &[]), image(4, 6, &[])]);
         let top = Band::of(Edge::Top, 1, 2);
         assert_eq!(top.rows_in(6), 0..2);
         let neither = pictures(vec![image(4, 6, &[]), image(4, 6, &[])]);
-        assert!(wrong(&before, &neither, top).unwrap().contains("no output"));
-        let both = pictures(vec![
-            image(4, 6, &[(0, 0), (3, 1)]),
-            image(4, 6, &[(0, 0), (3, 1)]),
-        ]);
+        let said = wrong(&before, &neither, top).unwrap();
         assert!(
-            wrong(&before, &both, top)
-                .unwrap()
-                .contains("more than one")
+            said.contains("OUT-0 shows no bar") && said.contains("OUT-1 shows no bar"),
+            "{said}"
         );
-        let second = pictures(vec![image(4, 6, &[]), image(4, 6, &[(0, 0), (3, 1)])]);
-        assert_eq!(wrong(&before, &second, top), None);
+        let band = [(0, 0), (3, 1)];
+        let only_second = pictures(vec![image(4, 6, &[]), image(4, 6, &band)]);
+        assert_eq!(
+            wrong(&before, &only_second, top).as_deref(),
+            Some("OUT-0 shows no bar")
+        );
+        let both = pictures(vec![image(4, 6, &band), image(4, 6, &band)]);
+        assert_eq!(wrong(&before, &both, top), None);
     }
 }
