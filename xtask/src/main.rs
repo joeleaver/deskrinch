@@ -13,6 +13,7 @@ mod error;
 mod file_length;
 mod git;
 mod grant;
+mod in_session;
 mod input;
 mod measure;
 mod run_in_session;
@@ -122,6 +123,13 @@ enum Task {
         /// xtask desktop` inside composites in software as it does in CI.
         #[arg(long)]
         no_gpu: bool,
+        /// Grant the shell's component PACKAGE, run from the executable
+        /// PATH, what deskrinch-shell grants it, as the desktop and measure
+        /// do (repeatable). Under KWin its desktop file is installed in the
+        /// session's data directory before KWin starts; sway and labwc
+        /// restrict nothing, and it does nothing there.
+        #[arg(long = "grant", value_name = "PACKAGE=PATH")]
+        grants: Vec<String>,
         /// The compositor to run.
         #[arg(value_enum)]
         compositor: session::Compositor,
@@ -173,6 +181,12 @@ enum Task {
     /// Refuses outside a nested session. Not for running by hand.
     #[command(name = "input", hide = true)]
     Input,
+    /// The session's side of a test that runs a component in a nested
+    /// session: starts it, waits for its first frame, acts on it (ends the
+    /// compositor), and writes how it ended. Refuses outside a nested
+    /// session. Not for running by hand.
+    #[command(name = "in-session", hide = true)]
+    InSession(in_session::Args),
 }
 
 impl Task {
@@ -188,6 +202,7 @@ impl Task {
             Self::Desktop(args) => desktop::run(root, &args),
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
             Self::Input => input::run(),
+            Self::InSession(args) => in_session::run(&args),
             Self::Measure(args) => measure::run(&args.request()),
             Self::Session {
                 outputs,
@@ -197,10 +212,15 @@ impl Task {
                 current_desktop,
                 compositor_renderer,
                 no_gpu,
+                grants,
                 compositor,
                 program,
                 args,
             } => run_in_session::run(&run_in_session::Request {
+                grants: grants
+                    .iter()
+                    .map(|asked| grant::ComponentGrant::parse(asked))
+                    .collect::<Result<_, _>>()?,
                 compositor,
                 compositor_renderer,
                 outputs: session::Outputs {
