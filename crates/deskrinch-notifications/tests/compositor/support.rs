@@ -207,6 +207,8 @@ impl Notifications {
         let mut command =
             Command::new(programs::program(deskrinch_shell::NOTIFICATIONS.package).unwrap());
         command.env("XDG_DATA_HOME", data.path());
+        // A panic of the daemon's shows where, in the failure's lines.
+        command.env("RUST_BACKTRACE", "1");
         let daemon = Component::start(command, Renderer::of_run()).unwrap();
         let connection = zbus::block_on(zbus::Connection::session()).unwrap();
         let bus = zbus::block_on(DBusProxy::new(&connection)).unwrap();
@@ -271,9 +273,20 @@ impl Notifications {
                 .collect();
             match columns.as_slice() {
                 [column] if accept(column) => Ok(column.clone()),
-                _ => Err((columns, self.daemon.watch().tail())),
+                _ => Err((columns, self.said())),
             }
         })
+    }
+
+    /// What the daemon said, for a failure: from its panic on, whole, when
+    /// it panicked (a backtrace is longer than a tail); else its last
+    /// lines.
+    pub(crate) fn said(&self) -> String {
+        let lines = self.daemon.watch().lines();
+        match lines.iter().position(|line| line.contains("panicked at")) {
+            Some(at) => lines[at..].join("\n"),
+            None => self.daemon.watch().tail(),
+        }
     }
 
     /// Waits until the screen is as it was before the daemon showed
