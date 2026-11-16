@@ -230,6 +230,16 @@ pub(crate) enum Error {
         /// What it printed.
         log: crate::session::CompositorLog,
     },
+    /// `--output-size` given for a run with a session whose outputs are its
+    /// pass's own.
+    #[error(
+        "--output-size cannot change the outputs of a pass that has its own ({outputs}): leave \
+         it off, or choose suites that do not run there"
+    )]
+    OutputsOfItsOwn {
+        /// The pass's outputs.
+        outputs: String,
+    },
     /// More output sizes asked for than there are outputs.
     #[error(transparent)]
     OutputSizes(#[from] crate::session::TooManySizes),

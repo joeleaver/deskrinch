@@ -1,10 +1,10 @@
 //! The test binaries `cargo xtask compositor-tests` runs, and where.
 
 use deskrinch_shell::Component;
-use deskrinch_test_wayland::Transform;
 
 use super::build::{Backend, Target};
-use crate::session::{Compositor, Outputs, Scale};
+pub(super) use super::passes::Pass;
+use crate::session::Compositor;
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
@@ -27,41 +27,11 @@ pub(super) const INPUT_CLIENT: Target = Target {
 };
 const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 
-/// How many outputs the sessions have, side by side: the window-management
-/// tests move windows between two, and the screen tests tell them apart.
-const OUTPUTS: u32 = 2;
-
-/// A session the suites run in, by how its outputs are.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Pass {
-    /// Scale 1, upright: every suite.
-    Plain,
-    /// Scale 2, for the suites that check scaling.
-    Scaled,
-    /// Turned a quarter, for the suites that check transforms.
-    Rotated,
-    /// Mirrored and turned a quarter (`flipped-90`): a flip as well as a
-    /// swap of the axes, for the suites that check transforms.
-    Flipped,
-}
-
-impl Pass {
-    /// Every pass, in the order they run.
-    pub(super) const ALL: [Self; 4] = [Self::Plain, Self::Scaled, Self::Rotated, Self::Flipped];
-
-    /// The session's outputs in this pass.
-    pub(super) fn outputs(self) -> Outputs {
-        let normal = Transform::Normal.into();
-        match self {
-            Self::Plain => Outputs::plain(OUTPUTS),
-            Self::Scaled => Outputs::new(OUTPUTS, Scale::TWO, normal),
-            Self::Rotated => Outputs::new(OUTPUTS, Scale::ONE, Transform::Rotated90.into()),
-            Self::Flipped => Outputs::new(OUTPUTS, Scale::ONE, Transform::Flipped90.into()),
-        }
-    }
-}
-
 const PLAIN: &[Pass] = &[Pass::Plain];
+
+/// The test client's tests of [`Pass::UhdBesideFullHd`]'s outputs: run by
+/// that pass's row alone.
+const UHD_BESIDE_FULL_HD_TESTS: &str = "uhd_beside_full_hd::";
 
 /// What KWin grants a test binary.
 #[derive(Debug)]
@@ -115,7 +85,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 22] = [
+pub(super) const SUITES: [Suite; 23] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -130,7 +100,22 @@ pub(super) const SUITES: [Suite; 22] = [
         passes: PLAIN,
         renders: false,
         programs: &[],
-        filter: &[],
+        filter: &["--skip", UHD_BESIDE_FULL_HD_TESTS],
+    },
+    // The same binary's tests of a 3840x2160 output beside a 1920x1080
+    // one, on those outputs alone.
+    Suite {
+        target: Target {
+            package: TEST_CLIENT,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: &[Pass::UhdBesideFullHd],
+        renders: false,
+        programs: &[],
+        filter: &[UHD_BESIDE_FULL_HD_TESTS],
     },
     Suite {
         target: Target {

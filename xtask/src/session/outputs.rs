@@ -123,6 +123,27 @@ impl Outputs {
         Self::new(count, Scale::ONE, OutputTransform::default())
     }
 
+    /// As many outputs as `sizes`, of those sizes in order, at scale 1,
+    /// untransformed: for outputs fixed in a table, never more than
+    /// [`MAX_OUTPUTS`] (checked when it is compiled).
+    pub(crate) const fn of_sizes<const N: usize>(sizes: [OutputSize; N]) -> Self {
+        const { assert!(N <= MAX_OUTPUTS, "more outputs than a session has") };
+        let mut list = [None; MAX_OUTPUTS];
+        let mut index = 0;
+        while index < N {
+            list[index] = Some(sizes[index]);
+            index += 1;
+        }
+        Self {
+            // `N` is at most `MAX_OUTPUTS`, 8.
+            #[expect(clippy::cast_possible_truncation, reason = "at most 8")]
+            count: N as u32,
+            scale: Scale::ONE,
+            transform: OutputTransform::NORMAL,
+            sizes: list,
+        }
+    }
+
     /// These outputs, the first ones `sizes` large.
     pub(crate) fn sized(self, sizes: &[OutputSize]) -> Result<Self, TooManySizes> {
         let count = usize::try_from(self.count).unwrap_or(usize::MAX);

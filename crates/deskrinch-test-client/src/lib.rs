@@ -25,7 +25,9 @@
 //!   [`TestWindow::pointer_events`], [`TestWindow::wait_pointer_at`]). Wheel
 //!   events, frames and the cursor are not kept.
 //! - [`Compositor::current`] says which nested compositor the tests run
-//!   in, and refuses to go on outside one.
+//!   in, and refuses to go on outside one. [`require_outputs`] refuses to
+//!   go on unless the session's outputs have the modes a test was written
+//!   for (a pass of `cargo xtask compositor-tests` with outputs of its own).
 //! - The session's outputs ([`outputs`], each an [`OutputState`]: on or
 //!   off, position, mode, scale, transform), and changes to them under any
 //!   of the three compositors: [`turn_output_off`], and [`change_output`]
@@ -61,6 +63,7 @@ mod output_info;
 mod outputs;
 mod paint;
 mod pointer;
+mod require;
 mod seat;
 mod synced;
 mod window;
@@ -84,6 +87,7 @@ pub use outputs::{
 };
 pub use paint::Paint;
 pub use pointer::{PointerEvent, PointerMark};
+pub use require::require_outputs;
 pub use window::TestWindow;
 
 /// Why a test client could not do what was asked.
