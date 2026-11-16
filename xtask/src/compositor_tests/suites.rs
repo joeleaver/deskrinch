@@ -96,10 +96,9 @@ pub(super) struct Suite {
     /// tests ([`super::renderers`]), told which in
     /// `DESKRINCH_TEST_RENDERER`.
     pub(super) renders: bool,
-    /// The shell components its tests start (the panel, for the wallpaper's
-    /// layering test and for the panel's own tests): built with its tests,
-    /// granted what the shell grants them, and handed to its tests by path
-    /// ([`deskrinch_test_component::programs`]).
+    /// Every shell component its tests start, its own crate's included:
+    /// handed to its tests by path, the only way they start one
+    /// ([`deskrinch_test_component::programs`], where the rule is).
     pub(super) programs: &'static [&'static Component],
     /// The libtest arguments it runs with.
     pub(super) filter: &'static [&'static str],
@@ -256,7 +255,8 @@ pub(super) const SUITES: [Suite; 20] = [
         compositors: ALL,
         passes: PLAIN,
         renders: true,
-        programs: &[],
+        // The launcher the tests start, and run again as a client.
+        programs: &[&deskrinch_shell::LAUNCHER],
         filter: &[],
     },
     // The panel's real binary, checked by the screen: it captures under
@@ -306,7 +306,8 @@ pub(super) const SUITES: [Suite; 20] = [
         compositors: ALL,
         passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
         renders: true,
-        programs: &[&deskrinch_shell::PANEL],
+        // The wallpaper the tests start, and the panel started over it.
+        programs: &[&deskrinch_shell::WALLPAPER, &deskrinch_shell::PANEL],
         filter: &[],
     },
     // The workspaces. KWin offers its virtual-desktop protocol ungranted, so
