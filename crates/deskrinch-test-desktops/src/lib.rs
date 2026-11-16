@@ -4,11 +4,16 @@
 //! something that follows the desktops, made by KWin's own means rather
 //! than by the protocol under test.
 //!
-//! Every call goes to the session bus of the nested session the test runs
-//! in, never the real one: the tests that use this refuse to run outside
-//! one. A call KWin refuses panics, naming it.
+//! It is for nested KWin sessions only, and refuses anything else itself:
+//! every function panics, before it touches a bus, unless
+//! [`deskrinch_test_client::Compositor::nested`] says the process runs in
+//! a nested KWin (`cargo xtask compositor-tests kwin` or
+//! `cargo xtask session kwin`). Run directly, it would lay out, switch, add
+//! and remove the desktops of the real session's KWin, moving its windows.
+//! A call KWin refuses panics, naming it.
 
 use deskrinch_bus::Bus;
+use deskrinch_test_client::Compositor;
 use zbus::{OwnedVariant, Variant};
 
 const SERVICE: &str = "org.kde.KWin";
@@ -16,7 +21,25 @@ const PATH: &str = "/VirtualDesktopManager";
 const INTERFACE: &str = "org.kde.KWin.VirtualDesktopManager";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 
+/// Panics unless `nested`, the nested compositor the process runs in, is
+/// KWin, saying what a call would have done.
+fn require_kwin(nested: Option<Compositor>) {
+    let found = match nested {
+        Some(Compositor::Kwin) => return,
+        Some(Compositor::Sway) => "a nested sway, which has no KWin",
+        Some(Compositor::Labwc) => "a nested labwc, which has no KWin",
+        None => "no nested session: the session bus is the real one",
+    };
+    panic!(
+        "KWin's virtual desktops are changed only in a nested KWin session \
+         (`cargo xtask compositor-tests kwin`), and this process runs in {found}; \
+         run directly, the call would lay out, switch, add and remove the real \
+         session's desktops, moving its windows"
+    );
+}
+
 fn connection() -> zbus::Connection {
+    require_kwin(Compositor::nested());
     zbus::block_on(Bus::Session.connect()).unwrap_or_else(|error| {
         panic!("the session bus: {error}");
     })
@@ -60,7 +83,7 @@ fn id_of(name: &str) -> String {
 ///
 /// # Panics
 ///
-/// When KWin's answer is not a list of desktops.
+/// Outside a nested KWin session, as the crate documentation says. When KWin's answer is not a list of desktops.
 #[must_use]
 pub fn desktops() -> Vec<(u32, String, String)> {
     Vec::try_from(get("desktops")).unwrap_or_else(|error| panic!("KWin's desktops: {error}"))
@@ -70,7 +93,7 @@ pub fn desktops() -> Vec<(u32, String, String)> {
 ///
 /// # Panics
 ///
-/// When KWin's current desktop is not among its desktops.
+/// Outside a nested KWin session, as the crate documentation says. When KWin's current desktop is not among its desktops.
 #[must_use]
 pub fn current_name() -> String {
     let current =
@@ -88,7 +111,7 @@ pub fn current_name() -> String {
 ///
 /// # Panics
 ///
-/// When KWin has no such desktop, or refuses.
+/// Outside a nested KWin session, as the crate documentation says. When KWin has no such desktop, or refuses.
 pub fn set_current(name: &str) {
     set("current", id_of(name).as_str().into());
 }
@@ -97,7 +120,7 @@ pub fn set_current(name: &str) {
 ///
 /// # Panics
 ///
-/// When KWin refuses.
+/// Outside a nested KWin session, as the crate documentation says. When KWin refuses.
 pub fn set_rows(rows: u32) {
     set("rows", rows.into());
 }
@@ -106,7 +129,7 @@ pub fn set_rows(rows: u32) {
 ///
 /// # Panics
 ///
-/// When KWin refuses, or has more desktops than a `u32` counts.
+/// Outside a nested KWin session, as the crate documentation says. When KWin refuses, or has more desktops than a `u32` counts.
 pub fn create(name: &str) {
     let count = u32::try_from(desktops().len())
         .unwrap_or_else(|_| panic!("more desktops than a u32 counts"));
@@ -124,7 +147,7 @@ pub fn create(name: &str) {
 ///
 /// # Panics
 ///
-/// When KWin has no such desktop, or refuses.
+/// Outside a nested KWin session, as the crate documentation says. When KWin has no such desktop, or refuses.
 pub fn remove(name: &str) {
     let id = id_of(name);
     zbus::block_on(connection().call_method(
@@ -142,7 +165,7 @@ pub fn remove(name: &str) {
 ///
 /// # Panics
 ///
-/// When KWin refuses, or lists no desktop.
+/// Outside a nested KWin session, as the crate documentation says. When KWin refuses, or lists no desktop.
 #[must_use]
 pub fn set_up(count: usize) -> String {
     while desktops().len() < count {
@@ -156,3 +179,6 @@ pub fn set_up(count: usize) -> String {
     set_current(&first);
     first
 }
+
+#[cfg(test)]
+mod tests;

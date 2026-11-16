@@ -11,6 +11,8 @@ publish.workspace = true
 [dependencies]
 # The session's bus, which KWin's interface is on.
 deskrinch-bus.workspace = true
+# Which nested compositor the process runs in: anything but KWin is refused.
+deskrinch-test-client.workspace = true
 zbus = { workspace = true, features = ["default-rt"] }
 
 [lints]

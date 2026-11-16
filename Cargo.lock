@@ -1168,6 +1168,7 @@ name = "deskrinch-test-desktops"
 version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
+ "deskrinch-test-client",
  "zbus 6.2.1",
 ]
 

@@ -3,9 +3,8 @@
 //! title cut to fit, marked while active, dimmed while minimized, marked
 //! while it asks for attention, and marked while the pointer is over it
 //! (CSS `:hover`, in the bar's stylesheet: [`crate::widgets::buttons`]). A
-//! click of the primary
-//! button activates its window, or minimizes the active one; the middle
-//! button closes it.
+//! click of the primary button activates its window, or minimizes the
+//! active one; the middle button closes it.
 //!
 //! The buttons share the room the bar leaves the taskbar (its width, from
 //! rinch's `bounds_signal`, refreshed after each layout), shrink to their
