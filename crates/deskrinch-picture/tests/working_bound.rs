@@ -16,8 +16,11 @@
 //! Its own binary without the test harness, so that nothing else allocates
 //! while a decode is counted.
 
-use deskrinch_picture::{Formats, Ignored, Limits, MAX_PROFILE_BYTES, Profile, decode};
+use deskrinch_picture::{
+    Fit, FitError, Formats, Ignored, Limits, MAX_PROFILE_BYTES, Profile, decode, fit,
+};
 use deskrinch_test_pictures::hostile::{self, Case};
+use deskrinch_untrusted::Image;
 use peak_alloc::PeakAlloc;
 use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
@@ -170,7 +173,99 @@ fn mutated_pictures_stay_within_the_bound() {
         .unwrap_or_else(|failure| panic!("{failure}"));
 }
 
+/// The bound a fit says it needs, held to being exact and to the truth:
+/// fitted under a working bound of zero, the refusal says what it needs;
+/// at exactly that it fits, one byte under it is refused with the same
+/// figure, and the measured peak at it stays within it. Gives the peak,
+/// the bound and the fit's time, or what failed.
+fn exact_fit_bound(
+    fitting: impl Fn(usize) -> Result<Image, FitError>,
+) -> Result<(usize, usize, std::time::Duration), String> {
+    let needed = match fitting(0) {
+        Err(FitError::WorkingTooLarge {
+            needed: Some(needed),
+            ..
+        }) => needed,
+        other => return Err(format!("under a bound of zero: {other:?}")),
+    };
+    match fitting(needed - 1) {
+        Err(FitError::WorkingTooLarge {
+            needed: Some(again),
+            ..
+        }) if again == needed => {}
+        other => return Err(format!("a byte under {needed}: {other:?}")),
+    }
+    let before = COUNTED.current_usage();
+    COUNTED.reset_peak_usage();
+    let started = std::time::Instant::now();
+    let result = fitting(needed);
+    let took = started.elapsed();
+    let peak = COUNTED.peak_usage().saturating_sub(before);
+    match result {
+        Ok(_) if peak <= needed => Ok((peak, needed, took)),
+        Ok(_) => Err(format!("{peak} bytes at its peak, bound {needed}")),
+        Err(error) => Err(format!("at exactly {needed}: {error:?}")),
+    }
+}
+
+/// Each fit, smaller and larger, at the bound its refusal names.
+fn each_fit_stays_within_its_own_bound() {
+    let source = Image::new(1200, 800, hostile::noise(1200 * 800 * 4))
+        .unwrap_or_else(|| panic!("a picture"));
+    let mut failures = Vec::new();
+    for how in [
+        Fit::Cover,
+        Fit::Contain,
+        Fit::Stretch,
+        Fit::Centre,
+        Fit::Tile,
+    ] {
+        for (w, h) in [(1920, 1080), (640, 360), (2400, 1600)] {
+            match exact_fit_bound(|working| fit(&source, w, h, how, &limits(working))) {
+                Ok((peak, bound, _)) => {
+                    println!(
+                        "fit {how:?} to {w}x{h}: peak {peak} of {bound} ({}%)",
+                        peak * 100 / bound
+                    );
+                }
+                Err(failure) => failures.push(format!("{how:?} to {w}x{h}: {failure}")),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
+/// A 5120 × 2880 picture (a 5K wallpaper) fitted to 1920 × 1080, opaque
+/// and with alpha: its working memory must follow the target, not the
+/// source. At the bound its refusal names; the time is printed beside it.
+fn a_5k_picture_fits_in_what_follows_the_target() {
+    let (sw, sh) = (5120_u32, 2880_u32);
+    let mut failures = Vec::new();
+    for opaque in [true, false] {
+        let mut rgba = hostile::noise(sw as usize * sh as usize * 4);
+        if opaque {
+            for alpha in rgba.iter_mut().skip(3).step_by(4) {
+                *alpha = u8::MAX;
+            }
+        }
+        let source = Image::new(sw, sh, rgba).unwrap_or_else(|| panic!("a picture"));
+        let kind = if opaque { "opaque" } else { "with alpha" };
+        for how in [Fit::Cover, Fit::Stretch] {
+            match exact_fit_bound(|working| fit(&source, 1920, 1080, how, &limits(working))) {
+                Ok((peak, bound, took)) => println!(
+                    "5K {how:?}, {kind}: peak {peak} of {bound} ({}%), {took:?}",
+                    peak * 100 / bound
+                ),
+                Err(failure) => failures.push(format!("5K {how:?}, {kind}: {failure}")),
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{failures:#?}");
+}
+
 fn main() {
+    a_5k_picture_fits_in_what_follows_the_target();
+    each_fit_stays_within_its_own_bound();
     each_picture_stays_within_its_own_bound();
     refused_metadata_stays_within_what_the_documentation_says();
     hostile_pictures_stay_within_the_bound();

@@ -1011,6 +1011,7 @@ dependencies = [
  "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
+ "deskrinch-test-log",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-theme",
@@ -1077,6 +1078,7 @@ dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-pictures",
  "deskrinch-untrusted",
+ "fast_image_resize",
  "gif",
  "image",
  "image-webp",
@@ -1218,6 +1220,13 @@ dependencies = [
  "deskrinch-test-wait",
  "rustix",
  "tempfile",
+]
+
+[[package]]
+name = "deskrinch-test-log"
+version = "0.1.0"
+dependencies = [
+ "tracing",
 ]
 
 [[package]]
@@ -1567,6 +1576,18 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "fast_image_resize"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9c50201dc184ba6553da1695aac20a042efffbe2d84542cee31917c86c3ab1e"
+dependencies = [
+ "cfg-if",
+ "document-features",
+ "num-traits",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

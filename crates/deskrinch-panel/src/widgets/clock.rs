@@ -1,16 +1,21 @@
 //! The clock: the time (and, if set, the date) in the user's locale,
 //! changing on the minute, or on the second when it shows seconds.
 //!
+//! The panel has one clock, whatever the number of faces showing it:
+//! [`follow`], called once at the panel's root, runs it and gives its text
+//! ([`ClockText`]) to the context, and each [`ClockWidget`] is a face that
+//! only reads that text.
+//!
 //! A [`deskrinch_clock::Clock`] wakes on its own thread when the displayed
 //! time changes, the wall clock is set, the machine resumes or the time
 //! zone changes, and the text is formatted there. It reaches the UI through
 //! [`Signal::send`], rinch's way of writing a signal from another thread:
-//! the write is dispatched to the main thread, where the text node's effect
-//! updates that one node.
+//! the write is dispatched to the main thread, where each face's text node
+//! updates.
 //!
 //! The clock follows the `[panel.clock]` settings: when they change, the
 //! running clock is stopped and a new one started at the new precision and
-//! style. It stops with the widget.
+//! style. It stops with the scope [`follow`] was called in.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -78,35 +83,64 @@ enum StartError {
     Clock(#[from] ClockError),
 }
 
-/// The clock widget, following the panel's settings (the context's
-/// `Signal<PanelSettings>`). Without a clock (it could not start, which is
-/// logged) it is empty.
-#[component]
-pub(crate) fn ClockWidget() -> NodeHandle {
-    let panel = use_context::<Signal<PanelSettings>>();
+/// The clock's text, as the panel's one clock writes it: what every face
+/// shows. Empty until the first tick, and while there is no clock (it could
+/// not start, which is logged).
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ClockText(Signal<String>);
+
+impl ClockText {
+    /// The text now, read reactively.
+    fn shown(self) -> String {
+        self.0.get()
+    }
+}
+
+/// Starts the panel's one clock, following `panel`'s `[panel.clock]`, and
+/// returns its text, for the context. Called once, at the panel's root; the
+/// clock stops when the scope it was called in ends.
+pub(crate) fn follow(panel: Signal<PanelSettings>) -> ClockText {
+    follow_running(panel).0
+}
+
+/// The clock running now, if one could start: what [`follow`] keeps.
+type Running = Rc<RefCell<Option<Clock>>>;
+
+/// [`follow`], and the clock it keeps running, for the tests to see which
+/// worker it is.
+fn follow_running(panel: Signal<PanelSettings>) -> (ClockText, Running) {
     let settings = Memo::new(move || panel.get().clock);
     let text = Signal::new(String::new());
     let env = Environment::from_process();
-    let running: Rc<RefCell<Option<Clock>>> = Rc::default();
-    let follow = Rc::clone(&running);
+    let running: Running = Rc::default();
+    let restart = Rc::clone(&running);
     // Runs now, and again when `[panel.clock]` changes (the memo keeps
     // other settings' changes out).
     Effect::new(move || {
         let settings = settings.get();
         // The old clock stops before the new one starts, so its last tick
         // cannot overwrite the new clock's first.
-        follow.borrow_mut().take();
+        restart.borrow_mut().take();
         match start(env.clone(), settings, text) {
-            Ok(clock) => *follow.borrow_mut() = Some(clock),
+            Ok(clock) => *restart.borrow_mut() = Some(clock),
             Err(error) => report::error("clock", &error),
         }
     });
-    rinch::reactive::on_cleanup(move || drop(running.borrow_mut().take()));
+    let stop = Rc::clone(&running);
+    rinch::reactive::on_cleanup(move || drop(stop.borrow_mut().take()));
+    (ClockText(text), running)
+}
+
+/// A face of the clock: the context's [`ClockText`], which [`follow`]
+/// writes.
+#[component]
+pub(crate) fn ClockWidget() -> NodeHandle {
+    let text: ClockText = use_context();
     rsx! {
         span {
             class: "clock",
             style: "white-space: nowrap; font-variant-numeric: tabular-nums;",
-            {|| text.get()}
+            {move || text.shown()}
         }
     }
 }
@@ -117,6 +151,8 @@ mod tests {
     use deskrinch_clock::jiff::Timestamp;
     use deskrinch_clock::jiff::tz::TimeZone;
     use deskrinch_clock::{Cause, Tick, posix_to_unicode};
+    use deskrinch_settings::panel::Edge;
+    use rinch::reactive::Scope;
 
     fn tick(at: &str, zone: &str) -> Event {
         let now: Timestamp = at.parse().unwrap();
@@ -177,5 +213,53 @@ mod tests {
             Formatter::new(&posix_to_unicode("C"), style(ClockSettings::default())).unwrap();
         let error = ClockError::Watch(std::io::Error::other("no inotify"));
         assert_eq!(text_for(Event::Error(error), &format), None);
+    }
+
+    /// The worker of the clock `running` keeps, if one runs.
+    fn worker(running: &Running) -> Option<std::thread::ThreadId> {
+        running.borrow().as_ref().map(Clock::worker)
+    }
+
+    /// The panel's clock is one worker: faces read its text and start none,
+    /// a change of `[panel.clock]` replaces it (a new worker, the old one
+    /// gone), any other change leaves it be, and it stops with the scope
+    /// that started it.
+    ///
+    /// Counted by the clock itself (`deskrinch_clock::running`), exact at
+    /// once both ways, and told apart by its worker's thread id, which Rust
+    /// never gives twice; not by the threads the system lists, which show a
+    /// new worker only once it has named itself and an ended one for a
+    /// moment after its join. No other test here starts a clock.
+    #[test]
+    fn one_worker_whatever_the_number_of_faces() {
+        let scope = Scope::new();
+        let settings = scope.run(|| Signal::new(PanelSettings::default()));
+        let (text, running) = scope.run(|| follow_running(settings));
+        assert_eq!(deskrinch_clock::running(), 1);
+        let first = worker(&running);
+        assert!(first.is_some());
+
+        // Three faces, as three bars would have: each reads the one text.
+        let faces: Vec<String> = (0..3).map(|_| scope.run(|| text.shown())).collect();
+        assert_eq!(faces.len(), 3);
+        assert_eq!(deskrinch_clock::running(), 1);
+        assert_eq!(worker(&running), first);
+
+        let seconds = ClockSettings {
+            seconds: true,
+            date: false,
+        };
+        scope.run(|| settings.update(|settings| settings.clock = seconds));
+        assert_eq!(deskrinch_clock::running(), 1);
+        let restarted = worker(&running);
+        assert!(restarted.is_some());
+        assert_ne!(restarted, first, "the clock was not restarted");
+
+        scope.run(|| settings.update(|settings| settings.edge = Edge::Top));
+        assert_eq!(deskrinch_clock::running(), 1);
+        assert_eq!(worker(&running), restarted);
+
+        scope.dispose();
+        assert_eq!(deskrinch_clock::running(), 0);
     }
 }

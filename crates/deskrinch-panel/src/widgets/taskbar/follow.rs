@@ -16,12 +16,11 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use deskrinch_component::{Handover, report};
+use deskrinch_component::{Handover, Inbox, handover, report};
 use deskrinch_taskbar::{Answer, Button, Change, Input, TaskWindow, Taskbar};
 use deskrinch_window_management::{
     Client, Event, Window, WindowId, WindowManagement, WindowManager, connect_with,
 };
-use rinch::prelude::Signal;
 
 use crate::compositor::Follow;
 
@@ -31,7 +30,6 @@ pub(crate) type Buttons = Arc<Vec<Button<WindowId>>>;
 /// The window list followed for the taskbar.
 pub(crate) struct Following {
     model: Arc<Mutex<Taskbar<WindowId>>>,
-    buttons: Arc<Handover<Buttons>>,
     /// `None` until connected, and when the compositor offers no window
     /// list (reported).
     manager: Arc<Mutex<Option<WindowManager>>>,
@@ -41,31 +39,19 @@ impl Following {
     /// The window list to follow, empty until the panel's shared connection
     /// is handed to the [`Follow`] returned beside it
     /// ([`crate::compositor`]). When the taskbar cannot follow the windows,
-    /// it shows nothing, and why is reported once.
-    pub(crate) fn new() -> (Self, Follow) {
+    /// it shows nothing, and why is reported once. Beside it, the UI's half
+    /// of the buttons' hand-over, which the panel's root turns into the
+    /// buttons' signal, once (none until the compositor has answered), for
+    /// every taskbar to read.
+    pub(crate) fn new() -> (Self, Inbox<Buttons>, Follow) {
         let model = Arc::new(Mutex::new(Taskbar::new()));
-        let buttons: Arc<Handover<Buttons>> = Arc::default();
+        let (buttons, inbox) = handover();
         let manager = Arc::new(Mutex::new(None));
-        let (follow_model, follow_buttons, follow_manager) = (
-            Arc::clone(&model),
-            Arc::clone(&buttons),
-            Arc::clone(&manager),
-        );
+        let (follow_model, follow_manager) = (Arc::clone(&model), Arc::clone(&manager));
         let connect: Follow = Box::new(move |client| {
-            follow(client, &follow_model, &follow_buttons, &follow_manager);
+            follow(client, &follow_model, &buttons, &follow_manager);
         });
-        let following = Self {
-            model,
-            buttons,
-            manager,
-        };
-        (following, connect)
-    }
-
-    /// The UI's signal of the buttons, on the UI thread: none until the
-    /// compositor has answered.
-    pub(crate) fn signal(&self) -> Signal<Buttons> {
-        self.buttons.signal(Arc::default())
+        (Self { model, manager }, inbox, connect)
     }
 
     /// A press or a release from the UI; what it adds up to is requested of
@@ -96,7 +82,7 @@ impl Following {
 fn follow(
     client: Option<&Client>,
     model: &Arc<Mutex<Taskbar<WindowId>>>,
-    buttons: &Arc<Handover<Buttons>>,
+    buttons: &Handover<Buttons>,
     manager: &Mutex<Option<WindowManager>>,
 ) {
     let Some(client) = client else {
@@ -104,7 +90,7 @@ fn follow(
         return;
     };
     let applied = Arc::clone(model);
-    let deliver = Arc::clone(buttons);
+    let deliver = buttons.clone();
     let connected = connect_with(client, move |event| {
         let Some(change) = change(event) else {
             return;

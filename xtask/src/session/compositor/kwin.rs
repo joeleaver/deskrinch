@@ -18,9 +18,10 @@ use std::process::Command;
 
 use deskrinch_shell::{Chord, Key, Modifier};
 
+use super::super::OutputSize;
 use super::super::display::{Binding, Display, Options};
 use super::super::{CompositorRenderer, RenderNodes};
-use super::{OUTPUT_SIZE, write};
+use super::write;
 use crate::error::Error;
 
 /// The KWin socket's name; the wlroots compositors pick their own.
@@ -67,8 +68,8 @@ pub(super) fn command(
         .args(["--socket", KWIN_SOCKET])
         .arg("--no-lockscreen")
         .arg(format!("--output-count={}", options.outputs.count))
-        .arg(format!("--width={}", OUTPUT_SIZE.0))
-        .arg(format!("--height={}", OUTPUT_SIZE.1));
+        .arg(format!("--width={}", OutputSize::DEFAULT.width))
+        .arg(format!("--height={}", OutputSize::DEFAULT.height));
     // In a window, the Wayland backend: `show_on` names the compositor.
     // There, rendering in software is compositing with QPainter; headless,
     // KWin composites with OpenGL either way (its screenshots need it).

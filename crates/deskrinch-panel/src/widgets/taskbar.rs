@@ -21,7 +21,7 @@ mod button;
 mod follow;
 
 pub(crate) use button::AppIcons;
-pub(crate) use follow::Following;
+pub(crate) use follow::{Buttons, Following};
 
 use std::rc::Rc;
 
@@ -45,7 +45,7 @@ const SIZES: ButtonSizes = ButtonSizes {
 #[component]
 pub(crate) fn TaskbarWidget() -> NodeHandle {
     let following: Rc<Following> = use_context();
-    let buttons = following.signal();
+    let buttons: Signal<Buttons> = use_context();
     let width = Signal::new(0.0_f32);
     let fitted = Memo::new(move || {
         let room = Room {
