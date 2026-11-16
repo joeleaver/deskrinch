@@ -9,13 +9,14 @@
 //! has started, and a sender may be quick: a notification can arrive before
 //! it. So the subscriber and [`Feed::started`] take the list and hand it
 //! over under one lock, and the last list handed over is always the newest
-//! taken.
+//! taken. The feed keeps the delivering half of the hand-over; its
+//! constructor gives the root the other half, the [`Inbox`], which the
+//! root turns into its signal once.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use deskrinch_component::Handover;
+use deskrinch_component::{Handover, Inbox, handover};
 use deskrinch_notification_service::{Event, Handle, Notification};
-use rinch::prelude::Signal;
 
 /// What the UI is shown.
 #[derive(Debug, Clone, Default)]
@@ -28,7 +29,7 @@ pub(crate) struct State {
 }
 
 /// Where the service's subscriber hands the state to the UI.
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub(crate) struct Feed {
     inner: Mutex<Inner>,
     handover: Handover<State>,
@@ -41,6 +42,17 @@ struct Inner {
 }
 
 impl Feed {
+    /// A feed with no service yet, and the inbox the root turns into the
+    /// UI's signal of the state.
+    pub(crate) fn new() -> (Self, Inbox<State>) {
+        let (handover, inbox) = handover();
+        let feed = Self {
+            inner: Mutex::default(),
+            handover,
+        };
+        (feed, inbox)
+    }
+
     /// The subscriber's work for `event`, on the service's thread.
     pub(crate) fn event(&self, event: &Event) {
         let mut inner = self.lock();
@@ -72,11 +84,6 @@ impl Feed {
     /// gone): the daemon then ends with a failure, to be started again.
     pub(crate) fn ended(&self) -> bool {
         self.lock().ended
-    }
-
-    /// The UI's signal of the state, on the UI thread; called once.
-    pub(crate) fn signal(&self) -> Signal<State> {
-        self.handover.signal(State::default())
     }
 
     fn hand_over(&self, inner: &Inner) {

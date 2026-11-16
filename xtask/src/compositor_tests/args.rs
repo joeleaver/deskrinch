@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use clap::ValueEnum;
 
 use super::renderers::Choice;
-use crate::session::Compositor;
+use crate::session::{Compositor, SizeArgs};
 
 /// The subcommand's name, which a run's command line starts with.
 pub(super) const SUBCOMMAND: &str = "compositor-tests";
@@ -56,6 +56,8 @@ pub(crate) struct Args {
     #[arg(long, value_name = "SECONDS", default_value_t = 3600, requires = "repeat",
           value_parser = clap::value_parser!(u64).range(1..))]
     pub(crate) run_timeout: u64,
+    #[command(flatten)]
+    pub(crate) sizes: SizeArgs,
 }
 
 impl Args {
@@ -69,6 +71,9 @@ impl Args {
         }
         if let Some(test) = &self.test {
             line.extend(["--test".into(), test.into()]);
+        }
+        for size in &self.sizes.sizes {
+            line.extend(["--output-size".into(), size.to_string().into()]);
         }
         line.extend(self.compositors.iter().map(|c| value_name(c).into()));
         line
@@ -122,12 +127,17 @@ mod tests {
             "/tmp/runs",
             "--run-timeout",
             "900",
+            "--output-size",
+            "3840x2160",
+            "--output-size",
+            "1920x1080",
             "kwin",
             "labwc",
         ])
         .unwrap();
         assert_eq!(asked.repeat, Some(20));
         assert_eq!(asked.run_timeout, 900);
+        assert_eq!(asked.sizes.sizes.len(), 2);
         let once = asked.once();
         assert_eq!(once[0], SUBCOMMAND);
         let strings: Vec<&str> = once[1..].iter().map(|arg| arg.to_str().unwrap()).collect();

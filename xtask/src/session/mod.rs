@@ -7,8 +7,9 @@
 //!   own `HOME` and XDG directories, private directories under a fresh
 //!   `/tmp/deskrinch-session-*` root, the XDG search paths at their
 //!   defaults, and none of the real session's display, bus or login-session
-//!   variables ([`REAL_SESSION_VARIABLES`]); `XDG_CURRENT_DESKTOP` only when
-//!   the caller asks for one.
+//!   variables ([`REAL_SESSION_VARIABLES`]) or of its audio
+//!   ([`AUDIO_PREFIXES`], [`AUDIO_VARIABLES`]); `XDG_CURRENT_DESKTOP` only
+//!   when the caller asks for one.
 //! - A private D-Bus session bus ([`PrivateBus`]) with no service activation,
 //!   named in `DBUS_SESSION_BUS_ADDRESS` for the compositor and every client.
 //! - Ready when the compositor's Wayland socket is open and it owns the
@@ -45,6 +46,8 @@
 //! `deskrinch-test-dbus`'s, which the D-Bus tests use too.
 //!
 //! [`REAL_SESSION_VARIABLES`]: deskrinch_test_dbus::session::REAL_SESSION_VARIABLES
+//! [`AUDIO_PREFIXES`]: deskrinch_test_dbus::session::AUDIO_PREFIXES
+//! [`AUDIO_VARIABLES`]: deskrinch_test_dbus::session::AUDIO_VARIABLES
 
 mod bindings;
 mod clients;
@@ -88,7 +91,7 @@ pub(crate) use self::compositor_log::CompositorLog;
 pub(crate) use self::display::{Binding, Display, Home, Options};
 pub(crate) use self::gpu::{Gpu, VARIABLE as GPU_VARIABLE};
 pub(crate) use self::leftovers::Leftover;
-pub(crate) use self::outputs::Outputs;
+pub(crate) use self::outputs::{OutputSize, Outputs, SizeArgs, TooManySizes};
 pub(crate) use self::render_nodes::RenderNodes;
 pub(crate) use self::rendering::CompositorRenderer;
 pub(crate) use self::scale::Scale;

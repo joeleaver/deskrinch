@@ -20,7 +20,7 @@
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use deskrinch_component::{Handover, report};
+use deskrinch_component::{Handover, Inbox, handover, report};
 use deskrinch_desktop_entries::DesktopId;
 use deskrinch_start_record::{Loaded, Record, Store, now};
 use rinch::prelude::Signal;
@@ -48,7 +48,7 @@ pub(crate) struct Waiting {
 
 /// The record, handed to the UI.
 pub(crate) struct Held {
-    record: Arc<Handover<Arc<Record>>>,
+    record: Inbox<Arc<Record>>,
 }
 
 /// A record's handle and the thread's end: the handle can be given out
@@ -89,8 +89,7 @@ impl Waiting {
     /// nothing is remembered), with `remember-starts` as `remember` at
     /// start-up.
     pub(crate) fn start(self, store: Option<Store>, remember: bool) -> Held {
-        let record: Arc<Handover<Arc<Record>>> = Arc::default();
-        let deliver = Arc::clone(&record);
+        let (deliver, record) = handover::<Arc<Record>>();
         let spawned = std::thread::Builder::new()
             .name("start-record".into())
             .spawn(move || hold(store, remember, &self.commands, &deliver));
@@ -105,7 +104,7 @@ impl Held {
     /// The UI's signal of the record, on the UI thread: the one loaded at
     /// start-up if it is loaded by then, else empty until it is.
     pub(crate) fn into_signal(self) -> Signal<Arc<Record>> {
-        self.record.signal(Arc::default())
+        self.record.into_signal(Arc::default())
     }
 }
 

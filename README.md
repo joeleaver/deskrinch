@@ -258,6 +258,11 @@ What the command, and everything it starts, sees:
   the login session's `XDG_SESSION_ID`, `XDG_SESSION_CLASS`,
   `XDG_SESSION_DESKTOP`, `XDG_SESSION_TYPE`, `XDG_SESSION_PATH`, `XDG_SEAT`,
   `XDG_SEAT_PATH` and `XDG_VTNR`.
+- None of your audio variables, which lead a sound client to your session's
+  sound server: every `PULSE_*`, `PIPEWIRE_*`, `WIREPLUMBER_*` and `SPA_*`
+  variable (prefixes, because each family is open-ended; the underscore is
+  part of the prefix, so `PULSEAUDIO` is left alone), and
+  `JACK_DEFAULT_SERVER` and `ALSA_CONFIG_PATH`.
 - Everything else as you have it (`PATH`, the locale, `TERM`, `CARGO_*` and
   `RUST*` settings, ...).
 
@@ -278,9 +283,9 @@ scale asked for.
 
 It exits with the command's status (128 + N for signal N), 130 when
 interrupted, and 70 when the session could not be set up or did not end
-cleanly. `--outputs N` sets the number of outputs (1280x720 each), `--keep`
-keeps the session's directory (with the compositor's log);
-`cargo xtask session --help` has the details.
+cleanly. `--outputs N` sets the number of outputs (1280x720 each, unless
+`--output-size` says otherwise), `--keep` keeps the session's directory
+(with the compositor's log); `cargo xtask session --help` has the details.
 
 `--grant PACKAGE=PATH` (repeatable) grants one of the shell's components,
 run from the executable `PATH`, what `deskrinch-shell` grants it, as the
@@ -304,6 +309,18 @@ its logical size on `xdg-output` against its mode (853x480 at 1.5).
 them, counter-clockwise): sway through its configuration, labwc through
 `wlr-output-management`, KWin through `kscreen-doctor`. The session fails (70)
 if an output reports another transform, or a logical size not turned with it.
+
+`--output-size WxH` (repeatable, one per output in order; an output given
+none stays 1280x720) gives the outputs other sizes in device pixels, their
+modes, kept side by side; the scale divides them into the logical size. sway
+takes them in its configuration, labwc through `wlr-output-management`, and
+KWin through `kscreen-doctor` as custom modes (its virtual outputs list only
+the mode they start with), all before the command starts; the session fails
+(70) if an output then has another mode. Outputs of different sizes work
+under all three. `cargo xtask measure` and `cargo xtask compositor-tests`
+take the same option: a 4K output beside a 1080p one is
+`--outputs 2 --output-size 3840x2160 --output-size 1920x1080`. A size of
+zero, or more sizes than outputs, is refused before anything starts.
 
 From outside this repository, for example in a rinch clone under `.work/`,
 name xtask's manifest; the command still runs in your directory:

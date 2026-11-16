@@ -88,7 +88,7 @@ mod watch;
 mod zone;
 
 pub use boundary::{Precision, next_boundary};
-pub use clock::{Clock, Event};
+pub use clock::{Clock, Event, running};
 pub use env::Environment;
 pub use error::{ClockError, FormatError, TimeZoneError};
 pub use format::{Formatter, Length, Style};

@@ -8,7 +8,7 @@ use super::{
     Expected, Point, Pointer, QueryLine, Renderer, Request, ShaderCache, StartEnds, Summons,
     Typing, parse_env, parse_text,
 };
-use crate::session::Compositor;
+use crate::session::{Compositor, Outputs, SizeArgs, TooManySizes};
 
 /// `cargo xtask measure`'s arguments.
 #[derive(Debug, clap::Args)]
@@ -19,9 +19,12 @@ pub(crate) struct Args {
     /// How many runs, each in a fresh session.
     #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=50))]
     runs: u32,
-    /// How many outputs each run's session has, 1280x720 each.
+    /// How many outputs each run's session has, 1280x720 each unless
+    /// `--output-size` gives another.
     #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=8))]
     outputs: u32,
+    #[command(flatten)]
+    sizes: SizeArgs,
     /// The renderer, through `RINCH_RENDERER` (unset: the caller's
     /// environment decides).
     #[arg(long, value_enum)]
@@ -193,8 +196,9 @@ pub(crate) struct Args {
 }
 
 impl Args {
-    /// What these arguments ask for.
-    pub(crate) fn request(self) -> Request {
+    /// What these arguments ask for; [`TooManySizes`] when more output
+    /// sizes are given than there are outputs.
+    pub(crate) fn request(self) -> Result<Request, TooManySizes> {
         let typing = self
             .type_text
             .zip(self.keyboard_line)
@@ -205,10 +209,10 @@ impl Args {
                 query_line,
             });
         let shows = self.shows;
-        Request {
+        Ok(Request {
             compositor: self.compositor,
             runs: self.runs,
-            outputs: self.outputs,
+            outputs: Outputs::plain(self.outputs).sized(&self.sizes.sizes)?,
             renderer: self.renderer,
             expect_renderer: self.expect_renderer,
             shader_cache: self.shader_cache,
@@ -243,6 +247,6 @@ impl Args {
                 place,
                 moves: self.move_pointer,
             }),
-        }
+        })
     }
 }

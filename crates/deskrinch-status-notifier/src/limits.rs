@@ -76,6 +76,11 @@ pub struct Limits {
     pub max_menu_entries_per_level: usize,
     /// Bytes of one entry's PNG icon, before decoding.
     pub max_menu_icon_bytes: usize,
+    /// Bytes decoding one entry's PNG icon may take at its peak: its pixels
+    /// (at most `max_image_side` a side), the decoder's buffers, and
+    /// converting its colour profile (`deskrinch_picture::Limits`'s
+    /// `max_working_bytes`).
+    pub max_menu_icon_working_bytes: usize,
     /// Shortcuts shown for one entry.
     pub max_shortcuts: usize,
 }
@@ -102,6 +107,7 @@ impl Default for Limits {
             max_menu_entries: 1024,
             max_menu_entries_per_level: 256,
             max_menu_icon_bytes: 256 * 1024,
+            max_menu_icon_working_bytes: 16 * 1024 * 1024,
             max_shortcuts: 4,
         }
     }

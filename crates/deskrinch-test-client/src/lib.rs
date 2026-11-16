@@ -35,8 +35,10 @@
 //!   `wlr-output-management` under sway and labwc, and KDE's
 //!   `kscreen-doctor` under KWin.
 //! - For a session's runner, which is not one of its clients:
-//!   [`configure_every_output`] and [`wlroots_outputs_at`] on a wlroots
-//!   compositor's socket, [`kscreen_settings`] for running `kscreen-doctor`
+//!   [`configure_every_output`], [`wlroots_outputs_at`] and
+//!   [`set_wlroots_outputs_at`] on a wlroots
+//!   compositor's socket, [`kscreen_settings`], [`kscreen_add_mode`] and
+//!   [`kscreen_select_mode`] for running `kscreen-doctor`
 //!   itself, [`kscreen_outputs`] to read its listing, and
 //!   [`layout_differences`] to compare two layouts. [`configure_output`]
 //!   changes one output under a wlroots compositor without a guard.
@@ -68,13 +70,18 @@ use std::time::Duration;
 
 pub use client::TestClient;
 pub use compositor::Compositor;
-pub use kscreen::{KSCREEN_DOCTOR, kscreen_outputs, kscreen_settings};
+pub use kscreen::{
+    KSCREEN_DOCTOR, kscreen_add_mode, kscreen_outputs, kscreen_select_mode, kscreen_settings,
+};
 pub use layer::TestLayer;
 pub use layout::{
     Mode, OutputState, RestoreOutputs, change_output, layout_differences, outputs, turn_output_off,
 };
 pub use output_info::OutputInfo;
-pub use outputs::{OutputChange, configure_every_output, configure_output, wlroots_outputs_at};
+pub use outputs::{
+    OutputChange, configure_every_output, configure_output, set_wlroots_outputs_at,
+    wlroots_outputs_at,
+};
 pub use paint::Paint;
 pub use pointer::{PointerEvent, PointerMark};
 pub use window::TestWindow;

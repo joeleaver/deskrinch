@@ -9,7 +9,7 @@
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use deskrinch_component::{Handover, report};
+use deskrinch_component::{Handover, Inbox, handover, report};
 use deskrinch_desktop_entries::{Catalog, Environment, Watcher};
 use rinch::prelude::Signal;
 
@@ -29,9 +29,9 @@ enum Keep {
 
 /// The installed applications, empty until scanned, and as they change.
 pub struct Installed {
-    /// Each change's whole catalog, the scan's first. A [`Handover`] keeps
+    /// Each change's whole catalog, the scan's first, for the UI. A hand-over keeps
     /// only the newest, which is all the UI needs of a whole catalog.
-    later: Arc<Handover<Arc<Applications>>>,
+    later: Inbox<Arc<Applications>>,
     keep: Arc<Mutex<Keep>>,
 }
 
@@ -40,9 +40,9 @@ impl Installed {
     /// thread of its own; returns at once.
     #[must_use]
     pub fn start(env: &Environment) -> Self {
-        let later: Arc<Handover<Arc<Applications>>> = Arc::default();
+        let (deliver, later) = handover::<Arc<Applications>>();
         let keep = Arc::new(Mutex::new(Keep::Starting));
-        let (deliver, kept, env) = (Arc::clone(&later), Arc::clone(&keep), env.clone());
+        let (kept, env) = (Arc::clone(&keep), env.clone());
         let spawned = std::thread::Builder::new()
             .name("applications".into())
             .spawn(move || {
@@ -64,7 +64,7 @@ impl Installed {
     /// component that calls this is disposed.
     #[must_use]
     pub fn into_signal(self) -> Signal<Arc<Applications>> {
-        let signal = self.later.signal(Arc::default());
+        let signal = self.later.into_signal(Arc::default());
         let keep = self.keep;
         rinch::reactive::on_cleanup(move || {
             let ended = std::mem::replace(&mut *lock(&keep), Keep::Ended);
@@ -76,12 +76,9 @@ impl Installed {
 
 /// Scans `env`'s applications and follows them, handing `deliver` the
 /// scanned catalog and then each change's; the watcher, when it started.
-fn scan_and_follow(
-    env: &Environment,
-    deliver: &Arc<Handover<Arc<Applications>>>,
-) -> Option<Watcher> {
+fn scan_and_follow(env: &Environment, deliver: &Handover<Arc<Applications>>) -> Option<Watcher> {
     let state = Arc::new(Mutex::new(Applications::default()));
-    let changes = Arc::clone(deliver);
+    let changes = deliver.clone();
     let follow = Arc::clone(&state);
     // Held while the watcher starts, so that a change it reports before the
     // scan is in place waits for it rather than being lost.

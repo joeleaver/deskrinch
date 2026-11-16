@@ -131,12 +131,26 @@ fn icon(name: Option<&str>, png: Option<&[u8]>, limits: &Limits) -> Icon {
             .filter(|n| n.len() <= limits.max_reference_bytes)
             .and_then(IconName::parse),
         pixmaps: png
-            .filter(|png| png.len() <= limits.max_menu_icon_bytes)
-            .and_then(|png| Image::from_png(png, limits.max_image_side))
+            .and_then(|png| menu_icon(png, limits))
             .map(Arc::new)
             .into_iter()
             .collect(),
     }
+}
+
+/// An entry's PNG icon decoded under the limits; `None` when it is
+/// refused, whatever the reason: the entry is shown without it.
+fn menu_icon(png: &[u8], limits: &Limits) -> Option<Image> {
+    let side = usize::try_from(limits.max_image_side).unwrap_or(usize::MAX);
+    let bounds = deskrinch_picture::Limits {
+        max_encoded_bytes: limits.max_menu_icon_bytes,
+        max_side: limits.max_image_side,
+        max_decoded_bytes: side.saturating_mul(side).saturating_mul(4),
+        max_working_bytes: limits.max_menu_icon_working_bytes,
+    };
+    deskrinch_picture::decode(png, deskrinch_picture::Formats::PNG, &bounds)
+        .ok()
+        .map(|decoded| decoded.image)
 }
 
 fn toggle(kind: Option<&str>, state: Option<i32>) -> Toggle {

@@ -79,7 +79,8 @@ use crate::feed::Feed;
 fn main() -> ExitCode {
     // Before anything is reported.
     report::init();
-    let feed = Arc::new(Feed::default());
+    let (feed, inbox) = Feed::new();
+    let feed = Arc::new(feed);
     let subscriber = Arc::clone(&feed);
     let config = policy::config();
     let bus = config.bus.clone();
@@ -107,7 +108,7 @@ fn main() -> ExitCode {
     let theme = Theme::start(&configuration, Bus::Session);
     let first_theme = theme.initial();
     let parts = root::Parts {
-        feed: Arc::clone(&feed),
+        inbox,
         handle,
         theme,
         installed: Installed::start(&Environment::from_process()),

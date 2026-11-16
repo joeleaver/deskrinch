@@ -56,6 +56,8 @@ zbus = { workspace = true, features = ["default-rt", "service"] }
 # features out of a plain build).
 rinch = { workspace = true, features = ["desktop", "testing"] }
 deskrinch-test-wait.workspace = true
+# The harness tests' own thread's log lines.
+deskrinch-test-log.workspace = true
 # The shell's description, whose name for the launcher must be its own.
 deskrinch-shell.workspace = true
 # The compositor tests refuse to run outside a nested session.

@@ -17,9 +17,8 @@
 //! replacement redraws a popup in its place and a closing removes only its
 //! own.
 
-use std::sync::Arc;
-
 use deskrinch_applications::{Icons, Installed};
+use deskrinch_component::Inbox;
 use deskrinch_notification_service::Handle;
 use deskrinch_theme::Theme;
 use rinch::InputRegion;
@@ -27,7 +26,7 @@ use rinch::prelude::*;
 use rinch::reactive::Effect;
 
 use crate::column::Column;
-use crate::feed::Feed;
+use crate::feed::State;
 use crate::policy::WIDTH;
 use crate::popup::Shared;
 use crate::{surface, view};
@@ -50,7 +49,8 @@ pub(crate) const UP_LINE: &str = deskrinch_shell::NOTIFICATIONS_UP_LINE;
 
 /// What the daemon's UI runs with.
 pub(crate) struct Parts {
-    pub(crate) feed: Arc<Feed>,
+    /// The feed's inbox, turned here into the UI's signal of the state.
+    pub(crate) inbox: Inbox<State>,
     pub(crate) handle: Handle,
     pub(crate) theme: Theme,
     pub(crate) installed: Installed,
@@ -61,7 +61,7 @@ pub(crate) struct Parts {
 #[component]
 pub(crate) fn notifications(parts: Parts) -> NodeHandle {
     let Parts {
-        feed,
+        inbox,
         handle,
         theme,
         installed,
@@ -69,7 +69,7 @@ pub(crate) fn notifications(parts: Parts) -> NodeHandle {
     } = parts;
     let applied = theme.apply();
     icons.follow_theme(applied.icon_theme);
-    let state = feed.signal();
+    let state = inbox.into_signal(State::default());
     Effect::new(move || {
         if state.with(|state| state.ended) {
             // main reads it from the feed, and ends with a failure.
@@ -81,7 +81,7 @@ pub(crate) fn notifications(parts: Parts) -> NodeHandle {
     let shared = Shared {
         handle,
         state,
-        index: icons.signal(),
+        index: icons.into_signal(),
         applications: installed.into_signal(),
         column: column.clone(),
     };

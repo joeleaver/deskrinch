@@ -71,7 +71,7 @@ use self::suites::{Pass, SUITES};
 use crate::Outcome;
 use crate::components::{self, Profile};
 use crate::error::Error;
-use crate::session::{Compositor, CompositorRenderer, Gpu, Session};
+use crate::session::{Compositor, CompositorRenderer, Gpu, OutputSize, Outputs, Session};
 
 pub(crate) use self::args::Args;
 
@@ -105,7 +105,7 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
     } else {
         &args.compositors
     };
-    let sessions = sessions(compositors, &plan, &selection);
+    let sessions = sessions(compositors, &args.sizes.sizes, &plan, &selection)?;
     if sessions.is_empty() {
         let names: Vec<_> = compositors.iter().map(|c| c.name()).collect();
         return Err(selection.nothing_runs(&names.join(", ")).into());
@@ -218,11 +218,13 @@ fn list_tests(binary: &Path) -> Result<Vec<String>, Error> {
 
 /// One session of a run: its compositor, what that renders with, its
 /// pass, and whether its clients may use the GPU.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 struct Place {
     compositor: Compositor,
     rendering: CompositorRenderer,
     pass: Pass,
+    /// The pass's outputs, of the sizes asked for.
+    outputs: Outputs,
     gpu: Gpu,
 }
 
@@ -237,7 +239,7 @@ impl Place {
         format!(
             "{} with {}{}",
             self.compositor.name(),
-            self.pass.outputs(),
+            self.outputs,
             match (self.compositor, self.rendering) {
                 (Compositor::Sway | Compositor::Labwc, CompositorRenderer::Gpu) =>
                     ", rendering on the GPU",
@@ -251,21 +253,24 @@ impl Place {
 /// a rendering suite (`None` for one that does not render).
 type Run = (usize, Option<Renderer>);
 
-/// The sessions a run starts, in order, each with what runs in it; those
-/// in which nothing runs are left out.
+/// The sessions a run starts, in order, each with what runs in it, its
+/// outputs `sizes` large; those in which nothing runs are left out.
 fn sessions(
     compositors: &[Compositor],
+    sizes: &[OutputSize],
     plan: &renderers::Plan,
     selection: &Selection,
-) -> Vec<(Place, Vec<Run>)> {
+) -> Result<Vec<(Place, Vec<Run>)>, Error> {
     let mut sessions = Vec::new();
     for &compositor in compositors {
         for pass in Pass::ALL {
+            let outputs = pass.outputs().sized(sizes)?;
             for rendering in [CompositorRenderer::Software, CompositorRenderer::Gpu] {
                 let place = Place {
                     compositor,
                     rendering,
                     pass,
+                    outputs,
                     gpu: Gpu::Machine,
                 };
                 let runs = runs(place, plan, selection);
@@ -275,7 +280,7 @@ fn sessions(
             }
         }
     }
-    sessions
+    Ok(sessions)
 }
 
 /// What runs at `place`: of the chosen suites that run the chosen test (if
@@ -316,7 +321,7 @@ fn run_in(place: Place, runs: &[Run], selection: &Selection, built: &Built) -> R
     let mut session = Session::start(
         compositor,
         place.rendering,
-        place.pass.outputs(),
+        place.outputs,
         None,
         place.gpu,
         |data_home| match compositor {

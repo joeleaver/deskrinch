@@ -8,17 +8,17 @@
 //! it to `rinch::window::window_focused`, as the desktop shell does.
 
 use std::cell::RefCell;
-use std::fmt::Write as _;
 use std::rc::Rc;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::Arc;
 
 use deskrinch_desktop_entries::{CatalogEntry, DesktopEntry, DesktopId};
 use deskrinch_launcher::{Action, Input, Model, Visibility, query_at_hide};
+use deskrinch_theme::Scheme;
 use rinch::prelude::*;
 use rinch::testing::TestApp;
 
 use super::{Wiring, wire};
-use crate::view;
+use crate::{surface, view};
 
 /// An application entry, shown in menus.
 fn entry(id: &str, name: &str) -> Arc<CatalogEntry> {
@@ -44,8 +44,20 @@ fn entries() -> Arc<Vec<Arc<CatalogEntry>>> {
 /// A slot for a signal made inside the mounted component.
 type Slot<T> = Rc<RefCell<Option<T>>>;
 
+/// What a slot was given at the mount.
 fn taken<T: Copy>(slot: &Slot<T>) -> T {
     slot.borrow().expect("made at the mount")
+}
+
+/// `component` mounted as the launcher draws it: in a window of its size,
+/// with the shell's look, so its padding and the field's box are the
+/// launcher's own (with no look, the launcher has no padding, and its
+/// corner is the field).
+fn launcher_window(component: impl FnOnce(&mut RenderScope) -> NodeHandle + 'static) -> TestApp {
+    TestApp::builder(component)
+        .size(surface::WIDTH, surface::HEIGHT)
+        .theme(deskrinch_theme::look::props(Scheme::Light))
+        .mount()
 }
 
 // ── The view, its callbacks recorded ────────────────────────────────────
@@ -64,7 +76,7 @@ fn mounted_view() -> (TestApp, Rc<RefCell<Calls>>, Signal<Model>) {
     let calls = Rc::new(RefCell::new(Calls::default()));
     let model_slot: Slot<Signal<Model>> = Rc::default();
     let (c, slot) = (Rc::clone(&calls), Rc::clone(&model_slot));
-    let app = TestApp::mount(move |__scope: &mut RenderScope| {
+    let app = launcher_window(move |__scope: &mut RenderScope| {
         let mut model = Model::new();
         let all = entries();
         model.set_query("term", all.iter().map(|e| &e.entry));
@@ -82,6 +94,7 @@ fn mounted_view() -> (TestApp, Rc<RefCell<Calls>>, Signal<Model>) {
                 matches!(key, "ArrowUp" | "ArrowDown" | "Enter" | "Escape")
             },
             Rc::new(move |input| p.borrow_mut().pointer.push(input)),
+            || {},
         );
         content
     });
@@ -174,7 +187,17 @@ fn a_press_on_the_padding_round_the_results_is_off_them() {
     let launcher = app.bounds(".launcher");
     // The launcher's own padding: the nearest handler is the container's,
     // not a row's (rinch's dispatch stops at the nearest node with one).
-    app.click(launcher.x + 2.0, launcher.y + 2.0);
+    let (x, y) = (launcher.x + 2.0, launcher.y + 2.0);
+    let field = app.bounds(".launcher-query");
+    assert!(
+        x < field.x || y < field.y,
+        "the point is the field's: {field:?}"
+    );
+    for row in app.query_all(".launcher-row") {
+        let row = app.bounds(&row);
+        assert!(x < row.x || y < row.y, "the point is a row's: {row:?}");
+    }
+    app.click(x, y);
     assert_eq!(
         calls.borrow().pointer,
         [Input::Press(None), Input::Release(None)]
@@ -183,30 +206,55 @@ fn a_press_on_the_padding_round_the_results_is_off_them() {
 
 // ── The wiring, `act` recorded ──────────────────────────────────────────
 
-/// The wiring mounted, shown or hidden as `shown` says, what it hands `act`
-/// recorded.
-struct Wired {
-    app: TestApp,
-    acts: Rc<RefCell<Vec<Action>>>,
-    model: Signal<Model>,
-    visibility: Arc<Visibility>,
+/// The wiring mounted, what it hands `act` recorded.
+pub(super) struct Wired {
+    pub(super) app: TestApp,
+    pub(super) acts: Rc<RefCell<Vec<Action>>>,
+    pub(super) model: Signal<Model>,
+    pub(super) visibility: Arc<Visibility>,
 }
 
-fn wired(shown: bool) -> Wired {
+/// How the wiring is mounted.
+#[derive(Clone, Copy)]
+pub(super) struct Mount {
+    /// Whether the launcher is shown.
+    pub(super) shown: bool,
+    /// Whether its window was made shown, so the field is focused at the
+    /// mount. The launcher makes it so when it starts shown.
+    pub(super) made_shown: bool,
+    /// Whether another focusable element (`.other`, a text field) is
+    /// mounted before the launcher's content.
+    pub(super) other: bool,
+}
+
+/// The wiring mounted shown or hidden as `shown` says, as the launcher
+/// starts.
+pub(super) fn wired(shown: bool) -> Wired {
+    wired_as(Mount {
+        shown,
+        made_shown: shown,
+        other: false,
+    })
+}
+
+/// The wiring mounted as `mount` says, as the launcher draws it
+/// ([`launcher_window`]).
+pub(super) fn wired_as(mount: Mount) -> Wired {
     let acts = Rc::new(RefCell::new(Vec::new()));
-    let visibility = Arc::new(Visibility::new(shown));
+    let (visibility, window) = Visibility::new(mount.shown);
+    let visibility = Arc::new(visibility);
     let model_slot: Slot<Signal<Model>> = Rc::default();
     let (a, v, slot) = (
         Rc::clone(&acts),
         Arc::clone(&visibility),
         Rc::clone(&model_slot),
     );
-    let app = TestApp::mount(move |__scope: &mut RenderScope| {
+    let app = launcher_window(move |__scope: &mut RenderScope| {
         let model = Signal::new(Model::new());
         *slot.borrow_mut() = Some(model);
         let all = entries();
-        let shown = v.signal();
-        wire(
+        let shown = window.into_signal(v.is_shown());
+        let content = wire(
             __scope,
             Wiring {
                 model,
@@ -214,10 +262,20 @@ fn wired(shown: bool) -> Wired {
                 index: Signal::new(None),
                 visibility: v,
                 shown,
-                made_shown: shown.get(),
+                made_shown: mount.made_shown,
                 act: Rc::new(move |action| a.borrow_mut().push(action)),
             },
-        )
+        );
+        if mount.other {
+            rsx! {
+                div {
+                    input { class: "other", r#type: "text" }
+                    {content}
+                }
+            }
+        } else {
+            content
+        }
     });
     let model = taken(&model_slot);
     Wired {
@@ -274,62 +332,11 @@ fn shown_with_the_keyboard_the_field_has_it() {
 
 #[test]
 fn hiding_says_the_query_s_length_and_empties_it() {
-    let log = Log::default();
-    let wired = tracing::subscriber::with_default(log.clone(), || {
-        let mut wired = wired(true);
-        wired.app.type_text("term");
-        wired.visibility.hide();
-        wired.app.settle();
-        wired
-    });
+    let log = deskrinch_test_log::capture();
+    let mut wired = wired(true);
+    wired.app.type_text("term");
+    wired.visibility.hide();
+    wired.app.settle();
     assert_eq!(wired.model.with(|m| m.query().to_owned()), "");
     assert!(log.lines().contains(&query_at_hide(4)), "{:?}", log.lines());
-}
-
-// ── The log, as the launcher writes it ──────────────────────────────────
-
-/// A `tracing` subscriber keeping each event's message.
-#[derive(Clone, Default)]
-struct Log(Arc<Mutex<Vec<String>>>);
-
-impl Log {
-    fn lines(&self) -> Vec<String> {
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .clone()
-    }
-}
-
-/// An event's `message` field, written out.
-#[derive(Default)]
-struct Message(String);
-
-impl tracing::field::Visit for Message {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            let _ = write!(self.0, "{value:?}");
-        }
-    }
-}
-
-impl tracing::Subscriber for Log {
-    fn enabled(&self, _: &tracing::Metadata<'_>) -> bool {
-        true
-    }
-    fn new_span(&self, _: &tracing::span::Attributes<'_>) -> tracing::span::Id {
-        tracing::span::Id::from_u64(1)
-    }
-    fn record(&self, _: &tracing::span::Id, _: &tracing::span::Record<'_>) {}
-    fn record_follows_from(&self, _: &tracing::span::Id, _: &tracing::span::Id) {}
-    fn event(&self, event: &tracing::Event<'_>) {
-        let mut message = Message::default();
-        event.record(&mut message);
-        self.0
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(message.0);
-    }
-    fn enter(&self, _: &tracing::span::Id) {}
-    fn exit(&self, _: &tracing::span::Id) {}
 }

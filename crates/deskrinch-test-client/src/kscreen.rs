@@ -40,6 +40,31 @@ pub fn kscreen_settings(name: &str, change: OutputChange) -> Vec<String> {
     scale.into_iter().chain(rotation).chain(position).collect()
 }
 
+/// `kscreen-doctor`'s arguments that give the output `name` the mode
+/// `mode` where it does not list it: the custom mode added (a refresh of
+/// `mode`'s, full blanking), for [`kscreen_select_mode`] to select. KWin's
+/// virtual outputs list only the mode they started with.
+#[must_use]
+pub fn kscreen_add_mode(name: &str, mode: Mode) -> String {
+    format!(
+        "output.{name}.addCustomMode.{}.{}.{}.full",
+        mode.width, mode.height, mode.refresh_mhz
+    )
+}
+
+/// `kscreen-doctor`'s argument that selects the mode `mode` of the output
+/// `name`, by its name as `KScreen` gives it (`1920x1080@60`): a mode
+/// listed, or added with [`kscreen_add_mode`].
+#[must_use]
+pub fn kscreen_select_mode(name: &str, mode: Mode) -> String {
+    format!(
+        "output.{name}.mode.{}x{}@{}",
+        mode.width,
+        mode.height,
+        mode.refresh_mhz / 1000
+    )
+}
+
 /// `transform`'s name for `kscreen-doctor`'s `rotation` (`KScreen` calls a
 /// quarter turn counter-clockwise "left").
 fn rotation(transform: Transform) -> &'static str {

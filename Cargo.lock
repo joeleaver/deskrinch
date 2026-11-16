@@ -1011,6 +1011,7 @@ dependencies = [
  "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
+ "deskrinch-test-log",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-theme",
@@ -1100,6 +1101,28 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-picture"
+version = "0.1.0"
+dependencies = [
+ "bitflags 2.13.2",
+ "deskrinch-test-pictures",
+ "deskrinch-untrusted",
+ "fast_image_resize",
+ "gif",
+ "image",
+ "image-webp",
+ "moxcms",
+ "peak_alloc",
+ "png 0.18.1",
+ "proptest",
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zune-core",
+ "zune-jpeg",
+]
+
+[[package]]
 name = "deskrinch-settings"
 version = "0.1.0"
 dependencies = [
@@ -1132,6 +1155,7 @@ name = "deskrinch-status-notifier"
 version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
+ "deskrinch-picture",
  "deskrinch-test-dbus",
  "deskrinch-test-wait",
  "deskrinch-timer",
@@ -1228,12 +1252,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-log"
+version = "0.1.0"
+dependencies = [
+ "tracing",
+]
+
+[[package]]
 name = "deskrinch-test-notify"
 version = "0.1.0"
 dependencies = [
  "deskrinch-test-wait",
  "futures-core",
  "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-test-pictures"
+version = "0.1.0"
+dependencies = [
+ "gif",
+ "image-webp",
+ "moxcms",
+ "png 0.18.1",
 ]
 
 [[package]]
@@ -1303,8 +1344,11 @@ dependencies = [
 name = "deskrinch-untrusted"
 version = "0.1.0"
 dependencies = [
- "png 0.18.1",
+ "libc",
  "proptest",
+ "rustix",
+ "tempfile",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -1570,6 +1614,18 @@ checksum = "8be9f3dfaaffdae2972880079a491a1a8bb7cbed0b8dd7a347f668b4150a3b93"
 dependencies = [
  "event-listener",
  "pin-project-lite",
+]
+
+[[package]]
+name = "fast_image_resize"
+version = "6.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e9c50201dc184ba6553da1695aac20a042efffbe2d84542cee31917c86c3ab1e"
+dependencies = [
+ "cfg-if",
+ "document-features",
+ "num-traits",
+ "thiserror 2.0.21",
 ]
 
 [[package]]
@@ -3486,6 +3542,12 @@ name = "pastey"
 version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2ee67f1008b1ba2321834326597b8e186293b049a023cdef258527550b9935b4"
+
+[[package]]
+name = "peak_alloc"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ccc90935a8dd139fdf341762773687a1e361d3f54b396a55d9dd1f7001e484bb"
 
 [[package]]
 name = "peniko"

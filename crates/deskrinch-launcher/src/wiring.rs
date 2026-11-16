@@ -10,10 +10,12 @@
 //! - The window follows [`Visibility`]: showing puts the keyboard in the
 //!   field (a window made shown too); hiding says how long the query was
 //!   and empties the model, so the next show starts with an empty query.
-//! - Leaving the launcher hides it ([`Input::KeyboardLost`]); gaining the
-//!   keyboard while shown, once per show, it says [`HAS_KEYBOARD`]
-//!   ([`hide_when_left`]).
+//! - The field gaining the keyboard while the launcher is shown, once per
+//!   show, it says [`HAS_KEYBOARD`] ([`say_has_keyboard`]).
+//! - Leaving the launcher hides it ([`Input::KeyboardLost`],
+//!   [`hide_when_left`]).
 
+use std::cell::Cell;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -73,10 +75,31 @@ pub(crate) fn wire(__scope: &mut RenderScope, wiring: Wiring) -> NodeHandle {
         let act = Rc::clone(&act);
         Rc::new(move |pointer: Input| act(input(model, pointer)))
     };
-    let (content, field) = view::view(__scope, model, index, on_query, on_key, on_pointer);
-    follow_visibility(shown, made_shown, field, model);
+    let said = Rc::new(Cell::new(false));
+    let on_focus = say_has_keyboard(Rc::clone(&said));
+    let (content, field) = view::view(
+        __scope, model, index, on_query, on_key, on_pointer, on_focus,
+    );
+    follow_visibility(shown, made_shown, field, model, said);
     hide_when_left(visibility, model, act);
     content
+}
+
+/// What the field's `focus` event does: says [`HAS_KEYBOARD`] the first
+/// time in a show that the field gains the keyboard. The line is once a
+/// show whatever moves the focus: nothing in the launcher takes it from
+/// the field today (a press off the field keeps it there, `data-nofocus`
+/// in [`view`], and Tab has no other stop), but each return of the focus
+/// would be another `focus` event, so `said` keeps the line to one a show,
+/// and the show's end clears it ([`follow_visibility`]). The field is
+/// focused only by a show, so its `focus` event comes only while the
+/// launcher is shown.
+fn say_has_keyboard(said: Rc<Cell<bool>>) -> impl Fn() + 'static {
+    move || {
+        if !said.replace(true) {
+            tracing::info!("{HAS_KEYBOARD}");
+        }
+    }
 }
 
 /// The model's input for the key `key` names, if the launcher takes it.
@@ -91,14 +114,17 @@ fn key_input(key: &str) -> Option<Input> {
 }
 
 /// The window following `shown`: showing puts the keyboard in `field` (a
-/// window made shown too), hiding says how long the query was and empties
-/// the model. On the desktop `focus()` posts a request the runtime applies
-/// on its next turn, once the field is mounted and the window is up.
+/// window made shown too), hiding says how long the query was, empties the
+/// model, and ends the show for [`say_has_keyboard`] (`said`). On the
+/// desktop `focus()` posts a request rinch applies before the window's
+/// first frame (made shown) or its next one, and before the keyboard
+/// reaches the window.
 fn follow_visibility(
     shown: Signal<bool>,
     made_shown: bool,
     field: NodeHandle,
     model: Signal<Model>,
+    said: Rc<Cell<bool>>,
 ) {
     if made_shown {
         field.focus();
@@ -115,6 +141,7 @@ fn follow_visibility(
             field.focus();
         } else {
             hide_current_window();
+            said.set(false);
             untracked(|| {
                 let chars = model.with(|m| m.query().chars().count());
                 tracing::info!("{}", query_at_hide(chars));
@@ -126,19 +153,14 @@ fn follow_visibility(
 
 /// Leaving the launcher (another window took the keyboard, or an
 /// application it started did) hides it; it never takes the keyboard back.
-/// Gaining the keyboard while shown, once per show (each show makes the
-/// window anew, and losing the keyboard hides it), it writes
-/// [`HAS_KEYBOARD`].
+/// It follows the window's keyboard, not the field's: where the focus is
+/// inside the launcher is not leaving it.
 fn hide_when_left(visibility: Arc<Visibility>, model: Signal<Model>, act: Rc<dyn Fn(Action)>) {
     let mut had_keyboard = false;
     Effect::new(move || {
         let focused = window_focused();
-        let shown = visibility.is_shown();
-        if had_keyboard && !focused && shown {
+        if had_keyboard && !focused && visibility.is_shown() {
             untracked(|| act(input(model, Input::KeyboardLost)));
-        }
-        if !had_keyboard && focused && shown {
-            tracing::info!("{HAS_KEYBOARD}");
         }
         had_keyboard = focused;
     });
@@ -151,5 +173,9 @@ fn input(model: Signal<Model>, input: Input) -> Action {
     action
 }
 
+#[cfg(test)]
+mod keyboard_tests;
+#[cfg(test)]
+mod press_tests;
 #[cfg(test)]
 mod tests;

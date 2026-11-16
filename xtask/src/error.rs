@@ -230,6 +230,9 @@ pub(crate) enum Error {
         /// What it printed.
         log: crate::session::CompositorLog,
     },
+    /// More output sizes asked for than there are outputs.
+    #[error(transparent)]
+    OutputSizes(#[from] crate::session::TooManySizes),
     /// The nested compositor's outputs are not as asked.
     #[error("{compositor} did not take {asked}: {outputs}; its log:\n{log}")]
     WrongOutputs {
