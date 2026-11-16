@@ -14,10 +14,10 @@
 //!   own default, at the pinned commit, is on in a debug build and off in a
 //!   release one (`rinch::app::DEVTOOLS_DEFAULT`); a shell component sets it
 //!   either way, and turns it off unless it is built with this crate's
-//!   `debug` feature, which each component's own `debug` feature turns on. Cargo unifies features over one build, so when any
-//!   component in a build has `debug`, every component in that build has
-//!   DevTools, as with `rinch/debug` itself: `debug` is a property of the
-//!   build.
+//!   `debug` feature, which each component's own `debug` feature turns on.
+//!   Cargo unifies features over one build, so when any component in a
+//!   build has `debug`, every component in that build has DevTools, as with
+//!   `rinch/debug` itself: `debug` is a property of the build.
 //!
 //!   `RINCH_DEVTOOLS=on|off` in the environment overrides this choice
 //!   either way: rinch at the pinned commit resolves the setting as the

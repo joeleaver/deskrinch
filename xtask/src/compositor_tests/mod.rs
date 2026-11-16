@@ -19,11 +19,11 @@
 //! session's data directory, built from the interface constants of the
 //! crates that binary uses (KWin's checks stay on). Each `kwin_not_granted`
 //! binary checks that a binary without one is refused. A suite's programs (the
-//! shell components its tests start that are not of its own crate) are
-//! granted what the shell grants them, and handed to its tests by path
-//! ([`deskrinch_test_component::programs`]). The window-management
-//! `session_end` tests end the session under a connected manager, so they
-//! run last.
+//! shell components its tests start) are granted what the shell grants
+//! them, and handed to its tests by path, the only way they start one
+//! ([`deskrinch_test_component::programs`]; kept by [`component_rule`]).
+//! The window-management `session_end` tests end the session under a
+//! connected manager, so they run last.
 //!
 //! When a chosen suite declares a program, the components are built apart
 //! from the tests, all of them, by the one build of them
@@ -46,6 +46,7 @@
 mod args;
 mod bounded;
 mod build;
+mod component_rule;
 mod leaks;
 pub(crate) mod renderers;
 mod repeat;

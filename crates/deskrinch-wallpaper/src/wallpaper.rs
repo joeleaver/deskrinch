@@ -3,8 +3,9 @@
 //!
 //! The root is the document of an app with no window of its own
 //! (`App::windowless`): it draws nothing, and holds one `Window` per
-//! output, a row of a `for` over rinch's `output_ids()`, keyed by the id. A row's window opens with its row and closes with it, when its
-//! output is disconnected or turned off, or when its output goes first
+//! output, a row of a `for` over rinch's `output_ids()`, keyed by the id.
+//! A row's window opens with its row and closes with it, when its output
+//! is disconnected or turned off, or when its output goes first
 //! ([`surface::closed`]).
 //!
 //! The row's item is the output's id alone, not rinch's whole `Output`: a

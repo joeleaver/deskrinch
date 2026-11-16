@@ -1,13 +1,19 @@
-//! The shell components a suite's tests start (the panel, for the
-//! wallpaper's layering test, and for the panel's own tests, where its
-//! taskbar needs what the shell grants it). A suite declares them
-//! (its `programs`, in `xtask/src/compositor_tests/suites.rs`), and
-//! `cargo xtask compositor-tests` builds every component, apart from its
-//! tests, keeps each in a directory of the run's own, and hands each
-//! declared one's path to the suite's tests through the environment
-//! ([`environment`]); a test asks for one by its package ([`program`]).
-//! Nothing looks beside a test's own binary for another package's: what is
-//! there is whatever was built there last.
+//! The shell components a suite's tests start: its own crate's component
+//! as much as any other's (the launcher's tests start the launcher, the
+//! wallpaper's the wallpaper and the panel over it).
+//!
+//! **The rule: a compositor test starts a shell component only by the path
+//! the runner hands it, [`program`].** A suite declares the components its
+//! tests start (its `programs`, in `xtask/src/compositor_tests/suites.rs`),
+//! and `cargo xtask compositor-tests` builds every component as it is built
+//! for use, apart from the tests, keeps each in a directory of the run's
+//! own, grants it what the shell grants it, and hands each declared one's
+//! path to the suite's tests through the environment ([`environment`]). Not
+//! `CARGO_BIN_EXE_<package>`: that is the binary the tests' own build
+//! linked, with the test crates' dev-dependency features, which nobody runs.
+//! Nor anything beside a test's binary: what is there is whatever was built
+//! there last. A check in xtask (`compositor_tests::component_rule`) fails
+//! on a suite's source that names a component's `CARGO_BIN_EXE_`.
 //!
 //! The variables' names are made here only, for both sides.
 

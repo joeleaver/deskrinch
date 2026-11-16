@@ -1,8 +1,10 @@
 //! The taskbar: a button for each open window (`deskrinch-taskbar`'s
 //! model, followed by [`follow`]), with its application's icon and its
 //! title cut to fit, marked while active, dimmed while minimized, marked
-//! while it asks for attention. A click of the primary button activates its
-//! window, or minimizes the active one; the middle button closes it.
+//! while it asks for attention, and marked while the pointer is over it
+//! (CSS `:hover`, in the taskbar's stylesheet). A click of the primary
+//! button activates its window, or minimizes the active one; the middle
+//! button closes it.
 //!
 //! The buttons share the room the bar leaves the taskbar (its width, from
 //! rinch's `bounds_signal`, refreshed after each layout), shrink to their
@@ -10,9 +12,10 @@
 //! left out, counted at the end, when even the icons do not fit
 //! ([`deskrinch_taskbar::fit`]).
 //!
-//! It draws only when what it shows changes: the buttons come as one value
-//! per change of the window list, each button's parts are memos of it, and
-//! the list is keyed by window.
+//! It draws only when what it shows changes, or the pointer moves onto or
+//! off a button (one frame each, a paint without layout): the buttons come
+//! as one value per change of the window list, each button's parts are
+//! memos of it, and the list is keyed by window.
 
 mod button;
 mod follow;
@@ -25,7 +28,7 @@ use deskrinch_taskbar::{Room, fit};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
-use crate::widgets::taskbar::button::{ButtonSizes, button_view, pointer};
+use crate::widgets::taskbar::button::{ButtonSizes, STYLESHEET, button_view, pointer};
 use crate::widgets::taskbar::follow::Following;
 
 /// The sizes buttons come in, in logical pixels.
@@ -68,6 +71,7 @@ pub(crate) fn TaskbarWidget() -> NodeHandle {
             )},
             onmousedown: pointer(&following, None, true),
             onmouseup: pointer(&following, None, false),
+            style { {STYLESHEET} }
             for id in shown.get() {
                 div {
                     key: id.get().to_string(),
