@@ -384,10 +384,14 @@ What the nested desktop does not have:
 ### Measuring what a component costs
 
 `cargo xtask measure` starts a rinch program (a shell component, a rinch
-example) in fresh isolated sessions, one per run, and reports what it costs:
+example) in fresh isolated sessions, one per run, and reports what it costs.
+`cargo xtask build-components` builds the shell's components the one way
+the desktop and the compositor tests build them, all of them in one `cargo
+build` (`--release` for Cargo's release profile), and prints each package
+and its binary's path, so what is measured is what runs:
 
 ```sh
-cargo build --release -p deskrinch-panel
+cargo xtask build-components --release
 cargo xtask measure target/release/deskrinch-panel
 cargo xtask measure --shader-cache warm --renderer gpu target/release/deskrinch-panel
 cargo xtask measure --instructions --runs 1 target/release/deskrinch-panel
@@ -424,19 +428,39 @@ A component that starts hidden and is summoned, such as the launcher, is
 measured by its shows instead: `--summon` and `--dismiss` give the program's
 own arguments that show and hide it, and each show's CPU time (or
 instructions) is taken from the summon command to the first frame after it,
-the first show cold and the later ones after a hide:
+the first show cold and the later ones after a hide. The launcher prepares
+its hidden window, so `--prepares` makes the first settle wait for its first
+preparation: a launcher slow to start would otherwise be summoned before its
+start was done, and its first show would pay for it.
 
 ```sh
-cargo build --release -p deskrinch-launcher
-cargo xtask measure --renderer software --summon show --dismiss hide target/release/deskrinch-launcher
+cargo xtask build-components --release
+cargo xtask measure --renderer software --summon show --dismiss hide --prepares target/release/deskrinch-launcher
+```
+
+With `--type TEXT` a query is typed after each show, one key at a time, each
+key measured from the key to settled and followed by a frame. The keys come
+from a typist measure runs in the session (`cargo xtask type`, hidden from the
+help). The program has to say two things in its log, and `--type` takes their
+words, with no default: `--keyboard-line`, the line it writes once it has the
+keyboard (the first key waits for it), and `--query-line`, the line it writes
+at the hide with `{}` where it gives how many characters it was typed (a
+length other than TEXT's fails the run, since a key was lost). The launcher
+writes both at info, so its log level has to let them through:
+
+```sh
+cargo xtask measure --summon show --dismiss hide --prepares --type term \
+  --keyboard-line "the launcher has the keyboard" \
+  --query-line "hidden with a query of {} characters" \
+  --env RUST_LOG=warn,deskrinch_launcher=info target/release/deskrinch-launcher
 ```
 
 Its end-to-end tests measure stand-in scripts in isolated sessions, and are
-ignored by `cargo test` like the session's (they do not cover
-`--instructions`, which needs Valgrind):
+ignored by `cargo test` like the session's (`measure_callgrind` needs
+Valgrind; `measure_typing` types into a stand-in with the real typist):
 
 ```sh
-DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure -- --ignored
+DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_typing -- --ignored
 ```
 
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists

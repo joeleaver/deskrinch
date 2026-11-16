@@ -6,6 +6,7 @@
 
 mod cargo_messages;
 mod ci_packages;
+mod components;
 mod compositor_tests;
 mod desktop;
 mod error;
@@ -16,12 +17,12 @@ mod measure;
 mod run_in_session;
 mod session;
 mod systemd_scope_tests;
+mod typist;
 
 use std::error::Error as _;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-use std::time::Duration;
 
 use clap::{Parser, Subcommand};
 
@@ -47,6 +48,21 @@ enum Task {
         file_length::MAX_LINES,
     ))]
     FileLength,
+    /// Build the shell's components, as the desktop and the compositor tests
+    /// build them, and print PACKAGE's binary's path, or without it each
+    /// package and its binary's path, a tab between, one a line.
+    ///
+    /// One `cargo build` of every component and what the key bindings run,
+    /// unoptimised unless `--release`: the one place the components are
+    /// built, so that a binary measured or installed is the one the tests
+    /// and the desktop run.
+    BuildComponents {
+        /// Build them with Cargo's release profile.
+        #[arg(long)]
+        release: bool,
+        /// Print only this component's binary's path (all are built still).
+        package: Option<String>,
+    },
     /// Run the workspace's compositor tests in nested, headless
     /// compositors.
     ///
@@ -123,105 +139,7 @@ enum Task {
     /// sessions: CPU time to its first frame, memory, idle wake-ups and CPU
     /// per frame, or with `--instructions` instruction counts.
     #[command(long_about = measure::LONG_ABOUT)]
-    Measure {
-        /// The compositor each run's session has.
-        #[arg(long, value_enum, default_value = "kwin")]
-        compositor: session::Compositor,
-        /// How many runs, each in a fresh session.
-        #[arg(long, default_value_t = 3, value_parser = clap::value_parser!(u32).range(1..=50))]
-        runs: u32,
-        /// How many outputs each run's session has, 1280x720 each.
-        #[arg(long, default_value_t = 1, value_parser = clap::value_parser!(u32).range(1..=8))]
-        outputs: u32,
-        /// The renderer, through `RINCH_RENDERER` (unset: the caller's
-        /// environment decides).
-        #[arg(long, value_enum)]
-        renderer: Option<measure::Renderer>,
-        /// Fail (exit 1), naming what did, unless every run presented with
-        /// this renderer, as rinch's own log lines say: a check that a
-        /// silent fallback, or a change in rinch's wording, is noticed.
-        #[arg(long, value_enum)]
-        expect_renderer: Option<measure::Expected>,
-        /// The GPU driver's shader cache at each start.
-        #[arg(long, value_enum, default_value = "cold")]
-        shader_cache: measure::ShaderCache,
-        /// Seconds after the first frame before memory is read and the idle
-        /// window begins, in both modes: work done after the first frame (an
-        /// index built on a thread of its own) is kept out of the window.
-        #[arg(long, default_value_t = 5)]
-        settle: u64,
-        /// Seconds of the idle window. Two minutes catch two ticks of a
-        /// clock that shows minutes.
-        #[arg(long, default_value_t = 125)]
-        idle: u64,
-        /// Seconds to wait for the first frame (default 120, or 1200 with
-        /// `--instructions`).
-        #[arg(long)]
-        first_frame_timeout: Option<u64>,
-        /// Count instructions under Callgrind instead of measuring CPU time
-        /// and memory.
-        #[arg(long)]
-        instructions: bool,
-        /// With `--instructions`: keep each run's Callgrind profile in
-        /// `DIR/run-N/`, for `callgrind_annotate`.
-        #[arg(long, value_name = "DIR", requires = "instructions")]
-        profiles: Option<PathBuf>,
-        /// Measure showing instead of starting: the program starts hidden, and
-        /// each show is run as the program with these arguments (`show`), from
-        /// the command to the first frame after it.
-        #[arg(long, value_name = "ARGS", requires = "dismiss")]
-        summon: Option<String>,
-        /// With `--summon`: the program's arguments that hide it again
-        /// (`hide`), after each show.
-        #[arg(long, value_name = "ARGS", requires = "summon")]
-        dismiss: Option<String>,
-        /// With `--summon`: how many shows each run measures; the first is
-        /// the cold one.
-        #[arg(long, default_value_t = 2, value_parser = clap::value_parser!(u32).range(1..=20))]
-        shows: u32,
-        /// Open one window with this app id at the idle window's start, and
-        /// keep it open to its end: the idle figures then include what it
-        /// costs the program. A run fails if it cannot be opened or is gone
-        /// by the end.
-        #[arg(long, value_name = "APP_ID", conflicts_with = "summon")]
-        window: Option<String>,
-        /// The program opens this many windows (one per output, say): read
-        /// each from rinch's per-window lines instead of the main window's.
-        /// Start-up ends at the last one's first frame; a run fails if the
-        /// count differs or a window closes or opens after start-up.
-        #[arg(
-            long,
-            value_name = "N",
-            conflicts_with = "summon",
-            value_parser = clap::value_parser!(u32).range(1..=16)
-        )]
-        windows: Option<u32>,
-        /// The shell component the program is (its package, such as
-        /// deskrinch-panel), when its file name is not the package's: under
-        /// KWin it is granted what deskrinch-shell grants that component. A
-        /// program named as a component's package is granted without it.
-        #[arg(long, value_name = "PACKAGE")]
-        component: Option<String>,
-        /// Set KEY to VALUE in the measured program's environment, after
-        /// what measure sets itself (repeatable). The header and each run's
-        /// notes say what was set.
-        #[arg(long = "env", value_name = "KEY=VALUE", value_parser = measure::parse_env)]
-        env: Vec<(String, String)>,
-        /// Measure a program that logged errors, with the lines in each
-        /// run's notes, instead of failing the run.
-        #[arg(long)]
-        allow_errors: bool,
-        /// Each run's state directory (`XDG_STATE_HOME`) starts with a copy
-        /// of this directory's contents: state the program reads, such as
-        /// the record of starts the launcher shows (`deskrinch/starts.toml`).
-        #[arg(long, value_name = "DIR")]
-        state: Option<PathBuf>,
-        /// The program to measure.
-        program: OsString,
-        /// Its arguments.
-        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
-        args: Vec<OsString>,
-    },
+    Measure(Box<measure::Args>),
     /// Install Ubuntu packages a CI job needs, failing fast when the package
     /// servers cannot be reached.
     ///
@@ -250,66 +168,27 @@ enum Task {
         /// The session's root directory.
         root: PathBuf,
     },
+    /// The typist `measure --type` drives in its nested session: types the
+    /// key each line of its input names. Refuses outside a nested session.
+    /// Not for running by hand.
+    #[command(name = "type", hide = true)]
+    Type,
 }
 
 impl Task {
     fn run(self, root: &Path) -> Result<Outcome, Error> {
         match self {
             Self::FileLength => file_length::run(root),
+            Self::BuildComponents { release, package } => {
+                components::run(root, release, package.as_deref())
+            }
             Self::CiPackages { packages } => ci_packages::run(&packages),
             Self::CompositorTests(args) => compositor_tests::run(root, &args),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Desktop(args) => desktop::run(root, &args),
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
-            Self::Measure {
-                compositor,
-                runs,
-                outputs,
-                renderer,
-                expect_renderer,
-                shader_cache,
-                settle,
-                idle,
-                first_frame_timeout,
-                instructions,
-                profiles,
-                summon,
-                dismiss,
-                shows,
-                window,
-                windows,
-                component,
-                allow_errors,
-                env,
-                state,
-                program,
-                args,
-            } => measure::run(&measure::Request {
-                compositor,
-                runs,
-                outputs,
-                renderer,
-                expect_renderer,
-                shader_cache,
-                settle: Duration::from_secs(settle),
-                idle: Duration::from_secs(idle),
-                first_frame_timeout: Duration::from_secs(
-                    first_frame_timeout.unwrap_or(if instructions { 1200 } else { 120 }),
-                ),
-                instructions,
-                profiles,
-                state,
-                program,
-                args,
-                summons: summon
-                    .zip(dismiss)
-                    .map(|(summon, dismiss)| measure::Summons::new(&summon, &dismiss, shows)),
-                window,
-                windows,
-                component,
-                allow_errors,
-                env,
-            }),
+            Self::Type => typist::run(),
+            Self::Measure(args) => measure::run(&args.request()),
             Self::Session {
                 outputs,
                 scale,
