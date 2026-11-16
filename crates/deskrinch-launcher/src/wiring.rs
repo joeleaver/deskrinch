@@ -86,12 +86,14 @@ pub(crate) fn wire(__scope: &mut RenderScope, wiring: Wiring) -> NodeHandle {
 }
 
 /// What the field's `focus` event does: says [`HAS_KEYBOARD`] the first
-/// time in a show that the field gains the keyboard. The field can lose
-/// the focus and take it back within one show (a press elsewhere in the
-/// launcher, then on the field), and each return is another `focus`
-/// event; `said` keeps the line to one a show, and the show's end clears
-/// it ([`follow_visibility`]). The field is focused only by a show, so its
-/// `focus` event comes only while the launcher is shown.
+/// time in a show that the field gains the keyboard. The line is once a
+/// show whatever moves the focus: nothing in the launcher takes it from
+/// the field today (a press off the field keeps it there, `data-nofocus`
+/// in [`view`], and Tab has no other stop), but each return of the focus
+/// would be another `focus` event, so `said` keeps the line to one a show,
+/// and the show's end clears it ([`follow_visibility`]). The field is
+/// focused only by a show, so its `focus` event comes only while the
+/// launcher is shown.
 fn say_has_keyboard(said: Rc<Cell<bool>>) -> impl Fn() + 'static {
     move || {
         if !said.replace(true) {
@@ -151,8 +153,8 @@ fn follow_visibility(
 
 /// Leaving the launcher (another window took the keyboard, or an
 /// application it started did) hides it; it never takes the keyboard back.
-/// It follows the window's keyboard, not the field's: the field losing the
-/// focus to a press elsewhere in the launcher is not leaving it.
+/// It follows the window's keyboard, not the field's: where the focus is
+/// inside the launcher is not leaving it.
 fn hide_when_left(visibility: Arc<Visibility>, model: Signal<Model>, act: Rc<dyn Fn(Action)>) {
     let mut had_keyboard = false;
     Effect::new(move || {
@@ -173,5 +175,7 @@ fn input(model: Signal<Model>, input: Input) -> Action {
 
 #[cfg(test)]
 mod keyboard_tests;
+#[cfg(test)]
+mod press_tests;
 #[cfg(test)]
 mod tests;

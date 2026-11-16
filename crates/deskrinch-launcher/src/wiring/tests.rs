@@ -14,11 +14,12 @@ use std::sync::{Arc, Mutex, PoisonError};
 
 use deskrinch_desktop_entries::{CatalogEntry, DesktopEntry, DesktopId};
 use deskrinch_launcher::{Action, Input, Model, Visibility, query_at_hide};
+use deskrinch_theme::Scheme;
 use rinch::prelude::*;
 use rinch::testing::TestApp;
 
 use super::{Wiring, wire};
-use crate::view;
+use crate::{surface, view};
 
 /// An application entry, shown in menus.
 fn entry(id: &str, name: &str) -> Arc<CatalogEntry> {
@@ -216,7 +217,9 @@ pub(super) fn wired(shown: bool) -> Wired {
     })
 }
 
-/// The wiring mounted as `mount` says.
+/// The wiring mounted as `mount` says, in a window of the launcher's size
+/// with the shell's look, so its padding and the field's box are the
+/// launcher's own.
 pub(super) fn wired_as(mount: Mount) -> Wired {
     let acts = Rc::new(RefCell::new(Vec::new()));
     let visibility = Arc::new(Visibility::new(mount.shown));
@@ -226,7 +229,7 @@ pub(super) fn wired_as(mount: Mount) -> Wired {
         Arc::clone(&visibility),
         Rc::clone(&model_slot),
     );
-    let app = TestApp::mount(move |__scope: &mut RenderScope| {
+    let app = TestApp::builder(move |__scope: &mut RenderScope| {
         let model = Signal::new(Model::new());
         *slot.borrow_mut() = Some(model);
         let all = entries();
@@ -253,7 +256,10 @@ pub(super) fn wired_as(mount: Mount) -> Wired {
         } else {
             content
         }
-    });
+    })
+    .size(surface::WIDTH, surface::HEIGHT)
+    .theme(deskrinch_theme::look::props(Scheme::Light))
+    .mount();
     let model = taken(&model_slot);
     Wired {
         app,

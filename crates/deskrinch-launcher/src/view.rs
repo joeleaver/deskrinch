@@ -1,7 +1,11 @@
 //! What the launcher draws: the query field, and under it the results, the
 //! selected one marked, each with its icon and name. Presses and releases
 //! of the primary button, on a result or anywhere else, go to the model
-//! ([`Input::Press`], [`Input::Release`]), which makes a click of them.
+//! ([`Input::Press`], [`Input::Release`]), which makes a click of them. A
+//! press anywhere but on the query field leaves the keyboard in the field,
+//! its caret where it was (rinch's `data-nofocus` on the container: the
+//! press takes the click, not the keyboard); a press on the field places
+//! its caret, as a text field's does.
 //!
 //! Only [`ROWS`](deskrinch_launcher::ROWS) results fit; the ones drawn are the model's
 //! ([`Model::visible`]), which keeps the selection in sight.
@@ -53,6 +57,9 @@ pub(crate) fn view(
     let content = rsx! {
         div {
             class: "launcher",
+            // A press in the launcher off the query field takes the click,
+            // not the keyboard: the field keeps it, with its caret.
+            data-nofocus: "",
             onmousedown: pointer(&on_pointer, Input::Press, None),
             onmouseup: pointer(&on_pointer, Input::Release, None),
             style: "width: 100%; height: 100%; box-sizing: border-box; \
