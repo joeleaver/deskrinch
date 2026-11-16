@@ -12,7 +12,7 @@ use deskrinch_test_client::{
     OutputChange, OutputState, TestClient, change_output, outputs, turn_output_off,
 };
 use deskrinch_test_component::{Mark, PerfWindow};
-use deskrinch_test_screen::{Screen, Transform};
+use deskrinch_test_screen::{Rgba, Screen, Transform};
 use deskrinch_test_wait::wait_for;
 
 use crate::support::{
@@ -264,4 +264,49 @@ fn the_clock_paints_each_bar_once_a_tick() {
         "the bars drew {counts:?} frames over the same ticks: {}",
         panel.log()
     );
+}
+
+/// The colour of the bar on `output`, in its padding at its left end, half
+/// way down the band.
+fn bar_colour(screen: &mut Screen, output: &str) -> Rgba {
+    let image = screen.capture(output).unwrap();
+    let rows = Band::of(Edge::Bottom, 40, scale_of(output)).rows_in(image.height());
+    let y = rows.start + (rows.end - rows.start) / 2;
+    image.pixel(1, y).unwrap()
+}
+
+/// A change of colour scheme while the panel runs reaches every bar, not
+/// only the first: each bar's own colour changes, and all end the same.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn a_change_of_scheme_reaches_every_bar() {
+    in_nested_session();
+    let settings = |scheme: &str| {
+        format!(
+            "[general]\ncolor-scheme = \"{scheme}\"\n{}",
+            panel_table(Edge::Bottom, 40)
+        )
+    };
+    write_settings(&settings("dark"));
+    let mut screen = Screen::connect().unwrap();
+    let before = Pictures::still(&mut screen);
+    let panel = Panel::start();
+    let scale = scale_of(&screen.outputs()[0]);
+    wait_band(&mut screen, &before, Band::of(Edge::Bottom, 40, scale));
+    let bars: Vec<String> = panel.bars().into_iter().map(|(_, output)| output).collect();
+    let dark: Vec<Rgba> = bars
+        .iter()
+        .map(|output| bar_colour(&mut screen, output))
+        .collect();
+    write_settings(&settings("light"));
+    let light = wait_for("every bar in the light scheme", || {
+        let now: Vec<Rgba> = bars
+            .iter()
+            .map(|output| bar_colour(&mut screen, output))
+            .collect();
+        let changed = now.iter().zip(&dark).all(|(now, was)| now != was);
+        let alike = now.windows(2).all(|pair| pair[0] == pair[1]);
+        if changed && alike { Ok(now) } else { Err(now) }
+    });
+    assert_eq!(light.len(), bars.len(), "{bars:?}");
 }

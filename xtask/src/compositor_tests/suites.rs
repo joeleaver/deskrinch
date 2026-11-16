@@ -29,6 +29,10 @@ const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 
 const PLAIN: &[Pass] = &[Pass::Plain];
 
+/// The panel's test of its last output going and coming back: run by its
+/// own row, under the compositors that allow it.
+const PANEL_LAST_OUTPUT_TESTS: &str = "last_output::";
+
 /// The panel's tests of a full taskbar on [`Pass::UhdBesideFullHd`]'s wide
 /// output: run by that pass's row alone.
 const PANEL_WIDE_TESTS: &str = "uhd_beside_full_hd::";
@@ -89,7 +93,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 24] = [
+pub(super) const SUITES: [Suite; 25] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -265,7 +269,27 @@ pub(super) const SUITES: [Suite; 24] = [
         // The panel itself, declared so that it is granted what the shell
         // grants it: its taskbar follows the window list.
         programs: &[&deskrinch_shell::PANEL],
-        filter: &["--skip", PANEL_WIDE_TESTS],
+        filter: &[
+            "--skip",
+            PANEL_WIDE_TESTS,
+            "--skip",
+            PANEL_LAST_OUTPUT_TESTS,
+        ],
+    },
+    // The same binary's test of the last output going and coming back, under
+    // the compositors that let a nested session turn it off.
+    Suite {
+        target: Target {
+            package: PANEL,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: WLROOTS,
+        passes: PLAIN,
+        renders: true,
+        programs: &[&deskrinch_shell::PANEL],
+        filter: &[PANEL_LAST_OUTPUT_TESTS, "--skip", PANEL_WIDE_TESTS],
     },
     // The same binary's full taskbar on a wide output, on those outputs
     // alone.

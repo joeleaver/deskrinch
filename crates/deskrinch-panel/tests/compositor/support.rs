@@ -146,6 +146,24 @@ impl Panel {
             .collect()
     }
 
+    /// Whether the panel is still running.
+    pub(crate) fn running(&mut self) -> bool {
+        matches!(self.component.wait_exit(Duration::ZERO), Ok(None))
+    }
+
+    /// The lines the panel has written at warn or error level.
+    pub(crate) fn warnings_and_errors(&self) -> Vec<String> {
+        self.component
+            .watch()
+            .lines()
+            .into_iter()
+            .filter(|line| {
+                let line = log::strip_ansi(line);
+                line.contains(" WARN ") || line.contains(" ERROR ")
+            })
+            .collect()
+    }
+
     /// The window of the bar on the output `output`.
     ///
     /// # Panics

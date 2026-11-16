@@ -26,6 +26,8 @@ mod frames;
 #[cfg(test)]
 mod icon_scales;
 #[cfg(test)]
+mod last_output;
+#[cfg(test)]
 mod live;
 #[cfg(test)]
 mod outputs;

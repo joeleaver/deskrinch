@@ -9,7 +9,7 @@
 use std::fs;
 use std::path::Path;
 
-use deskrinch_test_client::{OutputChange, TestClient, change_output, outputs};
+use deskrinch_test_client::{OutputChange, TestClient, change_output, outputs, turn_output_off};
 use deskrinch_test_screen::{Rgba, Screen};
 use deskrinch_test_wait::wait_for;
 
@@ -61,6 +61,116 @@ fn shows(screen: &mut Screen, name: &str, colour: Rgba) -> bool {
     band.into_iter()
         .filter_map(|y| image.row(y))
         .any(|row| row.contains(&colour))
+}
+
+/// Waits until the bar on `output` draws the icon of `output`'s scale and
+/// not the other's.
+fn wait_icon_of_its_scale(screen: &mut Screen, output: &str) {
+    let (want, not) = if scale_of(output) >= 2 {
+        (AT_TWO, AT_ONE)
+    } else {
+        (AT_ONE, AT_TWO)
+    };
+    wait_for(
+        &format!(
+            "{output}'s bar to draw the icon of its scale {}",
+            scale_of(output)
+        ),
+        || {
+            if shows(screen, output, want) && !shows(screen, output, not) {
+                Ok(())
+            } else {
+                Err(format!(
+                    "it shows the scale-1 icon: {}, the scale-2 icon: {}",
+                    shows(screen, output, AT_ONE),
+                    shows(screen, output, AT_TWO)
+                ))
+            }
+        },
+    );
+}
+
+/// The outputs at different scales (the second at the scale the first has
+/// not), the panel started with the theme of [`install`], and a window
+/// open, so that every bar has an icon: the panel, the window, and the
+/// second output's change, to put back.
+fn at_two_scales() -> (
+    Panel,
+    deskrinch_test_client::TestWindow,
+    deskrinch_test_client::RestoreOutputs,
+    tempfile::TempDir,
+) {
+    in_nested_session();
+    write_settings(&panel_table(Edge::Bottom, 40));
+    let layout = outputs().unwrap();
+    let second = layout[1].name.clone();
+    let other = if scale_of(&layout[0].name) == 1 {
+        2.0
+    } else {
+        1.0
+    };
+    let changed = change_output(
+        &second,
+        OutputChange {
+            scale: Some(other),
+            ..OutputChange::default()
+        },
+    )
+    .unwrap();
+    let dirs = tempfile::tempdir().unwrap();
+    install(dirs.path());
+    let mut command = Panel::command();
+    command.env("XDG_DATA_HOME", dirs.path());
+    let panel = Panel::start_with(command);
+    let window = TestClient::connect().unwrap().open("Scales", APP).unwrap();
+    (panel, window, changed, dirs)
+}
+
+/// A bar made after the panel started, on an output at scale 2 turned off
+/// and on again, draws its icons at scale 2: there the icon index is
+/// already in place when the bar mounts, so the bar's first read of its
+/// scale is the one it keeps, with nothing else in between to read it
+/// again (no window, title or theme changed). It fails until rinch's fix
+/// for issue 2789 is in a pin: a bar in a window of its own reads the
+/// process's scale at its mount and does not follow its window's.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn a_bar_made_later_draws_its_icons_at_its_outputs_scale() {
+    let (panel, _window, changed, _dirs) = at_two_scales();
+    let mut screen = Screen::connect().unwrap();
+    for (_, output) in panel.bars() {
+        wait_icon_of_its_scale(&mut screen, &output);
+    }
+    let scaled = panel
+        .bars()
+        .into_iter()
+        .map(|(_, output)| output)
+        .find(|output| scale_of(output) >= 2)
+        .expect("an output at scale 2");
+    let before: std::collections::BTreeSet<_> =
+        panel.bars().into_iter().map(|(window, _)| window).collect();
+    let off = turn_output_off(&scaled).unwrap();
+    wait_for(&format!("{scaled}'s bar to close"), || {
+        if panel.bars().iter().any(|(_, on)| *on == scaled) {
+            Err(panel.log())
+        } else {
+            Ok(())
+        }
+    });
+    off.restore().unwrap();
+    wait_for(&format!("a new bar on {scaled}"), || {
+        panel
+            .bars()
+            .into_iter()
+            .find(|(window, on)| *on == scaled && !before.contains(window))
+            .map(|_| ())
+            .ok_or_else(|| panel.log())
+    });
+    // A capture of an output that went has stopped: capture anew.
+    let mut screen = Screen::connect().unwrap();
+    wait_icon_of_its_scale(&mut screen, &scaled);
+    drop(panel);
+    changed.restore().unwrap();
 }
 
 #[test]
