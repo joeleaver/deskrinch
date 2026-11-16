@@ -300,6 +300,30 @@ pub(crate) enum Error {
         /// Its last lines of output.
         output: String,
     },
+    /// The measured program's start-up did not reach the end
+    /// `--start-ends` names within the patience.
+    #[error(
+        "{program}'s start-up did not reach its end ({end}) within {} s; its last lines:\n{output}",
+        waited.as_secs()
+    )]
+    StartNotEnded {
+        /// The program.
+        program: String,
+        /// The end waited for, described.
+        end: String,
+        /// How long it was given.
+        waited: std::time::Duration,
+        /// Its last lines of output.
+        output: String,
+    },
+    /// `--start-ends ready` for a program with no readiness to end at.
+    #[error("--start-ends ready: {program} has no readiness to end at: {why}")]
+    NoReadiness {
+        /// The program.
+        program: String,
+        /// Why.
+        why: String,
+    },
     /// The measured program's windows were not those `--windows` expects:
     /// too few presented in time, too many, two of one name, or they
     /// changed after start-up.

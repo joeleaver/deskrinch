@@ -508,6 +508,24 @@ cargo xtask measure --outputs 2 --windows 2 --renderer software \
   --config /tmp/wallpaper-config target/release/deskrinch-wallpaper
 ```
 
+`--start-ends WHEN` moves where start-up ends, and with it what the figures
+run to and when the settle and the idle window begin: `frame:N` (each
+expected window's Nth frame), `counter:NAME` (each expected window's first
+frame whose rinch frame line carries the counter `NAME` above zero),
+`line:TEXT` (the first output line with `TEXT`), `ready` (the readiness
+`deskrinch-shell` declares for the component, its bus name owned) or
+`bus-name:NAME`. The rows then say "to start-up's end" and the header says
+which end it was. `frame:N` is sound only for a program whose frames come in
+a fixed order: the wallpaper's picture is in its first frame or its second
+by the decode's timing. Its time to the picture shown is the frame that
+painted the picture, once the pin has rinch's `image_draws` counter (rinch
+issue 2769):
+
+```sh
+cargo xtask measure --outputs 2 --windows 2 --start-ends counter:image_draws \
+  --config /tmp/wallpaper-config target/release/deskrinch-wallpaper
+```
+
 Its end-to-end tests measure stand-in scripts in isolated sessions, and are
 ignored by `cargo test` like the session's (`measure_callgrind` needs
 Valgrind; `measure_typing` and `measure_pointer` drive a stand-in with the
@@ -515,7 +533,7 @@ real input client; that the client's lines reach a window is
 `input_client`'s, run by `cargo xtask compositor-tests`):
 
 ```sh
-DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_typing --test measure_pointer -- --ignored
+DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_start_ends --test measure_typing --test measure_pointer -- --ignored
 ```
 
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists
