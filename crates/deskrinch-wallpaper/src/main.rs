@@ -35,8 +35,9 @@
 //!   rinch makes such a window an ordinary one, which for a wallpaper would
 //!   be a window over everything else. So the wallpaper asks rinch which
 //!   window roles the display offers before opening any window, and
-//!   without the layer shell it says why, opens nothing, and exits with a
-//!   failure status ([`role`]).
+//!   without the layer shell it says why, opens nothing, and exits with
+//!   deskrinch-shell's `CANNOT_RUN_HERE`, so that it is not started again
+//!   ([`role`]).
 //! - Each output's window is keyed and placed by the output's id, which
 //!   every output has: an output without a name (`wl_output` before
 //!   version 4) gets its wallpaper like any other ([`surface`]).
@@ -74,6 +75,7 @@ use std::process::ExitCode;
 use deskrinch_appearance::Bus;
 use deskrinch_component::{Configuration, report};
 use deskrinch_settings::wallpaper::WallpaperSettings;
+use deskrinch_shell::exit_status::CANNOT_RUN_HERE;
 use deskrinch_theme::Theme;
 use deskrinch_xdg::BaseDirs;
 
@@ -94,7 +96,7 @@ fn main() -> ExitCode {
         .theme(first_theme),
     );
     if role::refused() {
-        return ExitCode::FAILURE;
+        return ExitCode::from(CANNOT_RUN_HERE);
     }
     ended
 }
