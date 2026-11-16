@@ -462,11 +462,17 @@ on its Nth, in logical pixels. For a program measured by its start and idle
 window, such as the panel, the steps come after the idle window, any
 `--window` window still open, so the idle figures stay those of a run without
 them; with `--summon`, after each show. A hover over the panel's taskbar is
-the pointer placed off the panel, then moved onto a button and back off:
+the pointer placed off the panel, then moved onto a button and back off. The
+button is the `--window` window's, the taskbar's only one; on the session's
+1280x720 output the panel is the bottom 40 pixels (y 680 to 720), and its
+first button starts after the bar's padding (`--rinch-spacing-md`, 16), its
+icon (16 square, inside 6 of padding) centred at 30,700:
 
 ```sh
-cargo xtask measure --renderer software --place-pointer 640,360 \
-  --move-pointer 100,700 --move-pointer 640,360 target/release/deskrinch-panel
+cargo xtask build-components --release
+cargo xtask measure --compositor kwin --renderer software \
+  --window org.deskrinch.HoverMeasure --place-pointer 640,360 \
+  --move-pointer 30,700 --move-pointer 640,360 target/release/deskrinch-panel
 ```
 
 Its end-to-end tests measure stand-in scripts in isolated sessions, and are
