@@ -6480,6 +6480,7 @@ dependencies = [
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-lifetime",
+ "deskrinch-test-notify",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",

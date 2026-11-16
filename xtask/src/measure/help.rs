@@ -87,6 +87,20 @@ run without them; with --summon, after each show (and its typed query). A
 run fails, recording nothing, if a step leads to no frame within
 --first-frame-timeout, or if the client refuses a step or ends.
 
+Each step, a key of --type's or a pointer move, reports its frames and how
+many of them ran reactive work (a signal notified, as rinch's frame lines
+say). A reactive frame is no anomaly in itself: typing changes a query. With
+two runs or more, a run whose pair for a step (frames presented, of them
+reactive) matches no other run's is noted, with both pairs (\"2 presented, 1
+reactive, against 1 and 0 in the other runs\"): the runs differ in that
+step, and the dearer figure may include work that is not the step's, such as
+a clock's minute. With one run nothing is
+noted, and the rows are the reader's to compare. The frames are read once
+the step is measured (under --instructions, once its dump is written), so a
+frame presented before the dump is counted; a frame's line comes when it is
+presented, after its work, so one whose work came just before the step
+began is counted in it too.
+
 --window APP_ID opens one window with that app id in the session at the
 idle window's start (once it has had its first configure and drawn), and
 keeps it open to its end: the idle figures then include what it costs the

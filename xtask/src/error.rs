@@ -108,6 +108,13 @@ pub(crate) enum Error {
     /// `cargo xtask input` stopped.
     #[error(transparent)]
     Input(#[from] crate::input::InputError),
+    /// `cargo xtask session --grant` was not given `PACKAGE=PATH` with one of
+    /// the shell's components.
+    #[error("--grant {0}: give PACKAGE=PATH, PACKAGE one of the shell's components")]
+    GrantNotUnderstood(String),
+    /// `cargo xtask in-session` could not run its component to its end.
+    #[error(transparent)]
+    InSession(#[from] crate::in_session::InSessionError),
     /// `cargo xtask measure` could not type or point, or the program did not
     /// take what was typed, or drew nothing for a step.
     #[error(transparent)]
@@ -389,6 +396,20 @@ pub(crate) enum Error {
         waited: std::time::Duration,
         /// Its last lines of output.
         output: String,
+    },
+    /// Two dumps of one Callgrind profile carry the same hint, so which one
+    /// a figure is cannot be told.
+    #[error(
+        "the Callgrind profile has {} dumps with the hint {label:?}, where a run makes each \
+         hint once: {}",
+        files.len(),
+        files.iter().map(|file| file.display().to_string()).collect::<Vec<_>>().join(", ")
+    )]
+    CallgrindHintRepeated {
+        /// The hint.
+        label: String,
+        /// The dumps that carry it.
+        files: Vec<PathBuf>,
     },
     /// A program said to prepare its hidden window (`--prepares`) never
     /// did.

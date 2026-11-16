@@ -19,6 +19,7 @@ use deskrinch_shell::Component;
 
 use super::Request;
 use crate::error::Error;
+use crate::grant::ComponentGrant;
 use crate::session::Compositor;
 
 /// How long the Callgrind tool may take to replace Valgrind's launcher: a
@@ -28,11 +29,8 @@ const TOOL_STARTS: Duration = Duration::from_secs(60);
 /// What a measurement's program is granted, or why nothing.
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) enum Grant {
-    /// The component's grant, for this executable.
-    Granted {
-        component: &'static Component,
-        executable: PathBuf,
-    },
+    /// The component's grant, for its executable.
+    Granted(ComponentGrant),
     /// The compositor restricts nothing (sway, labwc).
     Unrestricted(Compositor),
     /// A component that uses nothing restricted.
@@ -72,22 +70,19 @@ impl Grant {
         let executable = if request.instructions {
             callgrind_tool()?
         } else {
-            resolve(&request.program)?
+            crate::grant::executable(&request.program)?
         };
-        Ok(Self::Granted {
+        Ok(Self::Granted(ComponentGrant {
             component,
             executable,
-        })
+        }))
     }
 
     /// Installs the grant, if there is one, into a session's data directory
     /// `data_home`.
     pub(crate) fn install(&self, data_home: &Path) -> Result<(), Error> {
         match self {
-            Self::Granted {
-                component,
-                executable,
-            } => crate::grant::install(component, executable, data_home).map(drop),
+            Self::Granted(grant) => grant.install(data_home).map(drop),
             _ => Ok(()),
         }
     }
@@ -95,10 +90,7 @@ impl Grant {
     /// What a run's notes say was granted, or why nothing.
     pub(crate) fn note(&self) -> String {
         match self {
-            Self::Granted {
-                component,
-                executable,
-            } => crate::grant::describe(component, executable),
+            Self::Granted(grant) => crate::grant::describe(grant.component, &grant.executable),
             Self::Unrestricted(compositor) => {
                 format!("nothing: {} restricts nothing", compositor.name())
             }
@@ -111,29 +103,6 @@ impl Grant {
             ),
         }
     }
-}
-
-/// `program`'s executable, with links resolved: a path as given, or a bare
-/// name found on `PATH`.
-fn resolve(program: &OsStr) -> Result<PathBuf, Error> {
-    let given = Path::new(program);
-    let found = if given.components().count() > 1 {
-        Some(given.to_owned())
-    } else {
-        std::env::var_os("PATH").and_then(|path| {
-            std::env::split_paths(&path)
-                .map(|dir| dir.join(given))
-                .find(|candidate| candidate.is_file())
-        })
-    };
-    let found = found.ok_or_else(|| Error::Io {
-        what: format!("find {} to grant it", given.display()),
-        source: std::io::ErrorKind::NotFound.into(),
-    })?;
-    found.canonicalize().map_err(|source| Error::Io {
-        what: format!("resolve {}", found.display()),
-        source,
-    })
 }
 
 /// The Callgrind tool's executable: Valgrind's launcher replaces itself
@@ -212,17 +181,17 @@ mod tests {
 
     #[test]
     fn a_component_is_granted_under_kwin_and_the_rest_say_why_not() {
-        let sh = resolve(OsStr::new("sh")).unwrap();
+        let sh = crate::grant::executable(OsStr::new("sh")).unwrap();
         let sh = sh.to_str().unwrap();
         let decide = |component, compositor| {
             Grant::decide(&request(sh, None, compositor), component).unwrap()
         };
         assert_eq!(
             decide(Some(&PANEL), Compositor::Kwin),
-            Grant::Granted {
+            Grant::Granted(ComponentGrant {
                 component: &PANEL,
                 executable: PathBuf::from(sh),
-            }
+            })
         );
         let launcher = decide(Some(&LAUNCHER), Compositor::Kwin);
         assert_eq!(launcher, Grant::NothingRestricted(&LAUNCHER));
@@ -257,20 +226,14 @@ mod tests {
 
     #[test]
     fn the_note_says_what_was_granted_and_to_what() {
-        let granted = Grant::Granted {
+        let granted = Grant::Granted(ComponentGrant {
             component: &PANEL,
             executable: PathBuf::from("/tmp/measure/panel-after"),
-        };
+        });
         assert!(
             granted
                 .note()
                 .starts_with("org_kde_plasma_window_management to /tmp/measure/panel-after")
         );
-    }
-
-    #[test]
-    fn a_bare_name_is_found_on_the_path() {
-        let sh = resolve(OsStr::new("sh")).unwrap();
-        assert!(sh.is_absolute() && sh.is_file(), "{}", sh.display());
     }
 }

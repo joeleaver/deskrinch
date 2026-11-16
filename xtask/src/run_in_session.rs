@@ -15,6 +15,7 @@ use deskrinch_test_dbus::session;
 
 use crate::Outcome;
 use crate::error::Error;
+use crate::grant::ComponentGrant;
 use crate::session::{
     COMPOSITOR_PID, Compositor, CompositorRenderer, Gpu, Outputs, Session, interrupt,
 };
@@ -113,7 +114,14 @@ Cargo takes its toolchain from the current directory: a rinch checkout pins
 deskrinch's; elsewhere add +<channel>, the one deskrinch's
 rust-toolchain.toml names.
 
-`--keep` keeps the session's directory, with the compositor's log."
+`--keep` keeps the session's directory, with the compositor's log.
+
+`--grant PACKAGE=PATH` (repeatable) grants the shell's component PACKAGE,
+run from the executable PATH, what deskrinch-shell grants it, as the desktop
+and measure do: under KWin its desktop file goes into the session's data
+directory before KWin starts (a file installed later is seen only once
+KWin's service cache is refreshed); sway and labwc restrict nothing, and it
+does nothing there."
     )
 }
 
@@ -151,6 +159,9 @@ pub(crate) struct Request {
     pub(crate) current_desktop: Option<OsString>,
     /// Whether the session's programs may use the machine's GPU.
     pub(crate) gpu: Gpu,
+    /// The shell's components to grant what the shell grants them (under
+    /// KWin; sway and labwc restrict nothing).
+    pub(crate) grants: Vec<ComponentGrant>,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
 }
@@ -164,7 +175,14 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         request.outputs,
         request.current_desktop.as_deref(),
         request.gpu,
-        |_| Ok(()),
+        |data_home| {
+            if request.compositor == Compositor::Kwin {
+                for grant in &request.grants {
+                    grant.install(data_home)?;
+                }
+            }
+            Ok(())
+        },
     )?;
     if request.keep {
         session.keep();

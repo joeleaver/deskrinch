@@ -258,6 +258,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     if let Some(note) = state::note(request.state.as_deref()) {
         println!("{note}");
     }
+    report::note_odd_steps(&mut runs);
     println!("{}", report::render(&program, &runs));
     match request.expect_renderer {
         Some(expected) => Ok(check_renderer(expected, &runs)),

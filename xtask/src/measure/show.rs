@@ -218,9 +218,6 @@ pub(crate) fn measure_instructions(
             summons.prepares,
         )?;
         let mut run = Run::default();
-        // Callgrind numbers its dumps in the order they are asked for: a
-        // show's, each step's, then its hide's.
-        let mut dumps = 0;
         for show in 1..=summons.shows {
             push_prepared(&mut run, show, &watch, summons);
             let mark = watch.lines().len();
@@ -228,12 +225,11 @@ pub(crate) fn measure_instructions(
             let frames = watch.frames();
             summon(ask, &summons.summon)?;
             first_frame_after(&mut child, &watch, program, frames, timing.first_frame)?;
-            callgrind::control(control, &["--dump", &format!("show-{show}"), &pid])?;
-            dumps += 1;
+            let shown = callgrind::dump(control, &pid, out, &format!("show-{show}"))?;
             run.push(
                 format!("show {show}: instructions from the summon to its first frame (Ir)"),
                 Unit::Count,
-                callgrind::totals(out, dumps)?,
+                shown,
             );
             let mut running = Running {
                 child: &mut child,
@@ -241,7 +237,7 @@ pub(crate) fn measure_instructions(
                 program,
                 timeout: timing.first_frame,
             };
-            let mut meter = CallgrindMeter::new(control, id, out, &mut dumps);
+            let mut meter = CallgrindMeter::new(control, id, out);
             give_input(
                 &mut run,
                 &mut running,
@@ -257,12 +253,11 @@ pub(crate) fn measure_instructions(
             callgrind::control(control, &["--zero", &pid])?;
             let prepared = watch.prepared();
             dismiss(&mut running, ask, summons)?;
-            callgrind::control(control, &["--dump", &format!("hide-{show}"), &pid])?;
-            dumps += 1;
+            let hidden = callgrind::dump(control, &pid, out, &format!("hide-{show}"))?;
             run.push(
                 format!("hide {show}: instructions from the dismiss to settled (Ir)"),
                 Unit::Count,
-                callgrind::totals(out, dumps)?,
+                hidden,
             );
             run.push(
                 format!("hide {show}: prepared frames from the dismiss to settled"),

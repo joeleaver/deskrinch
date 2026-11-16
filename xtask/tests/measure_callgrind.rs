@@ -205,15 +205,19 @@ mod measure_callgrind {
     #[test]
     #[ignore = "needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn each_pointer_step_reads_its_own_dump_after_the_idle_window() {
-        // The idle window (six seconds) holds a dozen of the stand-in's
-        // frames; a step, from its move to settled, a few. So each step's
-        // count is well below the idle window's: a step that read the idle
-        // window's dump would not be.
+        // Each instruction row must be the total of the dump Callgrind wrote
+        // for its span, which names the span in its description (its hint):
+        // checked against the profile, kept with --profiles. Counts alone
+        // cannot tell: the stand-in's spans are whole numbers of loop turns,
+        // and two of a turn's length count within a few instructions.
         let dir = tempfile::tempdir().unwrap();
         let fifo = fifo(dir.path());
+        let profiles = dir.path().join("profiles");
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
             .args(["measure", "--compositor", &compositor(), "--runs", "1"])
             .args(["--instructions", "--settle", "1", "--idle", "6"])
+            .arg("--profiles")
+            .arg(&profiles)
             .args(["--place-pointer", "640,360"])
             .args(["--move-pointer", "600,300", "--move-pointer", "640,360"])
             .args(["bash", "-c", &every_half_second(&fifo, 1)])
@@ -223,18 +227,52 @@ mod measure_callgrind {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{stdout}\n{stderr}");
-        let idle = number_after(&stdout, "instructions in the idle window (Ir)");
-        for step in ["1 of 2 (to 1:600,300)", "2 of 2 (to 1:640,360)"] {
-            let row = format!("pointer step {step}: instructions from the move to settled (Ir)");
-            let instructions = number_after(&stdout, &row);
-            assert!(
-                instructions > 0 && instructions * 2 < idle,
-                "step {step} ({instructions} Ir) is not well below the idle window \
-                 ({idle} Ir):\n{stdout}"
+        let dumps = named_dumps(&profiles.join("run-1"));
+        for (row, hint) in [
+            ("instructions to first frame (Ir)", "first-frame"),
+            ("instructions in the idle window (Ir)", "idle"),
+            (
+                "pointer step 1 of 2 (to 1:600,300): instructions from the move to settled (Ir)",
+                "pointer-1",
+            ),
+            (
+                "pointer step 2 of 2 (to 1:640,360): instructions from the move to settled (Ir)",
+                "pointer-2",
+            ),
+        ] {
+            assert_eq!(
+                Some(number_after(&stdout, row)),
+                dumps.get(hint).copied(),
+                "{row:?} is not the dump {hint:?}'s total; the dumps: {dumps:?}\n{stdout}"
             );
+        }
+        for step in ["1 of 2 (to 1:600,300)", "2 of 2 (to 1:640,360)"] {
             let frames = number_after(&stdout, &format!("pointer step {step}: frames presented"));
             assert!(frames >= 1, "{stdout}");
         }
+    }
+
+    /// Each dump of the profile in `dir` (`callgrind.out.N`), by the hint it
+    /// was written with (`desc: Trigger: dump HINT`): its total.
+    fn named_dumps(dir: &Path) -> std::collections::BTreeMap<String, u64> {
+        fs::read_dir(dir)
+            .unwrap()
+            .map(|entry| fs::read_to_string(entry.unwrap().path()).unwrap())
+            .filter_map(|text| {
+                let hint = text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("desc: Trigger: dump "))?
+                    .trim_end()
+                    .to_owned();
+                let total = text
+                    .lines()
+                    .find_map(|line| line.strip_prefix("totals: "))?
+                    .trim()
+                    .parse()
+                    .ok()?;
+                Some((hint, total))
+            })
+            .collect()
     }
 
     #[test]
@@ -248,9 +286,12 @@ mod measure_callgrind {
         fs::write(&dismiss, format!("printf h > {}\n", fifo.display())).unwrap();
         let summon = summon.display().to_string();
         let dismiss = dismiss.display().to_string();
+        let profiles = dir.path().join("profiles");
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
             .args(["measure", "--compositor", &compositor(), "--runs", "1"])
             .args(["--instructions", "--settle", "1", "--idle", "1"])
+            .arg("--profiles")
+            .arg(&profiles)
             .args(["--summon", &summon, "--dismiss", &dismiss, "--shows", "2"])
             .args(["--place-pointer", "640,360", "--move-pointer", "600,300"])
             .args(["bash", "-c", &every_half_second(&fifo, 0)])
@@ -260,16 +301,29 @@ mod measure_callgrind {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{stdout}\n{stderr}");
+        let dumps = named_dumps(&profiles.join("run-1"));
         for show in 1..=2 {
             let step = format!("show {show}: pointer step 1 of 1 (to 1:600,300)");
-            let row = format!("{step}: instructions from the move to settled (Ir)");
-            let instructions = number_after(&stdout, &row);
-            let hide = number_after(
-                &stdout,
-                &format!("hide {show}: instructions from the dismiss to settled (Ir)"),
-            );
-            assert!(instructions > 0, "{stdout}");
-            assert_ne!(instructions, hide, "{step} read the hide's dump:\n{stdout}");
+            for (row, hint) in [
+                (
+                    format!("show {show}: instructions from the summon to its first frame (Ir)"),
+                    format!("show-{show}"),
+                ),
+                (
+                    format!("{step}: instructions from the move to settled (Ir)"),
+                    format!("show-{show}-pointer-1"),
+                ),
+                (
+                    format!("hide {show}: instructions from the dismiss to settled (Ir)"),
+                    format!("hide-{show}"),
+                ),
+            ] {
+                assert_eq!(
+                    Some(number_after(&stdout, &row)),
+                    dumps.get(&hint).copied(),
+                    "{row:?} is not the dump {hint:?}'s total; the dumps: {dumps:?}\n{stdout}"
+                );
+            }
             let frames = number_after(&stdout, &format!("{step}: frames presented"));
             assert!(frames >= 1, "{stdout}");
         }
