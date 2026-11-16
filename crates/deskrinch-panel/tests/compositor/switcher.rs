@@ -12,11 +12,11 @@
 //! did; KWin's own D-Bus interface (`deskrinch-test-desktops`) adds and
 //! removes desktops, which the protocols do not offer.
 //!
-//! Each change of the current workspace draws: every step has a frame,
-//! and at least one step has exactly one, which repaints and lays nothing
-//! out. Other frames in a step are the panel's other followers (the clock's
-//! minute); while every step has had one, the sweep is made again, until a
-//! step is clean or the patience runs out.
+//! Each change of the current workspace draws once: every switch has a
+//! frame, and a switch to every workspace is seen clean (exactly one frame,
+//! which repaints and lays nothing out), the switches cycling until each
+//! has, in contiguous windows; other frames are the panel's other followers
+//! (the clock's minute). See [`Pager::sweep`] for the rule and its limit.
 
 use deskrinch_test_client::Compositor;
 use deskrinch_test_desktops as kwin;
@@ -217,49 +217,76 @@ impl Pager {
         );
     }
 
-    /// Every shown workspace made current in turn, from the first: their
-    /// buttons' boxes, in order. The last is current afterwards. Sweeps
-    /// again while every step had a frame of another follower, until one
-    /// step's only frame was the switch's.
+    /// Every shown workspace made current in turn, from the first, cycle
+    /// after cycle, until a switch to each has been seen clean: their
+    /// buttons' boxes, in order. The last is current afterwards.
+    ///
+    /// The last workspace is made current once before the first cycle, and
+    /// the panel's log marked once the screen keeps still; from there the
+    /// steps' windows are contiguous, each beginning where the previous
+    /// step's read stopped, so no frame between two switches goes unread.
+    ///
+    /// A switch is clean when its window holds exactly one frame, and that
+    /// frame repainted and laid nothing out: the mark moved, and nothing
+    /// else drew. A window with more frames, or one frame that laid out, is
+    /// crowded: the clock's minute, a title or a late arrival drew there
+    /// too, or batched into the switch's frame. Each workspace is kept
+    /// apart, and the cycles go on until every one has had a clean switch,
+    /// so a switch that relays out for one workspace fails, naming it, at
+    /// the patience, with the frames of its switches. The first cycle
+    /// counts: a late frame of the switch made before it lands in the first
+    /// switch's window, which only puts off that workspace's clean switch to
+    /// a later cycle.
+    ///
+    /// The rule's limit: a frame drawn later than its own step is read in
+    /// the next step's window, and crowds the workspace switched to there
+    /// instead; and work deferred by longer than a step (a switch, the mark
+    /// moving, and the screen keeping still for the stability window) is
+    /// not told apart from the next switch's.
     fn sweep(&mut self) -> Vec<Columns> {
         let shown = self.shown();
         assert!(shown.len() >= COUNT, "{shown:#?}");
+        // From the last, so that making the first current is a change.
+        self.activate(&shown[shown.len() - 1]);
+        let mut previous = self.wait_mark("the last workspace's mark", |m| m.is_some());
+        let mut from = frames::step(&self.panel);
         let deadline = Deadline::patience();
-        let mut crowded = Vec::new();
+        let mut boxes: Vec<Option<Columns>> = vec![None; shown.len()];
+        let mut clean = vec![false; shown.len()];
+        let mut crowded: Vec<(String, Vec<String>)> = Vec::new();
         loop {
-            // From the last, so that making the first current is a change.
-            self.activate(&shown[shown.len() - 1]);
-            let mut previous = self.wait_mark("the last workspace's mark", |m| m.is_some());
-            let mut boxes = Vec::new();
-            let mut clean = false;
-            for workspace in &shown {
-                let from = frames::step(&self.panel);
+            for (index, workspace) in shown.iter().enumerate() {
                 self.activate(workspace);
                 let mark = self.wait_mark(&format!("{}'s mark", workspace.name), |m| {
                     m.is_some() && (m != previous || shown.len() == 1)
                 });
-                let (reactive, other) = frames::since(&self.panel, from);
-                let all: Vec<String> = reactive.iter().chain(&other).cloned().collect();
+                let (drawn, end) = frames::drawn_since(&self.panel, from);
+                from = end;
                 assert!(
-                    !all.is_empty(),
+                    !drawn.is_empty(),
                     "{}: the switch drew nothing",
                     workspace.name
                 );
-                if let [frame] = all.as_slice() {
-                    frames::assert_paint_only(frame, &workspace.name);
-                    clean = true;
-                } else {
-                    crowded.push(all);
+                match drawn.as_slice() {
+                    [frame] if frames::is_paint_only(frame) => clean[index] = true,
+                    _ => crowded.push((workspace.name.clone(), drawn)),
                 }
-                boxes.push(mark.unwrap());
+                boxes[index].get_or_insert(mark.expect("a mark"));
                 previous = mark;
             }
-            if clean {
-                return boxes;
+            if clean.iter().all(|seen| *seen) {
+                return boxes.into_iter().flatten().collect();
             }
+            let never: Vec<&str> = shown
+                .iter()
+                .zip(&clean)
+                .filter(|(_, seen)| !**seen)
+                .map(|(workspace, _)| workspace.name.as_str())
+                .collect();
             assert!(
                 !deadline.passed(),
-                "every switch drew more than one frame: {crowded:#?}"
+                "no clean switch to {never:?}: every one drew more than one frame, or laid \
+                 out; the crowded switches: {crowded:#?}"
             );
         }
     }
