@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process};
 
-use super::input::{CpuMeter, InputClient, Inputs, move_pointer};
+use super::input::{Commands, CpuMeter, InputClient, Inputs, move_pointer, run_commands};
 use super::output;
 use super::procfs::{self, ProcessSample, ThreadSample};
 use super::report::{Run, Unit, per_minute, per_second_milli};
@@ -52,6 +52,7 @@ pub(crate) fn measure(
     stimulus: &Stimulus,
     start: Start<'_>,
     inputs: Option<&Inputs<'_>>,
+    commands: Option<&Commands<'_>>,
 ) -> Result<Run, Error> {
     // The client first: its devices are made before the program starts.
     let mut client = inputs.map(Inputs::start).transpose()?;
@@ -70,6 +71,7 @@ pub(crate) fn measure(
         watch: &watch,
         program,
         start,
+        commands,
     };
     let pointer = client
         .as_mut()
@@ -88,6 +90,8 @@ struct Measured<'a> {
     watch: &'a Watch,
     program: &'a str,
     start: Start<'a>,
+    /// With `--step-command`: the command steps, after the pointer's.
+    commands: Option<&'a Commands<'a>>,
 }
 
 fn measure_child(
@@ -129,6 +133,16 @@ fn measure_child(
             "",
         )?;
     }
+    if let Some(commands) = measured.commands {
+        let pid = child.id();
+        let mut running = Running {
+            child,
+            watch,
+            program,
+            timeout: timing.first_frame,
+        };
+        run_commands(&mut run, &mut running, commands, &mut CpuMeter::new(pid))?;
+    }
     window::end(opened, &mut run)?;
     let frames = measured.start.expect.frames(watch);
     run.push("frames in all", Unit::Count, frames);
@@ -151,6 +165,7 @@ fn startup(
         watch,
         program,
         start: ends,
+        ..
     } = *measured;
     let expect = ends.expect;
     let end = ends.end;

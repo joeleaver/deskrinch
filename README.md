@@ -465,6 +465,20 @@ cargo xtask measure --summon show --dismiss hide --prepares --type term \
   --env RUST_LOG=warn,deskrinch_launcher=info target/release/deskrinch-launcher
 ```
 
+`--step-command CMD` (repeatable) runs another program's command in the
+session (`sh -c`) as a measured step after the idle window: from just before
+it to settled, its own process not counted, its frames every window's and
+the windows it opened and closed in the run's notes. A status other than 0,
+or a step after which no window drew, opened or closed, fails the run. The
+wallpaper's settings change is a second configuration copied over the one
+`--config` seeded:
+
+```sh
+cargo xtask measure --outputs 2 --windows 2 --config /tmp/wallpaper-config \
+  --step-command 'cp /tmp/wallpaper-config-2/deskrinch/config.toml "$XDG_CONFIG_HOME/deskrinch/"' \
+  target/release/deskrinch-wallpaper
+```
+
 `--place-pointer POINT` and `--move-pointer POINT` (repeatable) move the
 pointer through the same client: placed first, unmeasured, then moved to each
 point in turn, each step measured from the move to settled and followed by a

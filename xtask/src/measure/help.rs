@@ -87,6 +87,21 @@ run without them; with --summon, after each show (and its typed query). A
 run fails, recording nothing, if a step leads to no frame within
 --first-frame-timeout, or if the client refuses a step or ends.
 
+--step-command CMD (repeatable) runs CMD as a client of the session, through
+sh -c with the session's environment, as a measured step: from just before
+it to settled, CPU time or with --instructions the instructions, each from
+its own dump, in the order given, after the idle window and the pointer's
+steps (sending the program a notification, or copying a second
+configuration over the one --config seeded). Its own process is not
+counted. Its frames are every window's, and the windows it opened and
+closed are in the run's notes, since its effect may be on any window or may
+open or close one. It must lead to a frame on some window, or to a window
+opened or closed (a command that only closes a popup does), within
+--first-frame-timeout; a command that ends with a status other than 0, or
+does not end within that timeout, fails the run with its output. Its rows
+are \"command step K of N\", the commands listed in the header. Not with
+--summon.
+
 Each step, a key of --type's or a pointer move, reports its frames and how
 many of them ran reactive work (a signal notified, as rinch's frame lines
 say). A reactive frame is no anomaly in itself: typing changes a query. With

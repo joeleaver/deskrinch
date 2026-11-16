@@ -174,6 +174,13 @@ pub(crate) struct Args {
         conflicts_with = "summon"
     )]
     start_ends: StartEnds,
+    /// Run CMD as a client of the session (`sh -c`) after the idle window,
+    /// as a measured step: from just before it to settled, its frames
+    /// every window's, the windows it opened and closed noted (repeatable,
+    /// in order). Its own process is not counted; a status other than 0
+    /// fails the run.
+    #[arg(long = "step-command", value_name = "CMD", conflicts_with = "summon")]
+    step_commands: Vec<String>,
     /// The program to measure.
     program: OsString,
     /// Its arguments.
@@ -216,6 +223,7 @@ impl Args {
             state: self.state,
             config: self.config,
             start_ends: self.start_ends,
+            step_commands: self.step_commands,
             program: self.program,
             args: self.arguments,
             summons: self
