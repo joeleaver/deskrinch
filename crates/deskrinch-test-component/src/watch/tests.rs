@@ -26,6 +26,27 @@ fn counts_frames_and_keeps_the_adapter_and_a_tail() {
     assert!(lines.contains(&"starting".to_owned()));
 }
 
+#[test]
+fn waits_for_each_window_s_nth_frame() {
+    let watch = Watch::default();
+    let stderr = "[PERF] window 1 opened: title=\"a\" app_id=\"x\" output=\"V-0\" output_id=1\n\
+                  [PERF] window 2 opened: title=\"a\" app_id=\"x\" output=\"V-1\" output_id=2\n\
+                  [PERF] window 1 frame 1: a\n[PERF] window 2 frame 1: a\n\
+                  [PERF] window 1 frame 2: a\n";
+    watch.follow(stderr.as_bytes()).join().expect("reader");
+    assert!(watch.wait_frames_each(2, 1, Duration::ZERO));
+    assert!(watch.wait_frames_each(1, 2, Duration::ZERO));
+    assert!(!watch.wait_frames_each(2, 2, Duration::ZERO));
+    // No main window in a windowless app's lines.
+    assert!(!watch.wait_main_frames(1, Duration::ZERO));
+    let main = Watch::default();
+    main.follow("[PERF] frame 1: a\n[PERF] frame 2: b\n".as_bytes())
+        .join()
+        .expect("reader");
+    assert!(main.wait_main_frames(2, Duration::ZERO));
+    assert!(!main.wait_main_frames(3, Duration::ZERO));
+}
+
 /// A real run's output (see `perf`'s tests for what wrote it).
 const FIXTURE: &str = include_str!("../../tests/fixtures/two-windows-and-a-prepared-one.txt");
 

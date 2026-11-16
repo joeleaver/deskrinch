@@ -148,4 +148,29 @@ whose windows change is outside what measure does, since its start-up and
 idle figures would mix windows. N is given, never taken from --outputs:
 how many windows a program opens per output is its own. Not with --summon.
 
+--start-ends WHEN moves where start-up ends, and with it what the figures
+run to and when the settle and the idle window begin: first-frame (the
+default, as above); frame:N, the main window's or each expected window's
+Nth presented frame, sound only for a program whose frames come in a fixed
+order (the wallpaper's picture is in its first frame or its second by the
+decode's timing, so frame:2 is not its picture); counter:NAME, the main
+window's or each expected window's first presented frame whose rinch frame
+line carries the counter NAME above zero, whichever frame it was (the
+wallpaper's picture shown is --windows 2 --start-ends counter:image_draws,
+once the pin has rinch's image_draws counter, rinch issue 2769);
+line:TEXT, the first line of the program's output containing TEXT;
+ready, the readiness deskrinch-shell declares for the component (by its file
+name, or --component), owning its bus name on the session's bus, refused
+for a component that is ready once started; bus-name:NAME, owning NAME, for
+a program that is not a component. Any end but the default names its rows
+(\"CPU to start-up's end\") and the header says which end it was. The idle
+figures of a run with a later end and of a default run of the same program
+are taken from different moments, so compare them with care: the
+wallpaper's default run on the software renderer often counts the picture's
+frame in its settle. A
+program that opened no window in any run (a daemon with nothing to show,
+ended by ready) is said so in the header, so that its frame rows of 0 are
+not read as a failure to draw. An end that does not come within
+--first-frame-timeout fails the run, naming it. Not with --summon.
+
 Needs valgrind and callgrind_control for --instructions.";

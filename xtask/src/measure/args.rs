@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use super::{
-    Expected, Point, Pointer, QueryLine, Renderer, Request, ShaderCache, Summons, Typing,
-    parse_env, parse_text,
+    Expected, Point, Pointer, QueryLine, Renderer, Request, ShaderCache, StartEnds, Summons,
+    Typing, parse_env, parse_text,
 };
 use crate::session::Compositor;
 
@@ -160,6 +160,18 @@ pub(crate) struct Args {
     /// reads, such as the wallpaper's picture (`deskrinch/config.toml`).
     #[arg(long, value_name = "DIR")]
     config: Option<PathBuf>,
+    /// Where start-up ends: first-frame (the default), frame:N (each
+    /// expected window's Nth frame), line:TEXT (the first output line with
+    /// TEXT), ready (the readiness deskrinch-shell declares for the
+    /// component) or bus-name:NAME (owning NAME on the session's bus).
+    #[arg(
+        long,
+        value_name = "WHEN",
+        default_value = "first-frame",
+        value_parser = StartEnds::parse,
+        conflicts_with = "summon"
+    )]
+    start_ends: StartEnds,
     /// The program to measure.
     program: OsString,
     /// Its arguments.
@@ -201,6 +213,7 @@ impl Args {
             profiles: self.profiles,
             state: self.state,
             config: self.config,
+            start_ends: self.start_ends,
             program: self.program,
             args: self.arguments,
             summons: self
