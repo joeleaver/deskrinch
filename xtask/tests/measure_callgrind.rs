@@ -246,6 +246,19 @@ mod measure_callgrind {
                 "{row:?} is not the dump {hint:?}'s total; the dumps: {dumps:?}\n{stdout}"
             );
         }
+        // Start-up and settle together: the two dumps' totals summed.
+        assert_eq!(
+            Some(number_after(
+                &stdout,
+                "instructions to the end of the settle (Ir)"
+            )),
+            dumps
+                .get("first-frame")
+                .zip(dumps.get("settle"))
+                .map(|(first, settle)| first + settle),
+            "the end of the settle is not the first frame's dump and the settle's; the dumps: \
+             {dumps:?}\n{stdout}"
+        );
         for step in ["1 of 2 (to 1:600,300)", "2 of 2 (to 1:640,360)"] {
             let frames = number_after(&stdout, &format!("pointer step {step}: frames presented"));
             assert!(frames >= 1, "{stdout}");

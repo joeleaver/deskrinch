@@ -258,6 +258,11 @@ What the command, and everything it starts, sees:
   the login session's `XDG_SESSION_ID`, `XDG_SESSION_CLASS`,
   `XDG_SESSION_DESKTOP`, `XDG_SESSION_TYPE`, `XDG_SESSION_PATH`, `XDG_SEAT`,
   `XDG_SEAT_PATH` and `XDG_VTNR`.
+- None of your audio variables, which lead a sound client to your session's
+  sound server: every `PULSE_*`, `PIPEWIRE_*`, `WIREPLUMBER_*` and `SPA_*`
+  variable (prefixes, because each family is open-ended; the underscore is
+  part of the prefix, so `PULSEAUDIO` is left alone), and
+  `JACK_DEFAULT_SERVER` and `ALSA_CONFIG_PATH`.
 - Everything else as you have it (`PATH`, the locale, `TERM`, `CARGO_*` and
   `RUST*` settings, ...).
 
