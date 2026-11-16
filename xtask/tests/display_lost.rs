@@ -29,7 +29,7 @@ mod lost {
 
     #[track_caller]
     fn ends_with_display_lost(package: &str, args: &[&str], until: Until) -> Ended {
-        let ended = in_session::run(package, args, until, Then::KillCompositor);
+        let ended = in_session::run(package, args, until, Then::KillCompositor, None);
         assert_eq!(
             ended.status,
             i32::from(DISPLAY_LOST),
@@ -97,10 +97,17 @@ mod lost {
     #[test]
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_notification_daemon_showing_a_popup_ends_with_display_lost() {
-        ends_with_display_lost(
+        let ended = ends_with_display_lost(
             NOTIFICATIONS.package,
             &[],
             Until::Notified(notifications_name()),
+        );
+        // Its service still stops in order: the sender is not left waiting.
+        assert_eq!(
+            ended.closed,
+            [4],
+            "the sender was not told its notification closed (reason 4); the daemon said:\n{}",
+            ended.said
         );
     }
 

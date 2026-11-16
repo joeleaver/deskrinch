@@ -223,6 +223,13 @@ impl Signals {
         recv("a signal", &self.0)
     }
 
+    /// The next signal if one comes within `wait`; `None` if none does, or
+    /// the listener has ended.
+    #[must_use]
+    pub fn try_next(&self, wait: Duration) -> Option<Signal> {
+        self.0.recv_timeout(wait).ok()
+    }
+
     /// Checks that no signal comes for `wait`.
     ///
     /// # Panics
