@@ -168,9 +168,40 @@ fn by_group<'a>(threads: impl IntoIterator<Item = (&'a str, u64)>) -> Vec<(Strin
     groups
 }
 
+/// The CPU time run between `before` and `after`, a thread that started in
+/// between counting from zero.
+pub(crate) fn cpu_between(
+    before: &BTreeMap<u32, ThreadSample>,
+    after: &BTreeMap<u32, ThreadSample>,
+) -> u64 {
+    after
+        .iter()
+        .map(|(tid, now)| {
+            let then = before.get(tid).map_or(0, |t| t.runtime_ns);
+            now.runtime_ns.saturating_sub(then)
+        })
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn thread(runtime_ns: u64) -> ThreadSample {
+        ThreadSample {
+            name: "t".into(),
+            runtime_ns,
+            voluntary_switches: 0,
+            involuntary_switches: 0,
+        }
+    }
+
+    #[test]
+    fn cpu_between_counts_new_threads_from_zero() {
+        let before = BTreeMap::from([(1, thread(100)), (2, thread(50))]);
+        let after = BTreeMap::from([(1, thread(160)), (2, thread(50)), (3, thread(30))]);
+        assert_eq!(cpu_between(&before, &after), 60 + 30);
+    }
 
     #[test]
     fn stat_times_skip_a_name_with_spaces_and_parentheses() {

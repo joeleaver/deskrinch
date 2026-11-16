@@ -102,6 +102,13 @@ pub(crate) enum Error {
     /// `cargo xtask desktop` could not run.
     #[error(transparent)]
     Desktop(#[from] crate::desktop::DesktopError),
+    /// `cargo xtask type` stopped.
+    #[error(transparent)]
+    Typist(#[from] crate::typist::TypistError),
+    /// `cargo xtask measure --type` could not type, or the program did not
+    /// take what was typed.
+    #[error(transparent)]
+    Typing(#[from] crate::measure::TypingError),
     /// A test binary cannot be granted what KWin restricts.
     #[error("could not write a test binary's desktop file")]
     DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),

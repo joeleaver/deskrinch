@@ -14,6 +14,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use deskrinch_launcher::{HAS_KEYBOARD, query_at_hide};
 use deskrinch_test_input::{Input, Key};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use tempfile::TempDir;
@@ -37,6 +38,12 @@ pub(crate) struct Shown {
     /// The output the launcher is drawn on.
     pub(crate) output: String,
     pub(crate) launcher: Launcher,
+    /// Where the launcher's log was when it was last shown: its lines from
+    /// there on are this show's.
+    show_mark: usize,
+    /// The characters typed into it since it was last shown
+    /// ([`type_query`](Self::type_query)).
+    typed: usize,
 }
 
 impl Shown {
@@ -53,6 +60,7 @@ impl Shown {
         let mut shown = Self::prepare(config, prepare, &["--show"]);
         shown.launcher.wait_presented();
         shown.output = shown.find_output();
+        shown.wait_keyboard();
         shown
     }
 
@@ -80,11 +88,44 @@ impl Shown {
     }
 
     /// Shows the launcher again with `deskrinch-launcher show`, once it is
-    /// on the screen: the compositor places it anew.
+    /// on the screen with the keyboard in its field: the compositor places
+    /// it anew.
     pub(crate) fn show_again(&mut self) {
+        self.show_mark = self.launcher.mark();
+        self.typed = 0;
         assert!(client(&["show"]).success());
         self.launcher.wait_presented();
         self.output = self.find_output();
+        self.wait_keyboard();
+    }
+
+    /// Waits for the launcher to say, in this show's lines, that its window
+    /// has the keyboard: a key typed before could be lost ("lain" for
+    /// "plain"). Its field may take the keyboard a moment later still
+    /// (`said.rs`), which the screen's wait for where it is drawn covers in
+    /// practice; [`hid_with_the_query`](Self::hid_with_the_query) is the
+    /// proof.
+    fn wait_keyboard(&self) {
+        if let Err(why) = self.launcher.wait_said_since(self.show_mark, HAS_KEYBOARD) {
+            panic!("the launcher never had the keyboard: {why}");
+        }
+    }
+
+    /// Types `text` into the launcher.
+    pub(crate) fn type_query(&mut self, text: &str) {
+        self.input.type_text(text).unwrap();
+        self.typed += text.chars().count();
+    }
+
+    /// Waits for the launcher to say, at its hide, that its query had every
+    /// character typed into it since it was shown: none was lost.
+    pub(crate) fn hid_with_the_query(&self) {
+        if let Err(why) = self
+            .launcher
+            .wait_said_since(self.show_mark, &query_at_hide(self.typed))
+        {
+            panic!("a key typed was lost: {why}");
+        }
     }
 
     /// The test's directory: its applications, configuration and state.
@@ -133,6 +174,8 @@ impl Shown {
             screen,
             output: String::new(),
             launcher,
+            show_mark: 0,
+            typed: 0,
         }
     }
 
@@ -303,7 +346,7 @@ fn an_empty_query_shows_nothing_and_typing_shows_the_results() {
     let mut shown = Shown::start("");
     let empty = shown.see("the launcher drawn", |image| bands(image) > 0);
     assert_eq!(bands(&empty), 1, "only the query field");
-    shown.input.type_text("plain").unwrap();
+    shown.type_query("plain");
     shown.see("the results of the query", results_drawn);
 }
 
@@ -311,7 +354,7 @@ fn an_empty_query_shows_nothing_and_typing_shows_the_results() {
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn enter_starts_the_selected_application_with_a_token_and_hides() {
     let mut shown = Shown::start("");
-    shown.input.type_text("plain").unwrap();
+    shown.type_query("plain");
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     let record = the_one_started(&shown);
@@ -321,16 +364,18 @@ fn enter_starts_the_selected_application_with_a_token_and_hides() {
     );
     assert_eq!(args(&record), ["Plain"]);
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
+    shown.hid_with_the_query();
 }
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn escape_hides_and_starts_nothing() {
     let mut shown = Shown::start("");
-    shown.input.type_text("plain").unwrap();
+    shown.type_query("plain");
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ESCAPE).unwrap();
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
+    shown.hid_with_the_query();
     assert!(
         stays(|| shown.started().is_empty()),
         "{:?}",
@@ -342,16 +387,16 @@ fn escape_hides_and_starts_nothing() {
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn shown_again_it_starts_empty_with_the_keyboard_in_the_field() {
     let mut shown = Shown::start("");
-    shown.input.type_text("plain").unwrap();
+    shown.type_query("plain");
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ESCAPE).unwrap();
     shown.see("the launcher hidden", |image| at_centre(image).is_none());
-    assert!(client(&["show"]).success());
-    // The compositor places it anew.
-    shown.output = shown.find_output();
+    shown.hid_with_the_query();
+    // The compositor places it anew; the keyboard is in the field again.
+    shown.show_again();
     let empty = shown.see("the launcher shown again", |image| bands(image) > 0);
     assert_eq!(bands(&empty), 1, "the last query's results are gone");
-    shown.input.type_text("plain").unwrap();
+    shown.type_query("plain");
     shown.see("the results of the query", results_drawn);
 }
 
@@ -360,7 +405,7 @@ fn shown_again_it_starts_empty_with_the_keyboard_in_the_field() {
 fn a_terminal_application_starts_in_the_configured_terminal() {
     let config = "[general]\nterminal = [\"/bin/sh\", \"{recorder}\", \"terminal\"]\n";
     let mut shown = Shown::start(config);
-    shown.input.type_text("terminal").unwrap();
+    shown.type_query("terminal");
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     let record = the_one_started(&shown);
@@ -369,19 +414,21 @@ fn a_terminal_application_starts_in_the_configured_terminal() {
         args(&record),
         ["terminal", "/bin/sh", recorder.to_str().unwrap(), "Term"]
     );
+    shown.hid_with_the_query();
 }
 
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn a_terminal_application_without_a_terminal_is_reported_and_not_started() {
     let mut shown = Shown::start("");
-    shown.input.type_text("terminal").unwrap();
+    shown.type_query("terminal");
     shown.see("the results of the query", results_drawn);
     shown.input.press(Key::ENTER).unwrap();
     assert!(
         comes_true(|| shown.launcher.said("runs in a terminal, and there is none")),
         "the missing terminal was not reported"
     );
+    shown.hid_with_the_query();
     assert!(
         stays(|| shown.started().is_empty()),
         "{:?}",

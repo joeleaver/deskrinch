@@ -10,6 +10,9 @@
 //!   window losing the keyboard while shown.
 //! - Hiding clears the model, so the next show starts with an empty query
 //!   and the frequent applications as its results.
+//! - It says in its log when its window has the keyboard, once per show, and
+//!   how long its query was at each hide, in the words of the library's
+//!   `said` module: see [`hide_when_left`].
 //! - The frequent applications follow the record of starts, the installed
 //!   applications and `[general]` `remember-starts` (which the record's
 //!   thread follows too). A change to them reaches the model at once while
@@ -29,7 +32,8 @@ use deskrinch_component::LiveSettings;
 use deskrinch_desktop_entries::{CatalogEntry, Environment};
 use deskrinch_icons::Index;
 use deskrinch_launcher::{
-    Action, Drawn, Input, Model, Preparation, Visibility, frequent, preparing,
+    Action, Drawn, HAS_KEYBOARD, Input, Model, Preparation, Visibility, frequent, preparing,
+    query_at_hide,
 };
 use deskrinch_settings::general::GeneralSettings;
 use deskrinch_start_record::Record;
@@ -152,7 +156,11 @@ pub(crate) fn launcher(parts: Parts) -> NodeHandle {
                 field.focus();
             } else {
                 hide_current_window();
-                untracked(|| model.update(Model::clear));
+                untracked(|| {
+                    let chars = model.with(|m| m.query().chars().count());
+                    tracing::info!("{}", query_at_hide(chars));
+                    model.update(Model::clear);
+                });
             }
         });
     }
@@ -192,12 +200,19 @@ fn prepare_while_hidden(
 
 /// Leaving the launcher (another window took the keyboard, or an
 /// application it started did) hides it; it never takes the keyboard back.
+/// Gaining the keyboard while shown, once per show (each show makes the
+/// window anew, and losing the keyboard hides it), it writes
+/// [`HAS_KEYBOARD`].
 fn hide_when_left(starter: Starter, model: Signal<Model>) {
     let mut had_keyboard = false;
     Effect::new(move || {
         let focused = window_focused();
-        if had_keyboard && !focused && starter.visibility.is_shown() {
+        let shown = starter.visibility.is_shown();
+        if had_keyboard && !focused && shown {
             untracked(|| starter.act(input(model, Input::KeyboardLost)));
+        }
+        if !had_keyboard && focused && shown {
+            tracing::info!("{HAS_KEYBOARD}");
         }
         had_keyboard = focused;
     });
