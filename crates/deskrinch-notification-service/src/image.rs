@@ -34,7 +34,7 @@ pub(crate) fn decode_image(
         });
     }
     let (width_px, height_px) = (width as usize, height as usize);
-    let decoded = width_px
+    width_px
         .checked_mul(height_px)
         .and_then(|n| n.checked_mul(4))
         .filter(|n| *n <= max_bytes)
@@ -58,21 +58,26 @@ pub(crate) fn decode_image(
             actual: raw.data.len(),
         });
     }
-    let mut rgba = Vec::with_capacity(decoded);
-    for row in 0..height_px {
-        let start = row * stride;
-        let pixels = &raw.data[start..start + row_bytes];
-        if raw.has_alpha {
-            rgba.extend_from_slice(pixels);
-        } else {
-            for px in pixels.as_chunks::<3>().0 {
-                rgba.extend_from_slice(px);
-                rgba.push(u8::MAX);
+    // Written in place into the image's own buffer of `decoded` bytes.
+    Image::filled(width, height, |rgba| {
+        for (row, out) in rgba.chunks_exact_mut(width_px * 4).enumerate() {
+            let start = row * stride;
+            let pixels = &raw.data[start..start + row_bytes];
+            if raw.has_alpha {
+                out.copy_from_slice(pixels);
+            } else {
+                for (to, px) in out
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(pixels.as_chunks::<3>().0)
+                {
+                    *to = [px[0], px[1], px[2], u8::MAX];
+                }
             }
         }
-    }
-    // Exactly `decoded` bytes were written above, so this always holds.
-    Image::new(width, height, rgba).ok_or(ImageError::TooLarge { width, height })
+    })
+    .ok_or(ImageError::TooLarge { width, height })
 }
 
 /// An image as the sender sent it, in the `(iiibiiay)` layout

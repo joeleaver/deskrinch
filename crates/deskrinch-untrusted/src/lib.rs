@@ -27,4 +27,4 @@ mod image;
 pub mod markup;
 pub mod text;
 
-pub use image::{IconName, Image};
+pub use image::{IconName, Image, SHARED_HEADER_BYTES, held, zeroed_pixels};

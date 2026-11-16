@@ -28,7 +28,9 @@
 //! checked before anything is allocated. The source is the caller's and is
 //! not counted.
 
-use deskrinch_untrusted::Image;
+use std::sync::Arc;
+
+use deskrinch_untrusted::{Image, held, zeroed_pixels};
 use fast_image_resize::CropBox;
 
 use crate::limits::Limits;
@@ -130,24 +132,31 @@ pub fn fit(
             let scale = (f64::from(width) / sw).min(f64::from(height) / sh);
             let inner = (scaled(sw, scale, width), scaled(sh, scale, height));
             // The canvas is allocated while the resampled picture is too.
-            let picture = resample(image, whole, inner, target, limits)?;
-            let mut canvas = vec![0; target];
+            let picture = resample(image, whole, inner, held(target), limits)?;
+            let mut canvas = zeroed_pixels(target);
             let at = (
                 i64::from((width - inner.0) / 2),
                 i64::from((height - inner.1) / 2),
             );
-            copy(&mut canvas, width, height, &picture, inner, at);
+            copy(
+                Arc::make_mut(&mut canvas),
+                width,
+                height,
+                &picture,
+                inner,
+                at,
+            );
             canvas
         }
         Fit::Centre => {
-            working(Some(target), limits)?;
-            let mut canvas = vec![0; target];
+            working(Some(held(target)), limits)?;
+            let mut canvas = zeroed_pixels(target);
             let at = (
                 (i64::from(width) - i64::from(image.width())) / 2,
                 (i64::from(height) - i64::from(image.height())) / 2,
             );
             copy(
-                &mut canvas,
+                Arc::make_mut(&mut canvas),
                 width,
                 height,
                 image.rgba(),
@@ -157,13 +166,14 @@ pub fn fit(
             canvas
         }
         Fit::Tile => {
-            working(Some(target), limits)?;
-            let mut canvas = vec![0; target];
+            working(Some(held(target)), limits)?;
+            let mut canvas = zeroed_pixels(target);
+            let pixels = Arc::make_mut(&mut canvas);
             let (tw, th) = (image.width(), image.height());
             for y in (0..height).step_by(th as usize) {
                 for x in (0..width).step_by(tw as usize) {
                     copy(
-                        &mut canvas,
+                        pixels,
                         width,
                         height,
                         image.rgba(),

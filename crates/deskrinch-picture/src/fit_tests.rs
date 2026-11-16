@@ -216,7 +216,7 @@ fn larger_rises_through_a_step_and_its_overshoot_is_small_and_clamped() {
 /// Noise, opaque or not.
 fn noise(width: u32, height: u32, opaque: bool) -> Image {
     let mut x: u32 = 0x9e37_79b9 ^ width ^ (height << 16);
-    let rgba = (0..width * height * 4)
+    let rgba: Vec<u8> = (0..width * height * 4)
         .map(|i| {
             x ^= x << 13;
             x ^= x >> 17;

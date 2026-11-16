@@ -27,6 +27,9 @@
 //! (see the crate's documentation), and is charged; XMP is never read.
 
 use std::io::Cursor;
+use std::sync::Arc;
+
+use deskrinch_untrusted::{held, zeroed_pixels};
 
 use image::metadata::Orientation;
 use image_webp::WebPDecoder;
@@ -60,15 +63,21 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
     };
     let exif = metadata.exif_first.unwrap_or(0);
     let turned = if metadata.exif_first.is_some() {
-        result_bytes
+        held(result_bytes)
     } else {
         0
     };
     let kept = profile.saturating_add(exif);
     let needed = working(width, height, alpha, lossy, animated)
-        .and_then(|own| own.checked_add(result_bytes))
+        .and_then(|own| own.checked_add(held(result_bytes)))
         .and_then(|peak| peak.checked_add(kept))
-        .map(|peak| peak.max(result_bytes.saturating_add(kept).saturating_add(turned)));
+        .map(|peak| {
+            peak.max(
+                held(result_bytes)
+                    .saturating_add(kept)
+                    .saturating_add(turned),
+            )
+        });
     limits.working(needed)?;
 
     let icc = if metadata.profile > colour::MAX_PROFILE_BYTES {
@@ -106,11 +115,16 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         .output_buffer_size()
         .filter(|size| *size == result_bytes / 4 * channels.bytes())
         .ok_or_else(|| DecodeError::malformed(Format::WebP, "an unexpected output size"))?;
-    let mut rgba = vec![0; result_bytes];
+    // The result's own shared buffer, written in place: handed on without
+    // a copy.
+    let mut rgba = zeroed_pixels(result_bytes);
+    let buffer = Arc::make_mut(&mut rgba);
     // An animation's first frame: `read_image` reads it and leaves the
     // decoder as it was.
-    decoder.read_image(&mut rgba[..native]).map_err(malformed)?;
-    rgba::widen(&mut rgba, result_bytes / 4, channels);
+    decoder
+        .read_image(&mut buffer[..native])
+        .map_err(malformed)?;
+    rgba::widen(buffer, result_bytes / 4, channels);
     Ok(Raw {
         width,
         height,
