@@ -205,10 +205,11 @@ mod measure_callgrind {
     #[test]
     #[ignore = "needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn each_pointer_step_reads_its_own_dump_after_the_idle_window() {
-        // The idle window (six seconds) holds a dozen of the stand-in's
-        // frames; a step, from its move to settled, a few. So each step's
-        // count is well below the idle window's: a step that read the idle
-        // window's dump would not be.
+        // Each dump is its own span, and no two spans of the stand-in's
+        // run the same count: a step that read the idle window's dump, or
+        // the other step's, would show that dump's count exactly. A step's
+        // span runs to settled, which takes longer on a loaded machine, so
+        // its count is compared for being another span's, not for its size.
         let dir = tempfile::tempdir().unwrap();
         let fifo = fifo(dir.path());
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
@@ -223,15 +224,18 @@ mod measure_callgrind {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(output.status.success(), "{stdout}\n{stderr}");
-        let idle = number_after(&stdout, "instructions in the idle window (Ir)");
+        let mut spans = vec![(
+            "the idle window".to_owned(),
+            number_after(&stdout, "instructions in the idle window (Ir)"),
+        )];
         for step in ["1 of 2 (to 1:600,300)", "2 of 2 (to 1:640,360)"] {
             let row = format!("pointer step {step}: instructions from the move to settled (Ir)");
             let instructions = number_after(&stdout, &row);
-            assert!(
-                instructions > 0 && instructions * 2 < idle,
-                "step {step} ({instructions} Ir) is not well below the idle window \
-                 ({idle} Ir):\n{stdout}"
-            );
+            assert!(instructions > 0, "{stdout}");
+            if let Some((other, _)) = spans.iter().find(|(_, count)| *count == instructions) {
+                panic!("step {step} read {other}'s dump ({instructions} Ir):\n{stdout}");
+            }
+            spans.push((format!("step {step}"), instructions));
             let frames = number_after(&stdout, &format!("pointer step {step}: frames presented"));
             assert!(frames >= 1, "{stdout}");
         }
