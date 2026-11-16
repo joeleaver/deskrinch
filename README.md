@@ -282,6 +282,15 @@ cleanly. `--outputs N` sets the number of outputs (1280x720 each), `--keep`
 keeps the session's directory (with the compositor's log);
 `cargo xtask session --help` has the details.
 
+`--grant PACKAGE=PATH` (repeatable) grants one of the shell's components,
+run from the executable `PATH`, what `deskrinch-shell` grants it, as the
+desktop and `cargo xtask measure` do: the panel run as
+`--grant deskrinch-panel=target/debug/deskrinch-panel` sees KWin's window
+list. Under KWin its desktop file is installed in the session's data
+directory before KWin starts, since KWin sees one installed later only once
+its service cache is refreshed; sway and labwc restrict nothing, and it
+does nothing there.
+
 `--scale S` (a positive decimal, such as `2` or `1.5`) puts every output at
 that scale before the command starts, so it never sees scale 1: sway through
 its configuration, labwc through `wlr-output-management`, and KWin with KDE's
@@ -481,6 +490,22 @@ cargo xtask build-components --release
 cargo xtask measure --compositor kwin --renderer software \
   --window org.deskrinch.HoverMeasure --place-pointer 640,360 \
   --move-pointer 30,700 --move-pointer 640,360 target/release/deskrinch-panel
+```
+
+`--state DIR` and `--config DIR` start each run's state directory
+(`XDG_STATE_HOME`) or configuration directory (`XDG_CONFIG_HOME`) with a
+copy of `DIR`, so that the program is measured with that state or that
+configuration: the launcher with a record of starts in
+`DIR/deskrinch/starts.toml`, the wallpaper with a picture in
+`DIR/deskrinch/config.toml`. The copy is made before the program starts and
+nothing is written back; the report's header names what was seeded and the
+files it held:
+
+```sh
+mkdir -p /tmp/wallpaper-config/deskrinch
+printf '[wallpaper]\nimage = "/path/to/picture.jpg"\n' > /tmp/wallpaper-config/deskrinch/config.toml
+cargo xtask measure --outputs 2 --windows 2 --renderer software \
+  --config /tmp/wallpaper-config target/release/deskrinch-wallpaper
 ```
 
 Its end-to-end tests measure stand-in scripts in isolated sessions, and are

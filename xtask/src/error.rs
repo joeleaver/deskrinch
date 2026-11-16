@@ -108,6 +108,13 @@ pub(crate) enum Error {
     /// `cargo xtask input` stopped.
     #[error(transparent)]
     Input(#[from] crate::input::InputError),
+    /// `cargo xtask session --grant` was not given `PACKAGE=PATH` with one of
+    /// the shell's components.
+    #[error("--grant {0}: give PACKAGE=PATH, PACKAGE one of the shell's components")]
+    GrantNotUnderstood(String),
+    /// `cargo xtask in-session` could not run its component to its end.
+    #[error(transparent)]
+    InSession(#[from] crate::in_session::InSessionError),
     /// `cargo xtask measure` could not type or point, or the program did not
     /// take what was typed, or drew nothing for a step.
     #[error(transparent)]

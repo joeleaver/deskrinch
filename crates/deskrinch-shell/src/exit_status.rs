@@ -1,6 +1,17 @@
-//! The exit statuses a component ends with besides success, as its starter
-//! reads them: part of the contract between a component and whoever starts
-//! it (the nested desktop, the login session's units).
+//! How a component ends, as its starter reads it: part of the contract
+//! between a component and whoever starts it (the nested desktop, the
+//! login session's units).
+//!
+//! - **0, asked to stop** (`SIGTERM`, `SIGINT`, `SIGHUP`), or its app
+//!   closed: it ends in order, having said [`asked_to_stop_line`] when it
+//!   was asked. A second such signal while it ends, or a process still
+//!   running a bound after the first, ends it by the signal instead, which
+//!   the restart policy also reads as clean; a signal ignored when it
+//!   started stays ignored. `deskrinch-component`'s `stop` module is how.
+//! - **[`DISPLAY_LOST`] (69), its display went away**, having said
+//!   [`DISPLAY_LOST_LINE`]: restarted.
+//! - **[`CANNOT_RUN_HERE`] (78), it cannot run where it was started**: not
+//!   restarted.
 
 /// The status a component ends with when its display went away: the
 /// Wayland compositor it was a client of exited, crashed or dropped its
@@ -43,3 +54,11 @@ pub const DISPLAY_LOST_LINE: &str = "the display went away; ending";
 /// LSB's 1 to 7 (systemd gives each a meaning of its own), and not 200 and
 /// above (systemd's own reasons a service did not start).
 pub const CANNOT_RUN_HERE: u8 = 78;
+
+/// What a component says, in one line at info level, when it is asked to
+/// stop by `signal` (`SIGTERM`, `SIGINT` or `SIGHUP`, named so) and ends in
+/// order, with success.
+#[must_use]
+pub fn asked_to_stop_line(signal: &str) -> String {
+    format!("asked to stop by {signal}; ending")
+}

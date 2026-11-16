@@ -3,15 +3,90 @@
 //! (test binaries, its own input client) what they use ([`client`]). KWin offers
 //! a restricted interface only to an executable whose installed desktop
 //! file grants it (`deskrinch-kwin-access`). Every xtask that starts such a
-//! program under KWin (`desktop`, `measure`, `compositor-tests`) installs
-//! its grant through here; sway and labwc restrict nothing.
+//! program under KWin (`desktop`, `measure`, `compositor-tests`, `session
+//! --grant`) installs its grant through here; sway and labwc restrict
+//! nothing.
+//!
+//! A grant is installed into the session's data directory before the
+//! compositor starts. KWin looks a client's grant up when the client
+//! connects, through KDE's service cache, but a file installed while KWin
+//! runs is seen only once that cache has been refreshed, at a time KWin
+//! chooses (`deskrinch-kwin-access`'s crate doc): installed first, it is
+//! there for the first connection.
 
-use std::path::Path;
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 
 use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_shell::{COMPONENTS, Component};
 
 use crate::error::Error;
+
+/// One of the shell's components and its executable, to be granted what
+/// the shell grants that component: `cargo xtask session --grant
+/// PACKAGE=PATH`, and measure's measured component.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ComponentGrant {
+    /// The component.
+    pub(crate) component: &'static Component,
+    /// Its executable, links resolved: what KWin sees in `/proc/<pid>/exe`.
+    pub(crate) executable: PathBuf,
+}
+
+impl ComponentGrant {
+    /// The grant `text` (`PACKAGE=PATH`) asks for: the shell's component
+    /// whose package is PACKAGE, and PATH's executable.
+    ///
+    /// # Errors
+    ///
+    /// When `text` is not `PACKAGE=PATH`, PACKAGE is not one of the shell's
+    /// components, or PATH is not a file.
+    pub(crate) fn parse(text: &str) -> Result<Self, Error> {
+        let (package, path) = text
+            .split_once('=')
+            .filter(|(package, path)| !package.is_empty() && !path.is_empty())
+            .ok_or_else(|| Error::GrantNotUnderstood(text.to_owned()))?;
+        let component = component(Path::new(path), Some(package))?
+            .ok_or_else(|| Error::GrantNotUnderstood(text.to_owned()))?;
+        Ok(Self {
+            component,
+            executable: executable(OsStr::new(path))?,
+        })
+    }
+
+    /// Installs it into the data directory `data_home`; whether there was
+    /// anything to grant.
+    pub(crate) fn install(&self, data_home: &Path) -> Result<bool, Error> {
+        install(self.component, &self.executable, data_home)
+    }
+}
+
+/// `program`'s executable, with links resolved, as KWin compares it: a
+/// path as given, or a bare name found on `PATH`.
+///
+/// # Errors
+///
+/// When it cannot be found or resolved.
+pub(crate) fn executable(program: &OsStr) -> Result<PathBuf, Error> {
+    let given = Path::new(program);
+    let found = if given.components().count() > 1 {
+        Some(given.to_owned())
+    } else {
+        std::env::var_os("PATH").and_then(|path| {
+            std::env::split_paths(&path)
+                .map(|dir| dir.join(given))
+                .find(|candidate| candidate.is_file())
+        })
+    };
+    let found = found.ok_or_else(|| Error::Io {
+        what: format!("find {} to grant it", given.display()),
+        source: std::io::ErrorKind::NotFound.into(),
+    })?;
+    found.canonicalize().map_err(|source| Error::Io {
+        what: format!("resolve {}", found.display()),
+        source,
+    })
+}
 
 /// The shell's component named `named` (its package), or else the one
 /// whose package is `program`'s file name; `None` when `program` is none of
@@ -173,6 +248,41 @@ mod tests {
                 .join("applications/org.deskrinch.shell.deskrinch-launcher.desktop")
                 .exists()
         );
+    }
+
+    #[test]
+    fn a_bare_name_is_found_on_the_path() {
+        let sh = executable(OsStr::new("sh")).unwrap();
+        assert!(sh.is_absolute() && sh.is_file(), "{}", sh.display());
+    }
+
+    #[test]
+    fn a_grant_asked_for_is_a_component_and_its_executable() {
+        let sh = executable(OsStr::new("sh")).unwrap();
+        let asked = format!("deskrinch-panel={}", sh.display());
+        assert_eq!(
+            ComponentGrant::parse(&asked).unwrap(),
+            ComponentGrant {
+                component: &PANEL,
+                executable: sh.clone(),
+            }
+        );
+        let data = tempfile::tempdir().unwrap();
+        assert!(
+            ComponentGrant::parse(&asked)
+                .unwrap()
+                .install(data.path())
+                .unwrap()
+        );
+        for refused in [
+            "deskrinch-panel".to_owned(),
+            format!("={}", sh.display()),
+            "deskrinch-panel=".to_owned(),
+            format!("deskrinch-nothing={}", sh.display()),
+            "deskrinch-panel=/no/such/file".to_owned(),
+        ] {
+            assert!(ComponentGrant::parse(&refused).is_err(), "{refused}");
+        }
     }
 
     #[test]

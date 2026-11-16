@@ -27,6 +27,17 @@
 //! How it ends ([`run`]):
 //!
 //! - **The app closed:** success.
+//! - **Asked to stop** (`SIGTERM`, how a session or a unit stops it;
+//!   `SIGINT`; `SIGHUP`): one info line saying so
+//!   ([`stop::asked_line`](crate::stop::asked_line)), the event loop ended
+//!   on rinch's thread with or without a window, and success: the
+//!   component's `main` runs to its end and its values are dropped in
+//!   order. A second such signal while it ends is the signal's default
+//!   action at once, and a process still running
+//!   [`stop::BOUND`](crate::stop::BOUND) after the first is ended by it; a
+//!   signal ignored when the process started stays ignored. [`run`]
+//!   installs this once per process; [`stop`](crate::stop) says what a
+//!   program with a handler of its own does.
 //! - **Its display went away** (the compositor exited, crashed or dropped
 //!   the connection): one warning saying so ([`DISPLAY_LOST_LINE`]), and
 //!   [`DISPLAY_LOST`], which its starter reads as a failure to restart
@@ -93,7 +104,7 @@ where
 }
 
 /// Runs `app` until it ends, and the status the component's `main` returns
-/// (see the module's doc): success when it closed,
+/// (see the module's doc): success when it closed or was asked to stop,
 /// [`DISPLAY_LOST`] when its display went away, a failure otherwise.
 #[expect(
     clippy::disallowed_methods,
@@ -103,6 +114,13 @@ pub fn run<F, M>(app: App<F, M>) -> ExitCode
 where
     F: FnOnce(&mut RenderScope) -> NodeHandle + 'static,
 {
+    if let Err(error) = crate::stop::install_once(rinch::exit, crate::stop::BOUND) {
+        crate::report::error(
+            "installing the handlers for the signals that stop a component (asked to stop, it \
+             ends by the signal instead)",
+            &error,
+        );
+    }
     match app.try_run() {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) if error.is_display_lost() => {
