@@ -130,6 +130,11 @@ pub(crate) struct Request {
 }
 
 impl Request {
+    /// Whether it types (`--type`).
+    fn types(&self) -> bool {
+        self.summons.as_ref().is_some_and(|s| s.typing.is_some())
+    }
+
     /// What each run's compositor renders with: the GPU when rinch's GPU
     /// renderer is asked for under sway or labwc, the only session it can
     /// present on there ([`CompositorRenderer::for_client`]).
@@ -172,7 +177,8 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     }
     let program = request.program.to_string_lossy().into_owned();
     let grant = Grant::of(request)?;
-    let typist = typist_executable()?;
+    // Only a typed run depends on finding this binary, the typist.
+    let typist = request.types().then(typist_executable).transpose()?;
     // A warm cache lives outside the sessions, for as long as this task.
     let cache_dir = (request.shader_cache == ShaderCache::Warm)
         .then(|| {
@@ -193,13 +199,16 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
             settle: Duration::ZERO,
             idle: Duration::ZERO,
         };
-        in_session(request, &grant, &typist, |session| {
+        in_session(request, &grant, typist.as_deref(), |session| {
             let command = client(session, request, Some(dir));
             match &request.summons {
                 Some(summons) => {
                     let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
-                    let typist = || typist_client(session, &typist);
-                    show::measure(command, &ask, &typist, &program, timing, summons).map(drop)
+                    let typist = typist
+                        .as_deref()
+                        .map(|exe| move || typist_client(session, exe));
+                    let typist = typist.as_ref().map(|make| -> &dyn Fn() -> Command { make });
+                    show::measure(command, &ask, typist, &program, timing, summons).map(drop)
                 }
                 None => probe::measure(
                     command,
@@ -221,9 +230,12 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
     let mut runs = Vec::new();
     for index in 1..=request.runs {
         eprintln!("measure: run {index} of {}", request.runs);
-        let mut run = in_session(request, &grant, &typist, |session| {
-            let typist = || typist_client(session, &typist);
-            measure_run(request, session, index, cache, &program, timing, &typist)
+        let mut run = in_session(request, &grant, typist.as_deref(), |session| {
+            let typist = typist
+                .as_deref()
+                .map(|exe| move || typist_client(session, exe));
+            let typist = typist.as_ref().map(|make| -> &dyn Fn() -> Command { make });
+            measure_run(request, session, index, cache, &program, timing, typist)
         })?;
         output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
         run.note("granted", grant.note());
@@ -245,8 +257,8 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
 
 /// Measures run `index` of `program` in `session` as `request` asks: under
 /// Callgrind with `--instructions`, else from `/proc`; its shows with
-/// `--summon`, else its start and idle window; `typist` makes `--type`'s
-/// typist.
+/// `--summon`, else its start and idle window; `typist`, with `--type`,
+/// makes the typist.
 fn measure_run(
     request: &Request,
     session: &Session,
@@ -254,7 +266,7 @@ fn measure_run(
     cache: Option<&Path>,
     program: &str,
     timing: probe::Timing,
-    typist: &dyn Fn() -> Command,
+    typist: Option<&dyn Fn() -> Command>,
 ) -> Result<report::Run, Error> {
     let ask = |args: &[OsString]| asked(session, request, cache, args);
     let stimulus = || Stimulus::of(session, request.window.as_deref());
@@ -291,15 +303,14 @@ fn measure_run(
 }
 
 /// Runs `measure` in a fresh session, which is ended afterwards whatever
-/// the outcome. Under KWin the program is granted `grant`, and with
-/// `--type` the typist, run from `typist`, the keyboard KWin restricts.
+/// the outcome. Under KWin the program is granted `grant`, and the typist
+/// (`--type`'s, run from `typist`) the keyboard KWin restricts.
 fn in_session<T>(
     request: &Request,
     grant: &Grant,
-    typist: &Path,
+    typist: Option<&Path>,
     measure: impl FnOnce(&Session) -> Result<T, Error>,
 ) -> Result<T, Error> {
-    let types = request.summons.as_ref().is_some_and(|s| s.typing.is_some());
     let session = Session::start(
         request.compositor,
         request.compositor_renderer(),
@@ -309,7 +320,9 @@ fn in_session<T>(
         Gpu::Machine,
         |data_home| {
             grant.install(data_home)?;
-            if types && request.compositor == Compositor::Kwin {
+            if let Some(typist) = typist
+                && request.compositor == Compositor::Kwin
+            {
                 crate::grant::install_entry(&crate::typist::grant(typist)?, data_home)?;
             }
             Ok(())

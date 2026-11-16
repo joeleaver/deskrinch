@@ -103,12 +103,14 @@ impl Running<'_> {
 /// Starts the typist if `summons` types: before the program can show,
 /// since a headless wlroots seat gives a window that maps while it has no
 /// keyboard none of the keyboard.
-fn start_typist(summons: &Summons, typist: &dyn Fn() -> Command) -> Result<Option<Typist>, Error> {
-    summons
-        .typing
-        .as_ref()
-        .map(|_| Typist::start(typist()))
-        .transpose()
+fn start_typist(
+    summons: &Summons,
+    typist: Option<&dyn Fn() -> Command>,
+) -> Result<Option<Typist>, Error> {
+    match (&summons.typing, typist) {
+        (Some(_), Some(make)) => Typist::start(make()).map(Some),
+        _ => Ok(None),
+    }
 }
 
 /// Starts `command` (the program, hidden) and measures each show's CPU
@@ -117,7 +119,7 @@ fn start_typist(summons: &Summons, typist: &dyn Fn() -> Command) -> Result<Optio
 pub(crate) fn measure(
     command: Command,
     ask: Ask<'_>,
-    typist: &dyn Fn() -> Command,
+    typist: Option<&dyn Fn() -> Command>,
     program: &str,
     timing: Timing,
     summons: &Summons,
@@ -184,7 +186,7 @@ pub(crate) fn measure_instructions(
     command: Command,
     control: &dyn Fn() -> Command,
     ask: Ask<'_>,
-    typist: &dyn Fn() -> Command,
+    typist: Option<&dyn Fn() -> Command>,
     program: &str,
     out: &Path,
     timing: Timing,
