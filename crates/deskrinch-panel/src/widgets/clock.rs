@@ -100,10 +100,19 @@ impl ClockText {
 /// returns its text, for the context. Called once, at the panel's root; the
 /// clock stops when the scope it was called in ends.
 pub(crate) fn follow(panel: Signal<PanelSettings>) -> ClockText {
+    follow_running(panel).0
+}
+
+/// The clock running now, if one could start: what [`follow`] keeps.
+type Running = Rc<RefCell<Option<Clock>>>;
+
+/// [`follow`], and the clock it keeps running, for the tests to see which
+/// worker it is.
+fn follow_running(panel: Signal<PanelSettings>) -> (ClockText, Running) {
     let settings = Memo::new(move || panel.get().clock);
     let text = Signal::new(String::new());
     let env = Environment::from_process();
-    let running: Rc<RefCell<Option<Clock>>> = Rc::default();
+    let running: Running = Rc::default();
     let restart = Rc::clone(&running);
     // Runs now, and again when `[panel.clock]` changes (the memo keeps
     // other settings' changes out).
@@ -117,8 +126,9 @@ pub(crate) fn follow(panel: Signal<PanelSettings>) -> ClockText {
             Err(error) => report::error("clock", &error),
         }
     });
-    rinch::reactive::on_cleanup(move || drop(running.borrow_mut().take()));
-    ClockText(text)
+    let stop = Rc::clone(&running);
+    rinch::reactive::on_cleanup(move || drop(stop.borrow_mut().take()));
+    (ClockText(text), running)
 }
 
 /// A face of the clock: the context's [`ClockText`], which [`follow`]
@@ -205,50 +215,51 @@ mod tests {
         assert_eq!(text_for(Event::Error(error), &format), None);
     }
 
-    /// The thread ids of this process's clock workers (threads named
-    /// "clock" by `deskrinch-clock`). No other test here starts a clock.
-    fn clock_threads() -> Vec<String> {
-        std::fs::read_dir("/proc/self/task")
-            .unwrap()
-            .filter_map(Result::ok)
-            .filter(|task| {
-                std::fs::read_to_string(task.path().join("comm"))
-                    .is_ok_and(|name| name.trim() == "clock")
-            })
-            .map(|task| task.file_name().to_string_lossy().into_owned())
-            .collect()
+    /// The worker of the clock `running` keeps, if one runs.
+    fn worker(running: &Running) -> Option<std::thread::ThreadId> {
+        running.borrow().as_ref().map(Clock::worker)
     }
 
     /// The panel's clock is one worker: faces read its text and start none,
     /// a change of `[panel.clock]` replaces it (a new worker, the old one
     /// gone), any other change leaves it be, and it stops with the scope
     /// that started it.
+    ///
+    /// Counted by the clock itself (`deskrinch_clock::running`), exact at
+    /// once both ways, and told apart by its worker's thread id, which Rust
+    /// never gives twice; not by the threads the system lists, which show a
+    /// new worker only once it has named itself and an ended one for a
+    /// moment after its join. No other test here starts a clock.
     #[test]
     fn one_worker_whatever_the_number_of_faces() {
         let scope = Scope::new();
         let settings = scope.run(|| Signal::new(PanelSettings::default()));
-        let text = scope.run(|| follow(settings));
-        let first = clock_threads();
-        assert_eq!(first.len(), 1, "{first:?}");
+        let (text, running) = scope.run(|| follow_running(settings));
+        assert_eq!(deskrinch_clock::running(), 1);
+        let first = worker(&running);
+        assert!(first.is_some());
 
         // Three faces, as three bars would have: each reads the one text.
         let faces: Vec<String> = (0..3).map(|_| scope.run(|| text.shown())).collect();
         assert_eq!(faces.len(), 3);
-        assert_eq!(clock_threads(), first);
+        assert_eq!(deskrinch_clock::running(), 1);
+        assert_eq!(worker(&running), first);
 
         let seconds = ClockSettings {
             seconds: true,
             date: false,
         };
         scope.run(|| settings.update(|settings| settings.clock = seconds));
-        let restarted = clock_threads();
-        assert_eq!(restarted.len(), 1, "{restarted:?}");
+        assert_eq!(deskrinch_clock::running(), 1);
+        let restarted = worker(&running);
+        assert!(restarted.is_some());
         assert_ne!(restarted, first, "the clock was not restarted");
 
         scope.run(|| settings.update(|settings| settings.edge = Edge::Top));
-        assert_eq!(clock_threads(), restarted);
+        assert_eq!(deskrinch_clock::running(), 1);
+        assert_eq!(worker(&running), restarted);
 
         scope.dispose();
-        assert_eq!(clock_threads(), Vec::<String>::new());
+        assert_eq!(deskrinch_clock::running(), 0);
     }
 }

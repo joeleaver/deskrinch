@@ -8,7 +8,8 @@
 
 use std::os::fd::OwnedFd;
 use std::sync::Arc;
-use std::thread::{self, JoinHandle};
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::thread::{self, JoinHandle, ThreadId};
 
 use jiff::Timestamp;
 use jiff::tz::TimeZone;
@@ -41,6 +42,23 @@ pub enum Event {
 pub struct Clock {
     stop: Arc<OwnedFd>,
     worker: Option<JoinHandle<()>>,
+    /// The worker thread's id, which no other thread of the process is ever
+    /// given.
+    id: ThreadId,
+}
+
+/// How many clocks' workers run in this process: one more as a clock
+/// starts, one fewer once a dropped clock has joined its worker.
+static RUNNING: AtomicUsize = AtomicUsize::new(0);
+
+/// How many clocks run in this process, each its own worker thread: a
+/// clock counts from [`Clock::start`] until its drop has ended the worker.
+/// Exact at any moment, unlike the threads the system lists, which show a
+/// new worker only once it has named itself and an ended one for a moment
+/// after it is joined.
+#[must_use]
+pub fn running() -> usize {
+    RUNNING.load(Ordering::SeqCst)
 }
 
 impl Clock {
@@ -77,10 +95,19 @@ impl Clock {
             .name("clock".into())
             .spawn(move || worker.run(precision))
             .map_err(ClockError::Thread)?;
+        RUNNING.fetch_add(1, Ordering::SeqCst);
         Ok(Self {
             stop,
+            id: handle.thread().id(),
             worker: Some(handle),
         })
+    }
+
+    /// The id of this clock's worker thread: a clock started later has
+    /// another, since Rust never gives a thread id twice in a process.
+    #[must_use]
+    pub fn worker(&self) -> ThreadId {
+        self.id
     }
 }
 
@@ -92,6 +119,7 @@ impl Drop for Clock {
         if let Some(worker) = self.worker.take() {
             // A panic in the subscriber ended the thread already.
             worker.join().ok();
+            RUNNING.fetch_sub(1, Ordering::SeqCst);
         }
     }
 }
