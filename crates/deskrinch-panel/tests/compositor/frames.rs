@@ -15,9 +15,14 @@ pub(crate) fn step(panel: &Panel) -> usize {
     panel.watch().lines().len()
 }
 
-/// The panel's presented frame lines since its log line `from`, as
+/// The panel's frame lines since its log line `from` that drew, as
 /// (reactive, not reactive): a frame that notified a signal did reactive
 /// work.
+///
+/// A redraw that rinch served from the cached pixels, with nothing dirty
+/// (`paint_cached_frames` and no `paint_frames`), drew nothing, and is left
+/// out. rinch logs one as a frame line (seen on rinch b31389bb when the
+/// pointer left the panel and no `:hover` rule had anything to change).
 pub(crate) fn since(panel: &Panel, from: usize) -> (Vec<String>, Vec<String>) {
     let lines = panel.watch().lines();
     lines[from..]
@@ -30,6 +35,10 @@ pub(crate) fn since(panel: &Panel, from: usize) -> (Vec<String>, Vec<String>) {
                     ..
                 })
             )
+        })
+        .filter(|line| {
+            counter(line, "paint_frames").is_some()
+                || counter(line, "paint_cached_frames").is_none()
         })
         .cloned()
         .partition(|line| counter(line, "signal_notifies").is_some())
