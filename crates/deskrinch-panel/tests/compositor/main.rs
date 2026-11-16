@@ -26,6 +26,8 @@ mod frames;
 #[cfg(test)]
 mod live;
 #[cfg(test)]
+mod outputs;
+#[cfg(test)]
 mod placement;
 #[cfg(test)]
 mod support;
