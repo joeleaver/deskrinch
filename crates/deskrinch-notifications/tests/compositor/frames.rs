@@ -1,5 +1,6 @@
-//! What a change costs in frames: a notification shown, replaced or closed
-//! is drawn in one presented frame, and nothing is drawn while nothing
+//! What a change costs in frames: a notification shown, replaced or closed,
+//! the waiting set changing with it included, is drawn in exactly one
+//! presented frame, and nothing is drawn while nothing
 //! changes.
 //!
 //! A frame of rinch's cached pixels draws nothing and is not counted
@@ -83,6 +84,54 @@ fn a_change_is_one_frame_and_nothing_changing_is_none() {
         presented(&notifications.daemon().watch().lines(), mark),
         1,
         "a popup closed:\n{}",
+        notifications.daemon().watch().tail()
+    );
+}
+
+/// The waiting set changing costs a frame like any other change: a popup
+/// into a full column (one more waits, the count line appears), and a
+/// close that brings a waiting one back.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn the_waiting_set_changing_is_one_frame() {
+    let mut notifications = Notifications::start();
+    // A full column: popups until one waits, then the newest closed.
+    let mut live = Vec::new();
+    loop {
+        live.push(notifications.client.simple(0, "Filling", "", 0));
+        notifications.column("the column", |_| true);
+        let (shown, waiting) = notifications.fit().expect("a fit said");
+        notifications.settled(shown, waiting);
+        if waiting > 0 {
+            let newest = live.pop().unwrap();
+            notifications.client.close(newest).unwrap();
+            assert_eq!(notifications.next_signal(), Signal::Closed(newest, 3));
+            notifications.settled(live.len(), 0);
+            break;
+        }
+    }
+    std::thread::sleep(QUIET);
+
+    let mark = notifications.daemon().watch().lines().len();
+    let one_more = notifications.client.simple(0, "One more", "", 0);
+    notifications.settled(live.len(), 1);
+    std::thread::sleep(QUIET);
+    assert_eq!(
+        presented(&notifications.daemon().watch().lines(), mark),
+        1,
+        "a popup into a full column:\n{}",
+        notifications.daemon().watch().tail()
+    );
+
+    let mark = notifications.daemon().watch().lines().len();
+    notifications.client.close(one_more).unwrap();
+    assert_eq!(notifications.next_signal(), Signal::Closed(one_more, 3));
+    notifications.settled(live.len(), 0);
+    std::thread::sleep(QUIET);
+    assert_eq!(
+        presented(&notifications.daemon().watch().lines(), mark),
+        1,
+        "a close bringing a waiting one back:\n{}",
         notifications.daemon().watch().tail()
     );
 }
