@@ -7,13 +7,14 @@
 //! popups are transparent, so that a surface that takes only its painted
 //! pixels takes exactly the popups.
 
-use crate::policy::{BODY_LINES, ICON_SIZE};
+use crate::policy::{BODY_LINES, ICON_SIZE, WIDTH};
 
 /// The window's stylesheet.
 pub(crate) fn sheet() -> String {
     format!(
         "body {{ background: transparent; margin: 0; }}
 .column {{
+    box-sizing: border-box; width: {WIDTH}px;
     display: flex; flex-direction: column;
     gap: var(--rinch-spacing-sm);
     padding: var(--rinch-spacing-sm);

@@ -76,6 +76,18 @@ pub const WALLPAPER: Component = Component {
     restart: SHELL_RESTART,
 };
 
+/// The notification daemon: the session's `org.freedesktop.Notifications`,
+/// ready once it owns that name, so that applications started after it
+/// find their notifications shown. With nothing to show it has no window.
+/// It uses nothing restricted.
+pub const NOTIFICATIONS: Component = Component {
+    package: "deskrinch-notifications",
+    args: &[],
+    ready: Ready::BusName("org.freedesktop.Notifications"),
+    wayland_grants: &[],
+    restart: SHELL_RESTART,
+};
+
 /// The launcher: hidden at first, it owns its name on the session bus,
 /// through which a key binding (or anything else) summons it. It uses
 /// nothing restricted.
@@ -102,8 +114,10 @@ pub const PANEL: Component = Component {
 /// The shell's components, in the order they start.
 ///
 /// The wallpaper comes first, so that the desktop is not bare while the
-/// rest starts. The launcher follows, hidden. The panel comes last.
-pub const COMPONENTS: &[Component] = &[WALLPAPER, LAUNCHER, PANEL];
+/// rest starts. The notification daemon follows, so that the session's
+/// notifications have their service early. The launcher follows, hidden.
+/// The panel comes last.
+pub const COMPONENTS: &[Component] = &[WALLPAPER, NOTIFICATIONS, LAUNCHER, PANEL];
 
 /// A modifier of a key binding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]

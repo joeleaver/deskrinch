@@ -1,15 +1,18 @@
 //! The icon a popup is drawn with.
 //!
-//! - The sender's `app_icon`, when it is a name in the icon theme.
+//! - The first icon name in the specification's order of a notification's
+//!   pictures: its image (the `image-path` hint, which may name an icon:
+//!   `notify-send -i` sends it there), then its `app_icon`.
 //! - Else the icon of the application its `desktop-entry` hint names, from
 //!   the installed applications (`deskrinch-applications`), the generic
 //!   program's when that application names none the theme has.
 //! - Else none.
 //!
 //! An image the sender sends as pixels (`image-data`) or names as a file
-//! (`image-path`, or a path for `app_icon`) is not drawn: rinch cannot be
-//! handed pixels yet, and a file a stranger names is only shown once it
-//! can be decoded under our bounds and handed over the same way.
+//! (`image-path` or `app_icon`) is not drawn, and the next picture in the
+//! order stands in: rinch cannot be handed pixels yet, and a file a
+//! stranger names is only shown once it can be decoded under our bounds
+//! and handed over the same way.
 
 use deskrinch_applications::{Applications, path_of, path_of_name};
 use deskrinch_desktop_entries::DesktopId;
@@ -31,16 +34,23 @@ impl Wanted {
     /// What `notification` asks for.
     pub(crate) fn of(notification: &Notification) -> Self {
         Self::from_parts(
-            notification.app_icon.as_ref(),
+            [notification.image.as_ref(), notification.app_icon.as_ref()],
             notification.desktop_entry.as_deref(),
         )
     }
 
-    /// What a notification with `app_icon` and the `desktop_entry` hint
-    /// asks for.
-    fn from_parts(app_icon: Option<&ImageSource>, desktop_entry: Option<&str>) -> Self {
-        if let Some(ImageSource::Icon(name)) = app_icon {
-            return Self::Named(name.clone());
+    /// What a notification with `pictures` (its image and its `app_icon`, in
+    /// that order) and the `desktop_entry` hint asks for.
+    fn from_parts(pictures: [Option<&ImageSource>; 2], desktop_entry: Option<&str>) -> Self {
+        let named = pictures
+            .into_iter()
+            .flatten()
+            .find_map(|picture| match picture {
+                ImageSource::Icon(name) => Some(name.clone()),
+                ImageSource::File(_) | ImageSource::Pixels(_) => None,
+            });
+        if let Some(name) = named {
+            return Self::Named(name);
         }
         desktop_entry
             .and_then(|entry| DesktopId::new(format!("{entry}.desktop")))

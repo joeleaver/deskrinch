@@ -28,9 +28,9 @@ pub(crate) const CAPABILITIES: Capabilities = Capabilities {
     sound: false,
 };
 
-/// The widest the column grows, in logical pixels: a popup wraps its text
-/// within it.
-pub(crate) const MAX_WIDTH: u32 = 380;
+/// The column's width, in logical pixels, its padding included: every
+/// popup is as wide, and wraps its text within it.
+pub(crate) const WIDTH: u32 = 380;
 
 /// The size a notification's icon, and an action's icon, are drawn at, in
 /// logical pixels.
@@ -70,6 +70,15 @@ mod tests {
                 "action-icons"
             ]
         );
+    }
+
+    /// The shell waits for the name the service owns.
+    #[test]
+    fn the_shell_is_ready_on_the_service_s_name() {
+        use deskrinch_notification_service::NAME;
+        use deskrinch_shell::{NOTIFICATIONS, Ready};
+        assert_eq!(NOTIFICATIONS.package, env!("CARGO_PKG_NAME"));
+        assert_eq!(NOTIFICATIONS.ready, Ready::BusName(NAME));
     }
 
     #[test]
