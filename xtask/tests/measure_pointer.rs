@@ -48,8 +48,13 @@ mod measure_pointer {
     /// `xtask measure` of `sh -c script`: one run, short windows, and
     /// `options` besides.
     fn measure(options: &[&str], script: &str) -> Output {
+        measure_runs("1", options, script)
+    }
+
+    /// As [`measure`], with `runs` runs.
+    fn measure_runs(runs: &str, options: &[&str], script: &str) -> Output {
         Command::new(env!("CARGO_BIN_EXE_xtask"))
-            .args(["measure", "--compositor", &compositor(), "--runs", "1"])
+            .args(["measure", "--compositor", &compositor(), "--runs", runs])
             .args(["--settle", "1", "--idle", "2"])
             .args(options)
             .args(["sh", "-c", script])
@@ -57,6 +62,9 @@ mod measure_pointer {
             .output()
             .unwrap()
     }
+
+    /// What the report notes of a step that ran otherwise in one run.
+    const ODD: &str = "its figure may include work that is not the step's";
 
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
@@ -99,8 +107,8 @@ mod measure_pointer {
             assert_eq!(reactive, 0, "step {step}:\n{stdout}");
         }
         assert!(
-            !stdout.contains("ran reactive work"),
-            "a step marked:\n{stdout}"
+            !stdout.contains(ODD),
+            "a step noted in its one run:\n{stdout}"
         );
         let frames = number_after(&stdout, "pointer: frames presented");
         assert!(frames >= 2, "{frames} frames for 2 steps:\n{stdout}");
@@ -108,7 +116,9 @@ mod measure_pointer {
 
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
-    fn a_step_whose_span_saw_reactive_work_is_marked() {
+    fn a_reactive_step_is_counted_and_with_one_run_not_noted() {
+        // Reactive work in a step is no anomaly in itself, and with one run
+        // there is nothing to compare it with.
         let output = measure(
             &["--place-pointer", "640,360", "--move-pointer", "600,300"],
             DRAWS_REACTIVE,
@@ -120,10 +130,49 @@ mod measure_pointer {
         let frames = number_after(&stdout, &format!("{step}: frames presented"));
         let reactive = number_after(&stdout, &format!("{step}: of them with reactive work"));
         assert!(reactive >= 1 && reactive <= frames, "{stdout}");
-        let mark = format!("{step}: {reactive} of its {frames} frame(s) ran reactive work");
+        assert!(!stdout.contains(ODD), "noted with one run:\n{stdout}");
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_step_that_ran_otherwise_in_one_run_is_noted_in_each() {
+        // A stand-in that counts its starts in a file of the test's own:
+        // paints alone in its first run, reactive frames in its second. Two
+        // runs that differ are each noted against the other.
+        let dir = tempfile::tempdir().unwrap();
+        let count = dir.path().join("starts");
+        let script = format!(
+            "c=$(cat {count} 2>/dev/null || echo 0); c=$((c + 1)); echo $c > {count}; \
+             if [ $c = 2 ]; then {DRAWS_REACTIVE}; else {DRAWS}; fi",
+            count = count.display()
+        );
+        let output = measure_runs(
+            "2",
+            &["--place-pointer", "640,360", "--move-pointer", "600,300"],
+            &script,
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        let step = "pointer step 1 of 1 (to 1:600,300)";
+        let noted: Vec<&str> = stdout
+            .lines()
+            .filter(|line| line.contains(step) && line.contains(ODD))
+            .collect();
+        assert_eq!(
+            noted.len(),
+            2,
+            "each run noted against the other:\n{stdout}"
+        );
         assert!(
-            stdout.contains(&mark),
-            "the step is not marked in the run's notes:\n{stdout}"
+            noted
+                .iter()
+                .any(|line| line.contains(" 0 reactive, against ")),
+            "{stdout}"
+        );
+        assert!(
+            noted.iter().all(|line| line.contains("in the other run:")),
+            "{stdout}"
         );
     }
 

@@ -4,17 +4,18 @@
 //! measured here.
 //!
 //! A step's span can hold more than the step: the program's own work that
-//! falls in it, such as a clock's minute. A frame that ran reactive work
-//! (a signal notified, rinch's `signal_notifies` in its line) changed the
-//! program's state, the step's doing or not, where a hover is a paint
-//! alone; a reader of a dearer row needs to know which it was. So each
-//! step's frames are counted with how many ran reactive work, and a run
-//! whose step saw one says so in its notes. It is a reason to look, not
-//! proof: a frame's line is written when it is presented, after its work,
-//! so a frame whose work came just before the step began is counted in it. The frames are read
-//! once the meter has stopped (under Callgrind, once the step's dump is
-//! written), so they cover the span the figure does: work that falls
-//! between the settle and the dump is in both.
+//! falls in it, such as a clock's minute. So each step's frames are
+//! counted with how many ran reactive work (a signal notified, rinch's
+//! `signal_notifies` in the frame's line). A reactive frame is no anomaly
+//! in itself (typing changes a query); a step that ran otherwise in one run
+//! than in the others is, and the report notes it where the runs are seen
+//! together ([`super::super::report::note_odd_steps`]).
+//!
+//! The frames are read once the meter has stopped (under Callgrind, once
+//! the step's dump is written), so they cover the span the figure does: a
+//! frame between the settle and the dump is in both. A frame's line is
+//! written when it is presented, after its work, so a frame whose work came
+//! just before the step began is counted in it too.
 
 use std::time::{Duration, Instant};
 
@@ -98,9 +99,6 @@ pub(crate) fn measure_steps(
             Unit::Count,
             seen.reactive,
         );
-        if seen.reactive > 0 {
-            run.note(row, seen.mark());
-        }
         total += cost;
     }
     run.push(
@@ -142,15 +140,6 @@ impl Seen {
                 presented: seen.presented + 1,
                 reactive: seen.reactive + u64::from(reactive(line)),
             })
-    }
-
-    /// What a run's notes say of a step that saw reactive frames.
-    fn mark(self) -> String {
-        format!(
-            "{} of its {} frame(s) ran reactive work: its figure may include the program's \
-             own work, not only the step's",
-            self.reactive, self.presented
-        )
     }
 }
 

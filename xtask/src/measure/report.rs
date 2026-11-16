@@ -4,6 +4,10 @@
 //! Metrics are integers in a fixed unit, so the arithmetic is exact and
 //! tested; only printing divides.
 
+mod odd_steps;
+
+pub(crate) use odd_steps::note_odd_steps;
+
 use deskrinch_test_component::Presented;
 use std::collections::BTreeMap;
 use std::fmt::Write as _;

@@ -36,11 +36,6 @@ fn a_step_counts_its_main_frames_and_those_that_ran_reactive_work() {
             reactive: 0
         }
     );
-    let mark = Seen::of(&lines).mark();
-    assert!(
-        mark.starts_with("1 of its 2 frame(s) ran reactive work"),
-        "{mark}"
-    );
 }
 
 /// A meter whose stop writes a reactive frame into the program's output, as
