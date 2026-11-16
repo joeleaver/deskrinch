@@ -203,6 +203,9 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         .transpose()?;
     let cache = cache_dir.as_ref().map(tempfile::TempDir::path);
     if let Some(dir) = cache {
+        // The filling start does what a measured run does, its --window
+        // window and its pointer's steps included: the cache is to hold what
+        // the runs draw.
         eprintln!("measure: filling the shader cache with one unmeasured start");
         let timing = probe::Timing {
             first_frame: request.first_frame_timeout,
@@ -221,7 +224,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                         command,
                         &program,
                         timing,
-                        &Stimulus::none(),
+                        &Stimulus::of(session, request.window.as_deref()),
                         Expect::of(request.windows),
                         inputs,
                     )

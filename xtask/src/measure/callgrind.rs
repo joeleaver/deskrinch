@@ -137,7 +137,10 @@ fn run_child(
         }
     }
     let load = probe::load_average();
-    dump(control, &pid, "first-frame")?;
+    // Callgrind numbers its dumps in the order they are asked for; each is
+    // counted where it is asked for, and read by the number it got.
+    let mut dumps = 0;
+    let first_dump = dump(control, &pid, "first-frame", &mut dumps)?;
     let started = match expect {
         Expect::Main => None,
         Expect::Windows(n) => {
@@ -145,7 +148,7 @@ fn run_child(
         }
     };
     probe::wait(child, watch, program, timing.settle)?;
-    dump(control, &pid, "settle")?;
+    let settle_dump = dump(control, &pid, "settle", &mut dumps)?;
     let frames_before = watch.frames();
     let mark = watch.mark();
     let end = Instant::now() + timing.idle;
@@ -156,32 +159,17 @@ fn run_child(
     }
     let frames_main = watch.frames() - frames_before;
     let since = watch.since(&mark);
-    dump(control, &pid, "idle")?;
+    let idle_dump = dump(control, &pid, "idle", &mut dumps)?;
     let mut run = Run::default();
-    // The first frame's, the settle's and the idle window's dumps are 1 to
-    // 3; each pointer step's comes after them, zeroed at its start.
-    if let Some((client, steps)) = pointer {
-        let mut dumps = 3;
-        let id = child.id();
-        let mut running = Running {
-            child,
-            watch,
-            program,
-            timeout: timing.first_frame,
-        };
-        let mut meter = CallgrindMeter::new(control, id, out, &mut dumps);
-        move_pointer(&mut run, &mut running, client, steps, &mut meter, "", "")?;
-    }
-    window::end(opened, &mut run)?;
     if let Some(started) = &started {
         started
             .unchanged(watch)
             .map_err(|e| windows::error(program, watch, e))?;
     }
 
-    let first = totals(out, 1)?;
-    let settle = totals(out, 2)?;
-    let idle = totals(out, 3)?;
+    let first = totals(out, first_dump)?;
+    let settle = totals(out, settle_dump)?;
+    let idle = totals(out, idle_dump)?;
     run.push("instructions to first frame (Ir)", Unit::Count, first);
     run.push("instructions in the idle window (Ir)", Unit::Count, idle);
     let frames = match &started {
@@ -206,15 +194,37 @@ fn run_child(
             timing.settle.as_secs()
         ),
     );
+    // The pointer's steps, after the idle window and its rows; each step's
+    // dump follows those above, zeroed at its start.
+    if let Some((client, steps)) = pointer {
+        let id = child.id();
+        let mut running = Running {
+            child,
+            watch,
+            program,
+            timeout: timing.first_frame,
+        };
+        let mut meter = CallgrindMeter::new(control, id, out, &mut dumps);
+        move_pointer(&mut run, &mut running, client, steps, &mut meter, "", "")?;
+    }
+    window::end(opened, &mut run)?;
     run.note("load average at the first frame", load);
     run.note("renderer", watch.renderer());
     run.presented = watch.presented();
     Ok(run)
 }
 
-/// Asks Callgrind in process `pid` to write a dump named `label`.
-fn dump(control: &dyn Fn() -> Command, pid: &str, label: &str) -> Result<(), Error> {
-    self::control(control, &["--dump", label, pid])
+/// Asks Callgrind in process `pid` to write a dump named `label`, the run's
+/// next after the `dumps` so far; its number.
+fn dump(
+    control: &dyn Fn() -> Command,
+    pid: &str,
+    label: &str,
+    dumps: &mut u32,
+) -> Result<u32, Error> {
+    self::control(control, &["--dump", label, pid])?;
+    *dumps += 1;
+    Ok(*dumps)
 }
 
 /// Runs `callgrind_control` (a session client) with `args`: `--dump LABEL

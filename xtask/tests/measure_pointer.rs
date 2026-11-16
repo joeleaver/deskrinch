@@ -83,8 +83,40 @@ mod measure_pointer {
         ] {
             assert!(stdout.contains(row), "no {row:?} in:\n{stdout}");
         }
+        for step in ["1 of 2 (to 1:600,300)", "2 of 2 (to 2:10,10)"] {
+            let frames = number_after(&stdout, &format!("pointer step {step}: frames presented"));
+            assert!(frames >= 1, "step {step} drew nothing:\n{stdout}");
+        }
         let frames = number_after(&stdout, "pointer: frames presented");
         assert!(frames >= 2, "{frames} frames for 2 steps:\n{stdout}");
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn the_start_that_fills_a_warm_shader_cache_takes_the_steps_too() {
+        // Its steps, like a measured run's: with a stand-in that draws
+        // nothing for them, the run fails in the filling start, before run 1.
+        let output = measure(
+            &[
+                "--shader-cache",
+                "warm",
+                "--first-frame-timeout",
+                "5",
+                "--place-pointer",
+                "640,360",
+                "--move-pointer",
+                "600,300",
+            ],
+            STILL,
+        );
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(stderr.contains("filling the shader cache"), "{stderr}");
+        assert!(
+            stderr.contains("presented no frame for pointer step 1 of 1"),
+            "{stderr}"
+        );
+        assert!(!stderr.contains("measure: run 1"), "{stderr}");
     }
 
     #[test]
@@ -116,7 +148,10 @@ mod measure_pointer {
                 "show {show}: pointer step 1 of 1 (to 1:600,300): CPU from the move to settled"
             );
             assert!(stdout.contains(&row), "no {row:?} in:\n{stdout}");
-            let frames = number_after(&stdout, &format!("show {show}: pointer: frames presented"));
+            let frames = number_after(
+                &stdout,
+                &format!("show {show}: pointer step 1 of 1 (to 1:600,300): frames presented"),
+            );
             assert!(frames >= 1, "show {show}:\n{stdout}");
         }
     }

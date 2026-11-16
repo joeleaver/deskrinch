@@ -4,10 +4,8 @@
 //! (`deskrinch-test-client`). The measure tests' stand-ins hear nothing, and
 //! `deskrinch-test-input`'s own tests do not go through the client's lines.
 //!
-//! Run by `cargo xtask compositor-tests` under sway and labwc. Under KWin
-//! the client, xtask's own binary, would have to be granted fake input, and
-//! the suites table grants only a suite's test binary and the shell's
-//! components.
+//! Run by `cargo xtask compositor-tests` under every compositor; under KWin
+//! the client, xtask's own binary, is granted fake input with the suite.
 
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Command, Stdio};

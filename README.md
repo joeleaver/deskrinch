@@ -441,10 +441,11 @@ key measured from the key to settled and followed by a frame. The keys come
 from an input client measure runs in the session (`cargo xtask input`,
 hidden from the help). The program has to say two things in its log, and
 `--type` takes their words, with no default: `--keyboard-line`, the line it
-writes once it has the keyboard (the first key waits for it), and `--query-line`, the line it writes
-at the hide with `{}` where it gives how many characters it was typed (a
-length other than TEXT's fails the run, since a key was lost). The launcher
-writes both at info, so its log level has to let them through:
+writes once it has the keyboard (the first key waits for it), and
+`--query-line`, the line it writes at the hide with `{}` where it gives how
+many characters it was typed (a length other than TEXT's fails the run, since
+a key was lost). The launcher writes both at info, so its log level has to
+let them through:
 
 ```sh
 cargo xtask measure --summon show --dismiss hide --prepares --type term \

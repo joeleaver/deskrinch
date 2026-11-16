@@ -113,6 +113,10 @@ mod measure_typing {
                 "show {show}: typing 3 characters, the keys' sum: CPU from the key to settled"
             );
             assert!(stdout.contains(&total), "no {total:?} in:\n{stdout}");
+            for key in 1..=3 {
+                let row = format!("show {show}: key {key} of 3: frames presented");
+                assert!(number_after(&stdout, &row) >= 1, "{row}:\n{stdout}");
+            }
             let frames = number_after(&stdout, &format!("show {show}: typing: frames presented"));
             assert!(
                 frames >= 3,

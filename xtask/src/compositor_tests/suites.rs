@@ -19,6 +19,12 @@ const XTASK: &str = "xtask";
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
+/// xtask's input client test, whose suite grants xtask's own binary too.
+pub(super) const INPUT_CLIENT: Target = Target {
+    package: XTASK,
+    test: "input_client",
+    backend: Backend::Rust,
+};
 const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 
 /// How many outputs the sessions have, side by side: the window-management
@@ -393,17 +399,17 @@ pub(super) const SUITES: [Suite; 20] = [
         filter: &[],
     },
     // `cargo xtask input`, measure's input client: its lines reach a window
-    // of the test's own. Not under KWin: there the client, xtask's own
-    // binary, would need fake input granted, which this table grants only
-    // to a suite's test binary and the shell's components.
+    // of the test's own. Under KWin the client, xtask's own binary, is
+    // granted fake input with the suite (`granted.rs`).
     Suite {
-        target: Target {
-            package: XTASK,
-            test: "input_client",
-            backend: Backend::Rust,
-        },
-        grant: None,
-        compositors: WLROOTS,
+        target: INPUT_CLIENT,
+        grant: Some(Grant {
+            id: "org.deskrinch.InputClientTests",
+            name: "deskrinch input client tests",
+            wayland: &[deskrinch_test_input::KWIN_FAKE_INPUT_INTERFACE],
+            dbus: &[],
+        }),
+        compositors: ALL,
         passes: PLAIN,
         renders: false,
         programs: &[],

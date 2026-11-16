@@ -71,6 +71,11 @@ pub(crate) fn measure_steps(
             meter.unit(),
             cost,
         );
+        run.push(
+            format!("{}{}: frames presented", rows.prefix, measured.row),
+            Unit::Count,
+            running.watch.frames() - frames,
+        );
         total += cost;
     }
     run.push(
