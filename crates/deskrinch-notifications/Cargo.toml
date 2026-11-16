@@ -1,0 +1,46 @@
+[package]
+name = "deskrinch-notifications"
+description = "The notification daemon: the session's org.freedesktop.Notifications, each notification a popup in a column at the top right of the screen."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "deskrinch-notifications"
+path = "src/main.rs"
+
+[features]
+# rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input),
+# and rinch's DevTools keys: `cargo run -p deskrinch-notifications --features
+# debug`. Off in a normal build.
+debug = ["rinch/debug", "deskrinch-component/debug"]
+
+[dependencies]
+# The look's colour scheme, read from the desktop's settings portal.
+deskrinch-appearance.workspace = true
+# The icon theme's index, and the installed applications, for a
+# notification's icon by name or by its `desktop-entry` hint.
+deskrinch-applications.workspace = true
+deskrinch-bus.workspace = true
+deskrinch-component.workspace = true
+deskrinch-desktop-entries.workspace = true
+deskrinch-icons.workspace = true
+# The service and the model of the live notifications behind it.
+deskrinch-notification-service.workspace = true
+# The status it ends with where it cannot run (the name is another's).
+deskrinch-shell.workspace = true
+deskrinch-theme.workspace = true
+deskrinch-xdg.workspace = true
+# `gpu` adds the GPU renderer beside the software one rinch always has on
+# the desktop; which one draws is chosen at run time. `theme`: the theme
+# variables the popups are styled with (the look is `deskrinch-theme`'s).
+rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
+tracing.workspace = true
+# Who owns the name, when it is taken: the bus's own interface.
+zbus = { workspace = true, features = ["default-rt", "proxy"] }
+
+[lints]
+workspace = true

@@ -34,6 +34,7 @@ deskrinch-gestures = { path = "crates/deskrinch-gestures" }
 deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
+deskrinch-notification-service = { path = "crates/deskrinch-notification-service" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-shell = { path = "crates/deskrinch-shell" }
 deskrinch-start-record = { path = "crates/deskrinch-start-record" }

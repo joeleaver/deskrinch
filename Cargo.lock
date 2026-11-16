@@ -1037,6 +1037,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-notifications"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-appearance",
+ "deskrinch-applications",
+ "deskrinch-bus",
+ "deskrinch-component",
+ "deskrinch-desktop-entries",
+ "deskrinch-icons",
+ "deskrinch-notification-service",
+ "deskrinch-shell",
+ "deskrinch-theme",
+ "deskrinch-xdg",
+ "rinch",
+ "tracing",
+ "zbus 6.2.1",
+]
+
+[[package]]
 name = "deskrinch-panel"
 version = "0.1.0"
 dependencies = [
