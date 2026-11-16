@@ -2,7 +2,8 @@
 //! table of rows, each a [`Suite`] (`super::suite`).
 
 use super::build::{Backend, Target};
-pub(super) use super::suite::{Grant, Pass, SESSION_END, Suite};
+pub(super) use super::passes::Pass;
+pub(super) use super::suite::{Grant, SESSION_END, Suite};
 use crate::session::Compositor;
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
@@ -29,6 +30,10 @@ const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 
 const PLAIN: &[Pass] = &[Pass::Plain];
 
+/// The test client's tests of [`Pass::UhdBesideFullHd`]'s outputs: run by
+/// that pass's row alone.
+const UHD_BESIDE_FULL_HD_TESTS: &str = "uhd_beside_full_hd::";
+
 /// The workspace tests that need a compositor with no workspace protocol
 /// (sway), and those that change KWin's desktops by KWin's own interface.
 const UNSUPPORTED: &str = "unsupported::";
@@ -43,7 +48,7 @@ const NOTIFICATIONS_WAITING_ON_RINCH_2766: &str =
     "clicks::a_popup_that_moves_under_a_resting_pointer_is_held";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 23] = [
+pub(super) const SUITES: [Suite; 24] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -58,7 +63,22 @@ pub(super) const SUITES: [Suite; 23] = [
         passes: PLAIN,
         renders: false,
         programs: &[],
-        filter: &[],
+        filter: &["--skip", UHD_BESIDE_FULL_HD_TESTS],
+    },
+    // The same binary's tests of a 3840x2160 output beside a 1920x1080
+    // one, on those outputs alone.
+    Suite {
+        target: Target {
+            package: TEST_CLIENT,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: &[Pass::UhdBesideFullHd],
+        renders: false,
+        programs: &[],
+        filter: &[UHD_BESIDE_FULL_HD_TESTS],
     },
     Suite {
         target: Target {

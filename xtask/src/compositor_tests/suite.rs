@@ -1,45 +1,12 @@
 //! What a row of the suites table ([`super::suites::SUITES`]) is: a test
-//! binary, what KWin grants it, and the compositors and passes it runs in.
+//! binary, what KWin grants it, and the compositors and passes
+//! ([`super::passes`]) it runs in.
 
 use deskrinch_shell::Component;
-use deskrinch_test_wayland::Transform;
 
 use super::build::Target;
-use crate::session::{Compositor, Outputs, Scale};
-
-/// How many outputs the sessions have, side by side: the window-management
-/// tests move windows between two, and the screen tests tell them apart.
-const OUTPUTS: u32 = 2;
-
-/// A session the suites run in, by how its outputs are.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Pass {
-    /// Scale 1, upright: every suite.
-    Plain,
-    /// Scale 2, for the suites that check scaling.
-    Scaled,
-    /// Turned a quarter, for the suites that check transforms.
-    Rotated,
-    /// Mirrored and turned a quarter (`flipped-90`): a flip as well as a
-    /// swap of the axes, for the suites that check transforms.
-    Flipped,
-}
-
-impl Pass {
-    /// Every pass, in the order they run.
-    pub(super) const ALL: [Self; 4] = [Self::Plain, Self::Scaled, Self::Rotated, Self::Flipped];
-
-    /// The session's outputs in this pass.
-    pub(super) fn outputs(self) -> Outputs {
-        let normal = Transform::Normal.into();
-        match self {
-            Self::Plain => Outputs::plain(OUTPUTS),
-            Self::Scaled => Outputs::new(OUTPUTS, Scale::TWO, normal),
-            Self::Rotated => Outputs::new(OUTPUTS, Scale::ONE, Transform::Rotated90.into()),
-            Self::Flipped => Outputs::new(OUTPUTS, Scale::ONE, Transform::Flipped90.into()),
-        }
-    }
-}
+use super::passes::Pass;
+use crate::session::Compositor;
 
 /// What KWin grants a test binary.
 #[derive(Debug)]
