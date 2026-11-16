@@ -28,11 +28,9 @@
 //!
 //! - **The app closed:** success.
 //! - **Its display went away** (the compositor exited, crashed or dropped
-//!   the connection): one warning saying so
-//!   ([`DISPLAY_LOST_LINE`](deskrinch_shell::exit_status::DISPLAY_LOST_LINE)),
-//!   and
-//!   [`DISPLAY_LOST`](deskrinch_shell::exit_status::DISPLAY_LOST), which
-//!   its starter reads as a failure to restart after.
+//!   the connection): one warning saying so ([`DISPLAY_LOST_LINE`]), and
+//!   [`DISPLAY_LOST`], which its starter reads as a failure to restart
+//!   after.
 //! - **Any other error of the event loop:** reported, and a failure.
 //!
 //! The lines go through the process's `tracing` subscriber
