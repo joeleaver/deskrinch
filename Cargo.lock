@@ -1109,6 +1109,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-switcher"
+version = "0.1.0"
+
+[[package]]
 name = "deskrinch-taskbar"
 version = "0.1.0"
 dependencies = [

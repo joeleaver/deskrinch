@@ -37,6 +37,7 @@ deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-shell = { path = "crates/deskrinch-shell" }
 deskrinch-start-record = { path = "crates/deskrinch-start-record" }
+deskrinch-switcher = { path = "crates/deskrinch-switcher" }
 deskrinch-status-notifier = { path = "crates/deskrinch-status-notifier" }
 deskrinch-taskbar = { path = "crates/deskrinch-taskbar" }
 deskrinch-test-client = { path = "crates/deskrinch-test-client" }
