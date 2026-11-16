@@ -43,6 +43,10 @@ fn the_wait_the_action_and_the_component_with_its_arguments_are_read() {
 fn a_wait_or_an_action_it_does_not_know_is_refused() {
     let base = ["--dir", "/d", "--until", "presented", "--then"];
     assert!(parsed(&[&base[..], &["kill-compositor", "/c"]].concat()).is_ok());
+    let then = |word: &str| parsed(&[&base[..], &[word, "/c"]].concat()).unwrap().then;
+    assert_eq!(then("signal:TERM"), Then::SignalTerm);
+    assert_eq!(then("signal:INT"), Then::SignalInt);
+    assert!(parsed(&[&base[..], &["signal:KILL", "/c"]].concat()).is_err());
     assert!(parsed(&[&base[..], &["reboot", "/c"]].concat()).is_err());
     assert!(
         parsed(&[

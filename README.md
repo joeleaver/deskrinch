@@ -492,6 +492,22 @@ cargo xtask measure --compositor kwin --renderer software \
   --move-pointer 30,700 --move-pointer 640,360 target/release/deskrinch-panel
 ```
 
+`--state DIR` and `--config DIR` start each run's state directory
+(`XDG_STATE_HOME`) or configuration directory (`XDG_CONFIG_HOME`) with a
+copy of `DIR`, so that the program is measured with that state or that
+configuration: the launcher with a record of starts in
+`DIR/deskrinch/starts.toml`, the wallpaper with a picture in
+`DIR/deskrinch/config.toml`. The copy is made before the program starts and
+nothing is written back; the report's header names what was seeded and the
+files it held:
+
+```sh
+mkdir -p /tmp/wallpaper-config/deskrinch
+printf '[wallpaper]\nimage = "/path/to/picture.jpg"\n' > /tmp/wallpaper-config/deskrinch/config.toml
+cargo xtask measure --outputs 2 --windows 2 --renderer software \
+  --config /tmp/wallpaper-config target/release/deskrinch-wallpaper
+```
+
 Its end-to-end tests measure stand-in scripts in isolated sessions, and are
 ignored by `cargo test` like the session's (`measure_callgrind` needs
 Valgrind; `measure_typing` and `measure_pointer` drive a stand-in with the
