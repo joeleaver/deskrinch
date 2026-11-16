@@ -2,8 +2,9 @@
 //! model, followed by [`follow`]), with its application's icon and its
 //! title cut to fit, marked while active, dimmed while minimized, marked
 //! while it asks for attention, and marked while the pointer is over it
-//! (CSS `:hover`, in the taskbar's stylesheet). A click of the primary button activates its
-//! window, or minimizes the active one; the middle button closes it.
+//! (CSS `:hover`, in the taskbar's stylesheet). A click of the primary
+//! button activates its window, or minimizes the active one; the middle
+//! button closes it.
 //!
 //! The buttons share the room the bar leaves the taskbar (its width, from
 //! rinch's `bounds_signal`, refreshed after each layout), shrink to their
@@ -13,9 +14,8 @@
 //!
 //! It draws only when what it shows changes, or the pointer moves onto or
 //! off a button (one frame each, a paint without layout): the buttons come
-//! as one value
-//! per change of the window list, each button's parts are memos of it, and
-//! the list is keyed by window.
+//! as one value per change of the window list, each button's parts are
+//! memos of it, and the list is keyed by window.
 
 mod button;
 mod follow;
