@@ -459,7 +459,11 @@ cargo xtask measure --summon show --dismiss hide --prepares --type term \
 `--place-pointer POINT` and `--move-pointer POINT` (repeatable) move the
 pointer through the same client: placed first, unmeasured, then moved to each
 point in turn, each step measured from the move to settled and followed by a
-frame, as a key is. A point is `X,Y` on the session's first output or `N:X,Y`
+frame, as a key is. Each step, key or move, also says how many of its frames
+ran reactive work (a signal notified): a hover alone is a paint, so such a
+frame is the program's own work in the step's span, a clock's minute say, and
+a run whose step saw one marks it in its notes, so that a dearer row says
+why. A point is `X,Y` on the session's first output or `N:X,Y`
 on its Nth, in logical pixels. For a program measured by its start and idle
 window, such as the panel, the steps come after the idle window, any
 `--window` window still open, so the idle figures stay those of a run without

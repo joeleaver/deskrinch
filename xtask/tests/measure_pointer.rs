@@ -30,6 +30,12 @@ mod measure_pointer {
     const DRAWS: &str = "echo '[PERF] frame 1: style 0.10ms' >&2; n=1; \
                          while :; do sleep 0.3; n=$((n + 1)); \
                          echo \"[PERF] frame $n: paint_frames=1\" >&2; done";
+    /// As [`DRAWS`], each frame after the first running reactive work, as a
+    /// clock's tick does: a signal notified.
+    const DRAWS_REACTIVE: &str = "echo '[PERF] frame 1: style 0.10ms' >&2; n=1; \
+                                  while :; do sleep 0.3; n=$((n + 1)); \
+                                  echo \"[PERF] frame $n: style 0.10ms | paint_frames=1 \
+                                  effect_runs=1 signal_notifies=1\" >&2; done";
     /// A stand-in that presents its first frame and nothing more.
     const STILL: &str = "echo '[PERF] frame 1: style 0.10ms' >&2; exec sleep 600";
 
@@ -86,9 +92,39 @@ mod measure_pointer {
         for step in ["1 of 2 (to 1:600,300)", "2 of 2 (to 2:10,10)"] {
             let frames = number_after(&stdout, &format!("pointer step {step}: frames presented"));
             assert!(frames >= 1, "step {step} drew nothing:\n{stdout}");
+            let reactive = number_after(
+                &stdout,
+                &format!("pointer step {step}: of them with reactive work"),
+            );
+            assert_eq!(reactive, 0, "step {step}:\n{stdout}");
         }
+        assert!(
+            !stdout.contains("ran reactive work"),
+            "a step marked:\n{stdout}"
+        );
         let frames = number_after(&stdout, "pointer: frames presented");
         assert!(frames >= 2, "{frames} frames for 2 steps:\n{stdout}");
+    }
+
+    #[test]
+    #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
+    fn a_step_whose_span_saw_reactive_work_is_marked() {
+        let output = measure(
+            &["--place-pointer", "640,360", "--move-pointer", "600,300"],
+            DRAWS_REACTIVE,
+        );
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(output.status.success(), "{stdout}\n{stderr}");
+        let step = "pointer step 1 of 1 (to 1:600,300)";
+        let frames = number_after(&stdout, &format!("{step}: frames presented"));
+        let reactive = number_after(&stdout, &format!("{step}: of them with reactive work"));
+        assert!(reactive >= 1 && reactive <= frames, "{stdout}");
+        let mark = format!("{step}: {reactive} of its {frames} frame(s) ran reactive work");
+        assert!(
+            stdout.contains(&mark),
+            "the step is not marked in the run's notes:\n{stdout}"
+        );
     }
 
     #[test]

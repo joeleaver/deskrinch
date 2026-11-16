@@ -87,6 +87,15 @@ run without them; with --summon, after each show (and its typed query). A
 run fails, recording nothing, if a step leads to no frame within
 --first-frame-timeout, or if the client refuses a step or ends.
 
+Each step, a key of --type's or a pointer move, reports its frames and how
+many of them ran reactive work (a signal notified, as rinch's frame lines
+say): the program's own work, such as a clock's minute, that fell in the
+step's span, where a hover alone is a paint. A run whose step saw such a
+frame says so in its notes (\"N of its M frame(s) ran reactive work\"): that
+step's figure includes the program's own work, not only the step's. The
+frames are read once the step is measured (under --instructions, once its
+dump is written), so they cover the span its figure does.
+
 --window APP_ID opens one window with that app id in the session at the
 idle window's start (once it has had its first configure and drawn), and
 keeps it open to its end: the idle figures then include what it costs the
