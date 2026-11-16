@@ -48,8 +48,11 @@
 //! software one, chosen at run time, `RINCH_RENDERER` overriding.
 
 mod actions;
+mod column;
 mod feed;
+mod fit;
 mod owner;
+mod pauses;
 mod picture;
 mod policy;
 mod popup;

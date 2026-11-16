@@ -88,6 +88,12 @@ pub const NOTIFICATIONS: Component = Component {
     restart: SHELL_RESTART,
 };
 
+/// What the notification daemon says, at info level, once its UI is up
+/// and its display connection made: from then on it shows what comes. It
+/// owns its name before that ([`NOTIFICATIONS`] is ready on the name), so a
+/// starter that needs the display in use waits for this line too.
+pub const NOTIFICATIONS_UP_LINE: &str = "notifications: up, showing what comes";
+
 /// The launcher: hidden at first, it owns its name on the session bus,
 /// through which a key binding (or anything else) summons it. It uses
 /// nothing restricted.

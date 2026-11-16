@@ -3,10 +3,17 @@
 //! layout constants of [`policy`](crate::policy). No colour or metric of
 //! the daemon's own.
 //!
-//! Nothing paints but a popup: the page, the column and the gaps between
-//! popups are transparent, so that a surface that takes only its painted
-//! pixels takes exactly the popups. So a popup has no shadow, which would
-//! paint into the gaps; its border sets it apart.
+//! Nothing paints but a popup and the count line's text: the page, the
+//! column and the gaps between popups are transparent. A popup has no
+//! shadow, which would paint into the gaps; its border sets it apart.
+//!
+//! The column fills the window's height, the room. The popups' container
+//! is a flex column that wraps: the popups that fit whole are in its first
+//! column, and the rest wrap into a second one, clipped away
+//! (`overflow: hidden`). The count line sits under the container, and
+//! takes its room only while it is there. A waiting popup (wrapped, or a
+//! first one too tall for the room) is `visibility: hidden`: laid out,
+//! never seen.
 //!
 //! The body is cut short with `-webkit-line-clamp` on purpose; rinch issue
 //! 2748 (a removed clamped element panics the next layout) is a rinch bug
@@ -17,13 +24,26 @@ use crate::policy::{BODY_LINES, ICON_SIZE, WIDTH};
 /// The window's stylesheet.
 pub(crate) fn sheet() -> String {
     format!(
-        "body {{ background: transparent; margin: 0; }}
+        "html, body {{ background: transparent; margin: 0; height: 100%; }}
 .column {{
-    box-sizing: border-box; width: {WIDTH}px;
+    box-sizing: border-box; width: {WIDTH}px; height: 100%;
     display: flex; flex-direction: column;
     gap: var(--rinch-spacing-sm);
     padding: var(--rinch-spacing-sm);
 }}
+.popups {{
+    flex: 1; min-height: 0;
+    display: flex; flex-direction: column; flex-wrap: wrap; align-content: flex-start;
+    gap: var(--rinch-spacing-sm);
+    overflow: hidden;
+}}
+.slot {{ width: 100%; flex: none; }}
+.count {{
+    flex: none;
+    color: var(--rinch-color-dimmed);
+    font-size: var(--rinch-font-size-sm);
+}}
+.popup.waiting {{ visibility: hidden; }}
 .popup {{
     box-sizing: border-box;
     display: flex; flex-direction: column;

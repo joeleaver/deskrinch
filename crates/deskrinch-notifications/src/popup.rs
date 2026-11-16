@@ -10,10 +10,17 @@
 //!   body invokes the default one, when there is one.
 //! - A critical notification has the theme's red border.
 //!
-//! While the pointer is over a popup its expiry waits (the service's
-//! pause); it goes on when the pointer leaves. A popup is its notification's
-//! id: when the sender replaces the notification, the popup stays and draws
-//! the new content, and stays paused if it was.
+//! While the pointer is over a popup its expiry waits; it goes on when the
+//! pointer leaves (through the [`Column`]'s pauses, which also hold a
+//! waiting one). A popup is its notification's id: when the sender replaces
+//! the notification, the popup stays and draws the new content, and stays
+//! paused if it was.
+//!
+//! Each popup reports where it landed after each layout ([`Column::place`]).
+//! A waiting popup (wrapped out of the column, or a first one taller than
+//! the room) is hidden and outside the input region; a shown one is marked
+//! in it (`data-input-region`), so the window takes the pointer over the
+//! popups alone.
 
 use std::sync::Arc;
 
@@ -23,7 +30,9 @@ use deskrinch_notification_service::{Action, Handle, Notification, NotificationI
 use rinch::prelude::*;
 
 use crate::actions::{self, Button};
+use crate::column::Column;
 use crate::feed::State;
+use crate::fit::Place;
 use crate::picture::Wanted;
 use crate::policy::ICON_SIZE;
 
@@ -34,6 +43,7 @@ pub(crate) struct Shared {
     pub(crate) state: Signal<State>,
     pub(crate) index: Signal<Option<Arc<Index>>>,
     pub(crate) applications: Signal<Arc<Applications>>,
+    pub(crate) column: Column,
 }
 
 /// The popup of notification `id`.
@@ -49,24 +59,33 @@ pub(crate) fn popup(__scope: &mut RenderScope, id: NotificationId, shared: &Shar
     let has_default = part(notification, |n| n.default_action().is_some());
     let icon = icon_path(notification, shared);
 
-    let (pause, resume, dismiss, open) = (
-        shared.handle.clone(),
+    let (dismiss, open, invoke) = (
         shared.handle.clone(),
         shared.handle.clone(),
         shared.handle.clone(),
     );
-    let invoke = shared.handle.clone();
     let index = shared.index;
+    let node: Signal<Option<NodeHandle>> = Signal::new(None);
+    report_place(node, id, &shared.column);
+    let (entered, left, hidden) = (
+        shared.column.clone(),
+        shared.column.clone(),
+        shared.column.clone(),
+    );
+    let waiting = Memo::new(move || hidden.waiting(id));
     rsx! {
         div {
-            class: {move || if critical.get() { "popup critical" } else { "popup" }},
-            onmouseenter: move || {
-                // Not live any more: nothing to pause.
-                let _gone = pause.pause(id);
-            },
-            onmouseleave: move || {
-                let _gone = resume.resume(id);
-            },
+            ref: node,
+            class: {move || {
+                match (critical.get(), waiting.get()) {
+                    (_, true) => "popup waiting",
+                    (true, false) => "popup critical",
+                    (false, false) => "popup",
+                }
+            }},
+            "data-input-region": {move || if waiting.get() { "none" } else { "" }},
+            onmouseenter: move || entered.pointer(id, true),
+            onmouseleave: move || left.pointer(id, false),
             div {
                 class: "header",
                 if let Some(src) = icon.get() {
@@ -112,6 +131,26 @@ pub(crate) fn popup(__scope: &mut RenderScope, id: NotificationId, shared: &Shar
             }
         }
     }
+}
+
+/// Reports to `column`, after each layout, where the popup of `id` (its
+/// root, once `node` holds it) landed.
+fn report_place(node: Signal<Option<NodeHandle>>, id: NotificationId, column: &Column) {
+    let column = column.clone();
+    rinch::reactive::Effect::new(move || {
+        if let Some(node) = node.get() {
+            let bounds = node.bounds_signal().get();
+            column.place(
+                id,
+                Place {
+                    x: bounds.x,
+                    y: bounds.y,
+                    width: bounds.width,
+                    height: bounds.height,
+                },
+            );
+        }
+    });
 }
 
 /// A part of the popup's notification, `f` of it, followed; the part's
