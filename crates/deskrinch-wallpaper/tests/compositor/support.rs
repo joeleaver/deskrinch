@@ -8,12 +8,15 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_test_client::Compositor;
-use deskrinch_test_component::{Component, Mark, Renderer, Watch, log};
+use deskrinch_test_component::{Component, Mark, Renderer, Watch, log, programs};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use deskrinch_test_wait::{PATIENCE, wait_for};
 
-/// The wallpaper binary Cargo built.
-const WALLPAPER: &str = env!("CARGO_BIN_EXE_deskrinch-wallpaper");
+/// The wallpaper binary the run built for this suite
+/// ([`deskrinch_test_component::programs`]).
+fn wallpaper_binary() -> PathBuf {
+    programs::program(deskrinch_shell::WALLPAPER.package).unwrap_or_else(|why| panic!("{why}"))
+}
 
 /// A colour no compositor's own background has.
 pub(crate) const BLUE: Rgba = Rgba::opaque(0x24, 0x5c, 0xd6);
@@ -63,7 +66,7 @@ impl Wallpaper {
     /// windows show is the screen's to tell.
     pub(crate) fn start() -> Self {
         let renderer = Renderer::of_run();
-        let component = Component::start(Command::new(WALLPAPER), renderer).unwrap();
+        let component = Component::start(Command::new(wallpaper_binary()), renderer).unwrap();
         let watch = component.watch();
         let said = watch.wait_for_line(PATIENCE, |line| {
             log::presents_with_software(line) || log::adapter(line).is_some()
