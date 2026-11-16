@@ -10,6 +10,9 @@
 //!   `SIGPIPE`, is clean and is not restarted; any other exit code, or any
 //!   other signal, is a failure. So a component ended with a plain `kill`
 //!   (`SIGTERM`) stays gone.
+//! - **What is never restarted** ([`Exit::CannotRunHere`]): the status
+//!   [`CANNOT_RUN_HERE`], which a component ends with when it cannot run
+//!   where it was started. systemd's `RestartPreventExitStatus=`.
 //! - **What the limit counts** ([`Starts`]): starts, the first included, in
 //!   systemd's start-limit window (`StartLimitBurst=`,
 //!   `StartLimitIntervalSec=`), which is not a sliding one. The rule is
@@ -26,6 +29,8 @@
 use std::os::unix::process::ExitStatusExt;
 use std::process::ExitStatus;
 use std::time::{Duration, Instant};
+
+use crate::exit_status::CANNOT_RUN_HERE;
 
 /// Whether, and how often, a component that ends is started again.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -45,14 +50,16 @@ pub enum Restart {
 }
 
 impl Restart {
-    /// The policy as a systemd unit states it, one line each: `Restart=` in
-    /// `[Service]`, the start limit in `[Unit]`.
+    /// The policy as a systemd unit states it, one line each: `Restart=` and
+    /// `RestartPreventExitStatus=` in `[Service]`, the start limit in
+    /// `[Unit]`.
     #[must_use]
     pub fn systemd_lines(self) -> Vec<String> {
         match self {
             Self::Never => vec!["Restart=no".to_owned()],
             Self::OnFailure { burst, interval } => vec![
                 "Restart=on-failure".to_owned(),
+                format!("RestartPreventExitStatus={CANNOT_RUN_HERE}"),
                 format!("StartLimitBurst={burst}"),
                 format!("StartLimitIntervalSec={}", interval.as_secs()),
             ],
@@ -65,6 +72,8 @@ impl Restart {
 pub enum Exit {
     /// Code 0, or ended by `SIGHUP`, `SIGINT`, `SIGTERM` or `SIGPIPE`.
     Clean,
+    /// Code [`CANNOT_RUN_HERE`]: it cannot run where it was started.
+    CannotRunHere,
     /// Any other code, or any other signal.
     Failed,
 }
@@ -73,11 +82,13 @@ pub enum Exit {
 const CLEAN_SIGNALS: [i32; 4] = [libc::SIGHUP, libc::SIGINT, libc::SIGTERM, libc::SIGPIPE];
 
 impl Exit {
-    /// How `status` reads under systemd's rule for `Restart=on-failure`.
+    /// How `status` reads under systemd's rule for `Restart=on-failure`,
+    /// with [`CANNOT_RUN_HERE`] in `RestartPreventExitStatus=`.
     #[must_use]
     pub fn of(status: &ExitStatus) -> Self {
         match (status.code(), status.signal()) {
             (Some(0), _) => Self::Clean,
+            (Some(code), _) if code == i32::from(CANNOT_RUN_HERE) => Self::CannotRunHere,
             (None, Some(signal)) if CLEAN_SIGNALS.contains(&signal) && !status.core_dumped() => {
                 Self::Clean
             }
@@ -96,6 +107,9 @@ pub enum Verdict {
     },
     /// It ended cleanly: not started again.
     Clean,
+    /// It cannot run where it was started ([`Exit::CannotRunHere`]): not
+    /// started again.
+    CannotRunHere,
     /// Its policy is [`Restart::Never`]: not started again.
     Never,
     /// It failed, and starting it again would pass the limit: not started
@@ -142,8 +156,10 @@ impl Starts {
         if self.exhausted {
             return Verdict::Exhausted { burst, interval };
         }
-        if exit == Exit::Clean {
-            return Verdict::Clean;
+        match exit {
+            Exit::Clean => return Verdict::Clean,
+            Exit::CannotRunHere => return Verdict::CannotRunHere,
+            Exit::Failed => {}
         }
         // systemd's `ratelimit_below`: past the window, a new one.
         if now.saturating_duration_since(self.begin) > interval {
