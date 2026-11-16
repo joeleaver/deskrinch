@@ -30,6 +30,8 @@ mod placement;
 #[cfg(test)]
 mod support;
 #[cfg(test)]
+mod switcher;
+#[cfg(test)]
 mod taskbar;
 #[cfg(test)]
 mod taskbar_clicks;

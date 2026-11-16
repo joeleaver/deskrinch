@@ -48,28 +48,47 @@ fn split(lines: &[String]) -> (Vec<String>, Vec<String>) {
     (reactive, drawn)
 }
 
-/// Asserts that rinch's counters on `frame` say it repainted
-/// (`paint_frames`) and resolved no layout: rinch's layout pass may be
-/// entered, but each entry skipped Taffy because nothing but paint changed
-/// (`layout_skipped_paint_only` equal to `layout_resolves`), and no node's
-/// layout style changed (`taffy_style_changes` absent: rinch leaves a
-/// counter that is 0 out of the line).
+/// Every frame the panel drew since its log line `from`, reactive or not, as
+/// [`split`] keeps them, and the line the read stopped at, where the next
+/// step's window begins: what a step that is no hover (a switch of the
+/// current workspace) drew.
+pub(crate) fn drawn_since(panel: &Panel, from: usize) -> (Vec<String>, usize) {
+    let lines = panel.watch().lines();
+    let (mut drawn, other) = split(&lines[from..]);
+    drawn.extend(other);
+    (drawn, lines.len())
+}
+
+/// What keeps `frame` from being paint-only, if anything, by rinch's
+/// counters on it: it repainted (`paint_frames`) and resolved no layout,
+/// rinch's layout pass entered but each entry skipping Taffy because
+/// nothing but paint changed (`layout_skipped_paint_only` equal to
+/// `layout_resolves`), and no node's layout style changed
+/// (`taffy_style_changes` absent: rinch leaves a counter that is 0 out of
+/// the line).
+fn paint_only_fault(frame: &str) -> Option<&'static str> {
+    if counter(frame, "paint_frames") != Some(1) {
+        Some("the frame did not repaint")
+    } else if counter(frame, "layout_skipped_paint_only") != counter(frame, "layout_resolves") {
+        Some("the frame resolved layout")
+    } else if counter(frame, "taffy_style_changes").is_some() {
+        Some("the frame changed a layout style")
+    } else {
+        None
+    }
+}
+
+/// Whether `frame` repainted and laid nothing out ([`paint_only_fault`]).
+pub(crate) fn is_paint_only(frame: &str) -> bool {
+    paint_only_fault(frame).is_none()
+}
+
+/// Asserts that `frame` repainted and laid nothing out
+/// ([`paint_only_fault`]).
 pub(crate) fn assert_paint_only(frame: &str, what: &str) {
-    assert_eq!(
-        counter(frame, "paint_frames"),
-        Some(1),
-        "{what}: the frame did not repaint: {frame}"
-    );
-    assert_eq!(
-        counter(frame, "layout_skipped_paint_only"),
-        counter(frame, "layout_resolves"),
-        "{what}: the frame resolved layout: {frame}"
-    );
-    assert_eq!(
-        counter(frame, "taffy_style_changes"),
-        None,
-        "{what}: the frame changed a layout style: {frame}"
-    );
+    if let Some(fault) = paint_only_fault(frame) {
+        panic!("{what}: {fault}: {frame}");
+    }
 }
 
 /// The hover's step since the panel's log line `from`: its reactive frames
