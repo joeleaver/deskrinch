@@ -62,6 +62,12 @@ mod measure_prepares {
         let before = number_after(&stdout, "show 1: prepared frames before it, in all");
         assert_eq!(before, 1, "show 1 came before the preparation:\n{stdout}");
         assert!(!stdout.contains(NOTE), "{stdout}");
+        assert!(
+            stdout.contains(
+                "Prepares (--prepares): the first show waited for the program's first preparation"
+            ),
+            "the header does not say the run waited:\n{stdout}"
+        );
     }
 
     #[test]
@@ -91,5 +97,6 @@ mod measure_prepares {
         assert_eq!(before, 0, "{stdout}");
         assert!(stdout.contains(NOTE), "no note in:\n{stdout}");
         assert!(stdout.contains("--prepares waits"), "{stdout}");
+        assert!(!stdout.contains("Prepares (--prepares)"), "{stdout}");
     }
 }

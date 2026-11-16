@@ -431,6 +431,14 @@ fn header(request: &Request) -> String {
         }
         None => header,
     };
+    let header = if request.summons.as_ref().is_some_and(|s| s.prepares) {
+        format!(
+            "{header}\nPrepares (--prepares): the first show waited for the program's first \
+             preparation, then a quiet second"
+        )
+    } else {
+        header
+    };
     let header = match request.summons.as_ref().and_then(|s| s.typing.as_ref()) {
         Some(typing) => format!(
             "{header}\nTyped after each show: {:?}, a key at a time, each to settled",
