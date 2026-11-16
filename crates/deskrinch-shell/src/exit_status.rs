@@ -8,6 +8,9 @@
 //!   running a bound after the first, ends it by the signal instead, which
 //!   the restart policy also reads as clean; a signal ignored when it
 //!   started stays ignored. `deskrinch-component`'s `stop` module is how.
+//!   From the moment it has said [`stops_in_order_line`] (at debug level),
+//!   a stop signal ends it so; before, it is still starting, and the
+//!   signal's default action ends it, by the signal.
 //! - **[`DISPLAY_LOST`] (69), its display went away**, having said
 //!   [`DISPLAY_LOST_LINE`]: restarted.
 //! - **[`CANNOT_RUN_HERE`] (78), it cannot run where it was started**: not
@@ -61,4 +64,12 @@ pub const CANNOT_RUN_HERE: u8 = 78;
 #[must_use]
 pub fn asked_to_stop_line(signal: &str) -> String {
     format!("asked to stop by {signal}; ending")
+}
+
+/// What a component says, in one line at debug level, once a stop signal
+/// ends it in order (see the module's list): process `pid` (its own), so
+/// that a starter of several finds whose line it is.
+#[must_use]
+pub fn stops_in_order_line(pid: u32) -> String {
+    format!("process {pid} now ends in order when asked to stop")
 }

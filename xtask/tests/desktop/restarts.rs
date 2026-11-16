@@ -10,11 +10,14 @@
 use std::fs;
 use std::path::Path;
 
+use deskrinch_shell::exit_status::stops_in_order_line;
 use deskrinch_test_wait::wait_for;
 use deskrinch_window_management::{Action, WindowManagement};
 use rustix::process::{Pid, Signal, kill_process};
 
-use crate::support::{Desktop, LAUNCHER, LAUNCHER_INTERFACE, LAUNCHER_PATH, outer_windows, start};
+use crate::support::{
+    Desktop, LAUNCHER, LAUNCHER_INTERFACE, LAUNCHER_PATH, outer_windows, start, start_logging,
+};
 
 /// The processes of the nested session at `root` running `package`'s
 /// binary.
@@ -115,20 +118,30 @@ fn a_component_killed_comes_back_and_is_ready_again() {
     close(desktop);
 }
 
+/// A component asked to stop once it is up ends in order, with status 0,
+/// and is not started again.
+///
+/// `SIGTERM` is sent only once the panel has said that a stop signal now
+/// ends it in order (`stops_in_order_line`, its own words, from the moment
+/// its handlers are in place): sent before, it would end the panel by the
+/// signal, which is clean too but another case, and which of the two
+/// happened would depend on how far the panel had got. The end by the
+/// signal itself is the restart rules' (`deskrinch_shell::restart::Exit`),
+/// tested there: no component the desktop starts goes without the handlers.
 #[test]
 #[ignore = "needs a compositor: cargo xtask compositor-tests"]
 fn a_component_ended_cleanly_is_not_started_again() {
-    let desktop = start(&[], &[]);
+    let desktop = start_logging("warn,deskrinch_component::stop=debug");
     let panel = the_process(&desktop, "deskrinch-panel");
-    // `SIGTERM`, a plain `kill`: a clean end, as systemd's on-failure has it.
+    let pid = u32::try_from(panel.as_raw_nonzero().get()).unwrap();
+    wait_said(&desktop, &stops_in_order_line(pid));
+    // `SIGTERM`, a plain `kill`: a session's way of stopping a component.
     kill_process(panel, Signal::TERM).unwrap();
     wait_said(
         &desktop,
-        "desktop: deskrinch-panel exited cleanly (signal: 15 (SIGTERM)); not started again, the \
+        "desktop: deskrinch-panel exited cleanly (exit status: 0); not started again, the \
          desktop runs on without it",
     );
-    // Said once the decision is made; a start would follow it, not precede.
-    assert_eq!(processes(&desktop.root, "deskrinch-panel"), []);
     assert!(
         launcher_answers(&desktop).is_ok(),
         "the desktop runs on: {}",
