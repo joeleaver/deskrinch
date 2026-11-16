@@ -15,17 +15,18 @@ pub(crate) fn step(panel: &Panel) -> usize {
     panel.watch().lines().len()
 }
 
-/// The panel's frame lines since its log line `from` that drew, as
-/// (reactive, not reactive): a frame that notified a signal did reactive
-/// work.
+/// The panel's frame lines since its log line `from`, as (reactive, not
+/// reactive): a frame that notified a signal did reactive work, and is
+/// kept whatever it painted, since that work is the step's to account for.
 ///
-/// A redraw that rinch served from the cached pixels, with nothing dirty
-/// (`paint_cached_frames` and no `paint_frames`), drew nothing, and is left
-/// out. rinch logs one as a frame line (seen on rinch b31389bb when the
-/// pointer left the panel and no `:hover` rule had anything to change).
+/// Of the frames without reactive work, a redraw that rinch served from the
+/// cached pixels, with nothing dirty (`paint_cached_frames` and no
+/// `paint_frames`), drew nothing, and is left out. rinch logs one as a
+/// frame line (seen on rinch b31389bb when the pointer left the panel and
+/// no `:hover` rule had anything to change).
 pub(crate) fn since(panel: &Panel, from: usize) -> (Vec<String>, Vec<String>) {
     let lines = panel.watch().lines();
-    lines[from..]
+    let (reactive, frames): (Vec<String>, Vec<String>) = lines[from..]
         .iter()
         .filter(|line| {
             matches!(
@@ -36,12 +37,16 @@ pub(crate) fn since(panel: &Panel, from: usize) -> (Vec<String>, Vec<String>) {
                 })
             )
         })
+        .cloned()
+        .partition(|line| counter(line, "signal_notifies").is_some());
+    let drawn = frames
+        .into_iter()
         .filter(|line| {
             counter(line, "paint_frames").is_some()
                 || counter(line, "paint_cached_frames").is_none()
         })
-        .cloned()
-        .partition(|line| counter(line, "signal_notifies").is_some())
+        .collect();
+    (reactive, drawn)
 }
 
 /// Asserts that rinch's counters on `frame` say it repainted
