@@ -38,6 +38,12 @@ pub(crate) fn long_about() -> String {
         "None of the caller's {}.",
         session::REAL_SESSION_VARIABLES.join(", ")
     ));
+    let audio = item(&format!(
+        "None of the caller's audio variables, which lead to the real \
+         session's sound server: every one beginning with {}, and {}.",
+        session::AUDIO_PREFIXES.join(", "),
+        session::AUDIO_VARIABLES.join(" and ")
+    ));
     let compositor_pid = COMPOSITOR_PID;
     format!(
         "\
@@ -70,6 +76,7 @@ The environment the command and everything it starts see:
   - Under KWin, not CI, for KWin itself: its virtual backend takes CI to
     mean KWin's own CI and then looks only at /dev/dri/card1.
 {removed}
+{audio}
   - Everything else as the caller has it (PATH, the locale, TERM, CARGO_* and
     RUST* settings, ...).
 Caches follow XDG_CACHE_HOME and HOME, so a GPU client's shader cache (Mesa's
@@ -250,6 +257,8 @@ mod tests {
         let help = long_about();
         assert!(help.lines().all(|line| line.len() <= 80), "{help}");
         assert!(help.contains("XDG_VTNR"));
+        assert!(help.contains("PIPEWIRE_"));
+        assert!(help.contains("ALSA_CONFIG_PATH"));
     }
 
     /// The README says what a client sees; it names every variable the
@@ -260,12 +269,20 @@ mod tests {
         let names = session::REAL_SESSION_VARIABLES
             .iter()
             .chain(session::SESSION_DIRS.iter().map(|(name, _)| name))
-            .chain(session::SEARCH_PATHS.iter().map(|(name, _)| name));
+            .chain(session::SEARCH_PATHS.iter().map(|(name, _)| name))
+            .chain(session::AUDIO_VARIABLES);
         // As code: `NAME` alone, or `NAME=value`.
         for name in names {
             assert!(
                 readme.contains(&format!("`{name}`")) || readme.contains(&format!("`{name}=")),
                 "README lacks `{name}`"
+            );
+        }
+        // A prefix as `PREFIX*`.
+        for prefix in session::AUDIO_PREFIXES {
+            assert!(
+                readme.contains(&format!("`{prefix}*`")),
+                "README lacks `{prefix}*`"
             );
         }
         for (name, value) in session::SEARCH_PATHS {
