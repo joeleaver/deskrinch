@@ -15,7 +15,7 @@
 //!   in place; the window goes with the last.
 //! - [`clicks`]: the close button dismisses; an action's button and the
 //!   default action are invoked and signalled; the pointer over a popup
-//!   holds its expiry.
+//!   holds its expiry, and so does one that moves under a resting pointer.
 //! - [`frames`]: one frame for a change, none while nothing changes.
 //! - [`burst`]: changes in quick succession, every shown popup drawn whole
 //!   at the end.

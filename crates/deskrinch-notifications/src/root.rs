@@ -75,6 +75,11 @@ pub(crate) fn notifications(parts: Parts) -> NodeHandle {
         })
     });
     let column = Column::new(handle.clone(), order);
+    let holder = column.clone();
+    Effect::new(move || {
+        state.with(|_| ());
+        rinch::reactive::untracked(|| holder.hold_again());
+    });
     let shared = Shared {
         handle,
         state,

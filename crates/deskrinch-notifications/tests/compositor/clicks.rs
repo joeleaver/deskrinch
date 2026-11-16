@@ -109,3 +109,34 @@ fn the_pointer_over_a_popup_holds_its_expiry() {
     notifications.point_away(&column);
     assert_eq!(notifications.next_signal(), Signal::Closed(id, EXPIRED));
 }
+
+/// A popup that moves under a resting pointer, because the one above it
+/// closed, is held as one the pointer entered: rinch tells the element now
+/// under the pointer that it was entered, with no motion of the pointer.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn a_popup_that_moves_under_a_resting_pointer_is_held() {
+    let mut notifications = Notifications::start();
+    let lower = notifications.client.simple(0, "Lower", "moves up", 0);
+    let upper = notifications
+        .client
+        .simple(0, "Upper", "closed by its sender", 0);
+    let column = notifications.column("two popups", |c| c.popups.len() == 2);
+    let (top, bottom) = column.popups[0];
+    let middle = (column.left.midpoint(column.right), top.midpoint(bottom));
+    notifications.point(&column, middle.0, middle.1);
+    notifications.client.close(upper).unwrap();
+    assert_eq!(notifications.next_signal(), Signal::Closed(upper, 3));
+    notifications.column("one popup", |c| c.popups.len() == 1);
+    // Now under the resting pointer, given a timeout: held, the
+    // replacement keeping the pause, it outlives it.
+    notifications
+        .client
+        .simple(lower, "Lower", "moves up", 1000);
+    notifications
+        .client
+        .signals
+        .none_within(Duration::from_secs(3));
+    notifications.point_away(&column);
+    assert_eq!(notifications.next_signal(), Signal::Closed(lower, EXPIRED));
+}

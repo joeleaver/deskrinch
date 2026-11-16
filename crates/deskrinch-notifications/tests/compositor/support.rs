@@ -166,9 +166,14 @@ fn changed(output: &str, before: &Image, now: &Image, scale: u32) -> Option<Colu
             }),
         }
     }
+    // The column lies in the output's rightmost `WIDTH`: what changed
+    // further left (a panel along the top, which spans the output) is not
+    // the column's.
+    let column_left = now.width().saturating_sub(WIDTH * scale);
     let popup = (WIDTH - 2 * PADDING) * scale * 3 / 4;
     let (popups, others): (Vec<Run>, Vec<Run>) = runs
         .into_iter()
+        .filter(|run| run.left >= column_left)
         .partition(|run| run.right - run.left >= popup);
     let boxed = if popups.is_empty() { &others } else { &popups };
     let left = boxed.iter().map(|run| run.left).min()?;
