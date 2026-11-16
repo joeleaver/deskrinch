@@ -7,8 +7,9 @@
 //! window opens (`rinch::window::window_roles`: on Linux once its event
 //! loop has started, which is before an `App::windowless` root runs). So
 //! the root asks first ([`verdict`]); without the layer shell the
-//! wallpaper says why, opens nothing, and ends with a failure status
-//! ([`refuse`], [`refused`]).
+//! wallpaper says why, opens nothing, and ends with deskrinch-shell's
+//! `CANNOT_RUN_HERE`, which its starter does not start again: the
+//! compositor will not grow a layer shell ([`refuse`], [`refused`]).
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -46,8 +47,9 @@ pub(crate) fn of_display() -> Verdict {
 /// Set once the wallpaper refused to open.
 static REFUSED: AtomicBool = AtomicBool::new(false);
 
-/// Says why the wallpaper opens nothing, and ends the app (with a failure
-/// status, [`refused`]): it returns, and the caller opens nothing.
+/// Says why the wallpaper opens nothing, and ends the app (with
+/// `CANNOT_RUN_HERE`, [`refused`]): it returns, and the caller opens
+/// nothing.
 pub(crate) fn refuse(verdict: Verdict) {
     let why = match verdict {
         Verdict::Layer => return,
@@ -62,8 +64,8 @@ pub(crate) fn refuse(verdict: Verdict) {
     exit();
 }
 
-/// Whether the wallpaper refused to open; the process then exits with a
-/// failure status.
+/// Whether the wallpaper refused to open; the process then exits with
+/// `CANNOT_RUN_HERE`.
 pub(crate) fn refused() -> bool {
     REFUSED.load(Ordering::Relaxed)
 }
