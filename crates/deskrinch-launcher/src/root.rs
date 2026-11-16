@@ -243,3 +243,6 @@ impl Starter {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;

@@ -1,11 +1,23 @@
 //! The view and the wiring mounted in rinch's test harness
 //! (`rinch::testing::TestApp`): input sent through rinch's own dispatch, as
 //! the desktop shell sends it, and what reached the model, `act` and the
-//! log read back. What needs a compositor (the window shown and hidden, the
-//! activation token, the application started) is the compositor tests'. So
-//! is what follows the window's keyboard focus (hiding when it is lost, the
-//! has-keyboard line): `TestApp` sends the focus change but does not publish
-//! it to `rinch::window::window_focused`, as the desktop shell does.
+//! log read back.
+//!
+//! The wiring is mounted in the window the launcher opens
+//! ([`crate::surface::window_props`]). `TestApp` publishes that window's
+//! keyboard focus to `rinch::window::window_focused` as the desktop shell
+//! does, and records and applies the show and hide requests the wiring
+//! makes, so [`window`] holds what the launcher asks of its window and in
+//! what order: shown and hidden, the keyboard in the field, and the
+//! keyboard lost while shown hiding it. The prepare requests are made by
+//! the root, and are its tests' (`root::tests`).
+//!
+//! That it happens on a real surface is the compositor tests'
+//! (`tests/compositor`): the layer surface mapped and unmapped with its
+//! exclusive keyboard, another client's surface taking the keyboard, the
+//! activation token, the application started.
+
+mod window;
 
 use std::cell::RefCell;
 use std::fmt::Write as _;
@@ -18,7 +30,7 @@ use rinch::prelude::*;
 use rinch::testing::TestApp;
 
 use super::{Wiring, wire};
-use crate::view;
+use crate::{surface, view};
 
 /// An application entry, shown in menus.
 fn entry(id: &str, name: &str) -> Arc<CatalogEntry> {
@@ -183,8 +195,8 @@ fn a_press_on_the_padding_round_the_results_is_off_them() {
 
 // ── The wiring, `act` recorded ──────────────────────────────────────────
 
-/// The wiring mounted, shown or hidden as `shown` says, what it hands `act`
-/// recorded.
+/// The wiring mounted in the launcher's window, shown or hidden as `shown`
+/// says, what it hands `act` recorded.
 struct Wired {
     app: TestApp,
     acts: Rc<RefCell<Vec<Action>>>,
@@ -201,7 +213,7 @@ fn wired(shown: bool) -> Wired {
         Arc::clone(&visibility),
         Rc::clone(&model_slot),
     );
-    let app = TestApp::mount(move |__scope: &mut RenderScope| {
+    let app = TestApp::builder(move |__scope: &mut RenderScope| {
         let model = Signal::new(Model::new());
         *slot.borrow_mut() = Some(model);
         let all = entries();
@@ -218,7 +230,9 @@ fn wired(shown: bool) -> Wired {
                 act: Rc::new(move |action| a.borrow_mut().push(action)),
             },
         )
-    });
+    })
+    .window_props(surface::window_props(shown))
+    .mount();
     let model = taken(&model_slot);
     Wired {
         app,
