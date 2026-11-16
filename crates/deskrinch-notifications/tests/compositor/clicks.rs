@@ -83,18 +83,24 @@ fn a_click_on_the_popup_invokes_its_default_action() {
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_pointer_over_a_popup_holds_its_expiry() {
     let mut notifications = Notifications::start();
-    // Long enough for the pointer to be on it before it expires; the wait
-    // under the pointer outlasts it.
+    // Shown with no timeout, so that a slow first frame is not taken for the
+    // expiry; then given one by a replacement, which starts its timer, and
+    // the pointer moved onto it, which pauses it. The timeout is long
+    // enough for the pointer to be on it first; the wait under the pointer
+    // outlasts it.
     let timeout = Duration::from_secs(8);
-    let id = notifications.client.simple(
-        0,
+    let id = notifications
+        .client
+        .simple(0, "Hold", "under the pointer", 0);
+    let column = notifications.column("the popup", |c| c.popups.len() == 1);
+    let (top, bottom) = column.popups[0];
+    let middle = (column.left.midpoint(column.right), top.midpoint(bottom));
+    notifications.client.simple(
+        id,
         "Hold",
         "under the pointer",
         i32::try_from(timeout.as_millis()).unwrap(),
     );
-    let column = notifications.column("the popup", |c| c.popups.len() == 1);
-    let (top, bottom) = column.popups[0];
-    let middle = (column.left.midpoint(column.right), top.midpoint(bottom));
     notifications.point(&column, middle.0, middle.1);
     notifications
         .client

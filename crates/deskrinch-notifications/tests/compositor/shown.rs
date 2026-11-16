@@ -54,10 +54,12 @@ fn popups_stack_the_newest_on_top() {
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn a_burst_is_all_shown() {
     let mut notifications = Notifications::start();
+    // Summaries alone: three fit an output 360 logical pixels high (the
+    // scale-2 pass), where three with bodies would scroll.
     for n in 1..=3 {
         notifications
             .client
-            .simple(0, &format!("Burst {n}"), "one of three", 0);
+            .simple(0, &format!("Burst {n} of three"), "", 0);
     }
     let column = notifications.column("three popups", |c| c.popups.len() == 3);
     assert!(notifications.top_right(&column), "{column:?}");

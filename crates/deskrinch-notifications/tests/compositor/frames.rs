@@ -2,12 +2,14 @@
 //! is drawn in one presented frame, and nothing is drawn while nothing
 //! changes.
 //!
-//! A frame rinch skips presenting (`soft_presents_skipped`), which sway and
-//! labwc ask for once after a change, draws nothing and is not counted.
+//! A frame of rinch's cached pixels draws nothing and is not counted
+//! ([`deskrinch_test_component::drew`]): the software renderer skips its
+//! present, and the GPU renderer presents the same pixels again after a
+//! change, which this daemon does nothing to ask for.
 
 use std::time::Duration;
 
-use deskrinch_test_component::{PerfLine, perf};
+use deskrinch_test_component::drew;
 use deskrinch_test_notify::Signal;
 use deskrinch_test_wait::comes_true;
 
@@ -17,14 +19,13 @@ use crate::support::Notifications;
 /// asked for by a change comes within a few of the compositor's refreshes.
 const QUIET: Duration = Duration::from_secs(2);
 
-/// The frames presented in `lines` from line `from` on.
+/// The frames that drew something in `lines` from line `from` on.
 fn presented(lines: &[String], from: usize) -> usize {
     lines
         .get(from..)
         .unwrap_or_default()
         .iter()
-        .filter(|line| matches!(perf::parse(line), Some(PerfLine::Frame { .. })))
-        .filter(|line| perf::counter(line, "soft_presents_skipped").unwrap_or(0) == 0)
+        .filter(|line| drew(line))
         .count()
 }
 
