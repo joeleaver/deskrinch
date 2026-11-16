@@ -116,8 +116,8 @@ mod measure_typing {
             for key in 1..=3 {
                 let row = format!("show {show}: key {key} of 3: frames presented");
                 assert!(number_after(&stdout, &row) >= 1, "{row}:\n{stdout}");
-                // The keys are marked as the pointer's steps are: this
-                // stand-in's frames are paints alone.
+                // The keys have the two rows the pointer's steps have:
+                // this stand-in's frames are paints alone.
                 let row = format!("show {show}: key {key} of 3: of them with reactive work");
                 assert_eq!(number_after(&stdout, &row), 0, "{row}:\n{stdout}");
             }

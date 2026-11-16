@@ -14,7 +14,7 @@
 //! but a driver that needs unknown `ioctl`s may not.
 
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -244,14 +244,27 @@ pub(crate) fn control(control: &dyn Fn() -> Command, args: &[&str]) -> Result<()
 /// its description (`desc: Trigger: dump LABEL`), whatever its number, so a
 /// figure is always read from its own span's dump. Callgrind writes a
 /// dump's file when it is asked for it, so the file is waited for.
+///
+/// A run's hints are unique (`first-frame`, `settle`, `idle`, `show-N`,
+/// `hide-N`, `show-N-key-K`, `pointer-K`, `show-N-pointer-K`); two dumps of
+/// one profile with the same hint are an error, never a guess.
 pub(crate) fn totals(out: &Path, label: &str) -> Result<u64, Error> {
     let deadline = Instant::now() + Duration::from_secs(30);
     loop {
-        if let Some(total) = named_dumps(out)
-            .filter(|(hint, _)| hint == label)
-            .find_map(|(_, total)| total)
-        {
-            return Ok(total);
+        let named: Vec<(PathBuf, Option<u64>)> = named_dumps(out)
+            .filter(|(_, hint, _)| hint == label)
+            .map(|(path, _, total)| (path, total))
+            .collect();
+        if named.len() > 1 {
+            let mut files: Vec<PathBuf> = named.into_iter().map(|(path, _)| path).collect();
+            files.sort();
+            return Err(Error::CallgrindHintRepeated {
+                label: label.to_owned(),
+                files,
+            });
+        }
+        if let Some((_, Some(total))) = named.first() {
+            return Ok(*total);
         }
         if Instant::now() >= deadline {
             return Err(Error::Read {
@@ -266,9 +279,9 @@ pub(crate) fn totals(out: &Path, label: &str) -> Result<u64, Error> {
     }
 }
 
-/// The dumps of the profile at `out` written so far: each one's hint, and
-/// its total once it is complete.
-fn named_dumps(out: &Path) -> impl Iterator<Item = (String, Option<u64>)> {
+/// The dumps of the profile at `out` written so far: each one's file, its
+/// hint, and its total once it is complete.
+fn named_dumps(out: &Path) -> impl Iterator<Item = (PathBuf, String, Option<u64>)> {
     let prefix = out
         .file_name()
         .map(|name| format!("{}.", name.to_string_lossy()))
@@ -279,8 +292,8 @@ fn named_dumps(out: &Path) -> impl Iterator<Item = (String, Option<u64>)> {
         .flatten()
         .flatten()
         .filter(move |entry| entry.file_name().to_string_lossy().starts_with(&prefix))
-        .filter_map(|entry| fs::read_to_string(entry.path()).ok())
-        .filter_map(|text| Some((hint(&text)?.to_owned(), parse_totals(&text))))
+        .filter_map(|entry| Some((entry.path(), fs::read_to_string(entry.path()).ok()?)))
+        .filter_map(|(path, text)| Some((path, hint(&text)?.to_owned(), parse_totals(&text))))
 }
 
 /// The hint a dump was asked for with, from its description.
@@ -363,6 +376,28 @@ mod tests {
         assert_eq!(
             hint("version: 1\ndesc: Trigger: Program termination\n"),
             None
+        );
+    }
+
+    #[test]
+    fn two_dumps_of_one_profile_with_one_hint_are_an_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("callgrind.out");
+        fs::write(
+            dir.path().join("callgrind.out.1"),
+            dump_text("pointer-1", 50),
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("callgrind.out.2"),
+            dump_text("pointer-1", 70),
+        )
+        .unwrap();
+        let error = totals(&out, "pointer-1").unwrap_err().to_string();
+        assert!(error.contains("\"pointer-1\""), "{error}");
+        assert!(
+            error.contains("callgrind.out.1") && error.contains("callgrind.out.2"),
+            "{error}"
         );
     }
 }

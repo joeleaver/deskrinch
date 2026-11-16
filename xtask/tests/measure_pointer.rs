@@ -64,7 +64,8 @@ mod measure_pointer {
     }
 
     /// What the report notes of a step that ran otherwise in one run.
-    const ODD: &str = "its figure may include work that is not the step's";
+    const ODD: &str = "the runs differ in this step, and the dearer figure may include work \
+                       that is not the step's";
 
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]

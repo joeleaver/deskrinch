@@ -390,6 +390,20 @@ pub(crate) enum Error {
         /// Its last lines of output.
         output: String,
     },
+    /// Two dumps of one Callgrind profile carry the same hint, so which one
+    /// a figure is cannot be told.
+    #[error(
+        "the Callgrind profile has {} dumps with the hint {label:?}, where a run makes each \
+         hint once: {}",
+        files.len(),
+        files.iter().map(|file| file.display().to_string()).collect::<Vec<_>>().join(", ")
+    )]
+    CallgrindHintRepeated {
+        /// The hint.
+        label: String,
+        /// The dumps that carry it.
+        files: Vec<PathBuf>,
+    },
     /// A program said to prepare its hidden window (`--prepares`) never
     /// did.
     #[error(

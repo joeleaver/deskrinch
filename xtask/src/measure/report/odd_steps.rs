@@ -5,9 +5,10 @@
 //! presented, and how many of them ran reactive work. A reactive frame in a
 //! step is no anomaly in itself: typing changes a query, and a pointer over
 //! a list moves its selection. What is one is a run whose step differs from
-//! the same step in the other runs: its figure may then include work that is
-//! not the step's, such as a clock's minute. So a run whose pair of rows for
-//! a step matches no other run's is noted, with both pairs. Steps are paired
+//! the same step in the other runs: the runs did not do the same in it, and
+//! the dearer figure may include work that is not the step's, such as a
+//! clock's minute. So a run whose pair of rows for a step matches no other
+//! run's is noted, with both pairs, whichever of them is the dearer. Steps are paired
 //! across the runs by their rows' exact labels, prefix included (`show 2:
 //! key 1 of 3`). With one run nothing is noted: the rows are then the
 //! reader's to compare.
@@ -89,8 +90,8 @@ fn note((presented, reactive): (u64, u64), others: &[(u64, u64)]) -> String {
         "the other runs"
     };
     format!(
-        "{presented} presented, {reactive} reactive, against {against} in {runs}: its figure \
-         may include work that is not the step's"
+        "{presented} presented, {reactive} reactive, against {against} in {runs}: the runs \
+         differ in this step, and the dearer figure may include work that is not the step's"
     )
 }
 
@@ -140,8 +141,9 @@ mod tests {
         assert_eq!(
             noted[0],
             [format!(
-                "{STEP}: 2 presented, 1 reactive, against 1 and 0 in the other runs: its \
-                 figure may include work that is not the step's"
+                "{STEP}: 2 presented, 1 reactive, against 1 and 0 in the other runs: the \
+                 runs differ in this step, and the dearer figure may include work that is not \
+                 the step's"
             )]
         );
         assert!(noted[1].is_empty() && noted[2].is_empty(), "{noted:?}");

@@ -463,8 +463,8 @@ frame, as a key is. Each step, key or move, also says how many of its frames
 ran reactive work (a signal notified). That is no anomaly in itself, since
 typing changes a query; but with two runs or more, a run in which a step
 presented or reacted otherwise than in the other runs is noted with both
-pairs, as its figure may include work that is not the step's, a clock's
-minute say. With one run, the rows are the reader's to compare. A point is
+pairs: the runs differ in that step, and the dearer figure may include work
+that is not the step's, a clock's minute say. With one run, the rows are the reader's to compare. A point is
 `X,Y` on the session's first output or `N:X,Y` on its Nth, in logical
 pixels. For a program measured by its start and idle window, such as the
 panel, the steps come after the idle window, any `--window` window still
