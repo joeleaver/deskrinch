@@ -1,0 +1,12 @@
+[package]
+name = "deskrinch-switcher"
+description = "The workspace switcher's model, without a UI: which workspaces have a button, in what order, labelled and marked how, and which buttons fit."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

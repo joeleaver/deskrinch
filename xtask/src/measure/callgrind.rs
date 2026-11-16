@@ -19,11 +19,14 @@ use std::process::{Child, Command, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use super::input::{CallgrindMeter, InputClient, Inputs, PointerSteps, move_pointer};
+use super::input::{
+    CallgrindMeter, Commands, InputClient, Inputs, PointerSteps, move_pointer, run_commands,
+};
 use super::output;
 use super::probe::{self, Timing};
 use super::report::{self, Run, Unit};
 use super::settle::Running;
+use super::start_end::Start;
 use super::window::{self, Stimulus};
 use super::windows::{self, Expect, Started};
 use crate::error::Error;
@@ -57,8 +60,9 @@ pub(crate) fn measure(
     out: &Path,
     timing: Timing,
     stimulus: &Stimulus,
-    expect: Expect,
+    start: Start<'_>,
     inputs: Option<&Inputs<'_>>,
+    commands: Option<&Commands<'_>>,
 ) -> Result<Run, Error> {
     // The client first: its devices are made before the program starts.
     let mut client = inputs.map(Inputs::start).transpose()?;
@@ -75,7 +79,8 @@ pub(crate) fn measure(
     let profile = Profile {
         control: &control,
         out,
-        expect,
+        start,
+        commands,
     };
     let pointer = client
         .as_mut()
@@ -91,11 +96,13 @@ pub(crate) fn measure(
     output::with_output(result, &watch)
 }
 
-/// Where the profile is asked for and written, and which frames are read.
+/// Where the profile is asked for and written, and where start-up ends.
 struct Profile<'a> {
     control: &'a dyn Fn() -> Command,
     out: &'a Path,
-    expect: Expect,
+    start: Start<'a>,
+    /// With `--step-command`: the command steps, after the pointer's.
+    commands: Option<&'a Commands<'a>>,
 }
 
 fn run_child(
@@ -110,14 +117,16 @@ fn run_child(
     let Profile {
         control,
         out,
-        expect,
+        start: ends,
+        ..
     } = *profile;
+    let expect = ends.expect;
     let pid = child.id().to_string();
     let start = Instant::now();
     loop {
         interrupt::check()?;
-        expect.wait(watch, Duration::from_millis(100));
-        if expect.started(watch) {
+        ends.wait(watch, Duration::from_millis(100));
+        if ends.ended(watch) {
             break;
         }
         if let Ok(Some(status)) = child.try_wait() {
@@ -128,12 +137,7 @@ fn run_child(
             });
         }
         if start.elapsed() >= timing.first_frame {
-            return Err(windows::no_start(
-                expect,
-                program,
-                watch,
-                timing.first_frame,
-            ));
+            return Err(ends.not_ended(program, watch, timing.first_frame));
         }
     }
     let load = probe::load_average();
@@ -164,7 +168,11 @@ fn run_child(
             .map_err(|e| windows::error(program, watch, e))?;
     }
 
-    run.push("instructions to first frame (Ir)", Unit::Count, first);
+    run.push(
+        format!("instructions to {} (Ir)", ends.end.to()),
+        Unit::Count,
+        first,
+    );
     run.push("instructions in the idle window (Ir)", Unit::Count, idle);
     let frames = match &started {
         None => {
@@ -188,24 +196,41 @@ fn run_child(
             timing.settle.as_secs()
         ),
     );
-    // The pointer's steps, after the idle window and its rows; each step
-    // zeroed at its start and read from the dump named for it.
-    if let Some((client, steps)) = pointer {
-        let id = child.id();
-        let mut running = Running {
-            child,
-            watch,
-            program,
-            timeout: timing.first_frame,
-        };
-        let mut meter = CallgrindMeter::new(control, id, out);
-        move_pointer(&mut run, &mut running, client, steps, &mut meter, "", "")?;
-    }
+    // The steps, after the idle window and its rows; each step zeroed at its
+    // start and read from the dump named for it.
+    let mut running = Running {
+        child,
+        watch,
+        program,
+        timeout: timing.first_frame,
+    };
+    steps_after_idle(&mut run, &mut running, profile, pointer)?;
     window::end(opened, &mut run)?;
-    run.note("load average at the first frame", load);
+    run.note(format!("load average at {}", ends.end.at()), load);
     run.note("renderer", watch.renderer());
     run.presented = watch.presented();
+    run.drew = expect.frames(watch) > 0 || !watch.windows().is_empty();
     Ok(run)
+}
+
+/// The pointer's steps, then the command steps, each counted from a dump of
+/// its own, after the idle window.
+fn steps_after_idle(
+    run: &mut Run,
+    running: &mut Running<'_>,
+    profile: &Profile<'_>,
+    pointer: Option<(&mut InputClient, &PointerSteps)>,
+) -> Result<(), Error> {
+    let id = running.child.id();
+    if let Some((client, steps)) = pointer {
+        let mut meter = CallgrindMeter::new(profile.control, id, profile.out);
+        move_pointer(run, running, client, steps, &mut meter, "", "")?;
+    }
+    if let Some(commands) = profile.commands {
+        let mut meter = CallgrindMeter::new(profile.control, id, profile.out);
+        run_commands(run, running, commands, &mut meter)?;
+    }
+    Ok(())
 }
 
 /// Asks Callgrind in process `pid` to write a dump with the hint `label`

@@ -38,6 +38,7 @@ mod callgrind;
 mod environment;
 mod gpu;
 mod granting;
+mod header;
 mod help;
 mod input;
 mod output;
@@ -49,6 +50,7 @@ mod seed;
 mod settle;
 mod show;
 mod smaps;
+mod start_end;
 mod system;
 mod window;
 mod windows;
@@ -59,9 +61,10 @@ pub(crate) use input::MeasuredInputError;
 pub(crate) use windows::WindowsError;
 
 use self::environment::parse_env;
-use self::input::{Inputs, Point, Pointer, QueryLine, Typing, parse_text};
+use self::input::{Commands, Inputs, Point, Pointer, QueryLine, Typing, parse_text};
 use self::renderer::{Expected, Renderer};
 use self::show::Summons;
+use self::start_end::StartEnds;
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
@@ -71,11 +74,12 @@ use std::time::Duration;
 use self::environment::{environment, environment_set};
 use self::granting::Grant;
 use self::renderer::check_renderer;
+use self::start_end::{End, Start};
 use self::window::Stimulus;
 use self::windows::Expect;
 use crate::Outcome;
 use crate::error::Error;
-use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, RenderNodes, Session};
+use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, Session};
 
 /// The state of the GPU driver's shader cache at each start.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -111,6 +115,11 @@ pub(crate) struct Request {
     /// With `--config`: what each run's configuration directory starts
     /// with.
     pub(crate) config: Option<PathBuf>,
+    /// Where each run's start-up ends (`--start-ends`).
+    pub(crate) start_ends: StartEnds,
+    /// `--step-command`: commands run as measured steps after the idle
+    /// window.
+    pub(crate) step_commands: Vec<String>,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
     /// With `--summon`: the program starts hidden, and each show is measured
@@ -178,6 +187,8 @@ impl Request {
             profiles: None,
             state: None,
             config: None,
+            start_ends: StartEnds::FirstFrame,
+            step_commands: Vec::new(),
             program,
             args: Vec::new(),
             summons: None,
@@ -200,6 +211,11 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         pointer.check(request.outputs)?;
     }
     let program = request.program.to_string_lossy().into_owned();
+    let end = End::resolve(
+        &request.start_ends,
+        Path::new(&request.program),
+        request.component.as_deref(),
+    )?;
     let grant = Grant::of(request)?;
     // Only a run that gives input depends on finding this binary, the
     // input client.
@@ -240,8 +256,9 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
                         &program,
                         timing,
                         &Stimulus::of(session, request.window.as_deref()),
-                        Expect::of(request.windows),
+                        start(request, &end, session),
                         inputs,
+                        None,
                     )
                     .map(drop),
                 }
@@ -259,7 +276,13 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         eprintln!("measure: run {index} of {}", request.runs);
         let mut run = in_session(request, &grant, client.as_deref(), |session| {
             with_inputs(request, session, client.as_deref(), |inputs| {
-                measure_run(request, session, index, cache, &program, timing, inputs)
+                let measured = Measured {
+                    index,
+                    cache,
+                    program: &program,
+                    end: &end,
+                };
+                measure_run(request, session, &measured, timing, inputs)
             })
         })?;
         output::settle(&mut run, &kept.file(index), &program, request.allow_errors)?;
@@ -269,7 +292,10 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         }
         runs.push(run);
     }
-    println!("{}", header(request));
+    println!("{}", header::header(request, &end));
+    if let Some(line) = header::no_window(&runs) {
+        println!("{line}");
+    }
     for (layer, dir) in request.seeds() {
         println!("{}", seed::note(layer, dir));
     }
@@ -288,20 +314,38 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
 fn measure_run(
     request: &Request,
     session: &Session,
-    index: u32,
-    cache: Option<&Path>,
-    program: &str,
+    measured: &Measured<'_>,
     timing: probe::Timing,
     inputs: Option<&Inputs<'_>>,
 ) -> Result<report::Run, Error> {
+    let Measured {
+        index,
+        cache,
+        program,
+        end,
+    } = *measured;
     let ask = |args: &[OsString]| asked(session, request, cache, args);
     let stimulus = || Stimulus::of(session, request.window.as_deref());
-    let expect = Expect::of(request.windows);
+    let start = start(request, end, session);
+    let shell = || session.client("sh".as_ref());
+    let commands = Commands {
+        list: &request.step_commands,
+        shell: &shell,
+    };
+    let commands = (!request.step_commands.is_empty()).then_some(&commands);
     if !request.instructions {
         let command = program_client(session, request, cache);
         return match &request.summons {
             Some(summons) => show::measure(command, &ask, inputs, program, timing, summons),
-            None => probe::measure(command, program, timing, &stimulus(), expect, inputs),
+            None => probe::measure(
+                command,
+                program,
+                timing,
+                &stimulus(),
+                start,
+                inputs,
+                commands,
+            ),
         };
     }
     let dir = request.profiles.as_ref().map_or_else(
@@ -331,9 +375,29 @@ fn measure_run(
             &out,
             timing,
             &stimulus(),
-            expect,
+            start,
             inputs,
+            commands,
         ),
+    }
+}
+
+/// Which run is measured, with what, and where its start-up ends.
+#[derive(Clone, Copy)]
+struct Measured<'a> {
+    index: u32,
+    cache: Option<&'a Path>,
+    program: &'a str,
+    end: &'a End,
+}
+
+/// Where a run of `request` in `session` ends its start-up: at `end`, with
+/// the windows `--windows` expects, on the session's bus.
+fn start<'a>(request: &Request, end: &'a End, session: &'a Session) -> Start<'a> {
+    Start {
+        expect: Expect::of(request.windows),
+        end,
+        bus: session.bus_address(),
     }
 }
 
@@ -427,84 +491,4 @@ fn input_executable() -> Result<PathBuf, Error> {
             what: "find xtask's own executable, the input client".into(),
             source,
         })
-}
-
-/// What was measured, where and how.
-fn header(request: &Request) -> String {
-    let args: Vec<String> = request
-        .args
-        .iter()
-        .map(|arg| arg.to_string_lossy().into_owned())
-        .collect();
-    let header = format!(
-        "Measured: {} {}\n\
-         Compositor: {} (nested, headless, {} output(s); {})\n\
-         Renderer: {}; shader cache: {}; {}\n\
-         Machine: {}",
-        request.program.to_string_lossy(),
-        args.join(" "),
-        request.compositor.name(),
-        request.outputs,
-        match (request.compositor, request.compositor_renderer()) {
-            (Compositor::Kwin, _) => "it composites with the GPU through EGL".to_owned(),
-            (_, CompositorRenderer::Gpu) => format!(
-                "wlroots with the GLES2 renderer on {}, as its log says",
-                RenderNodes::of_machine()
-                    .gpu()
-                    .map_or_else(|| "the GPU".to_owned(), |node| node.display().to_string())
-            ),
-            (_, CompositorRenderer::Software) => match request.renderer {
-                Some(Renderer::Auto) | None => "wlroots with the pixman renderer, which offers no \
-                     dmabuf; rinch's GPU renderer would have only a software Vulkan driver, which \
-                     its default declines"
-                    .to_owned(),
-                Some(Renderer::Software | Renderer::Gpu) => {
-                    "wlroots with the pixman renderer".to_owned()
-                }
-            },
-        },
-        request
-            .renderer
-            .map_or("as the caller's environment says", Renderer::env),
-        match request.shader_cache {
-            ShaderCache::Cold => "cold (empty)",
-            ShaderCache::Warm => "warm (filled by an unmeasured start)",
-        },
-        match (&request.summons, request.instructions) {
-            (Some(_), true) => "shows, under Callgrind: instruction counts only",
-            (Some(_), false) => "shows: CPU from each summon to its first frame",
-            (None, true) => "under Callgrind: instruction counts only",
-            (None, false) => "settle and idle windows as asked",
-        },
-        system::describe(),
-    );
-    let header = match request.windows {
-        Some(n) => {
-            format!("{header}\nWindows: {n} expected; start-up ends at the last one's first frame")
-        }
-        None => header,
-    };
-    let header = if request.summons.as_ref().is_some_and(|s| s.prepares) {
-        format!(
-            "{header}\nPrepares (--prepares): the first show waited for the program's first \
-             preparation, then a quiet second"
-        )
-    } else {
-        header
-    };
-    let header = match request.summons.as_ref().and_then(|s| s.typing.as_ref()) {
-        Some(typing) => format!(
-            "{header}\nTyped after each show: {:?}, a key at a time, each to settled",
-            typing.text
-        ),
-        None => header,
-    };
-    let header = match &request.pointer {
-        Some(pointer) => format!("{header}\nPointer: {}", pointer.describe()),
-        None => header,
-    };
-    match environment_set(request) {
-        Some(set) => format!("{header}\nEnvironment set: {set}"),
-        None => header,
-    }
 }

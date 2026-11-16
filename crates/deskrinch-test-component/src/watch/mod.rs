@@ -262,6 +262,27 @@ impl Watch {
             .then(|| self.lock().windows.first_frames())
     }
 
+    /// Waits up to `timeout` until `windows` open windows have each
+    /// presented `frames` frames or more; whether they have.
+    #[must_use]
+    pub fn wait_frames_each(&self, windows: usize, frames: u64, timeout: Duration) -> bool {
+        self.wait_until(timeout, |seen| {
+            seen.windows
+                .open()
+                .iter()
+                .filter(|window| window.frames >= frames)
+                .count()
+                >= windows
+        })
+    }
+
+    /// Waits up to `timeout` until the main window has presented `frames`
+    /// frames or more; whether it has.
+    #[must_use]
+    pub fn wait_main_frames(&self, frames: u64, timeout: Duration) -> bool {
+        self.wait_until(timeout, |seen| seen.main_frames() >= frames)
+    }
+
     /// Waits up to `timeout` for a prepared frame since `since`, of `which`
     /// window, or of any window for `None`; answers whether one came.
     #[must_use]

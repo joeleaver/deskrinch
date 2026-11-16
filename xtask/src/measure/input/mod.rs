@@ -16,12 +16,14 @@
 //! the program's start-up and idle figures.
 
 mod client;
+mod command;
 mod meter;
 mod pointer;
 mod steps;
 mod typing;
 
 pub(crate) use client::InputClient;
+pub(crate) use command::{Commands, run_commands};
 pub(crate) use meter::{CallgrindMeter, CpuMeter, Meter};
 pub(crate) use pointer::{Point, Pointer, PointerSteps, move_pointer};
 pub(crate) use typing::{QueryLine, Typing, after_show, check_query_line, parse_text};
@@ -73,6 +75,28 @@ pub(crate) enum MeasuredInputError {
         waited: Duration,
         output: String,
     },
+    /// A command step led to no frame on any window and opened or closed
+    /// no window.
+    #[error(
+        "{program} showed no change for {step}: no frame on any window, no window opened or \
+         closed (waited {waited:?})\nIts last output:\n{output}"
+    )]
+    NoChange {
+        program: String,
+        step: String,
+        waited: Duration,
+        output: String,
+    },
+    /// A step's command ended with a status other than 0.
+    #[error("the step's command {command:?} ended {status}; it said:\n{output}")]
+    CommandFailed {
+        command: String,
+        status: std::process::ExitStatus,
+        output: String,
+    },
+    /// A step's command did not end within the first-frame timeout.
+    #[error("the step's command {command:?} did not end within {waited:?}, and was ended")]
+    CommandHung { command: String, waited: Duration },
     /// The program wrote no line giving its query's length at the hide.
     #[error(
         "{program} wrote no line like {pattern:?} at hide {show} (waited {waited:?})\nIts last \

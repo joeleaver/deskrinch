@@ -14,11 +14,12 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process};
 
-use super::input::{CpuMeter, InputClient, Inputs, move_pointer};
+use super::input::{Commands, CpuMeter, InputClient, Inputs, move_pointer, run_commands};
 use super::output;
 use super::procfs::{self, ProcessSample, ThreadSample};
 use super::report::{Run, Unit, per_minute, per_second_milli};
 use super::settle::Running;
+use super::start_end::Start;
 use super::window::{self, Opened, Stimulus};
 use super::windows::{self, Arrivals, Expect, Started};
 use super::{gpu, smaps};
@@ -41,20 +42,21 @@ pub(crate) struct Timing {
     pub(crate) idle: Duration,
 }
 
-/// Starts `command` (a session client) and measures it, reading the
-/// frames `expect` says, with `inputs` its pointer's steps after the idle
-/// window; ends it afterwards.
+/// Starts `command` (a session client) and measures it, its start-up
+/// ending where `start` says, with `inputs` its pointer's steps after the
+/// idle window; ends it afterwards.
 pub(crate) fn measure(
     mut command: Command,
     program: &str,
     timing: Timing,
     stimulus: &Stimulus,
-    expect: Expect,
+    start: Start<'_>,
     inputs: Option<&Inputs<'_>>,
+    commands: Option<&Commands<'_>>,
 ) -> Result<Run, Error> {
     // The client first: its devices are made before the program starts.
     let mut client = inputs.map(Inputs::start).transpose()?;
-    let start = Instant::now();
+    let started = Instant::now();
     let mut child = command
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -68,13 +70,14 @@ pub(crate) fn measure(
     let measured = Measured {
         watch: &watch,
         program,
-        expect,
+        start,
+        commands,
     };
     let pointer = client
         .as_mut()
         .zip(inputs.and_then(|inputs| inputs.pointer));
     let result =
-        measure_child(&mut child, &measured, start, timing, stimulus, pointer).and_then(|run| {
+        measure_child(&mut child, &measured, started, timing, stimulus, pointer).and_then(|run| {
             client.take().map(InputClient::finish).transpose()?;
             Ok(run)
         });
@@ -86,7 +89,9 @@ pub(crate) fn measure(
 struct Measured<'a> {
     watch: &'a Watch,
     program: &'a str,
-    expect: Expect,
+    start: Start<'a>,
+    /// With `--step-command`: the command steps, after the pointer's.
+    commands: Option<&'a Commands<'a>>,
 }
 
 fn measure_child(
@@ -128,8 +133,20 @@ fn measure_child(
             "",
         )?;
     }
+    if let Some(commands) = measured.commands {
+        let pid = child.id();
+        let mut running = Running {
+            child,
+            watch,
+            program,
+            timeout: timing.first_frame,
+        };
+        run_commands(&mut run, &mut running, commands, &mut CpuMeter::new(pid))?;
+    }
     window::end(opened, &mut run)?;
-    run.push("frames in all", Unit::Count, measured.expect.frames(watch));
+    let frames = measured.start.expect.frames(watch);
+    run.push("frames in all", Unit::Count, frames);
+    run.drew = frames > 0 || !watch.windows().is_empty();
     Ok(run)
 }
 
@@ -147,15 +164,18 @@ fn startup(
     let Measured {
         watch,
         program,
-        expect,
+        start: ends,
+        ..
     } = *measured;
+    let expect = ends.expect;
+    let end = ends.end;
     let pid = child.id();
     let tick_ns = 1_000_000_000 / clock_ticks_per_second();
     let cpu_now =
         || procfs::read_process(pid).map(|now| (now.user_ticks + now.system_ticks) * tick_ns);
     let mut seen: BTreeMap<u32, ThreadSample> = BTreeMap::new();
     let mut arrivals = Arrivals::default();
-    while !expect.started(watch) {
+    while !ends.ended(watch) {
         interrupt::check()?;
         seen.extend(procfs::read_threads(pid));
         if let Ok(Some(status)) = child.try_wait() {
@@ -166,9 +186,9 @@ fn startup(
             });
         }
         if start.elapsed() >= timeout {
-            return Err(windows::no_start(expect, program, watch, timeout));
+            return Err(ends.not_ended(program, watch, timeout));
         }
-        expect.wait(watch, SAMPLE);
+        ends.wait(watch, SAMPLE);
         if expect != Expect::Main {
             arrivals.record(watch, cpu_now);
         }
@@ -185,7 +205,7 @@ fn startup(
     };
 
     run.push(
-        "CPU to first frame, user+system",
+        format!("CPU to {}, user+system", end.to()),
         Unit::CpuNs,
         (first.user_ticks + first.system_ticks) * tick_ns,
     );
@@ -199,15 +219,19 @@ fn startup(
         );
     }
     run.push(
-        "threads started by the first frame",
+        format!("threads started by {}", end.at()),
         Unit::Count,
         len(seen.len()),
     );
-    run.push("wall time to first frame", Unit::WallNs, nanos(wall));
+    run.push(
+        format!("wall time to {}", end.to()),
+        Unit::WallNs,
+        nanos(wall),
+    );
     if let Some(started) = &started {
         started.push_startup(run, &arrivals, &watch.windows(), start);
     }
-    run.note("load average at the first frame", load_average());
+    run.note(format!("load average at {}", end.at()), load_average());
     run.note("renderer", watch.renderer());
     run.presented = watch.presented();
     Ok(started)

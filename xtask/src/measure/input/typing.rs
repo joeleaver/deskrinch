@@ -14,7 +14,7 @@ use deskrinch_test_input::Key;
 
 use super::super::report::Run;
 use super::super::settle::Running;
-use super::steps::{Measured, Rows, measure_steps};
+use super::steps::{Measured, Rows, Scope, measure_steps};
 use super::{InputClient, MeasuredInputError, Meter};
 use crate::error::Error;
 use crate::input::Step;
@@ -120,12 +120,12 @@ pub(crate) fn after_show(
     wait_keyboard_line(running, typing, mark, show)?;
     running.settle()?;
     let keys = typing.keys();
-    let steps: Vec<Measured> = typing
+    let steps: Vec<Measured<Step>> = typing
         .text
         .chars()
         .enumerate()
         .map(|(index, typed)| Measured {
-            step: Step::Key(typed),
+            action: Step::Key(typed),
             row: format!("key {} of {keys}", index + 1),
             named: format!("key {} of {keys} ({typed:?})", index + 1),
             dump: format!("show-{show}-key-{}", index + 1),
@@ -140,8 +140,16 @@ pub(crate) fn after_show(
         from: "key",
         sum: &sum,
         frames: "typing: frames presented",
+        scope: Scope::Main,
     };
-    measure_steps(run, running, client, &steps, &rows, meter)
+    measure_steps(
+        run,
+        running,
+        &mut |step| client.step(step),
+        &steps,
+        &rows,
+        meter,
+    )
 }
 
 /// Waits, within the running program's timeout, for it to write

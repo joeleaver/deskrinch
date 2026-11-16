@@ -52,6 +52,9 @@ pub(crate) struct Run {
     pub(crate) remarks: Vec<(String, String)>,
     /// Which renderer presented, as the program said.
     pub(crate) presented: Option<Presented>,
+    /// Whether the program presented a frame or opened a window in the run:
+    /// a program with no window (a daemon with nothing to show) did not.
+    pub(crate) drew: bool,
     /// Everything the program wrote, oldest first ([`super::output`] keeps
     /// it in a file and checks it).
     pub(crate) output: Vec<String>,

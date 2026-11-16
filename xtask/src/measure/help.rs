@@ -87,6 +87,21 @@ run without them; with --summon, after each show (and its typed query). A
 run fails, recording nothing, if a step leads to no frame within
 --first-frame-timeout, or if the client refuses a step or ends.
 
+--step-command CMD (repeatable) runs CMD as a client of the session, through
+sh -c with the session's environment, as a measured step: from just before
+it to settled, CPU time or with --instructions the instructions, each from
+its own dump, in the order given, after the idle window and the pointer's
+steps (sending the program a notification, or copying a second
+configuration over the one --config seeded). Its own process is not
+counted. Its frames are every window's, and the windows it opened and
+closed are in the run's notes, since its effect may be on any window or may
+open or close one. It must lead to a frame on some window, or to a window
+opened or closed (a command that only closes a popup does), within
+--first-frame-timeout; a command that ends with a status other than 0, or
+does not end within that timeout, fails the run with its output. Its rows
+are \"command step K of N\", the commands listed in the header. Not with
+--summon.
+
 Each step, a key of --type's or a pointer move, reports its frames and how
 many of them ran reactive work (a signal notified, as rinch's frame lines
 say). A reactive frame is no anomaly in itself: typing changes a query. With
@@ -147,5 +162,30 @@ after start-up (an output turned off and on again): measuring a program
 whose windows change is outside what measure does, since its start-up and
 idle figures would mix windows. N is given, never taken from --outputs:
 how many windows a program opens per output is its own. Not with --summon.
+
+--start-ends WHEN moves where start-up ends, and with it what the figures
+run to and when the settle and the idle window begin: first-frame (the
+default, as above); frame:N, the main window's or each expected window's
+Nth presented frame, sound only for a program whose frames come in a fixed
+order (the wallpaper's picture is in its first frame or its second by the
+decode's timing, so frame:2 is not its picture); counter:NAME, the main
+window's or each expected window's first presented frame whose rinch frame
+line carries the counter NAME above zero, whichever frame it was (the
+wallpaper's picture shown is --windows 2 --start-ends counter:image_draws,
+once the pin has rinch's image_draws counter, rinch issue 2769);
+line:TEXT, the first line of the program's output containing TEXT;
+ready, the readiness deskrinch-shell declares for the component (by its file
+name, or --component), owning its bus name on the session's bus, refused
+for a component that is ready once started; bus-name:NAME, owning NAME, for
+a program that is not a component. Any end but the default names its rows
+(\"CPU to start-up's end\") and the header says which end it was. The idle
+figures of a run with a later end and of a default run of the same program
+are taken from different moments, so compare them with care: the
+wallpaper's default run on the software renderer often counts the picture's
+frame in its settle. A
+program that opened no window in any run (a daemon with nothing to show,
+ended by ready) is said so in the header, so that its frame rows of 0 are
+not read as a failure to draw. An end that does not come within
+--first-frame-timeout fails the run, naming it. Not with --summon.
 
 Needs valgrind and callgrind_control for --instructions.";
