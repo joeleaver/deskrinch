@@ -63,10 +63,12 @@ echo "$?" > "$DIR/status""#;
         /// Whether the log at `path` has such a frame line.
         fn in_log(self, path: &Path) -> bool {
             fs::read_to_string(path).is_ok_and(|log| {
-                log.lines().any(|line| match (self, parse(line)) {
-                    (Self::Presented, Some(PerfLine::Frame { .. }))
-                    | (Self::Prepared, Some(PerfLine::Prepared { .. })) => true,
-                    _ => false,
+                log.lines().any(|line| {
+                    matches!(
+                        (self, parse(line)),
+                        (Self::Presented, Some(PerfLine::Frame { .. }))
+                            | (Self::Prepared, Some(PerfLine::Prepared { .. }))
+                    )
                 })
             })
         }
