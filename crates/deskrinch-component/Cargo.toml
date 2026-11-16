@@ -8,6 +8,13 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# rinch's DevTools keys (F12, Alt+I) in the component (`app::devtools`).
+# Each component's own `debug` feature turns this on. Cargo unifies features
+# over one build, so when any component built together has `debug`, every
+# one of them has DevTools, as with `rinch/debug`: a property of the build.
+debug = []
+
 [dependencies]
 deskrinch-config.workspace = true
 deskrinch-settings.workspace = true

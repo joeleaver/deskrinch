@@ -14,8 +14,9 @@ path = "src/main.rs"
 
 [features]
 # rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input):
-# `cargo run -p deskrinch-launcher --features debug`. Off in a normal build.
-debug = ["rinch/debug"]
+# `cargo run -p deskrinch-launcher --features debug`, and rinch's DevTools
+# keys (`deskrinch_component::app::devtools`). Off in a normal build.
+debug = ["rinch/debug", "deskrinch-component/debug"]
 
 [dependencies]
 clap.workspace = true
