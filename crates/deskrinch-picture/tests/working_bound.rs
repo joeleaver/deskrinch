@@ -16,7 +16,9 @@
 //! Its own binary without the test harness, so that nothing else allocates
 //! while a decode is counted.
 
-use deskrinch_picture::{Fit, Formats, Ignored, Limits, MAX_PROFILE_BYTES, Profile, decode, fit};
+use deskrinch_picture::{
+    Fit, FitError, Formats, Ignored, Limits, MAX_PROFILE_BYTES, Profile, decode, fit,
+};
 use deskrinch_test_pictures::hostile::{self, Case};
 use deskrinch_untrusted::Image;
 use peak_alloc::PeakAlloc;
@@ -171,18 +173,45 @@ fn mutated_pictures_stay_within_the_bound() {
         .unwrap_or_else(|failure| panic!("{failure}"));
 }
 
-/// Each fit, smaller and larger, at the smallest working bound that
-/// accepts it: the measured peak must stay within it.
+/// The bound a fit says it needs, held to being exact and to the truth:
+/// fitted under a working bound of zero, the refusal says what it needs;
+/// at exactly that it fits, one byte under it is refused with the same
+/// figure, and the measured peak at it stays within it. Gives the peak,
+/// the bound and the fit's time, or what failed.
+fn exact_fit_bound(
+    fitting: impl Fn(usize) -> Result<Image, FitError>,
+) -> Result<(usize, usize, std::time::Duration), String> {
+    let needed = match fitting(0) {
+        Err(FitError::WorkingTooLarge {
+            needed: Some(needed),
+            ..
+        }) => needed,
+        other => return Err(format!("under a bound of zero: {other:?}")),
+    };
+    match fitting(needed - 1) {
+        Err(FitError::WorkingTooLarge {
+            needed: Some(again),
+            ..
+        }) if again == needed => {}
+        other => return Err(format!("a byte under {needed}: {other:?}")),
+    }
+    let before = COUNTED.current_usage();
+    COUNTED.reset_peak_usage();
+    let started = std::time::Instant::now();
+    let result = fitting(needed);
+    let took = started.elapsed();
+    let peak = COUNTED.peak_usage().saturating_sub(before);
+    match result {
+        Ok(_) if peak <= needed => Ok((peak, needed, took)),
+        Ok(_) => Err(format!("{peak} bytes at its peak, bound {needed}")),
+        Err(error) => Err(format!("at exactly {needed}: {error:?}")),
+    }
+}
+
+/// Each fit, smaller and larger, at the bound its refusal names.
 fn each_fit_stays_within_its_own_bound() {
     let source = Image::new(1200, 800, hostile::noise(1200 * 800 * 4))
         .unwrap_or_else(|| panic!("a picture"));
-    let fitting = |how: Fit, (w, h): (u32, u32), working: usize| {
-        let limits = Limits {
-            max_working_bytes: working,
-            ..limits(working)
-        };
-        fit(&source, w, h, how, &limits)
-    };
     let mut failures = Vec::new();
     for how in [
         Fit::Cover,
@@ -191,34 +220,15 @@ fn each_fit_stays_within_its_own_bound() {
         Fit::Centre,
         Fit::Tile,
     ] {
-        for target in [(1920, 1080), (640, 360), (2400, 1600)] {
-            let accepted = |working: usize| fitting(how, target, working).is_ok();
-            let mut high = 512 << 20;
-            assert!(accepted(high), "{how:?} {target:?} never fits");
-            let mut low = 0;
-            while high - low > 1 {
-                let mid = low + (high - low) / 2;
-                if accepted(mid) {
-                    high = mid;
-                } else {
-                    low = mid;
+        for (w, h) in [(1920, 1080), (640, 360), (2400, 1600)] {
+            match exact_fit_bound(|working| fit(&source, w, h, how, &limits(working))) {
+                Ok((peak, bound, _)) => {
+                    println!(
+                        "fit {how:?} to {w}x{h}: peak {peak} of {bound} ({}%)",
+                        peak * 100 / bound
+                    );
                 }
-            }
-            let before = COUNTED.current_usage();
-            COUNTED.reset_peak_usage();
-            let result = fitting(how, target, high);
-            let peak = COUNTED.peak_usage().saturating_sub(before);
-            drop(result);
-            println!(
-                "fit {how:?} to {}x{}: peak {peak} of {high} ({}%)",
-                target.0,
-                target.1,
-                peak * 100 / high
-            );
-            if peak > high {
-                failures.push(format!(
-                    "{how:?} {target:?}: {peak} bytes at its peak, bound {high}"
-                ));
+                Err(failure) => failures.push(format!("{how:?} to {w}x{h}: {failure}")),
             }
         }
     }
@@ -227,7 +237,7 @@ fn each_fit_stays_within_its_own_bound() {
 
 /// A 5120 × 2880 picture (a 5K wallpaper) fitted to 1920 × 1080, opaque
 /// and with alpha: its working memory must follow the target, not the
-/// source. Found to a MiB, then measured; the time is printed beside it.
+/// source. At the bound its refusal names; the time is printed beside it.
 fn a_5k_picture_fits_in_what_follows_the_target() {
     let (sw, sh) = (5120_u32, 2880_u32);
     let mut failures = Vec::new();
@@ -239,36 +249,14 @@ fn a_5k_picture_fits_in_what_follows_the_target() {
             }
         }
         let source = Image::new(sw, sh, rgba).unwrap_or_else(|| panic!("a picture"));
+        let kind = if opaque { "opaque" } else { "with alpha" };
         for how in [Fit::Cover, Fit::Stretch] {
-            let fitting = |working: usize| fit(&source, 1920, 1080, how, &limits(working));
-            let mib = 1 << 20;
-            let (mut low, mut high) = (0, 64);
-            assert!(fitting(high * mib).is_ok(), "{how:?} never fits");
-            while high - low > 1 {
-                let mid = usize::midpoint(low, high);
-                if fitting(mid * mib).is_ok() {
-                    high = mid;
-                } else {
-                    low = mid;
-                }
-            }
-            let bound = high * mib;
-            let before = COUNTED.current_usage();
-            COUNTED.reset_peak_usage();
-            let started = std::time::Instant::now();
-            let result = fitting(bound);
-            let took = started.elapsed();
-            let peak = COUNTED.peak_usage().saturating_sub(before);
-            drop(result);
-            println!(
-                "5K {how:?}, {}: peak {peak} of {bound} ({}%), {took:?}",
-                if opaque { "opaque" } else { "with alpha" },
-                peak * 100 / bound
-            );
-            if peak > bound {
-                failures.push(format!(
-                    "5K {how:?} opaque {opaque}: {peak} bytes, bound {bound}"
-                ));
+            match exact_fit_bound(|working| fit(&source, 1920, 1080, how, &limits(working))) {
+                Ok((peak, bound, took)) => println!(
+                    "5K {how:?}, {kind}: peak {peak} of {bound} ({}%), {took:?}",
+                    peak * 100 / bound
+                ),
+                Err(failure) => failures.push(format!("5K {how:?}, {kind}: {failure}")),
             }
         }
     }
