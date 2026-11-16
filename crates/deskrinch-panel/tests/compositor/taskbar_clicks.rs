@@ -21,7 +21,7 @@ use crate::taskbar::{App, Bar, GREEN, MAGENTA, RED, window_of};
 /// Opens a window of `app` and makes it the active one, through a
 /// window-management connection of the test's own: which window a
 /// compositor activates on opening is its own policy.
-fn open_active(bar: &Bar, app: App, title: &str) -> TestWindow {
+pub(crate) fn open_active(bar: &Bar, app: App, title: &str) -> TestWindow {
     let window = bar.client.open(title, app.id).unwrap();
     let (manager, id) = window_of(app.id);
     manager.perform(id, Action::Activate).unwrap();

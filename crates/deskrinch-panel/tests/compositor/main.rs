@@ -7,8 +7,9 @@
 //! every output is captured before it starts, and afterwards exactly one
 //! output differs, there in a band of the configured height along the
 //! configured edge and nowhere else; a maximised test window stops at that
-//! band; the taskbar lists the windows, and its buttons' clicks act on
-//! them (`taskbar_clicks`); an edit of the settings file moves and resizes
+//! band; the taskbar lists the windows, its buttons' clicks act on them
+//! (`taskbar_clicks`), and the button under the pointer is marked until the
+//! pointer leaves (`taskbar_hover`); an edit of the settings file moves and resizes
 //! the running panel, a rejected one leaving it where it was; and under a
 //! fullscreen window the panel follows four edits in turn, each said by its
 //! main thread, and is drawn as they left it once uncovered (rinch issue
@@ -30,5 +31,7 @@ mod support;
 mod taskbar;
 #[cfg(test)]
 mod taskbar_clicks;
+#[cfg(test)]
+mod taskbar_hover;
 #[cfg(test)]
 mod zone;
