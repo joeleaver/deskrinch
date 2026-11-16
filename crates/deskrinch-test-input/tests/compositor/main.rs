@@ -5,10 +5,14 @@
 //! (`deskrinch-test-client`) and types into them, or points at them.
 //!
 //! - [`typing`]: keys reach the window with the keyboard focus.
+//! - [`overlay`]: the test client's overlay takes the keyboard from a
+//!   window, and gives it back when it goes.
 //! - [`pointer`]: the pointer reaches the window under a point on a named
 //!   output, at that point, with its buttons.
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
+#[cfg(test)]
+mod overlay;
 #[cfg(test)]
 mod pointer;
 #[cfg(test)]

@@ -33,7 +33,7 @@ pub(crate) struct Status {
     asked_fullscreen: bool,
     /// The size of the buffer attached, once there is one, and whether it
     /// was drawn for a fullscreen configure.
-    drawn: Option<(i32, i32)>,
+    pub(crate) drawn: Option<(i32, i32)>,
     drawn_fullscreen: bool,
     close_requested: bool,
     /// Why a buffer could not be made, if one could not.
@@ -69,12 +69,116 @@ pub(crate) struct Shared {
 }
 
 impl Shared {
+    /// A surface's shared state, titled `title` in errors, drawing `paint`.
+    pub(crate) fn new(title: &str, surface: WlSurface, paint: Paint) -> Self {
+        Self {
+            title: title.to_owned(),
+            surface,
+            paint,
+            status: Mutex::new(Status::default()),
+            changed: Condvar::new(),
+            decoration: Mutex::new(None),
+        }
+    }
+
     /// Destroys its decoration object, if it has one still: before its
     /// toplevel, which the protocol requires (wlroots ends the connection
     /// otherwise).
     fn destroy_decoration(&self) {
         if let Some(decoration) = lock(&self.decoration).take() {
             decoration.destroy();
+        }
+    }
+
+    /// Attaches a buffer of `size` filled with its paint, damaged whole,
+    /// and notes it in `status` (its status, locked); `false`, with why in
+    /// `status`, when the buffer could not be made. The caller commits.
+    pub(crate) fn draw(
+        &self,
+        status: &mut Status,
+        client: &Client,
+        size: (i32, i32),
+        qh: &QueueHandle<Client>,
+    ) -> bool {
+        match buffer(client, &self.paint, size, qh) {
+            Ok(buffer) => {
+                self.surface.attach(Some(&buffer), 0, 0);
+                self.surface.damage(0, 0, size.0, size.1);
+                status.drawn = Some(size);
+                true
+            }
+            Err(failure) => {
+                status.failure = Some(failure);
+                false
+            }
+        }
+    }
+
+    /// Whether it has the keyboard focus.
+    pub(crate) fn has_keyboard(&self) -> bool {
+        lock(&self.status).input.keyboard
+    }
+
+    /// Waits until it has the keyboard focus.
+    pub(crate) fn wait_keyboard(&self) -> Result<(), Error> {
+        self.wait_input("the keyboard focus", |status| status.input.keyboard)
+    }
+
+    /// Waits until `done` holds of what it heard of the seat; `what` names
+    /// it in the error.
+    pub(crate) fn wait_input(
+        &self,
+        what: &str,
+        done: impl Fn(&Status) -> bool,
+    ) -> Result<(), Error> {
+        let deadline = Deadline::patience();
+        let mut status = lock(&self.status);
+        loop {
+            if done(&status) {
+                return Ok(());
+            }
+            let left = deadline.left();
+            if left.is_zero() {
+                return Err(Error::NotReceived {
+                    title: self.title.clone(),
+                    what: what.to_owned(),
+                });
+            }
+            status = self
+                .changed
+                .wait_timeout(status, left)
+                .map_or_else(|poisoned| poisoned.into_inner().0, |(status, _)| status);
+        }
+    }
+
+    /// Waits until `done` gives a size of what it drew, and returns it;
+    /// `what` names it in the error.
+    pub(crate) fn wait_drawn(
+        &self,
+        what: &str,
+        done: impl Fn(&Status) -> Option<(i32, i32)>,
+    ) -> Result<(i32, i32), Error> {
+        let deadline = Deadline::patience();
+        let mut status = lock(&self.status);
+        loop {
+            if let Some(failure) = status.failure.take() {
+                return Err(Error::Buffer(failure));
+            }
+            if let Some(size) = done(&status) {
+                return Ok(size);
+            }
+            let left = deadline.left();
+            if left.is_zero() {
+                return Err(Error::NotDrawn {
+                    title: self.title.clone(),
+                    what: what.to_owned(),
+                    drawn: status.drawn,
+                });
+            }
+            status = self
+                .changed
+                .wait_timeout(status, left)
+                .map_or_else(|poisoned| poisoned.into_inner().0, |(status, _)| status);
         }
     }
 }
@@ -204,7 +308,7 @@ impl TestWindow {
     /// Whether it has the keyboard focus.
     #[must_use]
     pub fn has_keyboard(&self) -> bool {
-        lock(&self.shared.status).input.keyboard
+        self.shared.has_keyboard()
     }
 
     /// Waits until it has the keyboard focus.
@@ -213,7 +317,7 @@ impl TestWindow {
     ///
     /// When it does not get it within [`PATIENCE`](deskrinch_test_wait::PATIENCE).
     pub fn wait_keyboard(&self) -> Result<(), Error> {
-        self.wait_input("the keyboard focus", |status| status.input.keyboard)
+        self.shared.wait_keyboard()
     }
 
     /// Waits until the key with evdev code `key` has been pressed while it
@@ -238,25 +342,7 @@ impl TestWindow {
         what: &str,
         done: impl Fn(&Status) -> bool,
     ) -> Result<(), Error> {
-        let deadline = Deadline::patience();
-        let mut status = lock(&self.shared.status);
-        loop {
-            if done(&status) {
-                return Ok(());
-            }
-            let left = deadline.left();
-            if left.is_zero() {
-                return Err(Error::NotReceived {
-                    title: self.shared.title.clone(),
-                    what: what.to_owned(),
-                });
-            }
-            status = self
-                .shared
-                .changed
-                .wait_timeout(status, left)
-                .map_or_else(|poisoned| poisoned.into_inner().0, |(status, _)| status);
-        }
+        self.shared.wait_input(what, done)
     }
 
     fn wait(
@@ -264,29 +350,7 @@ impl TestWindow {
         what: &str,
         done: impl Fn(&Status) -> Option<(i32, i32)>,
     ) -> Result<(i32, i32), Error> {
-        let deadline = Deadline::patience();
-        let mut status = lock(&self.shared.status);
-        loop {
-            if let Some(failure) = status.failure.take() {
-                return Err(Error::Buffer(failure));
-            }
-            if let Some(size) = done(&status) {
-                return Ok(size);
-            }
-            let left = deadline.left();
-            if left.is_zero() {
-                return Err(Error::NotDrawn {
-                    title: self.shared.title.clone(),
-                    what: what.to_owned(),
-                    drawn: status.drawn,
-                });
-            }
-            status = self
-                .shared
-                .changed
-                .wait_timeout(status, left)
-                .map_or_else(|poisoned| poisoned.into_inner().0, |(status, _)| status);
-        }
+        self.shared.wait_drawn(what, done)
     }
 
     fn commit(&self) -> Result<(), Error> {
@@ -392,16 +456,10 @@ impl Dispatch<XdgSurface, Arc<Shared>> for Client {
             (width, height) if width > 0 && height > 0 => (width, height),
             _ => status.drawn.unwrap_or(DEFAULT_SIZE),
         };
-        if status.drawn != Some(size) || status.drawn_fullscreen != status.asked_fullscreen {
-            match buffer(client, &shared.paint, size, qh) {
-                Ok(buffer) => {
-                    shared.surface.attach(Some(&buffer), 0, 0);
-                    shared.surface.damage(0, 0, size.0, size.1);
-                    status.drawn = Some(size);
-                    status.drawn_fullscreen = status.asked_fullscreen;
-                }
-                Err(failure) => status.failure = Some(failure),
-            }
+        if (status.drawn != Some(size) || status.drawn_fullscreen != status.asked_fullscreen)
+            && shared.draw(&mut status, client, size, qh)
+        {
+            status.drawn_fullscreen = status.asked_fullscreen;
         }
         shared.surface.commit();
         shared.changed.notify_all();
