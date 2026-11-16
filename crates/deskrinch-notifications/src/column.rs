@@ -1,5 +1,5 @@
 //! The column's state between its popups and its root: where each popup
-//! landed, the fit read from that ([`fit`](crate::fit)), and why each
+//! landed, the fit read from that ([`fit`]), and why each
 //! notification's expiry is held ([`pauses`](crate::pauses)).
 //!
 //! Each popup reports its box after each layout ([`Column::place`]); the
