@@ -7,8 +7,9 @@
 //!
 //! A test file is `xtask/tests/NAME.rs`, or `xtask/tests/NAME/main.rs` with
 //! the files beside it. It needs a compositor when a test in it is ignored
-//! with a reason that says so (`#[ignore = "needs a compositor: …"]`, or
-//! `"needs Valgrind and a compositor: …"`).
+//! with a reason that names one, however it is worded (`#[ignore = "needs a
+//! compositor: …"]`, `"needs a nested compositor: …"`, `"needs Valgrind and
+//! a compositor: …"`).
 
 #[cfg(test)]
 mod tests {
@@ -53,8 +54,10 @@ mod tests {
     /// Whether `source` has a test ignored for needing a compositor.
     fn needs_a_compositor(source: &str) -> bool {
         source.lines().any(|line| {
-            let line = line.trim();
-            line.starts_with("#[ignore = \"needs ") && line.contains("a compositor")
+            line.trim()
+                .strip_prefix("#[ignore = \"")
+                .and_then(|rest| rest.split_once('"'))
+                .is_some_and(|(reason, _)| reason.contains("compositor"))
         })
     }
 
@@ -111,6 +114,9 @@ mod tests {
         ));
         assert!(needs_a_compositor(
             "#[ignore = \"needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR\"]"
+        ));
+        assert!(needs_a_compositor(
+            "#[ignore = \"needs a nested compositor: cargo xtask compositor-tests\"]"
         ));
         assert!(!needs_a_compositor(
             "#[ignore = \"the stand-in measured by this file's tests\"]"
