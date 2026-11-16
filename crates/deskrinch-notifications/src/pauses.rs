@@ -7,7 +7,8 @@
 //! must be told: pause when the first reason comes, resume when the last
 //! goes. So a popup pushed out of the column while under the pointer stays
 //! paused, and a pointer leaving a popup that is now waiting does not
-//! resume it.
+//! resume it. A removed popup gets no leave (rinch, as browsers, fires none
+//! on a removed element); its reasons go with it ([`Pauses::retain`]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
