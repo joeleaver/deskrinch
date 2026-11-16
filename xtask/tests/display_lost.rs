@@ -10,9 +10,9 @@
 //! test waits, in Rust, for its first frame there (`RINCH_PERF`): presented,
 //! or prepared for the launcher started hidden. It then lets the session's
 //! command kill the compositor (`DESKRINCH_SESSION_COMPOSITOR_PID`), wait
-//! for the component and write its status. `xtask session` waits for its command whatever happens to
-//! the compositor, so the status and the last lines come out before the
-//! session ends.
+//! for the component and write its status. `xtask session` waits for its
+//! command whatever happens to the compositor, so the status and the last
+//! lines come out before the session ends.
 
 #[cfg(test)]
 mod lost {
