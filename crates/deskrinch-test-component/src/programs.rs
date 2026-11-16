@@ -2,12 +2,12 @@
 //! wallpaper's layering test, and for the panel's own tests, where its
 //! taskbar needs what the shell grants it). A suite declares them
 //! (its `programs`, in `xtask/src/compositor_tests/suites.rs`), and
-//! `cargo xtask compositor-tests` builds them with its tests and hands each
-//! one's path to them through the environment ([`environment`]); a test
-//! asks for one by its package ([`program`]). Nothing looks beside a test's
-//! own binary for another package's: a selected run builds only what the
-//! chosen suites declare, and anything found there could be from any
-//! earlier build.
+//! `cargo xtask compositor-tests` builds every component, apart from its
+//! tests, keeps each in a directory of the run's own, and hands each
+//! declared one's path to the suite's tests through the environment
+//! ([`environment`]); a test asks for one by its package ([`program`]).
+//! Nothing looks beside a test's own binary for another package's: what is
+//! there is whatever was built there last.
 //!
 //! The variables' names are made here only, for both sides.
 
