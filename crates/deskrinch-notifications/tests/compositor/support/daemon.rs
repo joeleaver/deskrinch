@@ -39,7 +39,7 @@ impl Notifications {
         // Out of the way of the column, so that nothing is under it.
         let first = screen.outputs()[0].clone();
         input.move_pointer(&first, 1.0, 1.0).ok();
-        let before = Pictures::still(&mut screen);
+        let before = Pictures::still(&mut screen, None);
         let mut command =
             Command::new(programs::program(deskrinch_shell::NOTIFICATIONS.package).unwrap());
         command.env("XDG_DATA_HOME", data.path());
@@ -73,6 +73,7 @@ impl Notifications {
             screen,
             input,
             before,
+            on: None,
             scale,
         }
     }
@@ -132,7 +133,7 @@ impl Notifications {
 
 /// The fit a daemon's line `line` says (`showing N, M waiting`), if it is
 /// one.
-fn fit_of(line: &str) -> Option<(usize, usize)> {
+pub(super) fn fit_of(line: &str) -> Option<(usize, usize)> {
     let (_, rest) = line.split_once("showing ")?;
     let (shown, rest) = rest.split_once(", ")?;
     let waiting = rest.trim_end().strip_suffix(" waiting")?;
