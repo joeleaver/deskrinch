@@ -41,28 +41,34 @@ mod granting;
 mod header;
 mod help;
 mod input;
+mod memory;
 mod output;
 mod probe;
 mod procfs;
+mod refusal;
 mod renderer;
 mod report;
+mod scripted;
 mod seed;
 mod settle;
 mod show;
 mod smaps;
 mod start_end;
 mod system;
+mod warm;
 mod window;
 mod windows;
 
 pub(crate) use args::Args;
 pub(crate) use help::LONG_ABOUT;
 pub(crate) use input::MeasuredInputError;
+pub(crate) use refusal::Refusal;
 pub(crate) use windows::WindowsError;
 
 use self::environment::parse_env;
-use self::input::{Commands, Inputs, Point, Pointer, QueryLine, Typing, parse_text};
+use self::input::{Inputs, Point, Pointer, QueryLine, Typing, parse_text};
 use self::renderer::{Expected, Renderer};
+use self::scripted::Scripted;
 use self::show::Summons;
 use self::start_end::StartEnds;
 
@@ -117,9 +123,14 @@ pub(crate) struct Request {
     pub(crate) config: Option<PathBuf>,
     /// Where each run's start-up ends (`--start-ends`).
     pub(crate) start_ends: StartEnds,
+    /// `--setup-command`: commands run after start-up's end and before the
+    /// settle, not measured.
+    pub(crate) setup_commands: Vec<String>,
     /// `--step-command`: commands run as measured steps after the idle
     /// window.
     pub(crate) step_commands: Vec<String>,
+    /// `--memory-after-steps`: memory read again once the steps are done.
+    pub(crate) memory_after_steps: bool,
     pub(crate) program: OsString,
     pub(crate) args: Vec<OsString>,
     /// With `--summon`: the program starts hidden, and each show is measured
@@ -188,7 +199,9 @@ impl Request {
             state: None,
             config: None,
             start_ends: StartEnds::FirstFrame,
+            setup_commands: Vec::new(),
             step_commands: Vec::new(),
+            memory_after_steps: false,
             program,
             args: Vec::new(),
             summons: None,
@@ -204,6 +217,7 @@ impl Request {
 
 /// Runs the measurement and prints its report.
 pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
+    refusal::check(request)?;
     for (layer, dir) in request.seeds() {
         seed::check(layer, dir)?;
     }
@@ -234,36 +248,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         .transpose()?;
     let cache = cache_dir.as_ref().map(tempfile::TempDir::path);
     if let Some(dir) = cache {
-        // The filling start does what a measured run does, its --window
-        // window and its pointer's steps included: the cache is to hold what
-        // the runs draw.
-        eprintln!("measure: filling the shader cache with one unmeasured start");
-        let timing = probe::Timing {
-            first_frame: request.first_frame_timeout,
-            settle: Duration::ZERO,
-            idle: Duration::ZERO,
-        };
-        in_session(request, &grant, client.as_deref(), |session| {
-            with_inputs(request, session, client.as_deref(), |inputs| {
-                let command = program_client(session, request, Some(dir));
-                match &request.summons {
-                    Some(summons) => {
-                        let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
-                        show::measure(command, &ask, inputs, &program, timing, summons).map(drop)
-                    }
-                    None => probe::measure(
-                        command,
-                        &program,
-                        timing,
-                        &Stimulus::of(session, request.window.as_deref()),
-                        start(request, &end, session),
-                        inputs,
-                        None,
-                    )
-                    .map(drop),
-                }
-            })
-        })?;
+        warm::fill(request, &grant, client.as_deref(), &end, &program, dir)?;
     }
     let timing = probe::Timing {
         first_frame: request.first_frame_timeout,
@@ -328,11 +313,7 @@ fn measure_run(
     let stimulus = || Stimulus::of(session, request.window.as_deref());
     let start = start(request, end, session);
     let shell = || session.client("sh".as_ref());
-    let commands = Commands {
-        list: &request.step_commands,
-        shell: &shell,
-    };
-    let commands = (!request.step_commands.is_empty()).then_some(&commands);
+    let scripted = Scripted::of(request, &shell);
     if !request.instructions {
         let command = program_client(session, request, cache);
         return match &request.summons {
@@ -344,7 +325,7 @@ fn measure_run(
                 &stimulus(),
                 start,
                 inputs,
-                commands,
+                &scripted,
             ),
         };
     }
@@ -377,7 +358,7 @@ fn measure_run(
             &stimulus(),
             start,
             inputs,
-            commands,
+            &scripted,
         ),
     }
 }

@@ -496,6 +496,59 @@ cargo xtask measure --outputs 2 --windows 2 --config /tmp/wallpaper-config \
   target/release/deskrinch-wallpaper
 ```
 
+A run, in order:
+
+1. start-up, to its end (`--start-ends`);
+2. the setup commands, each to settled (`--setup-command`);
+3. the settle (`--settle`);
+4. the memory reading;
+5. the idle window (`--idle`);
+6. the pointer's steps, then the command steps;
+7. with `--memory-after-steps`, a second memory reading;
+8. the renderer, read over the whole run.
+
+`--setup-command CMD` (repeatable) runs a command as a step command is run,
+but after start-up's end and before the settle, unmeasured, the program left
+to settle after each: the memory reading and the idle window are then taken
+with what it made. It need not lead to a frame; what it led to is in the
+run's notes, and a status other than 0 fails the run, naming the command. Not
+with `--summon`. `--memory-after-steps` reads memory a second time once the
+last step has settled, its rows named "after the steps": what the steps left
+behind. It needs steps, lengthens each run by a settle, and is not taken
+under `--instructions`. With `--shader-cache warm` the filling start runs the
+setup commands and the steps too, so a program that draws nothing until a
+step fills the cache. The notification daemon, idle with one popup shown,
+then what a popup shown and closed leaves behind:
+
+```sh
+notify="gdbus call --session --dest org.freedesktop.Notifications \
+  --object-path /org/freedesktop/Notifications --method org.freedesktop.Notifications"
+RUST_LOG=warn,deskrinch_notifications=info cargo xtask measure \
+  --start-ends 'line:notifications: up' \
+  --setup-command "$notify.Notify Measure 0 '' 'Shown' 'Measured' '[]' '{}' 0" \
+  target/release/deskrinch-notifications
+RUST_LOG=warn,deskrinch_notifications=info cargo xtask measure \
+  --start-ends 'line:notifications: up' --memory-after-steps \
+  --step-command "$notify.Notify Measure 0 '' 'Shown' 'Measured' '[]' '{}' 0" \
+  --step-command "$notify.CloseNotification 1" \
+  target/release/deskrinch-notifications
+```
+
+The renderer is read at the end of the run, so a program whose first frame
+comes in a step (the daemon) is named by what presented it, and
+`--expect-renderer` checks that; a run in which nothing presented says so
+("nothing presented in this run").
+
+In a timed run every step (a key, a pointer move, a command) also gets its
+wall time: by measure's clock, from just before the step is taken to the
+arrival of the first frame line it led to, the time a person waits. It
+includes what the program does not control: a command's own start-up, the
+session's bus, the pipe its frame line comes through. So take a row for a
+step that does nothing as the floor and read the others against it. A step
+that led to no frame (a popup closed) says "no frame". The rows are in the
+wall-clock section, not comparable across machines or loads, and are not
+given under `--instructions`, where the time is Callgrind's.
+
 `--place-pointer POINT` and `--move-pointer POINT` (repeatable) move the
 pointer through the same client: placed first, unmeasured, then moved to each
 point in turn, each step measured from the move to settled and followed by a
@@ -575,7 +628,7 @@ real input client; that the client's lines reach a window is
 `input_client`'s, run by `cargo xtask compositor-tests`):
 
 ```sh
-DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_start_ends --test measure_typing --test measure_pointer -- --ignored
+DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_start_ends --test measure_typing --test measure_pointer --test measure_setup -- --ignored
 ```
 
 Repository tasks are `cargo xtask` subcommands; `cargo xtask --help` lists

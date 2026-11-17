@@ -71,15 +71,21 @@ pub(crate) fn run_commands(
     measure_steps(
         run,
         running,
-        &mut |command: &String| run_one(commands.shell, command, timeout),
+        &mut |command: &String| run_one(commands.shell, command, "the step's command", timeout),
         &steps,
         &rows,
         meter,
     )
 }
 
-/// Runs `command` through `shell`, waiting up to `timeout` for it to end.
-fn run_one(shell: &dyn Fn() -> Command, command: &str, timeout: Duration) -> Result<(), Error> {
+/// Runs `command` through `shell`, waiting up to `timeout` for it to end;
+/// `what` names it in a failure (`the step's command`).
+pub(super) fn run_one(
+    shell: &dyn Fn() -> Command,
+    command: &str,
+    what: &str,
+    timeout: Duration,
+) -> Result<(), Error> {
     let mut child = shell()
         .args(["-c", command])
         .stdin(Stdio::null())
@@ -106,6 +112,7 @@ fn run_one(shell: &dyn Fn() -> Command, command: &str, timeout: Duration) -> Res
             drop(child.kill());
             drop(child.wait());
             return Err(MeasuredInputError::CommandHung {
+                what: what.to_owned(),
                 command: command.to_owned(),
                 waited: timeout,
             }
@@ -119,15 +126,16 @@ fn run_one(shell: &dyn Fn() -> Command, command: &str, timeout: Duration) -> Res
         .flatten()
         .map(|reader| reader.join().unwrap_or_default())
         .collect();
-    check(command, status, output)
+    check(what, command, status, output)
 }
 
-/// What `command`, ended with `status`, means for the run.
-fn check(command: &str, status: ExitStatus, output: String) -> Result<(), Error> {
+/// What `command` (named `what`), ended with `status`, means for the run.
+fn check(what: &str, command: &str, status: ExitStatus, output: String) -> Result<(), Error> {
     if status.success() {
         Ok(())
     } else {
         Err(MeasuredInputError::CommandFailed {
+            what: what.to_owned(),
             command: command.to_owned(),
             status,
             output,
@@ -158,20 +166,31 @@ mod tests {
 
     #[test]
     fn a_command_that_ends_with_0_passes_and_one_that_does_not_fails_with_its_output() {
-        assert!(run_one(&sh, "true", Duration::from_secs(10)).is_ok());
-        let error = run_one(&sh, "echo said; exit 3", Duration::from_secs(10))
+        let what = "the step's command";
+        assert!(run_one(&sh, "true", what, Duration::from_secs(10)).is_ok());
+        let error = run_one(&sh, "echo said; exit 3", what, Duration::from_secs(10))
             .unwrap_err()
             .to_string();
         assert!(error.contains("exit status: 3"), "{error}");
         assert!(error.contains("said"), "{error}");
-        assert!(check("x", ExitStatus::from_raw(0), String::new()).is_ok());
+        assert!(
+            error.starts_with("the step's command \"echo said; exit 3\""),
+            "{error}"
+        );
+        assert!(check(what, "x", ExitStatus::from_raw(0), String::new()).is_ok());
     }
 
     #[test]
     fn a_command_that_does_not_end_in_time_fails_and_is_ended() {
-        let error = run_one(&sh, "exec sleep 30", Duration::from_millis(300))
-            .unwrap_err()
-            .to_string();
+        let error = run_one(
+            &sh,
+            "exec sleep 30",
+            "setup command 2 of 3",
+            Duration::from_millis(300),
+        )
+        .unwrap_err()
+        .to_string();
         assert!(error.contains("did not end within"), "{error}");
+        assert!(error.starts_with("setup command 2 of 3 "), "{error}");
     }
 }

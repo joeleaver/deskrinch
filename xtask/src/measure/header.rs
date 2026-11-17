@@ -90,28 +90,67 @@ pub(super) fn header(request: &Request, end: &End) -> String {
         ),
         None => header,
     };
+    let header = with_what_is_done(header, request);
+    match environment_set(request) {
+        Some(set) => format!("{header}\nEnvironment set: {set}"),
+        None => header,
+    }
+}
+
+/// `header` with the lines for what each run does to the program besides
+/// starting it: its setup commands, its command steps, its pointer, and
+/// what its steps' rows hold.
+fn with_what_is_done(header: String, request: &Request) -> String {
+    let header = if request.setup_commands.is_empty() {
+        header
+    } else {
+        format!(
+            "{header}\nSetup commands (after start-up's end, before the settle, each to settled, \
+             not measured): {}",
+            listed(&request.setup_commands)
+        )
+    };
     let header = if request.step_commands.is_empty() {
         header
     } else {
-        let listed: Vec<String> = request
-            .step_commands
-            .iter()
-            .enumerate()
-            .map(|(index, command)| format!("{}. {command:?}", index + 1))
-            .collect();
         format!(
             "{header}\nCommand steps (after the idle window, each to settled): {}",
-            listed.join("; ")
+            listed(&request.step_commands)
         )
     };
     let header = match &request.pointer {
         Some(pointer) => format!("{header}\nPointer: {}", pointer.describe()),
         None => header,
     };
-    match environment_set(request) {
-        Some(set) => format!("{header}\nEnvironment set: {set}"),
-        None => header,
+    let steps = !request.step_commands.is_empty()
+        || request.pointer.is_some()
+        || request.summons.as_ref().is_some_and(|s| s.typing.is_some());
+    let header = if request.instructions && steps {
+        format!(
+            "{header}\nSteps' wall time: not given under Callgrind, whose time is its own, not the \
+             program's"
+        )
+    } else {
+        header
+    };
+    if request.memory_after_steps {
+        format!(
+            "{header}\nMemory after the steps (--memory-after-steps): read again once the last \
+             step has settled, its rows named \"after the steps\""
+        )
+    } else {
+        header
     }
+}
+
+/// `commands` numbered, as a header line lists them: `1. "true"; 2. ...`.
+fn listed(commands: &[String]) -> String {
+    let listed: Vec<String> = commands
+        .iter()
+        .enumerate()
+        .map(|(index, command)| format!("{}. {command:?}", index + 1))
+        .collect();
+    listed.join("; ")
 }
 
 /// The header's line for runs in none of which the program drew a frame or

@@ -119,6 +119,10 @@ pub(crate) enum Error {
     /// take what was typed, or drew nothing for a step.
     #[error(transparent)]
     MeasuredInput(#[from] crate::measure::MeasuredInputError),
+    /// `cargo xtask measure` was asked for options it cannot measure
+    /// together.
+    #[error(transparent)]
+    MeasureRefused(#[from] crate::measure::Refusal),
     /// A test binary cannot be granted what KWin restricts.
     #[error("could not write a test binary's desktop file")]
     DesktopEntry(#[from] deskrinch_kwin_access::DesktopEntryError),

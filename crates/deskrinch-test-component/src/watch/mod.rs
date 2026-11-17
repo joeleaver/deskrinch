@@ -45,6 +45,8 @@ struct Seen {
     tail: VecDeque<String>,
     /// Every line, without ANSI codes.
     lines: Vec<String>,
+    /// When each of `lines` was read, by this process's clock.
+    arrived: Vec<Instant>,
     /// Every window's frames, from the per-window lines.
     windows: Windows,
     closed: u8,
@@ -105,9 +107,10 @@ impl Watch {
     /// Records one line.
     fn line(&self, line: &str) {
         let (seen, changed) = &*self.seen;
+        let now = Instant::now();
         let mut seen = seen.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(perf) = perf::parse(line) {
-            seen.windows.record(&perf, Instant::now());
+            seen.windows.record(&perf, now);
         } else if log::presents_with_software(line) {
             seen.software = true;
         } else if seen.adapter.is_none() {
@@ -119,6 +122,7 @@ impl Watch {
         }
         seen.tail.push_back(plain.clone());
         seen.lines.push(plain);
+        seen.arrived.push(now);
         changed.notify_all();
     }
 
@@ -318,6 +322,12 @@ impl Watch {
         }
     }
 
+    /// Whether any window, closed since or not, has presented a frame.
+    #[must_use]
+    pub fn has_presented(&self) -> bool {
+        !self.lock().windows.first_frames().is_empty()
+    }
+
     /// Whether the first frame has come.
     #[must_use]
     pub fn has_first_frame(&self) -> bool {
@@ -400,6 +410,26 @@ impl Watch {
     #[must_use]
     pub fn lines(&self) -> Vec<String> {
         self.lock().lines.clone()
+    }
+
+    /// When the first presented frame's line among the lines from the
+    /// `mark`th on was read, by this process's clock: the main window's, or
+    /// with `every_window` any window's; `None` when no such line has come.
+    #[must_use]
+    pub fn first_frame_since(&self, mark: usize, every_window: bool) -> Option<Instant> {
+        let seen = self.lock();
+        let lines = seen.lines.get(mark..).unwrap_or_default();
+        lines
+            .iter()
+            .zip(seen.arrived.get(mark..).unwrap_or_default())
+            .find(|(line, _)| {
+                matches!(
+                    perf::parse(line),
+                    Some(perf::PerfLine::Frame { window, .. })
+                        if every_window || window == PerfWindow::Main
+                )
+            })
+            .map(|(_, arrived)| *arrived)
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, Seen> {

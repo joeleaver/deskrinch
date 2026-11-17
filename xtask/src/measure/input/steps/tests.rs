@@ -70,6 +70,10 @@ impl Meter for FrameDuringStop {
         Unit::Count
     }
 
+    fn wall_clock(&self) -> bool {
+        false
+    }
+
     fn start(&mut self) -> Result<(), Error> {
         Ok(())
     }

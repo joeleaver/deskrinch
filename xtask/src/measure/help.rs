@@ -33,7 +33,16 @@ is not comparable.
 
 Each session starts with an empty shader cache (--shader-cache cold);
 --shader-cache warm fills one with an unmeasured start first and keeps it,
-outside the sessions, for every run.
+outside the sessions, for every run. The filling start runs what a measured
+run does, its setup commands and its steps included, so that a program that
+draws nothing until a step (a daemon showing a notification) fills it too.
+
+A run, in order: start-up, to its end; the setup commands, each to settled;
+the settle; the memory reading; the idle window; the pointer's steps, then
+the command steps; with --memory-after-steps, a second memory reading; and
+the renderer read, over the whole run (a program whose first frame comes in
+a step is named by what presented it, and one that presented nothing in the
+run says so: \"nothing presented in this run\").
 
 Under sway and labwc the compositor renders with pixman and offers no dmabuf,
 so wgpu would offer only a software Vulkan driver (lavapipe), which rinch's
@@ -105,6 +114,35 @@ opened or closed (a command that only closes a popup does), within
 does not end within that timeout, fails the run with its output. Its rows
 are \"command step K of N\", the commands listed in the header. Not with
 --summon.
+
+--setup-command CMD (repeatable) runs CMD as a step command is run, after
+start-up's end and before the settle, in the order given, the program left
+to settle after each: it is not measured, and it need not lead to a frame,
+so that the memory reading and the idle window are taken with what it made
+(a popup shown and left, say). What each led to (its frames on every window,
+the windows it opened and closed) is in the run's notes, and the commands
+are listed in the header. A command that ends with a status other than 0,
+or does not end within --first-frame-timeout, fails the run, naming it
+(\"setup command 2 of 3\") with its output. Under --instructions its
+instructions have a dump of their own, noted and kept out of every row.
+Not with --summon, whose runs have no settle or idle window to read it in.
+
+--memory-after-steps reads memory again once the last step has settled,
+its rows named \"after the steps\" and printed after the steps': what the
+steps left behind (a device made for a first popup and kept after the last
+one closed, say). It lengthens each run by a settle. It needs steps
+(--step-command or --move-pointer), and is not taken under --instructions,
+where memory says nothing, or with --summon.
+
+In a timed run each step (a key, a pointer move, a command) also gets its
+wall time, by measure's clock, from just before the step is taken to the
+arrival of the first frame line it led to: what a person waits. It includes
+what the program does not control, such as a command's own start-up and the
+session's bus, so a step that does nothing is the floor to read the others
+against. A step that led to no frame (a popup closed) says \"no frame\", never
+a zero. The rows are in the wall-clock section, beside the load average, and
+are not comparable across machines. Under --instructions they are not given:
+the time is Callgrind's.
 
 Each step, a key of --type's or a pointer move, reports its frames and how
 many of them ran reactive work (a signal notified, as rinch's frame lines

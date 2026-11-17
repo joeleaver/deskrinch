@@ -40,6 +40,7 @@ use super::input::{
     CallgrindMeter, CpuMeter, InputClient, Inputs, Meter, PointerSteps, Typing, after_show,
     check_query_line, move_pointer,
 };
+use super::memory::{Reading, memory};
 use super::output;
 use super::probe::{self, Timing, nanos};
 use super::procfs::{self, cpu_between};
@@ -144,7 +145,7 @@ pub(crate) fn measure(
         let mut run = Run::default();
         // What it holds hidden, settled, before the first show: with a
         // window it prepared, what preparing costs.
-        probe::memory(&mut run, child.id(), program)?;
+        memory(&mut run, child.id(), program, Reading::Settled)?;
         let pid = child.id();
         for show in 1..=summons.shows {
             push_prepared(&mut run, show, &watch, summons);

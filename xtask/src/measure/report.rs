@@ -37,6 +37,9 @@ pub(crate) struct Metric {
     pub(crate) unit: Unit,
     /// Its value in that unit.
     pub(crate) value: u64,
+    /// Why it has no value in this run, printed in its place (`no frame`);
+    /// `value` is then not a measurement and is not printed.
+    pub(crate) instead: Option<&'static str>,
 }
 
 /// Everything one run measured, in the order it is reported.
@@ -67,6 +70,18 @@ impl Run {
             name: name.into(),
             unit,
             value,
+            instead: None,
+        });
+    }
+
+    /// Adds a metric that has no value in this run, `why` printed in its
+    /// place: a step's wall time to a frame it did not lead to.
+    pub(crate) fn push_without(&mut self, name: impl Into<String>, unit: Unit, why: &'static str) {
+        self.metrics.push(Metric {
+            name: name.into(),
+            unit,
+            value: 0,
+            instead: Some(why),
         });
     }
 
@@ -78,6 +93,16 @@ impl Run {
     /// Adds a note.
     pub(crate) fn note(&mut self, name: impl Into<String>, value: impl Into<String>) {
         self.notes.push((name.into(), value.into()));
+    }
+
+    /// Sets the note `name` to `value` where it is, or adds it: a fact read
+    /// at the end of the run that keeps its place among the notes.
+    pub(crate) fn set_note(&mut self, name: &str, value: impl Into<String>) {
+        let value = value.into();
+        match self.notes.iter_mut().find(|(noted, _)| noted == name) {
+            Some((_, noted)) => *noted = value,
+            None => self.notes.push((name.to_owned(), value)),
+        }
     }
 }
 
@@ -146,13 +171,17 @@ fn group_thousands(value: u64) -> String {
 /// value, the wall-clock metrics apart and marked, then each run's notes.
 pub(crate) fn render(title: &str, runs: &[Run]) -> String {
     let mut names: Vec<(&str, Unit)> = Vec::new();
-    let mut values: BTreeMap<&str, Vec<u64>> = BTreeMap::new();
+    // Each run's value, or why it has none.
+    let mut values: BTreeMap<&str, Vec<Result<u64, &str>>> = BTreeMap::new();
     for run in runs {
         for metric in &run.metrics {
             if !values.contains_key(metric.name.as_str()) {
                 names.push((&metric.name, metric.unit));
             }
-            values.entry(&metric.name).or_default().push(metric.value);
+            values
+                .entry(&metric.name)
+                .or_default()
+                .push(metric.instead.map_or(Ok(metric.value), Err));
         }
     }
     let mut out = String::new();
@@ -181,10 +210,22 @@ pub(crate) fn render(title: &str, runs: &[Run]) -> String {
         );
         for (name, unit) in section {
             let all = &values[name];
-            let Some((median, min, max)) = spread(all) else {
-                continue;
+            let measured: Vec<u64> = all.iter().filter_map(|value| value.ok()).collect();
+            // The spread of the runs that have a value; where none has, why.
+            let (median, min, max) = match (spread(&measured), all.first()) {
+                (Some((median, min, max)), _) => {
+                    (format(median, unit), format(min, unit), format(max, unit))
+                }
+                (None, Some(Err(why))) => ((*why).to_owned(), (*why).to_owned(), (*why).to_owned()),
+                (None, _) => continue,
             };
-            let each: Vec<String> = all.iter().map(|&v| format(v, unit)).collect();
+            let each: Vec<String> = all
+                .iter()
+                .map(|value| match value {
+                    Ok(value) => format(*value, unit),
+                    Err(why) => (*why).to_owned(),
+                })
+                .collect();
             let missing = if all.len() < runs.len() {
                 format!(" (in {} of {} runs)", all.len(), runs.len())
             } else {
@@ -192,10 +233,7 @@ pub(crate) fn render(title: &str, runs: &[Run]) -> String {
             };
             let _ = writeln!(
                 out,
-                "  {name:width$}  {:>14}  {:>14} .. {:>14}  {}{missing}",
-                format(median, unit),
-                format(min, unit),
-                format(max, unit),
+                "  {name:width$}  {median:>14}  {min:>14} .. {max:>14}  {}{missing}",
                 each.join(", ")
             );
             let remark = runs
@@ -293,6 +331,49 @@ mod tests {
         let remark = report.find("    (cumulative)\n").expect("the remark");
         assert!(b < remark && remark < after, "{report}");
         assert_eq!(report.matches("(cumulative)").count(), 1, "{report}");
+    }
+
+    #[test]
+    fn a_metric_without_a_value_prints_why_and_never_a_zero() {
+        let mut first = Run::default();
+        first.push_without("step 1: wall time", Unit::WallNs, "no frame");
+        first.push("step 2: wall time", Unit::WallNs, 4_000_000);
+        let mut second = Run::default();
+        second.push_without("step 1: wall time", Unit::WallNs, "no frame");
+        second.push_without("step 2: wall time", Unit::WallNs, "no frame");
+        let report = render("x", &[first, second]);
+        let step_1 = report
+            .lines()
+            .find(|line| line.contains("step 1: wall time"))
+            .expect("step 1's row");
+        assert!(
+            step_1.contains("no frame .. ") && step_1.ends_with("no frame, no frame"),
+            "{report}"
+        );
+        assert!(!step_1.contains("0.0 ms"), "{report}");
+        // A run with a value and one without: the spread of the one, and
+        // each run as it was.
+        assert!(
+            report.contains("4.0 ms ..         4.0 ms  4.0 ms, no frame"),
+            "{report}"
+        );
+    }
+
+    #[test]
+    fn a_note_set_later_keeps_its_place() {
+        let mut run = Run::default();
+        run.note("renderer", "not yet");
+        run.note("granted", "nothing");
+        run.set_note("renderer", "software");
+        run.set_note("new", "added");
+        assert_eq!(
+            run.notes,
+            [
+                ("renderer".to_owned(), "software".to_owned()),
+                ("granted".to_owned(), "nothing".to_owned()),
+                ("new".to_owned(), "added".to_owned()),
+            ]
+        );
     }
 
     #[test]

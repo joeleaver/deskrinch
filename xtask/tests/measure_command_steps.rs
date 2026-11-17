@@ -12,14 +12,15 @@
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
+mod file_driven;
+#[cfg(test)]
 mod report;
 
 #[cfg(test)]
 mod command_steps {
-    use std::fmt::Write as _;
-    use std::path::Path;
     use std::process::{Command, Output, Stdio};
 
+    use crate::file_driven::{MAIN_FRAME, go, prints, stand_in};
     use crate::report::number_after;
 
     /// The compositor to test with.
@@ -41,27 +42,6 @@ mod command_steps {
             .unwrap()
     }
 
-    /// A stand-in that prints `start` (its first frames), then, each time
-    /// `dir/go-N` appears, removes it and prints the Nth of `on_go`.
-    fn stand_in(dir: &Path, start: &str, on_go: &[&str]) -> String {
-        let dir = dir.display();
-        let mut watch = String::new();
-        for (index, lines) in on_go.iter().enumerate() {
-            let n = index + 1;
-            write!(
-                watch,
-                "if [ -e {dir}/go-{n} ]; then rm {dir}/go-{n}; printf '%s\\n' {lines} >&2; fi; "
-            )
-            .unwrap();
-        }
-        format!("printf '%s\\n' {start} >&2; while :; do {watch}sleep 0.05; done")
-    }
-
-    /// The step command that makes `dir/go-n`.
-    fn go(dir: &Path, n: usize) -> String {
-        format!("touch {}/go-{n}", dir.display())
-    }
-
     /// `output`'s report, after asserting the measurement succeeded.
     fn succeeded(output: &Output) -> String {
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
@@ -69,8 +49,6 @@ mod command_steps {
         assert!(output.status.success(), "{stdout}\n{stderr}");
         stdout
     }
-
-    const MAIN_FRAME: &str = "'[PERF] frame 1: style 0.10ms'";
 
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
@@ -80,9 +58,11 @@ mod command_steps {
             dir.path(),
             MAIN_FRAME,
             &[
-                "'[PERF] window 2 opened: title=\"popup\" app_id=\"x\" output=\"V-0\" output_id=1' \
-                 '[PERF] window 2 frame 1: style 0.10ms | signal_notifies=1'",
-                "'[PERF] window 2 closed'",
+                &prints(
+                    "'[PERF] window 2 opened: title=\"popup\" app_id=\"x\" output=\"V-0\" \
+                     output_id=1' '[PERF] window 2 frame 1: style 0.10ms | signal_notifies=1'",
+                ),
+                &prints("'[PERF] window 2 closed'"),
             ],
         );
         let (open, close) = (go(dir.path(), 1), go(dir.path(), 2));
@@ -101,6 +81,24 @@ mod command_steps {
         ] {
             assert!(report.contains(wanted), "no {wanted:?} in:\n{report}");
         }
+        // Each step's wall time to the frame it led to; the closing led to
+        // none, and says so rather than printing a zero.
+        let (_, wall) = report
+            .split_once("Wall-clock time")
+            .expect("a wall section");
+        let row = |step: &str| {
+            let label = format!("{step}: wall time from the command to its first frame");
+            wall.lines()
+                .find(|line| line.contains(&label))
+                .unwrap_or_else(|| panic!("no {label:?} in:\n{report}"))
+                .to_owned()
+        };
+        assert!(row("command step 1 of 2").contains(" ms"), "{report}");
+        let closed = row("command step 2 of 2");
+        assert!(
+            closed.contains("no frame") && !closed.contains("0.0 ms"),
+            "{report}"
+        );
         assert_eq!(
             number_after(&report, "command step 1 of 2: frames presented"),
             1
@@ -126,7 +124,9 @@ mod command_steps {
         let script = stand_in(
             dir.path(),
             start,
-            &["'[PERF] window 1 frame 2: style 0.10ms' '[PERF] window 2 frame 2: style 0.10ms'"],
+            &[&prints(
+                "'[PERF] window 1 frame 2: style 0.10ms' '[PERF] window 2 frame 2: style 0.10ms'",
+            )],
         );
         let repaint = go(dir.path(), 1);
         let output = measure(&["--windows", "2", "--step-command", &repaint], &script);
@@ -145,7 +145,11 @@ mod command_steps {
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn the_command_s_own_cpu_is_not_counted() {
         let dir = tempfile::tempdir().unwrap();
-        let script = stand_in(dir.path(), MAIN_FRAME, &["'[PERF] frame 2: style 0.10ms'"]);
+        let script = stand_in(
+            dir.path(),
+            MAIN_FRAME,
+            &[&prints("'[PERF] frame 2: style 0.10ms'")],
+        );
         // A second of the command's own CPU, then the stand-in's frame.
         let spin = format!(
             "timeout 1 sh -c 'while :; do :; done'; {}",

@@ -19,6 +19,14 @@
 //! than in the others is, and the report notes it where the runs are seen
 //! together ([`super::super::report::note_odd_steps`]).
 //!
+//! Under a CPU meter each step also gets its wall time, by measure's clock,
+//! from just before the step is taken to the arrival of the first frame
+//! line it led to (`no frame` where it led to none, as a closing does):
+//! what a person waits. It includes what the program does not control,
+//! such as a command's own start-up and the session's bus, so a step that
+//! does nothing is the floor to read the others against. Under Callgrind
+//! the time is Callgrind's, and it is not given.
+//!
 //! The frames are read once the meter has stopped (under Callgrind, once
 //! the step's dump is written), so they cover the span the figure does: a
 //! frame between the settle and the dump is in both. A frame's line is
@@ -29,6 +37,7 @@ use std::time::{Duration, Instant};
 
 use deskrinch_test_component::{PerfLine, PerfWindow, Watch, counter, perf};
 
+use super::super::probe::nanos;
 use super::super::report::{Run, Unit};
 use super::super::settle::Running;
 use super::{MeasuredInputError, Meter};
@@ -92,6 +101,7 @@ pub(crate) fn measure_steps<A>(
         let frames = running.watch.frames();
         let mark = running.watch.lines().len();
         meter.start()?;
+        let begun = Instant::now();
         act(&measured.action)?;
         if !changed(running, rows.scope, frames, mark)? {
             let (program, step) = (
@@ -136,6 +146,9 @@ pub(crate) fn measure_steps<A>(
             Unit::Count,
             seen.reactive,
         );
+        if meter.wall_clock() {
+            push_wall_time(run, running.watch, &row, rows, mark, begun);
+        }
         total += cost;
     }
     run.push(
@@ -155,8 +168,8 @@ pub(crate) fn measure_steps<A>(
 /// The frames in a step's span (the main window's, or every window's), how
 /// many of them ran reactive work, and the windows opened and closed in it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct Seen {
-    presented: u64,
+pub(super) struct Seen {
+    pub(super) presented: u64,
     reactive: u64,
     opened: Vec<String>,
     closed: Vec<u64>,
@@ -165,7 +178,7 @@ struct Seen {
 impl Seen {
     /// Counts the frames among `lines` that `scope` counts, and notes the
     /// windows opened and closed.
-    fn of(lines: &[String], scope: Scope) -> Self {
+    pub(super) fn of(lines: &[String], scope: Scope) -> Self {
         let mut seen = Self::default();
         for line in lines {
             match perf::parse(line) {
@@ -189,7 +202,7 @@ impl Seen {
     }
 
     /// The windows opened and closed, for a run's notes.
-    fn windows(&self) -> String {
+    pub(super) fn windows(&self) -> String {
         let opened = self.opened.iter().map(|window| format!("opened {window}"));
         let closed = self.closed.iter().map(|id| format!("closed window {id}"));
         let all: Vec<String> = opened.chain(closed).collect();
@@ -204,6 +217,28 @@ impl Seen {
     /// opened or closed.
     fn shows_a_change(&self) -> bool {
         self.presented > 0 || !self.opened.is_empty() || !self.closed.is_empty()
+    }
+}
+
+/// Records the step `row`'s wall time, by measure's clock, from `begun`
+/// (just before the step was taken) to the arrival of the first frame line
+/// after `mark` that `rows.scope` counts; `no frame` where none came.
+fn push_wall_time(
+    run: &mut Run,
+    watch: &Watch,
+    row: &str,
+    rows: &Rows<'_>,
+    mark: usize,
+    begun: Instant,
+) {
+    let name = format!("{row}: wall time from the {} to its first frame", rows.from);
+    match watch.first_frame_since(mark, rows.scope == Scope::Every) {
+        Some(arrived) => run.push(
+            name,
+            Unit::WallNs,
+            nanos(arrived.saturating_duration_since(begun)),
+        ),
+        None => run.push_without(name, Unit::WallNs, "no frame"),
     }
 }
 

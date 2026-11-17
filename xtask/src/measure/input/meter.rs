@@ -18,6 +18,9 @@ pub(crate) trait Meter {
     fn what(&self, from: &str) -> String;
     /// The unit of what it measures.
     fn unit(&self) -> Unit;
+    /// Whether a step's wall time is the program's own: so under a CPU
+    /// meter, not under Callgrind, whose time is its own.
+    fn wall_clock(&self) -> bool;
     /// Starts a span.
     fn start(&mut self) -> Result<(), Error>;
     /// Ends the span, named `name` where the meter keeps one, and gives
@@ -49,6 +52,10 @@ impl Meter for CpuMeter {
 
     fn unit(&self) -> Unit {
         Unit::CpuNs
+    }
+
+    fn wall_clock(&self) -> bool {
+        true
     }
 
     fn start(&mut self) -> Result<(), Error> {
@@ -90,6 +97,10 @@ impl Meter for CallgrindMeter<'_> {
 
     fn unit(&self) -> Unit {
         Unit::Count
+    }
+
+    fn wall_clock(&self) -> bool {
+        false
     }
 
     fn start(&mut self) -> Result<(), Error> {

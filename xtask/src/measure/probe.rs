@@ -5,6 +5,11 @@
 //! windows expected ([`windows`]). With the pointer options, the pointer is
 //! moved after the idle window, each step measured ([`super::input`]), the
 //! `--window` window still open.
+//!
+//! A run's timeline: start-up, to its end; the setup commands, each to
+//! settled; the settle; the memory reading; the idle window; the pointer's
+//! steps, then the command steps; with `--memory-after-steps`, a second
+//! memory reading; then the renderer read, over the whole run.
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -14,15 +19,16 @@ use std::time::{Duration, Instant};
 
 use rustix::process::{Pid, Signal, kill_process};
 
-use super::input::{Commands, CpuMeter, InputClient, Inputs, move_pointer, run_commands};
-use super::output;
+use super::input::{CpuMeter, InputClient, Inputs, move_pointer, run_commands, run_setup};
+use super::memory::{Reading, memory};
 use super::procfs::{self, ProcessSample, ThreadSample};
 use super::report::{Run, Unit, per_minute, per_second_milli};
+use super::scripted::Scripted;
 use super::settle::Running;
 use super::start_end::Start;
 use super::window::{self, Opened, Stimulus};
 use super::windows::{self, Arrivals, Expect, Started};
-use super::{gpu, smaps};
+use super::{output, renderer};
 use crate::error::Error;
 use crate::session::interrupt;
 use deskrinch_test_component::Watch;
@@ -44,7 +50,8 @@ pub(crate) struct Timing {
 
 /// Starts `command` (a session client) and measures it, its start-up
 /// ending where `start` says, with `inputs` its pointer's steps after the
-/// idle window; ends it afterwards.
+/// idle window and `scripted` its setup commands, command steps and second
+/// memory reading; ends it afterwards.
 pub(crate) fn measure(
     mut command: Command,
     program: &str,
@@ -52,7 +59,7 @@ pub(crate) fn measure(
     stimulus: &Stimulus,
     start: Start<'_>,
     inputs: Option<&Inputs<'_>>,
-    commands: Option<&Commands<'_>>,
+    scripted: &Scripted<'_>,
 ) -> Result<Run, Error> {
     // The client first: its devices are made before the program starts.
     let mut client = inputs.map(Inputs::start).transpose()?;
@@ -71,7 +78,7 @@ pub(crate) fn measure(
         watch: &watch,
         program,
         start,
-        commands,
+        scripted,
     };
     let pointer = client
         .as_mut()
@@ -90,8 +97,9 @@ struct Measured<'a> {
     watch: &'a Watch,
     program: &'a str,
     start: Start<'a>,
-    /// With `--step-command`: the command steps, after the pointer's.
-    commands: Option<&'a Commands<'a>>,
+    /// The setup commands, the command steps (after the pointer's), and the
+    /// second memory reading.
+    scripted: &'a Scripted<'a>,
 }
 
 fn measure_child(
@@ -105,8 +113,17 @@ fn measure_child(
     let Measured { watch, program, .. } = *measured;
     let mut run = Run::default();
     let started = startup(&mut run, child, measured, start, timing.first_frame)?;
+    if let Some(setup) = &measured.scripted.setup {
+        let mut running = Running {
+            child,
+            watch,
+            program,
+            timeout: timing.first_frame,
+        };
+        run_setup(&mut run, &mut running, setup)?;
+    }
     wait(child, watch, program, timing.settle)?;
-    memory(&mut run, child.id(), program)?;
+    memory(&mut run, child.id(), program, Reading::Settled)?;
     let opened = idle(
         &mut run,
         child,
@@ -133,7 +150,7 @@ fn measure_child(
             "",
         )?;
     }
-    if let Some(commands) = measured.commands {
+    if let Some(commands) = &measured.scripted.steps {
         let pid = child.id();
         let mut running = Running {
             child,
@@ -143,11 +160,24 @@ fn measure_child(
         };
         run_commands(&mut run, &mut running, commands, &mut CpuMeter::new(pid))?;
     }
+    // Each step ended settled, so this reading is settled too.
+    if measured.scripted.memory_after_steps {
+        memory(&mut run, child.id(), program, Reading::AfterSteps)?;
+    }
     window::end(opened, &mut run)?;
     let frames = measured.start.expect.frames(watch);
     run.push("frames in all", Unit::Count, frames);
-    run.drew = frames > 0 || !watch.windows().is_empty();
+    end_of_run(&mut run, watch, frames);
     Ok(run)
+}
+
+/// What is read once the run is done, its `frames` counted: the renderer,
+/// over the whole run (a program's first frame may come in a step), and
+/// whether it presented or opened anything.
+pub(crate) fn end_of_run(run: &mut Run, watch: &Watch, frames: u64) {
+    run.set_note("renderer", renderer::note(watch));
+    run.presented = watch.presented();
+    run.drew = frames > 0 || watch.has_presented() || !watch.windows().is_empty();
 }
 
 /// Samples every thread until the first frame (with `--windows`, until
@@ -232,57 +262,9 @@ fn startup(
         started.push_startup(run, &arrivals, &watch.windows(), start);
     }
     run.note(format!("load average at {}", end.at()), load_average());
-    run.note("renderer", watch.renderer());
-    run.presented = watch.presented();
+    // Its place among the notes; what it says is read at the end of the run.
+    run.note("renderer", renderer::note(watch));
     Ok(started)
-}
-
-/// Records the process's memory: its status sizes, Pss, the resident set by
-/// what is mapped, and GPU memory.
-pub(crate) fn memory(run: &mut Run, pid: u32, program: &str) -> Result<(), Error> {
-    let settled = sample(pid, program)?;
-    for field in procfs::STATUS_FIELDS {
-        let value = settled.status.get(field).copied().unwrap_or(0);
-        let unit = if field == "Threads" {
-            Unit::Count
-        } else {
-            Unit::Kib
-        };
-        run.push(format!("{field} (settled)"), unit, value);
-    }
-    let dir = format!("/proc/{pid}");
-    let rollup = fs::read_to_string(format!("{dir}/smaps_rollup")).unwrap_or_default();
-    run.push(
-        "Pss (settled)",
-        Unit::Kib,
-        procfs::parse_status(&rollup)
-            .get("Pss")
-            .copied()
-            .unwrap_or(0),
-    );
-    let exe = fs::read_link(format!("{dir}/exe")).unwrap_or_default();
-    let maps = fs::read_to_string(format!("{dir}/smaps")).unwrap_or_default();
-    let mut groups: Vec<_> = smaps::parse(&maps, &exe.to_string_lossy())
-        .into_iter()
-        .collect();
-    groups.sort_by_key(|(_, usage)| std::cmp::Reverse(usage.rss));
-    for (group, usage) in groups.into_iter().filter(|(_, usage)| usage.rss > 0) {
-        run.push(format!("  Rss: {group}"), Unit::Kib, usage.rss);
-        run.push(format!("  Pss: {group}"), Unit::Kib, usage.pss);
-    }
-    for (region, (total, resident)) in gpu::sum(&gpu::read(pid)) {
-        run.push(
-            format!("GPU memory {region}, total (not in Rss)"),
-            Unit::Kib,
-            total,
-        );
-        run.push(
-            format!("GPU memory {region}, resident"),
-            Unit::Kib,
-            resident,
-        );
-    }
-    Ok(())
 }
 
 /// Records an idle window of `duration`: CPU time, wake-ups, preemptions
@@ -387,7 +369,7 @@ fn wake_ups_note(groups: &[(String, u64, u32)], threads: usize) -> String {
 }
 
 /// The process now, or why it could not be read.
-fn sample(pid: u32, program: &str) -> Result<ProcessSample, Error> {
+pub(super) fn sample(pid: u32, program: &str) -> Result<ProcessSample, Error> {
     procfs::read_process(pid).ok_or_else(|| Error::MeasuredGone {
         program: program.to_owned(),
     })

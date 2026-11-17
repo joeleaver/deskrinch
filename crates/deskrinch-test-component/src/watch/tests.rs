@@ -192,3 +192,46 @@ fn no_first_frame_once_both_streams_close() {
     assert_eq!(watch.tail(), "error");
     assert_eq!(watch.last_words(), "error");
 }
+
+#[test]
+fn the_first_frame_since_a_mark_is_the_main_window_s_or_any_window_s() {
+    let watch = Watch::default();
+    let stderr = "starting\n[PERF] frame 1: a\nnoise\n\
+                  [PERF] window 2 opened: title=\"p\" app_id=\"x\" output=\"V-0\" output_id=1\n\
+                  [PERF] window 2 frame 1: a\n[PERF] frame 2: a\n";
+    let before = Instant::now();
+    watch.follow(stderr.as_bytes()).join().expect("reader");
+    let after = Instant::now();
+    // From the start: the main window's first frame, line 1.
+    let first = watch.first_frame_since(0, false).expect("a main frame");
+    assert!(before <= first && first <= after);
+    // From line 2 on: the popup's frame (line 4) for any window, the main
+    // window's second (line 5) for the main one alone.
+    let any = watch
+        .first_frame_since(2, true)
+        .expect("any window's frame");
+    let main = watch.first_frame_since(2, false).expect("a main frame");
+    assert!(any <= main, "{any:?} after {main:?}");
+    assert_eq!(watch.first_frame_since(6, true), None);
+    assert_eq!(watch.first_frame_since(60, true), None);
+}
+
+#[test]
+fn has_presented_once_any_window_has_closed_or_not() {
+    let watch = Watch::default();
+    watch
+        .follow("starting\n".as_bytes())
+        .join()
+        .expect("reader");
+    assert!(!watch.has_presented());
+    let popup = Watch::default();
+    popup
+        .follow(
+            "[PERF] window 2 opened: title=\"p\" app_id=\"x\" output=\"V-0\" output_id=1\n\
+             [PERF] window 2 frame 1: a\n[PERF] window 2 closed\n"
+                .as_bytes(),
+        )
+        .join()
+        .expect("reader");
+    assert!(popup.has_presented(), "a window that closed had presented");
+}

@@ -12,6 +12,10 @@ use crate::session::{Compositor, Outputs, SizeArgs, TooManySizes};
 
 /// `cargo xtask measure`'s arguments.
 #[derive(Debug, clap::Args)]
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "each is a switch of the command line, independent of the others"
+)]
 pub(crate) struct Args {
     /// The compositor each run's session has.
     #[arg(long, value_enum, default_value = "kwin")]
@@ -184,6 +188,20 @@ pub(crate) struct Args {
     /// fails the run.
     #[arg(long = "step-command", value_name = "CMD", conflicts_with = "summon")]
     step_commands: Vec<String>,
+    /// Run CMD as a client of the session (`sh -c`) after start-up's end
+    /// and before the settle, not measured, the program left to settle
+    /// after it (repeatable, in order): memory and the idle window are then
+    /// taken with what it made (a notification shown). What it led to is
+    /// noted; a status other than 0 fails the run, naming it. Not with
+    /// `--summon`.
+    #[arg(long = "setup-command", value_name = "CMD")]
+    setup_commands: Vec<String>,
+    /// Read memory a second time once the steps are done, settled, its
+    /// rows named "after the steps": what the steps left behind. It
+    /// lengthens each run by a settle. Needs steps; not with
+    /// `--instructions` or `--summon`.
+    #[arg(long)]
+    memory_after_steps: bool,
     /// The program to measure.
     program: OsString,
     /// Its arguments.
@@ -227,7 +245,9 @@ impl Args {
             state: self.state,
             config: self.config,
             start_ends: self.start_ends,
+            setup_commands: self.setup_commands,
             step_commands: self.step_commands,
+            memory_after_steps: self.memory_after_steps,
             program: self.program,
             args: self.arguments,
             summons: self

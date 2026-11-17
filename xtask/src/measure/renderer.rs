@@ -1,6 +1,8 @@
 //! The renderer a measured program is told to use, and the one it must
 //! have presented with (`--expect-renderer`).
 
+use deskrinch_test_component::Watch;
+
 use super::report;
 use crate::Outcome;
 
@@ -56,11 +58,12 @@ pub(super) fn check_renderer(expected: Expected, runs: &[report::Run]) -> Outcom
                 .is_some_and(|presented| expected.renderer().presented(presented))
         })
         .map(|(index, run)| {
-            format!(
-                "run {}: {}",
-                index + 1,
+            let said = if run.drew {
                 presented_name(run.presented.as_ref())
-            )
+            } else {
+                NOTHING_PRESENTED.to_owned()
+            };
+            format!("run {}: {said}", index + 1)
         })
         .collect();
     if wrong.is_empty() {
@@ -72,6 +75,22 @@ pub(super) fn check_renderer(expected: Expected, runs: &[report::Run]) -> Outcom
             wrong.join("; ")
         );
         Outcome::Failed
+    }
+}
+
+/// What a run in which no window presented a frame says of its renderer,
+/// in its notes and where `--expect-renderer` fails.
+pub(super) const NOTHING_PRESENTED: &str = "nothing presented in this run";
+
+/// The run's renderer note, read once the run is done, so that a program
+/// whose first frame comes in a step (a daemon with nothing to show until
+/// a notification) is named by what presented it: what presented, or
+/// [`NOTHING_PRESENTED`].
+pub(super) fn note(watch: &Watch) -> String {
+    if watch.has_presented() {
+        watch.renderer()
+    } else {
+        NOTHING_PRESENTED.to_owned()
     }
 }
 
@@ -101,6 +120,7 @@ mod tests {
     fn run(presented: Option<Presented>) -> report::Run {
         report::Run {
             presented,
+            drew: true,
             ..report::Run::default()
         }
     }
@@ -149,5 +169,29 @@ mod tests {
             presented_name(None),
             "it did not say which renderer presented"
         );
+    }
+
+    #[test]
+    fn a_run_in_which_nothing_presented_says_so() {
+        let nothing = report::Run::default();
+        assert_eq!(
+            check_renderer(Expected::Software, &[nothing]),
+            Outcome::Failed
+        );
+        let watch = Watch::default();
+        watch
+            .follow("no frame line\n".as_bytes())
+            .join()
+            .expect("reader");
+        assert_eq!(note(&watch), NOTHING_PRESENTED);
+        let drawn = Watch::default();
+        drawn
+            .follow(
+                "[PERF] window 2 frame 1: a\nrinch: presenting with the software renderer\n"
+                    .as_bytes(),
+            )
+            .join()
+            .expect("reader");
+        assert_ne!(note(&drawn), NOTHING_PRESENTED);
     }
 }

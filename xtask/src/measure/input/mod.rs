@@ -19,6 +19,7 @@ mod client;
 mod command;
 mod meter;
 mod pointer;
+mod setup;
 mod steps;
 mod typing;
 
@@ -26,6 +27,7 @@ pub(crate) use client::InputClient;
 pub(crate) use command::{Commands, run_commands};
 pub(crate) use meter::{CallgrindMeter, CpuMeter, Meter};
 pub(crate) use pointer::{Point, Pointer, PointerSteps, move_pointer};
+pub(crate) use setup::run_setup;
 pub(crate) use typing::{QueryLine, Typing, after_show, check_query_line, parse_text};
 
 use std::process::Command;
@@ -87,16 +89,22 @@ pub(crate) enum MeasuredInputError {
         waited: Duration,
         output: String,
     },
-    /// A step's command ended with a status other than 0.
-    #[error("the step's command {command:?} ended {status}; it said:\n{output}")]
+    /// A command (a step's, or a setup command) ended with a status other
+    /// than 0. `what` names it: `the step's command`, `setup command 1 of 2`.
+    #[error("{what} {command:?} ended {status}; it said:\n{output}")]
     CommandFailed {
+        what: String,
         command: String,
         status: std::process::ExitStatus,
         output: String,
     },
-    /// A step's command did not end within the first-frame timeout.
-    #[error("the step's command {command:?} did not end within {waited:?}, and was ended")]
-    CommandHung { command: String, waited: Duration },
+    /// A command did not end within the first-frame timeout.
+    #[error("{what} {command:?} did not end within {waited:?}, and was ended")]
+    CommandHung {
+        what: String,
+        command: String,
+        waited: Duration,
+    },
     /// The program wrote no line giving its query's length at the hide.
     #[error(
         "{program} wrote no line like {pattern:?} at hide {show} (waited {waited:?})\nIts last \
