@@ -113,9 +113,16 @@ fn layer_surface(placement: Placement, output: OutputId) -> LayerSurface {
 }
 
 /// What to ask of a bar's window, if anything: `wanted`, when it differs
-/// from what the window was opened with or last asked for (`applied`).
-pub(crate) fn to_send(applied: &BarSurface, wanted: BarSurface) -> Option<BarSurface> {
-    (wanted != *applied).then_some(wanted)
+/// from what the window was opened with or last asked for (`applied`), and
+/// only while the bar's output is `connected`. A bar acts only while its
+/// output exists: once it has gone, its window is closing, and anything
+/// asked of it would be asked of a window that no longer is.
+pub(crate) fn to_send(
+    applied: &BarSurface,
+    wanted: BarSurface,
+    connected: bool,
+) -> Option<BarSurface> {
+    (connected && wanted != *applied).then_some(wanted)
 }
 
 /// Moves the bar on `output`, whose window is `window`, to `surface`, at
@@ -202,18 +209,30 @@ mod tests {
     fn a_window_is_asked_only_for_a_surface_it_does_not_have() {
         let opened = bar_surface(placement(Edge::Bottom, 40), OUTPUT);
         assert_eq!(
-            to_send(&opened, bar_surface(placement(Edge::Bottom, 40), OUTPUT)),
+            to_send(
+                &opened,
+                bar_surface(placement(Edge::Bottom, 40), OUTPUT),
+                true
+            ),
             None
         );
         let moved = bar_surface(placement(Edge::Top, 40), OUTPUT);
-        assert_eq!(to_send(&opened, moved.clone()), Some(moved.clone()));
+        assert_eq!(to_send(&opened, moved.clone(), true), Some(moved.clone()));
         let taller = bar_surface(placement(Edge::Bottom, 56), OUTPUT);
-        assert_eq!(to_send(&opened, taller.clone()), Some(taller));
+        assert_eq!(to_send(&opened, taller.clone(), true), Some(taller));
         let both = bar_surface(placement(Edge::Top, 56), OUTPUT);
-        assert_eq!(to_send(&moved, both.clone()), Some(both));
+        assert_eq!(to_send(&moved, both.clone(), true), Some(both));
         // Another output's bar is another surface.
         let elsewhere = bar_surface(placement(Edge::Bottom, 40), OutputId::from_raw(8));
-        assert_eq!(to_send(&opened, elsewhere.clone()), Some(elsewhere));
+        assert_eq!(to_send(&opened, elsewhere.clone(), true), Some(elsewhere));
+    }
+
+    #[test]
+    fn a_bar_whose_output_has_gone_asks_nothing() {
+        let opened = bar_surface(placement(Edge::Bottom, 40), OUTPUT);
+        let moved = bar_surface(placement(Edge::Top, 56), OUTPUT);
+        assert_eq!(to_send(&opened, moved.clone(), true), Some(moved.clone()));
+        assert_eq!(to_send(&opened, moved, false), None);
     }
 
     #[test]
