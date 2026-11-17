@@ -1,9 +1,9 @@
 //! A bar on every output, from the one panel process: each window keyed by
 //! its output, an output that goes taking its bar with it and one that
 //! comes back getting exactly one new bar, an output moved, rescaled or
-//! turned keeping its bar, an edit of the settings moving every bar on its
-//! own output, and every bar following what the panel shows (a window
-//! opened, a title changed). Which windows the panel has is read from
+//! turned keeping its bar, and an edit of the settings moving every bar on
+//! its own output; which windows each bar shows is
+//! [`crate::taskbar_outputs`]'s. Which windows the panel has is read from
 //! rinch's per-window lines (`[PERF] window N opened/closed/frame`).
 
 use std::collections::BTreeSet;
@@ -146,7 +146,8 @@ enum Settled {
     /// (a rescale, a turn), and put back, at the size it was.
     BySize,
     /// The bar keeps its size (a move): a window opened since has been
-    /// drawn on every bar.
+    /// drawn on the bar of the output it says it is on. The compositor
+    /// tells the panel of the window after the move it made first.
     ByAWindow,
 }
 
@@ -177,7 +178,16 @@ fn wait_settled(panel: &Panel, settled: Settled, window: PerfWindow, surface: u6
             let mark = panel.watch().mark();
             let client = TestClient::connect().unwrap();
             let opened = client.open("A window", "org.deskrinch.Outputs").unwrap();
-            wait_each_bar_drew_since(panel, &mark, "for a window opened");
+            let on = opened.wait_output().unwrap();
+            let bar = panel.window_on(&on);
+            wait_for(&format!("{on}'s bar to draw a window opened"), || {
+                let since = panel.watch().since(&mark);
+                if since.iter().any(|s| s.window == bar && s.frames > 0) {
+                    Ok(())
+                } else {
+                    Err(since)
+                }
+            });
             drop(opened);
         }
     }
@@ -192,7 +202,7 @@ fn wait_settled(panel: &Panel, settled: Settled, window: PerfWindow, surface: u6
 /// `rerender_events_queued` as the changed bar's frame of that pass, the
 /// changed bar's work (seen on rinch 73b97d4ee: rinch writes the thread's
 /// counters on each window's frame line). A [`Settled::ByAWindow`] change
-/// repaints every bar for the window opened.
+/// repaints the bar a window opened on.
 fn unchanged_repainted(settled: Settled, drawn: &[String]) -> Option<String> {
     match settled {
         Settled::ByAWindow => None,
@@ -295,21 +305,6 @@ fn an_edit_moves_every_bar_each_on_its_own_output() {
     wait_band(&mut screen, &before, Band::of(Edge::Top, 56, scale));
     assert_eq!(open(&panel), started, "{}", panel.log());
     assert_eq!(ever(&panel), started, "a window was made: {}", panel.log());
-}
-
-/// Every bar shows the windows (until the taskbar is per output): a window
-/// opened makes every bar draw, and so does its title changed.
-#[test]
-#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
-fn every_bar_follows_a_window_opened_and_retitled() {
-    let (panel, _screen, _) = start_bars();
-    let client = TestClient::connect().unwrap();
-    let mark = panel.watch().mark();
-    let window = client.open("A window", "org.deskrinch.Outputs").unwrap();
-    wait_each_bar_drew_since(&panel, &mark, "for the window opened");
-    let mark = panel.watch().mark();
-    window.set_title("Retitled").unwrap();
-    wait_each_bar_drew_since(&panel, &mark, "for the title changed");
 }
 
 /// The whole seconds of the system's time at `at`.

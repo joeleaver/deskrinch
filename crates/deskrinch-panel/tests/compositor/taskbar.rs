@@ -99,7 +99,10 @@ impl Bar {
         Self::start_with(&format!("[general]\ncolor-scheme = \"{scheme}\"\n"))
     }
 
-    /// [`start`](Self::start), with `more` settings beside the panel's.
+    /// [`start`](Self::start), with `more` settings beside the panel's. The
+    /// pointer is left on the bar's output, where the compositors open the
+    /// test's windows ([`crate::open_on`]): each bar shows the windows on
+    /// its own output.
     fn start_with(more: &str) -> Self {
         in_nested_session();
         let input = Input::connect().unwrap();
@@ -115,7 +118,7 @@ impl Bar {
         let scale = scale_of(&screen.outputs()[0]);
         let band = Band::of(Edge::Bottom, HEIGHT, scale);
         let (output, _) = wait_band(&mut screen, &before, band);
-        Self {
+        let mut bar = Self {
             _dirs: dirs,
             input,
             screen,
@@ -124,7 +127,9 @@ impl Bar {
             output,
             scale,
             band,
-        }
+        };
+        bar.point_off();
+        bar
     }
 
     /// Captures the panel's output until `accept` takes the picture;

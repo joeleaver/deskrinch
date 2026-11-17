@@ -13,10 +13,14 @@
 use std::fs;
 use std::path::Path;
 
-use deskrinch_test_client::{OutputChange, TestClient, change_output, outputs, turn_output_off};
+use deskrinch_test_client::{
+    OutputChange, RestoreOutputs, TestClient, TestWindow, change_output, outputs, turn_output_off,
+};
+use deskrinch_test_input::Input;
 use deskrinch_test_screen::{Rgba, Screen};
 use deskrinch_test_wait::wait_for;
 
+use crate::open_on::open_on;
 use crate::support::{Band, Edge, Panel, in_nested_session, panel_table, scale_of, write_settings};
 
 /// The application whose window the bars show.
@@ -95,50 +99,76 @@ fn wait_icon_of_its_scale(screen: &mut Screen, output: &str) {
 }
 
 /// The outputs at different scales (the second at the scale the first has
-/// not), the panel started with the theme of [`install`], and a window
-/// open, so that every bar has an icon: the panel, the window, and the
-/// second output's change, to put back.
-fn at_two_scales() -> (
-    Panel,
-    deskrinch_test_client::TestWindow,
-    deskrinch_test_client::RestoreOutputs,
-    tempfile::TempDir,
-) {
-    in_nested_session();
-    write_settings(&panel_table(Edge::Bottom, 40));
-    let layout = outputs().unwrap();
-    let second = layout[1].name.clone();
-    let other = if scale_of(&layout[0].name) == 1 {
-        2.0
-    } else {
-        1.0
-    };
-    let changed = change_output(
-        &second,
-        OutputChange {
-            scale: Some(other),
-            ..OutputChange::default()
-        },
-    )
-    .unwrap();
-    let dirs = tempfile::tempdir().unwrap();
-    install(dirs.path());
-    let mut command = Panel::command();
-    command.env("XDG_DATA_HOME", dirs.path());
-    let panel = Panel::start_with(command);
-    let window = TestClient::connect().unwrap().open("Scales", APP).unwrap();
-    (panel, window, changed, dirs)
+/// not), the panel started with the theme of [`install`], and a window of
+/// the application on each output, so that every bar has an icon, kept
+/// with the pointer and the client that made them; the second output's
+/// change, to put back.
+struct TwoScales {
+    panel: Panel,
+    _input: Input,
+    _client: TestClient,
+    _windows: Vec<TestWindow>,
+    changed: RestoreOutputs,
+    _dirs: tempfile::TempDir,
+}
+
+impl TwoScales {
+    fn start() -> Self {
+        in_nested_session();
+        write_settings(&panel_table(Edge::Bottom, 40));
+        // Before any window: on a headless seat, the seat's only pointer.
+        let mut input = Input::connect().unwrap();
+        let layout = outputs().unwrap();
+        let second = layout[1].name.clone();
+        let other = if scale_of(&layout[0].name) == 1 {
+            2.0
+        } else {
+            1.0
+        };
+        let changed = change_output(
+            &second,
+            OutputChange {
+                scale: Some(other),
+                ..OutputChange::default()
+            },
+        )
+        .unwrap();
+        let dirs = tempfile::tempdir().unwrap();
+        install(dirs.path());
+        let mut command = Panel::command();
+        command.env("XDG_DATA_HOME", dirs.path());
+        let panel = Panel::start_with(command);
+        let client = TestClient::connect().unwrap();
+        let windows = layout
+            .iter()
+            .map(|output| open_on(&mut input, &client, &output.name, "Scales", APP))
+            .collect();
+        Self {
+            panel,
+            _input: input,
+            _client: client,
+            _windows: windows,
+            changed,
+            _dirs: dirs,
+        }
+    }
+
+    /// Ends the panel and puts the outputs back.
+    fn end(self) {
+        drop(self.panel);
+        self.changed.restore().unwrap();
+    }
 }
 
 /// A bar made after the panel started, on an output at scale 2 turned off
-/// and on again, draws its icons at scale 2: there the icon index is
-/// already in place when the bar mounts, so the bar's first read of its
-/// scale is the one it keeps, with nothing else in between to read it
-/// again (no window, title or theme changed).
+/// and on again, draws its icons at scale 2, the icon index already in
+/// place when the bar mounts: a window opened on that output once its bar
+/// is there (sway leaves the first one on the other output).
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn a_bar_made_later_draws_its_icons_at_its_outputs_scale() {
-    let (panel, _window, changed, _dirs) = at_two_scales();
+    let two = TwoScales::start();
+    let panel = &two.panel;
     let mut screen = Screen::connect().unwrap();
     for (_, output) in panel.bars() {
         wait_icon_of_its_scale(&mut screen, &output);
@@ -168,11 +198,16 @@ fn a_bar_made_later_draws_its_icons_at_its_outputs_scale() {
             .map(|_| ())
             .ok_or_else(|| panel.log())
     });
+    // The output came back as a new global, which only a client and a
+    // pointer connected since name.
+    let mut input = Input::connect().unwrap();
+    let client = TestClient::connect().unwrap();
+    let later = open_on(&mut input, &client, &scaled, "Scales", APP);
     // A capture of an output that went has stopped: capture anew.
     let mut screen = Screen::connect().unwrap();
     wait_icon_of_its_scale(&mut screen, &scaled);
-    drop(panel);
-    changed.restore().unwrap();
+    drop(later);
+    two.end();
 }
 
 /// Every bar of a panel started with its outputs at two scales draws its
@@ -180,11 +215,10 @@ fn a_bar_made_later_draws_its_icons_at_its_outputs_scale() {
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn each_bar_draws_its_icons_at_its_outputs_scale() {
-    let (panel, _window, changed, _dirs) = at_two_scales();
+    let two = TwoScales::start();
     let mut screen = Screen::connect().unwrap();
-    for (_, output) in panel.bars() {
+    for (_, output) in two.panel.bars() {
         wait_icon_of_its_scale(&mut screen, &output);
     }
-    drop(panel);
-    changed.restore().unwrap();
+    two.end();
 }

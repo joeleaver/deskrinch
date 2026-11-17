@@ -1,7 +1,8 @@
 //! The panel without any output: the last one turned off, the process
 //! keeps running and says nothing at warn or error level; the outputs back,
-//! every one gets a bar, showing the open window's button (found by its
-//! icon's colour, as [`crate::taskbar`] finds it) and the clock's face. Run by
+//! every one gets a bar showing the clock's face, and the bar of the output
+//! the open window says it is on shows its button (found by its icon's
+//! colour, as [`crate::taskbar`] finds it). Run by
 //! its own row, under the compositors that let a nested session turn off
 //! its last output: sway and labwc. KWin keeps its last output on (asked to
 //! turn it off, it does not, and `kscreen-doctor` reports the outputs
@@ -47,7 +48,7 @@ fn the_panel_outlives_its_last_output_and_gives_it_a_bar_again() {
     let band = Band::of(Edge::Bottom, 40, scale);
     wait_band(&mut screen, &before, band);
     let client = TestClient::connect().unwrap();
-    let _window = client.open("Still here", RED.id).unwrap();
+    let window = client.open("Still here", RED.id).unwrap();
     let names: Vec<String> = outputs()
         .unwrap()
         .into_iter()
@@ -85,14 +86,22 @@ fn the_panel_outlives_its_last_output_and_gives_it_a_bar_again() {
     // A capture of an output that went has stopped: capture anew.
     let mut screen = Screen::connect().unwrap();
     wait_band(&mut screen, &before, band);
+    // The outputs came back as new globals, which only a client connected
+    // since names: a window opened by one shows on the bar of the output
+    // it says it is on.
+    drop(window);
+    let client = TestClient::connect().unwrap();
+    let window = client.open("Back", RED.id).unwrap();
+    let on = window.wait_output().unwrap();
     wait_for(
-        "every bar to show the window's button and the clock",
+        &format!("every bar to show the clock, and {on}'s the window's button"),
         || {
             let lacking: Vec<String> = names
                 .iter()
                 .filter(|name| {
                     let image = screen.capture(name).unwrap();
-                    icon_in(&image, band, scale, RED).is_none() || !clock_drawn(&image, band)
+                    !clock_drawn(&image, band)
+                        || (**name == on && icon_in(&image, band, scale, RED).is_none())
                 })
                 .cloned()
                 .collect();

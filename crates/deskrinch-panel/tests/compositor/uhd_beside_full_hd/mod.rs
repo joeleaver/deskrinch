@@ -1,7 +1,7 @@
 //! A full taskbar on a 3840x2160 output, beside a 1920x1080 one (the pass
 //! of `cargo xtask compositor-tests` with those outputs, which runs this
-//! module alone): every bar's taskbar drawn full against the bar as it was
-//! before any window, its buttons to the end with none missing and the
+//! module alone), with as many windows on each output: every bar's
+//! taskbar drawn full against the bar as it was before any window, its buttons to the end with none missing and the
 //! count of those left out after the last ([`strip`]); and, with the GPU
 //! renderer, each frame's Vello usage under half of every buffer's first
 //! size. A frame that ran out of buffer space would go out undrawn on a bar
@@ -13,13 +13,16 @@ use std::fmt::Write as _;
 
 use deskrinch_test_client::{TestClient, require_outputs};
 use deskrinch_test_component::Renderer;
+use deskrinch_test_input::Input;
 use deskrinch_test_screen::Screen;
 use deskrinch_test_wait::wait_for;
 
+use crate::open_on::open_on;
 use crate::support::{Band, Edge, Panel, Pictures, in_nested_session, panel_table, write_settings};
 
 /// More windows than the wide bar has room for, so that it is full and
-/// says how many it leaves out.
+/// says how many it leaves out: as many on each output, since each bar
+/// shows its own output's.
 const WINDOWS: usize = 140;
 
 /// The counters of one of Vello's usage lines, `used … of …`, as
@@ -61,21 +64,28 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     in_nested_session();
     require_outputs(&[(3840, 2160), (1920, 1080)]);
     write_settings(&panel_table(Edge::Bottom, 40));
+    // Before any window: on a headless seat, the seat's only pointer.
+    let mut input = Input::connect().unwrap();
     let mut command = Panel::command();
     command.env("RUST_LOG", "warn,deskrinch_panel=info,vello=debug");
     let panel = Panel::start_with(command);
     let mut screen = Screen::connect().unwrap();
     let empty = Pictures::still(&mut screen);
     let client = TestClient::connect().unwrap();
-    let open = |i: usize| {
-        client
-            .open(
-                &format!("Window {i}"),
-                &format!("org.deskrinch.wide.App{i}"),
-            )
-            .unwrap()
-    };
-    let mut windows: Vec<_> = (0..WINDOWS).map(open).collect();
+    let outputs = screen.outputs();
+    let named = |i: usize| (format!("Window {i}"), format!("org.deskrinch.wide.App{i}"));
+    let mut windows = Vec::new();
+    for output in &outputs {
+        // The pointer onto the output for the first window only: the
+        // compositors open the rest beside it. (Moved before each window,
+        // sway stopped telling a window's output after the 63rd.)
+        let (title, app_id) = named(0);
+        windows.push(open_on(&mut input, &client, output, &title, &app_id));
+        for i in 1..WINDOWS {
+            let (title, app_id) = named(i);
+            windows.push(client.open(&title, &app_id).unwrap());
+        }
+    }
     let band = Band::of(Edge::Bottom, 40, 1);
     let read = |now: &Pictures| -> Result<Vec<strip::Full>, String> {
         let mut taskbars = Vec::new();
@@ -97,9 +107,12 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     });
     let full = Pictures::still(&mut screen);
     let taskbars = read(&full).unwrap_or_else(|why| panic!("{why}"));
-    // One more window left out: each bar's count changes, and nothing
-    // among its buttons.
-    windows.push(open(WINDOWS));
+    // One more window left out on each output: each bar's count changes,
+    // and nothing among its buttons.
+    for output in &outputs {
+        let (title, app_id) = named(WINDOWS);
+        windows.push(open_on(&mut input, &client, output, &title, &app_id));
+    }
     wait_for("every bar's count to change for one more window", || {
         let more = Pictures::take(&mut screen);
         let faults: Vec<String> = full

@@ -2,6 +2,11 @@
 //! (`wl_surface.enter` and `leave`): where the compositor put it, which a
 //! test asks rather than guessing (sway opens a window on the focused
 //! output, wherever an earlier test left the focus).
+//!
+//! An output is named by the `wl_output`s the client bound when it
+//! connected: one connected later (an output turned off and on again is a
+//! new global) is not one of them, and a window that enters it does not
+//! name it. A test that needs it connects a new client.
 
 use wayland_client::protocol::wl_surface::{self, WlSurface};
 use wayland_client::{Connection, Dispatch, Proxy, QueueHandle};
@@ -46,7 +51,8 @@ impl Dispatch<WlSurface, ()> for Client {
 }
 
 impl TestWindow {
-    /// The outputs it is on now, by name, in the order it entered them.
+    /// The outputs it is on now, by name, in the order it entered them:
+    /// those the client knows (see the module's documentation).
     #[must_use]
     pub fn outputs(&self) -> Vec<String> {
         lock(&self.shared.status).outputs.clone()
