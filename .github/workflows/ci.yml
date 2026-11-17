@@ -143,7 +143,12 @@ jobs:
   compositor-tests:
     name: Compositor tests (${{ matrix.compositor }})
     runs-on: ubuntu-26.04
-    timeout-minutes: 30
+    # A guard against a hung job, not the job's budget: about one and a half
+    # times the longest run seen with a cold build cache (KWin's, 29.5 min,
+    # after a change to the lock). The budget is 20 minutes with a warm
+    # cache and 25 with a cold one; what the suites cost is printed at the
+    # end of `cargo xtask compositor-tests` in every run.
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
