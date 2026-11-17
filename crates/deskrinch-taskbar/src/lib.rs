@@ -53,8 +53,10 @@
 //! # Which bar shows a button
 //!
 //! With a bar on each output, a button is on the bars of the outputs its
-//! window is on, and a window whose outputs have no bar is on every bar:
-//! every window is on at least one ([`on_bar`]).
+//! window is on, a window whose outputs have no bar is on every bar, and a
+//! new window the compositor has not yet placed waits a short grace before
+//! it is shown on every bar: with several bars, every window that is placed
+//! or whose grace is over is on at least one ([`on_bar`]).
 //!
 //! # When the buttons do not fit
 //!
@@ -76,5 +78,5 @@ mod taskbar;
 
 pub use deskrinch_window_management::{Action, Actions, EndReason, WindowState};
 pub use fit::{Fit, Form, Room, fit};
-pub use on_bar::{known_outputs, on_bar, shown_on};
+pub use on_bar::{Bars, GRACE, Placement, next_deadline, on_bar, shown_on};
 pub use taskbar::{Answer, Button, Change, Input, PointerButton, TaskWindow, Taskbar};

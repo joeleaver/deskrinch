@@ -8,9 +8,11 @@
 //!
 //! Each bar's taskbar shows the windows on its own output, from the one
 //! list of buttons the panel follows: a memo over that list, the bar's
-//! output and the outputs that have a bar ([`deskrinch_taskbar::on_bar`]:
-//! a window whose outputs have no bar is on every bar, so none is ever on
-//! none). A window's change wakes only the bars whose list it changes.
+//! output, the bars there are, and the [`GraceClock`]
+//! ([`deskrinch_taskbar::on_bar`]: a window whose outputs have no bar is on
+//! every bar, and one the compositor has not yet placed waits a short
+//! grace, then is on every bar until it is placed). A window's change wakes
+//! only the bars whose list it changes.
 //!
 //! The buttons share the room the bar leaves the taskbar (its width, from
 //! rinch's `bounds_signal`, refreshed after each layout), shrink to their
@@ -25,15 +27,16 @@
 
 mod button;
 mod follow;
+mod grace;
 
 pub(crate) use button::AppIcons;
 pub(crate) use follow::{Buttons, Following};
+pub(crate) use grace::{GraceClock, follow as follow_graces};
 
-use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
-use deskrinch_taskbar::{Room, fit, shown_on};
+use deskrinch_taskbar::{Bars, Room, fit, shown_on};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
@@ -54,11 +57,11 @@ const SIZES: ButtonSizes = ButtonSizes {
 #[derive(Debug, Clone)]
 pub(crate) struct BarOutput(pub(crate) Option<String>);
 
-/// The names of the outputs that have a bar, which the panel's root
-/// provides as a context: every named output, since each has one. A memo,
-/// so an output moved or rescaled wakes no taskbar.
+/// The bars there are, which the panel's root provides as a context: one
+/// on every output, counted, and named by the outputs that have a name. A
+/// memo, so an output moved or rescaled wakes no taskbar.
 #[derive(Debug, Clone, Copy)]
-pub(crate) struct BarOutputs(pub(crate) Memo<BTreeSet<String>>);
+pub(crate) struct BarOutputs(pub(crate) Memo<Bars>);
 
 /// The taskbar widget: the buttons of its bar's output
 /// ([`deskrinch_taskbar::shown_on`]), in the room the bar gives it.
@@ -68,9 +71,11 @@ pub(crate) fn TaskbarWidget() -> NodeHandle {
     let all: Signal<Buttons> = use_context();
     let BarOutput(output) = use_context();
     let BarOutputs(bars) = use_context();
+    let GraceClock(clock) = use_context();
     let buttons = Memo::new(move || {
         let bars = bars.get();
-        all.with(|all| Arc::new(shown_on(all, output.as_deref(), &bars)))
+        let now = clock.get();
+        all.with(|all| Arc::new(shown_on(all, output.as_deref(), &bars, now)))
     });
     let width = Signal::new(0.0_f32);
     let fitted = Memo::new(move || {

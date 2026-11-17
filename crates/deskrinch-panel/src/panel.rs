@@ -24,11 +24,10 @@
 //! made here, once, from its hand-over's inbox, so that every widget
 //! reading it is told of every change and the signal lives as long as the
 //! panel. And the panel's one clock's text, which every clock face reads
-//! (`widgets`' `clock`). And the names of the outputs that have a bar,
-//! which each bar's taskbar reads to show the windows on its own output
-//! ([`BarOutputs`]).
+//! (`widgets`' `clock`). And the bars there are, which each bar's taskbar
+//! reads to show the windows on its own output ([`BarOutputs`]), with the
+//! one timer for the new windows' graces (`widgets`' `taskbar`).
 
-use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -44,7 +43,9 @@ use crate::bar::Bar;
 use crate::surface::{self, BarSurface, Placement};
 use crate::widgets::{
     AppIcons, BarOutputs, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock,
+    follow_graces,
 };
+use deskrinch_taskbar::Bars;
 
 /// What the panel runs with.
 pub(crate) struct Parts {
@@ -83,25 +84,31 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     });
     create_context(Rc::new(windows));
     create_context(Rc::new(workspaces));
-    create_context(buttons.into_signal(Arc::default()));
+    let buttons = buttons.into_signal(Arc::default());
+    create_context(buttons);
+    create_context(follow_graces(buttons));
     create_context(runs.into_signal(Arc::default()));
     let settings = live.into_signal();
     create_context(settings);
     // The panel's one clock; its faces read the text.
     create_context(follow_clock(settings));
-    create_context(BarOutputs(Memo::new(named_outputs)));
+    create_context(BarOutputs(Memo::new(bars_there_are)));
     let placement = Memo::new(move || Placement::of(&settings.get()));
     bars(__scope, Memo::new(output_ids), placement)
 }
 
-/// The names of the connected outputs, each of which has a bar; an empty
-/// name is no name.
-fn named_outputs() -> BTreeSet<String> {
-    outputs()
-        .into_iter()
-        .filter_map(|output| output.name)
-        .filter(|name| !name.is_empty())
-        .collect()
+/// The bars there are: one on each connected output, named by the
+/// outputs' names (an empty name is no name).
+fn bars_there_are() -> Bars {
+    let outputs = outputs();
+    Bars {
+        count: outputs.len(),
+        named: outputs
+            .into_iter()
+            .filter_map(|output| output.name)
+            .filter(|name| !name.is_empty())
+            .collect(),
+    }
 }
 
 /// A bar on each of `outputs`, at `placement`: one `Window` per output, a

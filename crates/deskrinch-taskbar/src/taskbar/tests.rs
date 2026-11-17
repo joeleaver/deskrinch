@@ -1,3 +1,5 @@
+use std::time::Instant;
+
 use super::*;
 
 fn window(id: u32, state: WindowState, parent: Option<u32>) -> TaskWindow<u32> {
@@ -19,7 +21,7 @@ fn plain(id: u32) -> TaskWindow<u32> {
 fn taskbar(windows: impl IntoIterator<Item = TaskWindow<u32>>) -> Taskbar<u32> {
     let mut taskbar = Taskbar::new();
     for window in windows {
-        taskbar.input(Input::Change(Change::Added(window)));
+        taskbar.input(Input::Change(Change::Added(window), Instant::now()));
     }
     taskbar.connected(Actions::all());
     taskbar
@@ -44,7 +46,7 @@ fn click(taskbar: &mut Taskbar<u32>, id: u32, button: PointerButton) -> Option<(
 }
 
 fn change(taskbar: &mut Taskbar<u32>, change: Change<u32>) -> Answer<u32> {
-    taskbar.input(Input::Change(change))
+    taskbar.input(Input::Change(change, Instant::now()))
 }
 
 #[test]

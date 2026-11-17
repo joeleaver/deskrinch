@@ -15,6 +15,7 @@
 //! with why reported once, when it offers none.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
 
 use deskrinch_component::{Handover, Inbox, handover, report};
 use deskrinch_taskbar::{Answer, Button, Change, Input, TaskWindow, Taskbar};
@@ -97,7 +98,8 @@ fn follow(
         };
         let mut model = lock(&applied);
         let before = model.buttons();
-        if let Answer::Ended(reason) = model.input(Input::Change(change)) {
+        // Heard now: a new window's grace counts from it.
+        if let Answer::Ended(reason) = model.input(Input::Change(change, Instant::now())) {
             report::error("following the windows (the taskbar is empty)", &reason);
         }
         let after = model.buttons();
