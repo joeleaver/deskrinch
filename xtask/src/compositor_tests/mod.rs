@@ -57,6 +57,7 @@ mod run_dir;
 pub(crate) mod selection;
 mod suite;
 mod suites;
+mod timing;
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -119,13 +120,15 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
     }
     let gpu = Gpu::from_allowed(plan.uses_gpu());
     let mut failed = Vec::new();
+    let mut timed = Vec::new();
     for (place, runs) in sessions {
         let session = place.with_gpu(gpu);
         println!("compositor-tests: {}", session.said());
-        if !run_in(session, &runs, &selection, &built)? {
+        if !run_in(session, &runs, &selection, &built, &mut timed)? {
             failed.push(session.said());
         }
     }
+    print!("{}", timing::summary(&timed));
     if failed.is_empty() {
         println!("compositor-tests: passed");
         Ok(Outcome::Passed)
@@ -325,9 +328,16 @@ fn runs(place: Place, plan: &renderers::Plan, selection: &Selection) -> Vec<Run>
 
 /// Runs `runs` in one fresh session at `place`, each suite with the
 /// arguments `selection` gives it and the paths of the programs it
-/// declares; `built` is what the run built. Returns whether they passed; on
-/// failure, prints the compositor's log.
-fn run_in(place: Place, runs: &[Run], selection: &Selection, built: &Built) -> Result<bool, Error> {
+/// declares; `built` is what the run built. Each suite run's time is added
+/// to `timed`. Returns whether they passed; on failure, prints the
+/// compositor's log.
+fn run_in(
+    place: Place,
+    runs: &[Run],
+    selection: &Selection,
+    built: &Built,
+    timed: &mut Vec<timing::SuiteRun>,
+) -> Result<bool, Error> {
     let compositor = place.compositor;
     let mut session = Session::start(
         compositor,
@@ -351,18 +361,24 @@ fn run_in(place: Place, runs: &[Run], selection: &Selection, built: &Built) -> R
                 .iter()
                 .map(|program| (program.package, built.programs[program.package].as_path())),
         );
-        match renderer {
-            None => println!("compositor-tests: {}", suite.target.name()),
+        let name = match renderer {
+            None => suite.target.name(),
             Some(renderer) => {
-                println!(
-                    "compositor-tests: {} with the {} renderer",
+                env.push((RENDERER_VARIABLE.to_owned(), renderer.env().into()));
+                format!(
+                    "{} with the {} renderer",
                     suite.target.name(),
                     renderer.env()
-                );
-                env.push((RENDERER_VARIABLE.to_owned(), renderer.env().into()));
+                )
             }
-        }
-        passed &= session.run_tests(binary, &args, &env)?;
+        };
+        println!("compositor-tests: {name}");
+        let mut clock = timing::Timer::start();
+        passed &= session.run_tests(binary, &args, &env, &mut |at, line| {
+            println!("{line}");
+            clock.line(at, line);
+        })?;
+        timed.push(clock.finish(format!("{name}, {}", place.said())));
         // A suite that ends the session leaves no outputs to list.
         if suite.ends_the_session() {
             continue;
