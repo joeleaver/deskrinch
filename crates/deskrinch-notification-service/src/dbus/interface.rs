@@ -10,8 +10,9 @@ use crate::notification::NotificationId;
 use crate::request::{Hints, Request};
 use crate::service::shared::{CloseError, NotifyError, Shared};
 
-/// The well-known name the service owns.
-pub(crate) const NAME: &str = "org.freedesktop.Notifications";
+/// The well-known name the service owns on the bus: a starter waits for it
+/// to be owned, and a daemon that finds it taken names its owner.
+pub const NAME: &str = "org.freedesktop.Notifications";
 /// The object path the specification puts the interface at.
 pub(crate) const PATH: &str = "/org/freedesktop/Notifications";
 /// The specification version implemented, as `GetServerInformation`

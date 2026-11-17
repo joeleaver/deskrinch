@@ -34,6 +34,7 @@ deskrinch-gestures = { path = "crates/deskrinch-gestures" }
 deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
+deskrinch-notification-service = { path = "crates/deskrinch-notification-service" }
 deskrinch-picture = { path = "crates/deskrinch-picture" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
 deskrinch-shell = { path = "crates/deskrinch-shell" }
@@ -48,6 +49,7 @@ deskrinch-test-desktops = { path = "crates/deskrinch-test-desktops" }
 deskrinch-test-input = { path = "crates/deskrinch-test-input" }
 deskrinch-test-lifetime = { path = "crates/deskrinch-test-lifetime" }
 deskrinch-test-log = { path = "crates/deskrinch-test-log" }
+deskrinch-test-notify = { path = "crates/deskrinch-test-notify" }
 deskrinch-test-pictures = { path = "crates/deskrinch-test-pictures" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }

@@ -246,9 +246,9 @@ mod tests {
                 "--bin",
                 "deskrinch-wallpaper",
                 "--package",
-                "deskrinch-launcher",
+                "deskrinch-notifications",
                 "--bin",
-                "deskrinch-launcher",
+                "deskrinch-notifications",
             ],
             "the components in the order they start"
         );

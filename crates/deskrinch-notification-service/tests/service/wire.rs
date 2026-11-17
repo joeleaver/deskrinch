@@ -9,13 +9,13 @@ use deskrinch_notification_service::{
 };
 use zbus::Variant;
 
-use crate::common::{Client, PrivateBus, start, start_with};
+use crate::common::{PrivateBus, start, start_with};
 
 #[test]
 fn server_information_and_capabilities() {
     let bus = PrivateBus::start();
     let (_service, _events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let (name, vendor, version, spec) =
         zbus::block_on(client.proxy.get_server_information()).unwrap();
     assert_eq!((name.as_str(), vendor.as_str()), ("deskrinch", "deskrinch"));
@@ -39,7 +39,7 @@ fn server_information_and_capabilities() {
 fn a_notification_arrives_parsed_with_its_hints() {
     let bus = PrivateBus::start();
     let (_service, events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let image = (
         2i32,
         1i32,
@@ -104,7 +104,7 @@ fn a_notification_arrives_parsed_with_its_hints() {
 fn an_invalid_image_falls_back_to_the_image_path() {
     let bus = PrivateBus::start();
     let (_service, events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     // Claims 100×100 RGBA but carries four bytes.
     let image = (100i32, 100i32, 400i32, true, 8i32, 4i32, vec![0u8; 4]);
     let hints = HashMap::from([
@@ -134,7 +134,7 @@ fn a_sender_over_its_bound_gets_an_error() {
     };
     let clock = Arc::new(ManualClock::new());
     let (_service, events) = start_with(config, clock);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     client.simple(0, "1", "", 0);
     client.simple(0, "2", "", 0);
     let err = client
@@ -148,7 +148,7 @@ fn a_sender_over_its_bound_gets_an_error() {
         "org.freedesktop.Notifications.Error.LimitsExceeded"
     );
     // Another sender is not held to the first one's bound.
-    Client::new(&bus).simple(0, "other", "", 0);
+    bus.notify_client().simple(0, "other", "", 0);
     let summaries: Vec<_> = (0..3)
         .map(|_| events.next_shown().summary.clone())
         .collect();
@@ -163,8 +163,8 @@ fn with_original_sender_ownership_others_are_denied() {
         ..bus.config()
     };
     let (_service, _events) = start_with(config, Arc::new(ManualClock::new()));
-    let owner = Client::new(&bus);
-    let other = Client::new(&bus);
+    let owner = bus.notify_client();
+    let other = bus.notify_client();
     let n = owner.simple(0, "mine", "", 0);
     let denied = |err: zbus::Error| match err {
         zbus::Error::MethodError(name, _, _) => {

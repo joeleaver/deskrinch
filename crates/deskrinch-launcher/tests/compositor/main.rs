@@ -17,6 +17,14 @@
 //!
 //! Every launcher a test starts is ended before the test returns, the one a
 //! client starts (in a process group of its own) included.
+//!
+//! These tests hold one half of the launcher's window: that what it asks
+//! for happens on a real layer surface under a real compositor (mapped and
+//! unmapped, the exclusive keyboard given and taken, a prepare honoured
+//! with a prepared frame). The other half, what it asks of its window and
+//! in what order, is the binary's own tests' in rinch's test harness
+//! (`wiring::tests::window` and `root::tests`). Where both test one
+//! behaviour, they are not duplicates.
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
