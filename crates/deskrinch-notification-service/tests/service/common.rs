@@ -5,19 +5,16 @@
 //! `dbus-daemon` the test starts, whose configuration has no service
 //! directories, so nothing can be activated on it either.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::sync::mpsc::{self, Receiver};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 use deskrinch_notification_service::{
     Bus, Clock, Config, Event, ManualClock, NotificationId, Service,
 };
-use deskrinch_test_wait::{quiet_for, recv};
-use futures_core::Stream as _;
-use zbus::message::Type;
-use zbus::{Connection, MatchRule, MessageStream, Variant};
+pub(crate) use deskrinch_test_notify::{Client, Signal, Signals};
+use deskrinch_test_wait::recv;
+use zbus::Connection;
 
 /// The test's own bus (see `deskrinch-test-dbus`), stopped when dropped.
 pub(crate) struct PrivateBus(deskrinch_test_dbus::PrivateBus);
@@ -41,6 +38,17 @@ impl PrivateBus {
     /// A client connection to this bus.
     pub(crate) fn client(&self) -> Connection {
         zbus::block_on(zbus::connection::Builder::address(self.address()).build()).unwrap()
+    }
+
+    /// A client of the service, on a connection of its own to this bus.
+    pub(crate) fn notify_client(&self) -> Client {
+        Client::on(&self.client())
+    }
+
+    /// The signals a connection of its own that sends nothing receives:
+    /// only those broadcast to everyone.
+    pub(crate) fn bystander(&self) -> Signals {
+        Signals::on(&self.client())
     }
 
     /// A command for `program` in the bus's isolated session, pointed at
@@ -121,149 +129,6 @@ pub(crate) fn start(bus: &PrivateBus) -> (Service, Events, Arc<ManualClock>) {
     let dyn_clock: Arc<dyn Clock> = Arc::<ManualClock>::clone(&clock);
     let (service, events) = start_with(bus.config(), dyn_clock);
     (service, events, clock)
-}
-
-#[zbus::proxy(
-    interface = "org.freedesktop.Notifications",
-    default_service = "org.freedesktop.Notifications",
-    default_path = "/org/freedesktop/Notifications"
-)]
-pub trait Notifications {
-    #[expect(clippy::too_many_arguments, reason = "the specification's method")]
-    fn notify(
-        &self,
-        app_name: &str,
-        replaces_id: u32,
-        app_icon: &str,
-        summary: &str,
-        body: &str,
-        actions: &[&str],
-        hints: &HashMap<&str, Variant<'_>>,
-        expire_timeout: i32,
-    ) -> zbus::Result<u32>;
-
-    fn close_notification(&self, id: u32) -> zbus::Result<()>;
-
-    fn get_capabilities(&self) -> zbus::Result<Vec<String>>;
-
-    fn get_server_information(&self) -> zbus::Result<(String, String, String, String)>;
-}
-
-/// A client of the service, and the signals its own connection receives
-/// (which, with sender-only delivery, are the ones about its notifications).
-pub(crate) struct Client {
-    pub proxy: NotificationsProxy<'static>,
-    pub signals: Signals,
-}
-
-impl Client {
-    pub(crate) fn new(bus: &PrivateBus) -> Self {
-        let connection = bus.client();
-        let signals = Signals::on(&connection);
-        let proxy = zbus::block_on(NotificationsProxy::new(&connection)).unwrap();
-        Self { proxy, signals }
-    }
-
-    /// Sends a notification with no actions or hints.
-    pub(crate) fn simple(&self, replaces_id: u32, summary: &str, body: &str, timeout: i32) -> u32 {
-        self.send(replaces_id, summary, body, &[], &HashMap::new(), timeout)
-            .unwrap()
-    }
-
-    pub(crate) fn send(
-        &self,
-        replaces_id: u32,
-        summary: &str,
-        body: &str,
-        actions: &[&str],
-        hints: &HashMap<&str, Variant<'_>>,
-        timeout: i32,
-    ) -> zbus::Result<u32> {
-        zbus::block_on(self.proxy.notify(
-            "Test",
-            replaces_id,
-            "",
-            summary,
-            body,
-            actions,
-            hints,
-            timeout,
-        ))
-    }
-
-    pub(crate) fn close(&self, id: u32) -> zbus::Result<()> {
-        zbus::block_on(self.proxy.close_notification(id))
-    }
-}
-
-/// A signal of the interface, as a client saw it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(crate) enum Signal {
-    Closed(u32, u32),
-    ActionInvoked(u32, String),
-    ActivationToken(u32, String),
-}
-
-/// The interface's signals a client receives, in order.
-pub(crate) struct Signals(Receiver<Signal>);
-
-impl Signals {
-    /// Listens on a connection of its own that sends nothing: it sees only
-    /// signals broadcast to everyone.
-    pub(crate) fn bystander(bus: &PrivateBus) -> Self {
-        Self::on(&bus.client())
-    }
-
-    /// Starts listening on `connection`; signals it receives after this
-    /// returns are all seen.
-    pub(crate) fn on(connection: &Connection) -> Self {
-        let rule = MatchRule::builder()
-            .msg_type(Type::Signal)
-            .interface("org.freedesktop.Notifications")
-            .build()
-            .unwrap();
-        let mut stream =
-            zbus::block_on(MessageStream::for_match_rule(rule, connection, None)).unwrap();
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            zbus::block_on(async move {
-                while let Some(Ok(message)) =
-                    std::future::poll_fn(|cx| std::pin::Pin::new(&mut stream).poll_next(cx)).await
-                {
-                    let header = message.header();
-                    let body = message.body();
-                    let signal = match header.member().map(zbus::names::MemberName::as_str) {
-                        Some("NotificationClosed") => {
-                            let (id, reason) = body.deserialize().unwrap();
-                            Signal::Closed(id, reason)
-                        }
-                        Some("ActionInvoked") => {
-                            let (id, key) = body.deserialize().unwrap();
-                            Signal::ActionInvoked(id, key)
-                        }
-                        Some("ActivationToken") => {
-                            let (id, token) = body.deserialize().unwrap();
-                            Signal::ActivationToken(id, token)
-                        }
-                        _ => continue,
-                    };
-                    if tx.send(signal).is_err() {
-                        return;
-                    }
-                }
-            });
-        });
-        Self(rx)
-    }
-
-    pub(crate) fn next(&self) -> Signal {
-        recv("a signal", &self.0)
-    }
-
-    #[track_caller]
-    pub(crate) fn none_within(&self, wait: Duration) {
-        quiet_for("no signal", &self.0, wait);
-    }
 }
 
 pub(crate) fn id(value: u32) -> NotificationId {

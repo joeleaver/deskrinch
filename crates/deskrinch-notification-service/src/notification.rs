@@ -95,10 +95,12 @@ pub enum Expiry {
     /// At this moment on the service's [`Clock`](crate::Clock).
     At(Instant),
     /// Paused by the UI ([`Handle::pause`](crate::Handle::pause)), with this
-    /// much of its timeout left for when it resumes.
+    /// much of its timeout left for when it resumes, or none when it had no
+    /// timeout: a notification that never expires is paused all the same,
+    /// so that a replacement that gives it a timeout keeps it paused.
     Paused {
-        /// The time left.
-        remaining: Duration,
+        /// The time left; `None` for no timeout.
+        remaining: Option<Duration>,
     },
 }
 
@@ -108,22 +110,28 @@ impl Expiry {
         timeout.map_or(Self::Never, |after| Self::At(now + after))
     }
 
-    /// This expiry paused at `now`; one that never comes is unchanged.
+    /// This expiry paused at `now`, whatever its timeout; a paused one is
+    /// unchanged.
     #[must_use]
     pub(crate) fn paused(self, now: Instant) -> Self {
         match self {
             Self::At(at) => Self::Paused {
-                remaining: at.saturating_duration_since(now),
+                remaining: Some(at.saturating_duration_since(now)),
             },
-            other => other,
+            Self::Never => Self::Paused { remaining: None },
+            paused @ Self::Paused { .. } => paused,
         }
     }
 
-    /// This expiry running again from `now`.
+    /// This expiry running again from `now`: what it had left, or never for
+    /// one paused with no timeout.
     #[must_use]
     pub(crate) fn resumed(self, now: Instant) -> Self {
         match self {
-            Self::Paused { remaining } => Self::At(now + remaining),
+            Self::Paused {
+                remaining: Some(remaining),
+            } => Self::At(now + remaining),
+            Self::Paused { remaining: None } => Self::Never,
             other => other,
         }
     }

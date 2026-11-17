@@ -121,6 +121,23 @@ pub fn counter(line: &str, name: &str) -> Option<u64> {
         .ok()
 }
 
+/// Whether the frame line `line` drew anything: a frame that rinch served
+/// from the cached pixels with nothing dirty (`paint_cached_frames` and no
+/// `paint_frames`) drew nothing, whether it presented them again (the GPU
+/// renderer does after some changes) or skipped the present (the software
+/// renderer's `soft_presents_skipped`). `false` for a line that is not a
+/// frame line.
+#[must_use]
+pub fn drew(line: &str) -> bool {
+    let frame = matches!(
+        parse(&crate::log::strip_ansi(line)),
+        Some(PerfLine::Frame { .. })
+    );
+    frame
+        && (counter(line, "paint_frames").is_some()
+            || counter(line, "paint_cached_frames").is_none())
+}
+
 /// The first presented frame line of `window` among `lines` (a program's
 /// output, as [`Watch::lines`](crate::Watch::lines) keeps it), if there is
 /// one.
@@ -214,6 +231,23 @@ fn quoted(text: &str) -> Option<(String, &str)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Lines as rinch b31389bb and f5dd9e4e3 wrote them: a painted frame,
+    /// the software renderer's skipped present, and the GPU renderer's
+    /// present of the cached pixels.
+    #[test]
+    fn a_frame_of_cached_pixels_drew_nothing() {
+        let painted = "[PERF] window 1 frame 3: style 3.78ms layout 10.63ms paint 2.70ms \
+                       present 10.99ms | style_resolves=12 paint_frames=1 soft_presents=1";
+        let skipped = "[PERF] window 1 frame 4: style 0.00ms layout 0.00ms paint 0.00ms \
+                       present 0.00ms | paint_cached_frames=1 soft_presents_skipped=1";
+        let again = "[PERF] window 1 frame 4: style 0.00ms layout 0.00ms paint 0.00ms \
+                     present 2.51ms | paint_cached_frames=1";
+        assert!(drew(painted));
+        assert!(!drew(skipped));
+        assert!(!drew(again));
+        assert!(!drew("[PERF] window 1 opened: title=\"x\""));
+    }
 
     /// What a rinch program with a hidden main window it prepares and then
     /// shows, a window per output (two outputs) placed by output id, and a

@@ -249,9 +249,9 @@ impl Model {
             .min()
     }
 
-    /// Stops `id`'s timer at `now`, keeping the time it has left. Pausing a
-    /// paused notification, or one that never expires, changes nothing.
-    /// `None` when it is not live.
+    /// Stops `id`'s timer at `now`, keeping the time it has left; one with
+    /// no timeout is held paused all the same. Pausing a paused one changes
+    /// nothing. `None` when it is not live.
     pub(crate) fn pause(&mut self, id: NotificationId, now: Instant) -> Option<()> {
         self.set_expiry(id, |expiry| expiry.paused(now))
     }

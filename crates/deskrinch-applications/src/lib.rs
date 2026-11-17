@@ -13,13 +13,14 @@
 //!   theme the shell uses and followed as it or its files change, handed to
 //!   the UI as a signal.
 //! - [`path_of`]: the file an application's icon is drawn from, the generic
-//!   program's when it names none or the theme lacks it; [`icon_scale`]:
-//!   the scale to draw it at.
+//!   program's when it names none or the theme lacks it; [`path_of_name`]:
+//!   the file any icon is drawn from by its name, with nothing in its
+//!   place when the theme lacks it; [`icon_scale`]: the scale to draw at.
 
 mod applications;
 mod icons;
 mod installed;
 
 pub use applications::Applications;
-pub use icons::{Icons, icon_scale, path_of};
+pub use icons::{Icons, icon_scale, path_of, path_of_name};
 pub use installed::Installed;
