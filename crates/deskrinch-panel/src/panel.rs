@@ -101,19 +101,20 @@ pub(crate) fn bars(
             for id in outputs.get() {
                 div {
                     key: id,
-                    {bar_window(__scope, id, placement)}
+                    {bar_window(__scope, id, outputs, placement)}
                 }
             }
         }
     }
 }
 
-/// The window of the bar on the output whose id is `output`, drawn with its
-/// row: opened at the placement as it is now, which its bar is handed as
-/// what its window was opened with.
+/// The window of the bar on the output whose id is `output`, one of
+/// `outputs`, drawn with its row: opened at the placement as it is now,
+/// which its bar is handed as what its window was opened with.
 fn bar_window(
     __scope: &mut RenderScope,
     output: OutputId,
+    outputs: Memo<Vec<OutputId>>,
     placement: Memo<Placement>,
 ) -> NodeHandle {
     let opened = surface::bar_surface(untracked(|| placement.get()), output);
@@ -128,19 +129,21 @@ fn bar_window(
             app_id: Some(surface::NAMESPACE.to_owned()),
             wayland_layer: Some(layer),
             on_closed: move || surface::closed(output),
-            {output_bar(__scope, output, placement, opened)}
+            {output_bar(__scope, output, outputs, placement, opened)}
         }
     }
 }
 
 /// The bar on the output whose id is `output`, inside that output's window:
-/// it follows `placement`, moving its window through the window's handle
-/// when the edge or height changes ([`surface::place`]). The handle is the
+/// while `output` is among `outputs`, it follows `placement`, moving its
+/// window through the window's handle when the edge or height changes
+/// ([`surface::place`]). The handle is the
 /// window's own: rinch's current window while its content is built, which
 /// is when this runs.
 fn output_bar(
     __scope: &mut RenderScope,
     output: OutputId,
+    outputs: Memo<Vec<OutputId>>,
     placement: Memo<Placement>,
     opened: BarSurface,
 ) -> NodeHandle {
@@ -158,8 +161,16 @@ fn output_bar(
     let mut applied = opened;
     Effect::new(move || {
         let at = placement.get();
+        // The window's document, and this effect with it, goes when its
+        // close is served, not when the row goes: an output that goes in
+        // the turn its placement changes leaves this effect a run, in
+        // either order of the two, with the window closing. Read untracked:
+        // whether the output is there decides, its going does not move the
+        // bar.
+        let connected = untracked(|| outputs.get()).contains(&output);
         if let Some(window) = window
-            && let Some(sent) = surface::to_send(&applied, surface::bar_surface(at, output))
+            && let Some(sent) =
+                surface::to_send(&applied, surface::bar_surface(at, output), connected)
         {
             surface::place(window, output, &sent, at);
             applied = sent;
