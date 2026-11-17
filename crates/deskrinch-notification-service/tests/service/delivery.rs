@@ -7,14 +7,14 @@ use std::sync::Arc;
 use deskrinch_notification_service::{Config, ManualClock, SignalDelivery};
 use deskrinch_test_wait::QUIET;
 
-use crate::common::{Client, PrivateBus, Signal, Signals, id, start, start_with};
+use crate::common::{PrivateBus, Signal, id, start, start_with};
 
 #[test]
 fn by_default_only_the_sender_hears_about_its_notification() {
     let bus = PrivateBus::start();
     let (service, _events, _clock) = start(&bus);
-    let bystander = Signals::bystander(&bus);
-    let client = Client::new(&bus);
+    let bystander = bus.bystander();
+    let client = bus.notify_client();
     let n = client
         .send(0, "a", "", &["default", "Open"], &HashMap::new(), 0)
         .unwrap();
@@ -40,8 +40,8 @@ fn by_default_only_the_sender_hears_about_its_notification() {
 fn the_signals_follow_the_sender_that_replaced_it() {
     let bus = PrivateBus::start();
     let (service, _events, _clock) = start(&bus);
-    let first = Client::new(&bus);
-    let second = Client::new(&bus);
+    let first = bus.notify_client();
+    let second = bus.notify_client();
     let n = first.simple(0, "a", "", 0);
     second.simple(n, "a, again", "", 0);
     service.handle().dismiss(id(n)).unwrap();
@@ -62,8 +62,8 @@ fn broadcast_delivery_reaches_everyone() {
         ..bus.config()
     };
     let (service, _events) = start_with(config, Arc::new(ManualClock::new()));
-    let bystander = Signals::bystander(&bus);
-    let client = Client::new(&bus);
+    let bystander = bus.bystander();
+    let client = bus.notify_client();
     let n = client.simple(0, "a", "", 0);
     service.handle().dismiss(id(n)).unwrap();
     assert_eq!(client.signals.next(), Signal::Closed(n, 2));

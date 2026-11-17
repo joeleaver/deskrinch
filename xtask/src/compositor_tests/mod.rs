@@ -55,6 +55,7 @@ pub(crate) mod renderers;
 mod repeat;
 mod run_dir;
 pub(crate) mod selection;
+mod suite;
 mod suites;
 
 use std::collections::BTreeMap;

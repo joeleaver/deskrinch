@@ -90,6 +90,7 @@ mod service;
 
 pub use capabilities::Capabilities;
 pub use clock::{Clock, ManualClock, SystemClock};
+pub use dbus::interface::NAME;
 pub use dbus::name::{NameRequest, NameStatus};
 pub use deskrinch_bus::Bus;
 pub use deskrinch_untrusted::markup::{Body, Link, Span, Style};

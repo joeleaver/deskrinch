@@ -359,6 +359,55 @@ fn a_paused_notification_keeps_its_remaining_time() {
     assert_eq!(m.resume(id(99), t0), None);
 }
 
+/// Paused while it had no timeout, then given one by a replacement: it
+/// stays paused past that timeout, and expires on its time once resumed.
+#[test]
+fn a_notification_paused_with_no_timeout_stays_paused_when_given_one() {
+    let mut m = model();
+    let t0 = Instant::now();
+    let never = Request {
+        expire_timeout: 0,
+        ..request("a")
+    };
+    let (a, _) = m.notify(&never, t0).unwrap();
+    assert_eq!(m.pause(a, t0 + SECOND), Some(()));
+    assert_eq!(m.get(a).unwrap().expiry, Expiry::Paused { remaining: None });
+    let timed = Request {
+        replaces_id: a.get(),
+        expire_timeout: 3000,
+        ..request("a2")
+    };
+    m.notify(&timed, t0 + 2 * SECOND).unwrap();
+    assert_eq!(m.next_expiry(), None, "still paused");
+    assert_eq!(
+        m.expire(t0 + 60 * SECOND),
+        [],
+        "not expired past its timeout"
+    );
+    m.resume(a, t0 + 60 * SECOND);
+    assert_eq!(
+        m.next_expiry(),
+        Some(t0 + 63 * SECOND),
+        "its 3 s run from the resume"
+    );
+    assert_eq!(m.expire(t0 + 63 * SECOND).len(), 1);
+}
+
+/// Paused with no timeout and resumed with none: it still never expires.
+#[test]
+fn a_notification_paused_with_no_timeout_resumes_never_expiring() {
+    let mut m = model();
+    let t0 = Instant::now();
+    let never = Request {
+        expire_timeout: 0,
+        ..request("a")
+    };
+    let (a, _) = m.notify(&never, t0).unwrap();
+    m.pause(a, t0);
+    m.resume(a, t0 + SECOND);
+    assert_eq!(m.get(a).unwrap().expiry, Expiry::Never);
+}
+
 #[test]
 fn a_replacement_of_a_paused_notification_stays_paused() {
     let mut m = model();
@@ -373,7 +422,7 @@ fn a_replacement_of_a_paused_notification_stays_paused() {
     assert_eq!(
         m.get(a).unwrap().expiry,
         Expiry::Paused {
-            remaining: 5 * SECOND
+            remaining: Some(5 * SECOND)
         }
     );
     m.resume(a, t0 + 20 * SECOND);

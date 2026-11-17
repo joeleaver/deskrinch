@@ -12,16 +12,21 @@
 //! 1. starts the component (the command after its options) with its
 //!    standard error in `DIR/stderr`, its standard output discarded and
 //!    the session's environment;
-//! 2. waits, reading that file, for the component's first frame of the
-//!    kind [`Until`] names (rinch's `RINCH_PERF` lines, which the caller
-//!    turns on), within the patience;
+//! 2. waits, within the patience, for what [`Until`] names: reading that
+//!    file, the component's first frame of a kind (rinch's `RINCH_PERF`
+//!    lines, which the caller turns on); or, on the session's bus, the
+//!    name `--name` owned, and for [`Until::Notified`] then a notification
+//!    sent and the frame that shows it ([`bus`]);
 //! 3. writes how many bytes the component had written to its standard
 //!    error to `DIR/acted`, then does what [`Then`] names (ends the
 //!    compositor, or sends the component a signal that asks it to stop):
 //!    what came before is what the component said before it was acted on;
 //! 4. waits, within the patience, for the component to end, and writes its
 //!    status to `DIR/status` as a shell would give it: its exit code, or
-//!    128 and the signal's number when a signal ended it.
+//!    128 and the signal's number when a signal ended it; for
+//!    [`Until::Notified`], first the reasons its `NotificationClosed`
+//!    signals gave for the notification it sent, one a line, to
+//!    `DIR/closed`.
 //!
 //! A component that ends before that frame, never draws it, or does not
 //! end afterwards, and an action that cannot be done, are errors, said on
@@ -41,6 +46,8 @@ use rustix::process::{Pid, Signal, kill_process};
 
 use crate::Outcome;
 
+mod bus;
+
 /// The variable `cargo xtask session` names its compositor's process id in.
 const COMPOSITOR_PID: &str = "DESKRINCH_SESSION_COMPOSITOR_PID";
 
@@ -51,9 +58,22 @@ pub(crate) struct Args {
     /// written in.
     #[arg(long, value_name = "DIR")]
     dir: PathBuf,
-    /// The frame to wait for before acting.
+    /// What to wait for before acting.
     #[arg(long, value_enum)]
     until: Until,
+    /// The bus name the component owns when it is ready, for `--until
+    /// owned` and `--until notified`.
+    #[arg(
+        long,
+        value_name = "NAME",
+        required_if_eq_any([("until", "owned"), ("until", "notified")])
+    )]
+    name: Option<String>,
+    /// For `--until owned`: a line the component writes once it is up
+    /// (its UI built, its display connection in use), waited for after the
+    /// name.
+    #[arg(long, value_name = "TEXT", required_if_eq("until", "owned"))]
+    said: Option<String>,
     /// What to do then.
     #[arg(long, value_enum)]
     then: Then,
@@ -68,24 +88,34 @@ pub(crate) struct Args {
     arguments: Vec<String>,
 }
 
-/// What to wait for before acting: the component's first frame of this
-/// kind, of any of its windows.
+/// What to wait for before acting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub(crate) enum Until {
-    /// A presented frame: a component with a window shown.
+    /// A presented frame, of any of its windows: a component with a window
+    /// shown.
     Presented,
     /// A prepared frame: a component that starts hidden.
     Prepared,
+    /// Its bus name (`--name`) owned on the session's bus, then the line
+    /// `--said` written: the notification daemon up, with nothing to show.
+    Owned,
+    /// Its bus name owned, then a notification sent to
+    /// `org.freedesktop.Notifications`, then a presented frame: the
+    /// notification daemon showing a popup.
+    Notified,
 }
 
 impl Until {
-    /// Whether `log` has such a frame line.
+    /// Whether `log` has the frame line this waits for; `false` for the
+    /// waits that end on the bus.
     fn in_log(self, log: &str) -> bool {
         log.lines().any(|line| {
             matches!(
                 (self, parse(line)),
-                (Self::Presented, Some(PerfLine::Frame { .. }))
-                    | (Self::Prepared, Some(PerfLine::Prepared { .. }))
+                (
+                    Self::Presented | Self::Notified,
+                    Some(PerfLine::Frame { .. })
+                ) | (Self::Prepared, Some(PerfLine::Prepared { .. }))
             )
         })
     }
@@ -138,6 +168,25 @@ pub(crate) enum InSessionError {
         /// Its standard error.
         said: String,
     },
+    /// The bus name was not owned within the patience.
+    #[error("{name} was not owned within {PATIENCE:?}; the component said:\n{said}")]
+    NotOwned {
+        /// The name.
+        name: String,
+        /// Its standard error.
+        said: String,
+    },
+    /// The line `--said` names did not come within the patience.
+    #[error("the component did not say {line:?} within {PATIENCE:?}; it said:\n{said}")]
+    NotSaid {
+        /// The line.
+        line: String,
+        /// Its standard error.
+        said: String,
+    },
+    /// The session's bus could not be asked, or the notification not sent.
+    #[error("the session's bus")]
+    Bus(#[source] zbus::Error),
     /// The session gave no compositor process id.
     #[error("{COMPOSITOR_PID} is not a process id")]
     NoCompositor,
@@ -190,10 +239,13 @@ fn step(args: &Args) -> Result<(), InSessionError> {
             component: args.component.clone(),
             source,
         })?;
-    if let Err(error) = wait_frame(&mut component, args.until, &stderr_path) {
-        end(&mut component);
-        return Err(error);
-    }
+    let sent = match wait_until(&mut component, args, &stderr_path) {
+        Ok(sent) => sent,
+        Err(error) => {
+            end(&mut component);
+            return Err(error);
+        }
+    };
     let acted = fs::metadata(&stderr_path)
         .map(|metadata| metadata.len())
         .and_then(|written| fs::write(args.dir.join("acted"), format!("{written}\n")));
@@ -216,8 +268,82 @@ fn step(args: &Args) -> Result<(), InSessionError> {
         });
     };
     let status = shell_status(status).ok_or(InSessionError::NoStatus(status))?;
+    if let Some(sent) = sent {
+        let reasons = sent
+            .closed()
+            .iter()
+            .fold(String::new(), |mut lines, reason| {
+                lines.push_str(&reason.to_string());
+                lines.push('\n');
+                lines
+            });
+        fs::write(args.dir.join("closed"), reasons)
+            .map_err(io("write how the notification sent was closed"))?;
+    }
     fs::write(args.dir.join("status"), format!("{status}\n"))
         .map_err(io("write the component's status"))
+}
+
+/// Waits for what `args.until` names, the component logging to `log`; the
+/// notification sent, for [`Until::Notified`].
+fn wait_until(
+    component: &mut Child,
+    args: &Args,
+    log: &Path,
+) -> Result<Option<bus::Sent>, InSessionError> {
+    let until = args.until;
+    if matches!(until, Until::Presented | Until::Prepared) {
+        return wait_frame(component, until, log).map(|()| None);
+    }
+    // `--name` is required for these by its argument's definition.
+    let name = args.name.as_deref().unwrap_or_default();
+    let connection = bus::connect().map_err(InSessionError::Bus)?;
+    let deadline = Deadline::patience();
+    while !bus::owned(&connection, name).map_err(InSessionError::Bus)? {
+        if let Some(status) = component
+            .try_wait()
+            .map_err(io("look whether the component ended"))?
+        {
+            return Err(InSessionError::EndedEarly {
+                until,
+                status,
+                said: said(log),
+            });
+        }
+        if deadline.passed() {
+            return Err(InSessionError::NotOwned {
+                name: name.to_owned(),
+                said: said(log),
+            });
+        }
+        std::thread::sleep(POLL);
+    }
+    if until == Until::Notified {
+        let sent = bus::notify(connection).map_err(InSessionError::Bus)?;
+        return wait_frame(component, until, log).map(|()| Some(sent));
+    }
+    // `--said` is required for `owned` by its argument's definition.
+    let line = args.said.as_deref().unwrap_or_default();
+    while !said(log).contains(line) {
+        if let Some(status) = component
+            .try_wait()
+            .map_err(io("look whether the component ended"))?
+        {
+            return Err(InSessionError::EndedEarly {
+                until,
+                status,
+                said: said(log),
+            });
+        }
+        if deadline.passed() {
+            return Err(InSessionError::NotSaid {
+                line: line.to_owned(),
+                said: said(log),
+            });
+        }
+        std::thread::sleep(POLL);
+    }
+    Ok(None)
 }
 
 /// Waits for the component's first `until` frame in its log at `log`.

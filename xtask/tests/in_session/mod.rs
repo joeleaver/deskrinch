@@ -27,6 +27,9 @@ pub(crate) struct Ended {
     pub(crate) said: String,
     /// How much of that it had written when it was acted on.
     acted: usize,
+    /// For [`Until::Notified`], the reasons `NotificationClosed` gave for
+    /// the notification sent, as its sender received them.
+    pub(crate) closed: Vec<u32>,
 }
 
 impl Ended {
@@ -45,17 +48,30 @@ pub(crate) enum Until {
     Presented,
     /// Its first prepared frame: a component that starts hidden.
     Prepared,
+    /// Its bus name owned on the session's bus, then a line it writes once
+    /// it is up: the notification daemon up, with nothing to show.
+    Owned(&'static str, &'static str),
+    /// Its bus name owned, then a notification sent, then a presented
+    /// frame: the notification daemon showing a popup.
+    Notified(&'static str),
 }
 
 impl Until {
-    /// Every wait.
-    const ALL: [Self; 2] = [Self::Presented, Self::Prepared];
+    /// Every wait, those on the bus with a name.
+    const ALL: [Self; 4] = [
+        Self::Presented,
+        Self::Prepared,
+        Self::Owned("org.example.Name", "up"),
+        Self::Notified("org.example.Name"),
+    ];
 
-    /// The argument it stands for.
-    fn argument(self) -> &'static str {
+    /// The arguments it stands for.
+    fn arguments(self) -> Vec<&'static str> {
         match self {
-            Self::Presented => "presented",
-            Self::Prepared => "prepared",
+            Self::Presented => vec!["--until", "presented"],
+            Self::Prepared => vec!["--until", "prepared"],
+            Self::Owned(name, said) => vec!["--until", "owned", "--name", name, "--said", said],
+            Self::Notified(name) => vec!["--until", "notified", "--name", name],
         }
     }
 }
@@ -97,7 +113,8 @@ fn every_wait_and_action_is_one_the_subcommand_takes() {
             let ran = Command::new(env!("CARGO_BIN_EXE_xtask"))
                 .args(["in-session", "--dir"])
                 .arg(dir.path())
-                .args(["--until", until.argument(), "--then", then.argument()])
+                .args(until.arguments())
+                .args(["--then", then.argument()])
                 .arg("/bin/true")
                 .env_remove("DESKRINCH_TEST_COMPOSITOR")
                 .stdin(Stdio::null())
@@ -138,7 +155,8 @@ pub(crate) fn run(
         .args([&compositor(), env!("CARGO_BIN_EXE_xtask"), "in-session"])
         .arg("--dir")
         .arg(dir.path())
-        .args(["--until", until.argument(), "--then", then.argument()])
+        .args(until.arguments())
+        .args(["--then", then.argument()])
         .arg(&component)
         .args(args)
         .env("RINCH_PERF", "1")
@@ -158,10 +176,16 @@ pub(crate) fn run(
         fs::read_to_string(&session_stderr).unwrap_or_default()
     );
     let read = |name: &str| fs::read_to_string(dir.path().join(name)).unwrap();
+    let closed = fs::read_to_string(dir.path().join("closed"))
+        .unwrap_or_default()
+        .lines()
+        .map(|reason| reason.parse().unwrap())
+        .collect();
     Ended {
         status: read("status").trim().parse().unwrap(),
         acted: read("acted").trim().parse().unwrap(),
         said,
+        closed,
     }
 }
 

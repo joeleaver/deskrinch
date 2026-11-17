@@ -1,9 +1,9 @@
-//! The test binaries `cargo xtask compositor-tests` runs, and where.
-
-use deskrinch_shell::Component;
+//! The test binaries `cargo xtask compositor-tests` runs, and where: the
+//! table of rows, each a [`Suite`] (`super::suite`).
 
 use super::build::{Backend, Target};
 pub(super) use super::passes::Pass;
+pub(super) use super::suite::{Grant, SESSION_END, Suite};
 use crate::session::Compositor;
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
@@ -11,6 +11,7 @@ const SCREEN: &str = "deskrinch-test-screen";
 const TEST_CLIENT: &str = "deskrinch-test-client";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
+const NOTIFICATIONS: &str = "deskrinch-notifications";
 const PANEL: &str = "deskrinch-panel";
 const WALLPAPER: &str = "deskrinch-wallpaper";
 const WAYLAND_CLIENT: &str = "deskrinch-wayland-client";
@@ -33,50 +34,6 @@ const PLAIN: &[Pass] = &[Pass::Plain];
 /// that pass's row alone.
 const UHD_BESIDE_FULL_HD_TESTS: &str = "uhd_beside_full_hd::";
 
-/// What KWin grants a test binary.
-#[derive(Debug)]
-pub(super) struct Grant {
-    /// The desktop file id.
-    pub(super) id: &'static str,
-    pub(super) name: &'static str,
-    pub(super) wayland: &'static [&'static str],
-    pub(super) dbus: &'static [&'static str],
-}
-
-/// A test binary and how it runs.
-#[derive(Debug)]
-pub(super) struct Suite {
-    pub(super) target: Target,
-    /// What KWin grants it; nothing for a binary that checks a refusal.
-    pub(super) grant: Option<Grant>,
-    /// The compositors it runs under: what it tests exists only there.
-    pub(super) compositors: &'static [Compositor],
-    /// The sessions it runs in, by how their outputs are.
-    pub(super) passes: &'static [Pass],
-    /// Whether it draws with rinch, and so runs once per renderer the run
-    /// tests ([`super::renderers`]), told which in
-    /// `DESKRINCH_TEST_RENDERER`.
-    pub(super) renders: bool,
-    /// Every shell component its tests start, its own crate's included:
-    /// handed to its tests by path, the only way they start one
-    /// ([`deskrinch_test_component::programs`], where the rule is).
-    pub(super) programs: &'static [&'static Component],
-    /// The libtest arguments it runs with.
-    pub(super) filter: &'static [&'static str],
-}
-
-impl Suite {
-    /// Whether it is the row that ends the session (the window-management
-    /// tests of [`SESSION_END`]), after which nothing of it is left.
-    pub(super) fn ends_the_session(&self) -> bool {
-        self.filter == [SESSION_END]
-    }
-}
-
-/// The module of the window-management tests that ends the session, so
-/// runs last, on its own.
-pub(super) const SESSION_END: &str = "session_end::";
-
 /// The workspace tests that need a compositor with no workspace protocol
 /// (sway), and those that change KWin's desktops by KWin's own interface.
 const UNSUPPORTED: &str = "unsupported::";
@@ -85,7 +42,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 23] = [
+pub(super) const SUITES: [Suite; 24] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -233,6 +190,29 @@ pub(super) const SUITES: [Suite; 23] = [
         renders: true,
         // The launcher the tests start, and run again as a client.
         programs: &[&deskrinch_shell::LAUNCHER],
+        filter: &[],
+    },
+    // The notification daemon's real binary, sent notifications on the
+    // session's bus, its popups checked by the screen and clicked with the
+    // pointer. Not in the flipped pass, for the panel's reason: a turned
+    // output already moves the corner the column is anchored to.
+    Suite {
+        target: Target {
+            package: NOTIFICATIONS,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: Some(Grant {
+            id: "org.deskrinch.NotificationsTests",
+            name: "deskrinch notifications tests",
+            wayland: &[deskrinch_test_input::KWIN_FAKE_INPUT_INTERFACE],
+            dbus: &[deskrinch_test_screen::KWIN_SCREENSHOT_INTERFACE],
+        }),
+        compositors: ALL,
+        passes: &[Pass::Plain, Pass::Scaled, Pass::Rotated],
+        renders: true,
+        // The daemon, and the panel the room tests start along the top.
+        programs: &[&deskrinch_shell::NOTIFICATIONS, &deskrinch_shell::PANEL],
         filter: &[],
     },
     // The panel's real binary, checked by the screen: it captures under
@@ -406,6 +386,7 @@ pub(super) const SUITES: [Suite; 23] = [
         renders: false,
         programs: &[
             &deskrinch_shell::WALLPAPER,
+            &deskrinch_shell::NOTIFICATIONS,
             &deskrinch_shell::LAUNCHER,
             &deskrinch_shell::PANEL,
         ],
@@ -425,6 +406,7 @@ pub(super) const SUITES: [Suite; 23] = [
         renders: false,
         programs: &[
             &deskrinch_shell::WALLPAPER,
+            &deskrinch_shell::NOTIFICATIONS,
             &deskrinch_shell::LAUNCHER,
             &deskrinch_shell::PANEL,
         ],
