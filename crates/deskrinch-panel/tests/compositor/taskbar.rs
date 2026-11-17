@@ -57,7 +57,19 @@ pub(crate) const MAGENTA: App = App {
     id: "org.deskrinch.taskbar.Magenta",
     colour: Rgba::opaque(200, 40, 200),
 };
-const APPS: [App; 3] = [RED, GREEN, MAGENTA];
+/// sway's window opened on a workspace not shown ([`crate::sway_unplaced`]):
+/// an application of its own, since sway keeps its `for_window` rule for
+/// the session.
+pub(crate) const HIDDEN: App = App {
+    id: "org.deskrinch.taskbar.Hidden",
+    colour: Rgba::opaque(30, 150, 220),
+};
+/// sway's window opened fullscreen ([`crate::sway_unplaced`]).
+pub(crate) const FULLSCREEN: App = App {
+    id: "org.deskrinch.taskbar.Fullscreen",
+    colour: Rgba::opaque(230, 190, 20),
+};
+const APPS: [App; 5] = [RED, GREEN, MAGENTA, HIDDEN, FULLSCREEN];
 
 /// A panel with the test's applications, the screen it is on, the pointer
 /// to click it with, and a client to open windows with.

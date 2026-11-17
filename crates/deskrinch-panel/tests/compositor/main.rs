@@ -30,11 +30,15 @@ mod last_output;
 #[cfg(test)]
 mod live;
 #[cfg(test)]
+mod open_on;
+#[cfg(test)]
 mod outputs;
 #[cfg(test)]
 mod placement;
 #[cfg(test)]
 mod support;
+#[cfg(test)]
+mod sway_unplaced;
 #[cfg(test)]
 mod switcher;
 #[cfg(test)]

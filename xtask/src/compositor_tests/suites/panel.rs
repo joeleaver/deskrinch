@@ -1,13 +1,18 @@
 //! The panel's rows: its tests on the ordinary passes, its last output
-//! going and coming back, and a full taskbar on a wide output.
+//! going and coming back, the windows sway never places, and a full
+//! taskbar on a wide output.
 
 use super::{ALL, Grant, PLAIN, Pass, Suite, WLROOTS};
 use crate::compositor_tests::build::{Backend, Target};
+use crate::session::Compositor;
 
 const PACKAGE: &str = "deskrinch-panel";
 /// The panel's test of its last output going and coming back: run by its
 /// own row, under the compositors that allow it.
 const PANEL_LAST_OUTPUT_TESTS: &str = "last_output::";
+/// The panel's tests of the windows sway never places: run by their own
+/// row, under sway.
+const PANEL_SWAY_UNPLACED_TESTS: &str = "sway_unplaced::";
 /// The panel's tests of a full taskbar on [`Pass::UhdBesideFullHd`]'s wide
 /// output: run by that pass's row alone.
 const PANEL_WIDE_TESTS: &str = "uhd_beside_full_hd::";
@@ -43,6 +48,8 @@ pub(super) const PANEL: Suite = Suite {
         PANEL_WIDE_TESTS,
         "--skip",
         PANEL_LAST_OUTPUT_TESTS,
+        "--skip",
+        PANEL_SWAY_UNPLACED_TESTS,
     ],
 };
 
@@ -60,6 +67,22 @@ pub(super) const PANEL_LAST_OUTPUT: Suite = Suite {
     renders: true,
     programs: &[&deskrinch_shell::PANEL],
     filter: &[PANEL_LAST_OUTPUT_TESTS, "--skip", PANEL_WIDE_TESTS],
+};
+
+/// The same binary's tests of the windows sway never places (a window
+/// opened on a workspace not shown, or fullscreen), under sway.
+pub(super) const PANEL_SWAY_UNPLACED: Suite = Suite {
+    target: Target {
+        package: PACKAGE,
+        test: "compositor",
+        backend: Backend::Rust,
+    },
+    grant: None,
+    compositors: &[Compositor::Sway],
+    passes: PLAIN,
+    renders: true,
+    programs: &[&deskrinch_shell::PANEL],
+    filter: &[PANEL_SWAY_UNPLACED_TESTS, "--skip", PANEL_WIDE_TESTS],
 };
 
 /// The same binary's full taskbar on a wide output, on those outputs

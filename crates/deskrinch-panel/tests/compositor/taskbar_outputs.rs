@@ -1,19 +1,32 @@
 //! Each bar's taskbar shows the windows on its own output: a window is on
 //! the bar of the output it says it is on (`TestWindow::wait_output`), and
-//! not on the other's; a change of its title draws only the bar that shows
-//! it.
+//! not on the other's; opening it, or changing its title, draws only the
+//! bar that shows it.
 
+use deskrinch_taskbar::GRACE;
 use deskrinch_test_client::{TestClient, TestWindow};
 use deskrinch_test_component::{Mark, PerfWindow};
+use deskrinch_test_input::Input;
 use deskrinch_test_screen::Screen;
 use deskrinch_test_wait::{Deadline, wait_for};
 use tempfile::TempDir;
 
+use crate::open_on::open_on;
 use crate::support::{
     Band, Edge, Panel, Pictures, STILL, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
 use crate::taskbar::{RED, icon_in, install};
+
+/// The frames the bar `window` of `panel` presented since `mark`.
+fn presented_since(panel: &Panel, mark: &Mark, window: PerfWindow) -> u64 {
+    panel
+        .watch()
+        .since(mark)
+        .iter()
+        .find(|since| since.window == window)
+        .map_or(0, |since| since.frames)
+}
 
 /// A panel with the test's applications on two outputs, and one of red's
 /// windows: the panel, the window and the client it is kept by, the output
@@ -205,5 +218,61 @@ fn a_window_moved_leaves_one_bar_and_joins_the_other() {
             "the bars did not draw one frame each per move, (ended on, frames): {rounds:?}; {}",
             this.panel.log()
         );
+    }
+}
+
+/// An ordinary window opened on one output draws nothing on the other
+/// output's bar over its whole opening, its grace included: under sway and
+/// KWin it is announced before it is placed, and a window shown on every
+/// bar until then would draw there. Counted by that bar's frame lines, for
+/// a window on each output in turn; a round the clock's minute drew is
+/// tried again.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn an_ordinary_window_draws_nothing_on_another_outputs_bar() {
+    in_nested_session();
+    write_settings(&panel_table(Edge::Bottom, 40));
+    let mut input = Input::connect().unwrap();
+    let mut screen = Screen::connect().unwrap();
+    let before = Pictures::still(&mut screen);
+    let panel = Panel::start();
+    let band = Band::of(Edge::Bottom, 40, scale_of(&screen.outputs()[0]));
+    wait_band(&mut screen, &before, band);
+    let client = TestClient::connect().unwrap();
+    let outputs = screen.outputs();
+    for on in &outputs {
+        let other = outputs
+            .iter()
+            .find(|name| *name != on)
+            .expect("a second output");
+        let (shown, elsewhere) = (panel.window_on(on), panel.window_on(other));
+        let deadline = Deadline::patience();
+        let mut rounds = Vec::new();
+        loop {
+            let mark = panel.watch().mark();
+            let window = open_on(&mut input, &client, on, "Opened", "org.deskrinch.Opened");
+            wait_for(
+                &format!("{on}'s bar to draw the window"),
+                || match presented_since(&panel, &mark, shown) {
+                    0 => Err("no frame yet"),
+                    _ => Ok(()),
+                },
+            );
+            // The stability window, past the grace: a window shown on every
+            // bar until it was placed, or once its grace was over, would
+            // have drawn on the other bar within it.
+            std::thread::sleep(GRACE + STILL);
+            let drawn = presented_since(&panel, &mark, elsewhere);
+            drop(window);
+            if drawn == 0 {
+                break;
+            }
+            rounds.push(drawn);
+            assert!(
+                !deadline.passed(),
+                "{other}'s bar drew for a window opened on {on} in every round: {rounds:?}; {}",
+                panel.log()
+            );
+        }
     }
 }

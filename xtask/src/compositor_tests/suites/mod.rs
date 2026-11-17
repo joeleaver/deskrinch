@@ -30,7 +30,7 @@ const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 const PLAIN: &[Pass] = &[Pass::Plain];
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 26] = [
+pub(super) const SUITES: [Suite; 27] = [
     // First: every change to the session's outputs is put back exactly,
     // which the suites after it rely on.
     support::TEST_CLIENT,
@@ -46,6 +46,7 @@ pub(super) const SUITES: [Suite; 26] = [
     notifications::NOTIFICATIONS,
     panel::PANEL,
     panel::PANEL_LAST_OUTPUT,
+    panel::PANEL_SWAY_UNPLACED,
     panel::PANEL_UHD_BESIDE_FULL_HD,
     wallpaper::WALLPAPER,
     workspaces::WORKSPACES_KWIN,
