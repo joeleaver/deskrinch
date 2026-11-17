@@ -14,5 +14,10 @@ deskrinch-gestures.workspace = true
 # Window states, actions and why a connection ended.
 deskrinch-window-management.workspace = true
 
+[dev-dependencies]
+# The property tests' configuration, shared with the other crates.
+deskrinch-untrusted = { workspace = true, features = ["proptest"] }
+proptest.workspace = true
+
 [lints]
 workspace = true

@@ -18,7 +18,7 @@
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
-use crate::widgets::{ClockWidget, SwitcherWidget, TaskbarWidget, buttons};
+use crate::widgets::{BarOutput, ClockWidget, SwitcherWidget, TaskbarWidget, buttons};
 
 /// The bar's width in logical pixels, as its last layout left it, which the
 /// widgets that take a share of the bar read from the context: 0 until the
@@ -26,11 +26,13 @@ use crate::widgets::{ClockWidget, SwitcherWidget, TaskbarWidget, buttons};
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BarWidth(pub(crate) Signal<f32>);
 
-/// The panel's content.
+/// The panel's content on the output named `output` (`None` for an output
+/// with no name), which its taskbar reads from the context ([`BarOutput`]).
 #[component]
-pub(crate) fn Bar() -> NodeHandle {
+pub(crate) fn Bar(output: Option<String>) -> NodeHandle {
     let width = Signal::new(0.0_f32);
     create_context(BarWidth(width));
+    create_context(BarOutput(output));
     let bar = rsx! {
         div {
             class: "bar",

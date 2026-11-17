@@ -1,7 +1,11 @@
 //! [`Taskbar`]: the windows followed, and what an [`Input`] does to them.
 
+use std::collections::BTreeSet;
+
 use deskrinch_gestures::Click;
 use deskrinch_window_management::{Action, Actions, EndReason, WindowState};
+
+use crate::on_bar::known_outputs;
 
 /// What the taskbar uses of a window, as the compositor last reported it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +20,10 @@ pub struct TaskWindow<Id> {
     pub state: WindowState,
     /// The window it belongs to, such as a dialog's main window.
     pub parent: Option<Id>,
+    /// The outputs it is on, by name, as this report gives them; none when
+    /// the compositor reports none (for an instant, or not at all). The
+    /// model keeps its known outputs ([`crate::on_bar`]).
+    pub outputs: BTreeSet<String>,
 }
 
 /// A change to the window list.
@@ -79,6 +87,9 @@ pub struct Button<Id> {
     pub minimized: bool,
     /// The window or one of its dialogs asks for attention.
     pub attention: bool,
+    /// The window's known outputs, by name: which bars show the button
+    /// ([`crate::on_bar`]).
+    pub outputs: BTreeSet<String>,
 }
 
 /// Whether the taskbar is following a window list.
@@ -149,10 +160,12 @@ impl<Id: Copy + Eq> Taskbar<Id> {
     fn change(&mut self, change: Change<Id>) -> Answer<Id> {
         match change {
             Change::Added(window) => {
+                let window = self.with_known_outputs(window);
                 self.windows.retain(|known| known.id != window.id);
                 self.windows.push(window);
             }
             Change::Changed(window) => {
+                let window = self.with_known_outputs(window);
                 if let Some(known) = self.windows.iter_mut().find(|known| known.id == window.id) {
                     *known = window;
                 } else {
@@ -167,6 +180,15 @@ impl<Id: Copy + Eq> Taskbar<Id> {
             }
         }
         Answer::Stay
+    }
+
+    /// `window` as reported, its outputs its known outputs: those it
+    /// reported, or, when it reported none, those it was known to be on.
+    fn with_known_outputs(&self, mut window: TaskWindow<Id>) -> TaskWindow<Id> {
+        if let Some(known) = self.window(window.id) {
+            window.outputs = known_outputs(&known.outputs, window.outputs);
+        }
+        window
     }
 
     /// What a click of `button` on `id`'s button asks for.
@@ -208,6 +230,7 @@ impl<Id: Copy + Eq> Taskbar<Id> {
                 active: self.any_of(window.id, WindowState::ACTIVE),
                 minimized: window.state.contains(WindowState::MINIMIZED),
                 attention: self.any_of(window.id, WindowState::DEMANDS_ATTENTION),
+                outputs: window.outputs.clone(),
             })
             .collect()
     }

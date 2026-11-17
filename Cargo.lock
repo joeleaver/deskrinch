@@ -1150,7 +1150,9 @@ name = "deskrinch-taskbar"
 version = "0.1.0"
 dependencies = [
  "deskrinch-gestures",
+ "deskrinch-untrusted",
  "deskrinch-window-management",
+ "proptest",
 ]
 
 [[package]]

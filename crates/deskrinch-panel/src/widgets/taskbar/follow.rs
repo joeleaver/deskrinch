@@ -139,6 +139,7 @@ fn task_window(window: Window) -> TaskWindow<WindowId> {
         app_id: window.app_id,
         state: window.state,
         parent: window.parent,
+        outputs: window.outputs,
     }
 }
 

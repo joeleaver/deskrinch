@@ -7,6 +7,7 @@ fn window(id: u32, state: WindowState, parent: Option<u32>) -> TaskWindow<u32> {
         app_id: format!("org.example.App{id}"),
         state,
         parent,
+        outputs: BTreeSet::new(),
     }
 }
 

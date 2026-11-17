@@ -24,8 +24,11 @@
 //! made here, once, from its hand-over's inbox, so that every widget
 //! reading it is told of every change and the signal lives as long as the
 //! panel. And the panel's one clock's text, which every clock face reads
-//! (`widgets`' `clock`).
+//! (`widgets`' `clock`). And the names of the outputs that have a bar,
+//! which each bar's taskbar reads to show the windows on its own output
+//! ([`BarOutputs`]).
 
+use std::collections::BTreeSet;
 use std::rc::Rc;
 use std::sync::Arc;
 
@@ -39,7 +42,9 @@ use rinch::{OutputId, WindowHandle};
 
 use crate::bar::Bar;
 use crate::surface::{self, BarSurface, Placement};
-use crate::widgets::{AppIcons, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock};
+use crate::widgets::{
+    AppIcons, BarOutputs, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock,
+};
 
 /// What the panel runs with.
 pub(crate) struct Parts {
@@ -84,8 +89,19 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     create_context(settings);
     // The panel's one clock; its faces read the text.
     create_context(follow_clock(settings));
+    create_context(BarOutputs(Memo::new(named_outputs)));
     let placement = Memo::new(move || Placement::of(&settings.get()));
     bars(__scope, Memo::new(output_ids), placement)
+}
+
+/// The names of the connected outputs, each of which has a bar; an empty
+/// name is no name.
+fn named_outputs() -> BTreeSet<String> {
+    outputs()
+        .into_iter()
+        .filter_map(|output| output.name)
+        .filter(|name| !name.is_empty())
+        .collect()
 }
 
 /// A bar on each of `outputs`, at `placement`: one `Window` per output, a
@@ -165,7 +181,11 @@ fn output_bar(
             applied = sent;
         }
     });
+    // An output's name is its connector's, fixed while it is connected,
+    // so read once; untracked, so the bar is not made again at every change
+    // of any output.
+    let name = untracked(|| rinch::prelude::output(output)).and_then(|output| output.name);
     rsx! {
-        Bar {}
+        Bar { output: name }
     }
 }

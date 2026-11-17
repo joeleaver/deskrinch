@@ -6,6 +6,12 @@
 //! click of the primary button activates its window, or minimizes the
 //! active one; the middle button closes it.
 //!
+//! Each bar's taskbar shows the windows on its own output, from the one
+//! list of buttons the panel follows: a memo over that list, the bar's
+//! output and the outputs that have a bar ([`deskrinch_taskbar::on_bar`]:
+//! a window whose outputs have no bar is on every bar, so none is ever on
+//! none). A window's change wakes only the bars whose list it changes.
+//!
 //! The buttons share the room the bar leaves the taskbar (its width, from
 //! rinch's `bounds_signal`, refreshed after each layout), shrink to their
 //! icons when there is too little, and the oldest that are not active are
@@ -23,9 +29,11 @@ mod follow;
 pub(crate) use button::AppIcons;
 pub(crate) use follow::{Buttons, Following};
 
+use std::collections::BTreeSet;
 use std::rc::Rc;
+use std::sync::Arc;
 
-use deskrinch_taskbar::{Room, fit};
+use deskrinch_taskbar::{Room, fit, shown_on};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
@@ -41,11 +49,29 @@ const SIZES: ButtonSizes = ButtonSizes {
     count_width: 36.0,
 };
 
-/// The taskbar widget: it takes the room the bar gives it.
+/// The name of the output a bar is on (`None` when it has none), which
+/// each bar provides as a context for its taskbar.
+#[derive(Debug, Clone)]
+pub(crate) struct BarOutput(pub(crate) Option<String>);
+
+/// The names of the outputs that have a bar, which the panel's root
+/// provides as a context: every named output, since each has one. A memo,
+/// so an output moved or rescaled wakes no taskbar.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BarOutputs(pub(crate) Memo<BTreeSet<String>>);
+
+/// The taskbar widget: the buttons of its bar's output
+/// ([`deskrinch_taskbar::shown_on`]), in the room the bar gives it.
 #[component]
 pub(crate) fn TaskbarWidget() -> NodeHandle {
     let following: Rc<Following> = use_context();
-    let buttons: Signal<Buttons> = use_context();
+    let all: Signal<Buttons> = use_context();
+    let BarOutput(output) = use_context();
+    let BarOutputs(bars) = use_context();
+    let buttons = Memo::new(move || {
+        let bars = bars.get();
+        all.with(|all| Arc::new(shown_on(all, output.as_deref(), &bars)))
+    });
     let width = Signal::new(0.0_f32);
     let fitted = Memo::new(move || {
         let room = Room {
@@ -56,7 +82,7 @@ pub(crate) fn TaskbarWidget() -> NodeHandle {
             gap: SIZES.gap,
             count_width: SIZES.count_width,
         };
-        buttons.with(|buttons| fit(buttons, room))
+        fit(&buttons.get(), room)
     });
     let shown = Memo::new(move || fitted.get().shown);
     let left_out = Memo::new(move || fitted.get().left_out);

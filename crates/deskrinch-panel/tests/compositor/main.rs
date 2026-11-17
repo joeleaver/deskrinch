@@ -44,6 +44,8 @@ mod taskbar_clicks;
 #[cfg(test)]
 mod taskbar_hover;
 #[cfg(test)]
+mod taskbar_outputs;
+#[cfg(test)]
 mod uhd_beside_full_hd;
 #[cfg(test)]
 mod zone;
