@@ -1,0 +1,19 @@
+[package]
+name = "deskrinch-test-notify"
+description = "A client of org.freedesktop.Notifications for deskrinch's tests: notifications sent and closed, and the signals they get back."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+deskrinch-test-wait.workspace = true
+futures-core.workspace = true
+# zbus's own runtime (`default-rt`) drives the connection on a helper thread;
+# `proxy` makes the interface's client.
+zbus = { workspace = true, features = ["default-rt", "proxy"] }
+
+[lints]
+workspace = true

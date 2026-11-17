@@ -1,0 +1,72 @@
+[package]
+name = "deskrinch-notifications"
+description = "The notification daemon: the session's org.freedesktop.Notifications, each notification a popup in a column at the top right of the screen."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "deskrinch-notifications"
+path = "src/main.rs"
+
+[features]
+# rinch's debug server, for the rinch MCP tools (screenshots, the DOM, input),
+# and rinch's DevTools keys: `cargo run -p deskrinch-notifications --features
+# debug`. Off in a normal build.
+debug = ["rinch/debug", "deskrinch-component/debug"]
+
+[dependencies]
+# The look's colour scheme, read from the desktop's settings portal.
+deskrinch-appearance.workspace = true
+# The icon theme's index, and the installed applications, for a
+# notification's icon by name or by its `desktop-entry` hint.
+deskrinch-applications.workspace = true
+deskrinch-bus.workspace = true
+deskrinch-component.workspace = true
+deskrinch-desktop-entries.workspace = true
+deskrinch-icons.workspace = true
+# The service and the model of the live notifications behind it.
+deskrinch-notification-service.workspace = true
+# The status it ends with where it cannot run (the name is another's).
+deskrinch-shell.workspace = true
+deskrinch-theme.workspace = true
+deskrinch-xdg.workspace = true
+# `gpu` adds the GPU renderer beside the software one rinch always has on
+# the desktop; which one draws is chosen at run time. `theme`: the theme
+# variables the popups are styled with (the look is `deskrinch-theme`'s).
+rinch = { workspace = true, features = ["desktop", "gpu", "theme"] }
+tracing.workspace = true
+# Who owns the name, when it is taken: the bus's own interface.
+zbus = { workspace = true, features = ["default-rt", "proxy"] }
+
+[dev-dependencies]
+# rinch's test harness (`rinch::testing::TestApp`): the column's content
+# mounted at the heights the fit tests choose. A dev-dependency only, so the
+# daemon built for use has no `testing` (resolver 3 keeps dev-dependency
+# features out of a plain build).
+rinch = { workspace = true, features = ["desktop", "testing", "theme"] }
+# The fit tests' service, on a private bus of their own.
+deskrinch-test-dbus.workspace = true
+# The least height of the panel the compositor tests start.
+deskrinch-settings.workspace = true
+# The compositor tests refuse to run outside a nested session, read the
+# outputs' scale, and put windows that hear the pointer under the column.
+deskrinch-test-client.workspace = true
+# The compositor tests start the daemon from the path the runner gives, and
+# read its frames.
+deskrinch-test-component.workspace = true
+# The pointer, which clicks the popups.
+deskrinch-test-input.workspace = true
+# The client that sends the notifications, and the signals they get back.
+deskrinch-test-notify.workspace = true
+# The screen, where the popups are found.
+deskrinch-test-screen.workspace = true
+deskrinch-test-wait.workspace = true
+# The test's own icon theme, in an `XDG_DATA_HOME` of its own.
+tempfile.workspace = true
+
+[lints]
+workspace = true

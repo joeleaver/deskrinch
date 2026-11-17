@@ -15,8 +15,9 @@ mod in_session;
 #[cfg(test)]
 mod asked {
     use deskrinch_shell::exit_status::asked_to_stop_line;
+    use deskrinch_shell::{NOTIFICATIONS, Ready};
 
-    use crate::in_session::{self, Then, Until};
+    use crate::in_session::{self, Ended, Then, Until};
 
     /// The level words of rinch's log format, as a line has them.
     const WARN_OR_WORSE: [&str; 2] = [" WARN ", " ERROR "];
@@ -47,7 +48,7 @@ mod asked {
     }
 
     #[track_caller]
-    fn ends_in_order(package: &str, args: &[&str], until: Until, stop: Stop) {
+    fn ends_in_order(package: &str, args: &[&str], until: Until, stop: Stop) -> Ended {
         let ended = in_session::run(package, args, until, stop.then(), Some("info"));
         let said = &ended.said;
         assert_eq!(
@@ -72,6 +73,7 @@ mod asked {
             !WARN_OR_WORSE.iter().any(|level| after.contains(level)),
             "{package} warned while it stopped; it said from the stop on:\n{after}"
         );
+        ended
     }
 
     #[test]
@@ -109,5 +111,29 @@ mod asked {
     #[ignore = "needs a compositor: cargo xtask compositor-tests"]
     fn the_launcher_hidden_ends_in_order_on_sigterm() {
         ends_in_order("deskrinch-launcher", &[], Until::Prepared, Stop::Term);
+    }
+
+    /// The notification daemon with a live notification: it ends in order,
+    /// and its service closes the notification as it stops, so that its
+    /// sender is not left waiting (`NotificationClosed`, reason 4, "undefined
+    /// or reserved").
+    #[test]
+    #[ignore = "needs a compositor: cargo xtask compositor-tests"]
+    fn the_notification_daemon_ends_in_order_on_sigterm_and_closes_its_notifications() {
+        let Ready::BusName(name) = NOTIFICATIONS.ready else {
+            panic!("the shell waits for the daemon's name");
+        };
+        let ended = ends_in_order(
+            NOTIFICATIONS.package,
+            &[],
+            Until::Notified(name),
+            Stop::Term,
+        );
+        assert_eq!(
+            ended.closed,
+            [4],
+            "the sender was not told its notification closed (reason 4); the daemon said:\n{}",
+            ended.said
+        );
     }
 }

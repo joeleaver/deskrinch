@@ -60,6 +60,7 @@ mod gpu;
 pub(crate) mod interrupt;
 mod layout;
 mod leftovers;
+mod lines;
 mod outputs;
 mod render_nodes;
 mod rendering;

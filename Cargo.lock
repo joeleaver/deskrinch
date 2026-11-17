@@ -1030,6 +1030,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-dbus",
+ "deskrinch-test-notify",
  "deskrinch-test-wait",
  "deskrinch-untrusted",
  "futures-core",
@@ -1037,6 +1038,34 @@ dependencies = [
  "proptest",
  "serde",
  "thiserror 2.0.21",
+ "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-notifications"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-appearance",
+ "deskrinch-applications",
+ "deskrinch-bus",
+ "deskrinch-component",
+ "deskrinch-desktop-entries",
+ "deskrinch-icons",
+ "deskrinch-notification-service",
+ "deskrinch-settings",
+ "deskrinch-shell",
+ "deskrinch-test-client",
+ "deskrinch-test-component",
+ "deskrinch-test-dbus",
+ "deskrinch-test-input",
+ "deskrinch-test-notify",
+ "deskrinch-test-screen",
+ "deskrinch-test-wait",
+ "deskrinch-theme",
+ "deskrinch-xdg",
+ "rinch",
+ "tempfile",
+ "tracing",
  "zbus 6.2.1",
 ]
 
@@ -1227,6 +1256,15 @@ name = "deskrinch-test-log"
 version = "0.1.0"
 dependencies = [
  "tracing",
+]
+
+[[package]]
+name = "deskrinch-test-notify"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-wait",
+ "futures-core",
+ "zbus 6.2.1",
 ]
 
 [[package]]
@@ -1678,9 +1716,10 @@ dependencies = [
 [[package]]
 name = "fontique"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=be4ba3e0c4a307dd06a68df066e50c41120084e0#be4ba3e0c4a307dd06a68df066e50c41120084e0"
+source = "git+https://github.com/joeleaver/parley-fork?rev=a95d78063bc05502327e384d9fdac927016d877a#a95d78063bc05502327e384d9fdac927016d877a"
 dependencies = [
  "hashbrown 0.17.1",
+ "libc",
  "linebender_resource_handle",
  "memmap2",
  "objc2 0.6.5",
@@ -3453,7 +3492,7 @@ dependencies = [
 [[package]]
 name = "parlance"
 version = "0.1.1"
-source = "git+https://github.com/joeleaver/parley-fork?rev=be4ba3e0c4a307dd06a68df066e50c41120084e0#be4ba3e0c4a307dd06a68df066e50c41120084e0"
+source = "git+https://github.com/joeleaver/parley-fork?rev=a95d78063bc05502327e384d9fdac927016d877a#a95d78063bc05502327e384d9fdac927016d877a"
 dependencies = [
  "bytemuck",
 ]
@@ -3461,7 +3500,7 @@ dependencies = [
 [[package]]
 name = "parley"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=be4ba3e0c4a307dd06a68df066e50c41120084e0#be4ba3e0c4a307dd06a68df066e50c41120084e0"
+source = "git+https://github.com/joeleaver/parley-fork?rev=a95d78063bc05502327e384d9fdac927016d877a#a95d78063bc05502327e384d9fdac927016d877a"
 dependencies = [
  "fontique",
  "hashbrown 0.17.1",
@@ -3474,7 +3513,7 @@ dependencies = [
 [[package]]
 name = "parley_data"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=be4ba3e0c4a307dd06a68df066e50c41120084e0#be4ba3e0c4a307dd06a68df066e50c41120084e0"
+source = "git+https://github.com/joeleaver/parley-fork?rev=a95d78063bc05502327e384d9fdac927016d877a#a95d78063bc05502327e384d9fdac927016d877a"
 dependencies = [
  "icu_collections",
  "icu_properties",
@@ -3483,12 +3522,12 @@ dependencies = [
 [[package]]
 name = "parley_emoji"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=be4ba3e0c4a307dd06a68df066e50c41120084e0#be4ba3e0c4a307dd06a68df066e50c41120084e0"
+source = "git+https://github.com/joeleaver/parley-fork?rev=a95d78063bc05502327e384d9fdac927016d877a#a95d78063bc05502327e384d9fdac927016d877a"
 
 [[package]]
 name = "parley_engine"
 version = "0.12.0"
-source = "git+https://github.com/joeleaver/parley-fork?rev=be4ba3e0c4a307dd06a68df066e50c41120084e0#be4ba3e0c4a307dd06a68df066e50c41120084e0"
+source = "git+https://github.com/joeleaver/parley-fork?rev=a95d78063bc05502327e384d9fdac927016d877a#a95d78063bc05502327e384d9fdac927016d877a"
 dependencies = [
  "fontique",
  "harfrust",
@@ -4060,7 +4099,7 @@ dependencies = [
 [[package]]
 name = "rinch"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "base64",
  "bytemuck",
@@ -4069,7 +4108,6 @@ dependencies = [
  "js-sys",
  "keyboard-types 0.7.0",
  "libc",
- "libloading 0.8.9",
  "log",
  "muda",
  "objc2 0.6.5",
@@ -4099,6 +4137,7 @@ dependencies = [
  "vello",
  "wasm-bindgen",
  "wayland-backend",
+ "wayland-client",
  "web-sys",
  "wgpu",
  "windows-sys 0.59.0",
@@ -4109,7 +4148,7 @@ dependencies = [
 [[package]]
 name = "rinch-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "thiserror 1.0.69",
  "tracing",
@@ -4119,7 +4158,7 @@ dependencies = [
 [[package]]
 name = "rinch-debug"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "getrandom 0.3.4",
  "libc",
@@ -4131,7 +4170,7 @@ dependencies = [
 [[package]]
 name = "rinch-dom"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -4175,7 +4214,7 @@ dependencies = [
 [[package]]
 name = "rinch-editable"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "rinch-words",
 ]
@@ -4183,7 +4222,7 @@ dependencies = [
 [[package]]
 name = "rinch-editor-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "regex",
  "rinch-core",
@@ -4194,7 +4233,7 @@ dependencies = [
 [[package]]
 name = "rinch-editor-view"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "rinch-core",
  "rinch-editor-core",
@@ -4204,7 +4243,7 @@ dependencies = [
 [[package]]
 name = "rinch-macros"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4214,7 +4253,7 @@ dependencies = [
 [[package]]
 name = "rinch-platform"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "peniko",
  "vello",
@@ -4224,7 +4263,7 @@ dependencies = [
 [[package]]
 name = "rinch-renderer"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "rinch-core",
  "thiserror 1.0.69",
@@ -4236,12 +4275,12 @@ dependencies = [
 [[package]]
 name = "rinch-theme"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 
 [[package]]
 name = "rinch-words"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#689f87c3a0f2c99f5d7847e731f3fb728900f8ff"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "icu_segmenter",
  "regex",
@@ -6540,6 +6579,7 @@ dependencies = [
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-lifetime",
+ "deskrinch-test-notify",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",

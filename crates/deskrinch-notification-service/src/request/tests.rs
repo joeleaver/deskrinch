@@ -281,7 +281,7 @@ fn the_expiry_starts_when_shown_and_pauses_keeping_the_rest() {
     assert_eq!(
         paused,
         Expiry::Paused {
-            remaining: 3 * second
+            remaining: Some(3 * second)
         }
     );
     assert_eq!(paused.paused(now + 4 * second), paused, "pausing twice");
@@ -289,12 +289,19 @@ fn the_expiry_starts_when_shown_and_pauses_keeping_the_rest() {
         paused.resumed(now + 10 * second),
         Expiry::At(now + 13 * second)
     );
-    assert_eq!(Expiry::starting(None, now).paused(now), Expiry::Never);
+    assert_eq!(
+        Expiry::starting(None, now).paused(now),
+        Expiry::Paused { remaining: None }
+    );
+    assert_eq!(
+        Expiry::Paused { remaining: None }.resumed(now),
+        Expiry::Never
+    );
     // Paused past its deadline, it has nothing left, and expires on resume.
     assert_eq!(
         expiry.paused(now + 9 * second),
         Expiry::Paused {
-            remaining: Duration::ZERO
+            remaining: Some(Duration::ZERO)
         }
     );
 }
