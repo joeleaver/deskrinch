@@ -543,8 +543,11 @@ In a timed run every step (a key, a pointer move, a command) also gets its
 wall time: by measure's clock, from just before the step is taken to the
 arrival of the first frame line it led to, the time a person waits. It
 includes what the program does not control: a command's own start-up, the
-session's bus, the pipe its frame line comes through. So take a row for a
-step that does nothing as the floor and read the others against it. A step
+session's bus, the pipe its frame line comes through. So take a row for the
+cheapest step that leads to a frame as the floor, and read the others
+against it: a step must lead to a change, so a step that does nothing at all
+cannot be one, and the daemon's floor is a notification replaced with the
+same content, one frame of next to no work. A step
 that led to no frame (a popup closed) says "no frame". The rows are in the
 wall-clock section, not comparable across machines or loads, and are not
 given under `--instructions`, where the time is Callgrind's.
