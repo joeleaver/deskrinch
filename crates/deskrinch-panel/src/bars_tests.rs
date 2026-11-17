@@ -4,7 +4,9 @@
 //! that built its row, as the shell opens it, and its requests read in the
 //! order made.
 //!
-//! What the compositor tests cannot see: a bar's opening props, and its
+//! What the compositor tests cannot see or order: a bar's opening props, a
+//! settings change after the turn that builds a row and before its window
+//! opens, an output going in the turn its placement changes, and a bar's
 //! window closed by the compositor while its output stays.
 
 use std::cell::Cell;
@@ -14,7 +16,7 @@ use std::sync::Arc;
 use deskrinch_settings::panel::{Edge, Height};
 use rinch::OutputId;
 use rinch::prelude::*;
-use rinch::testing::TestApp;
+use rinch::testing::{TestApp, WindowRequest};
 
 use super::bars;
 use crate::surface::{self, Placement};
@@ -70,6 +72,22 @@ fn mount(outputs: Vec<OutputId>, placement: Placement) -> (TestApp, Owned) {
     (app, signals)
 }
 
+/// What a bar placed at `placement` on `output` asks of its window to move
+/// there, its width the one it opened with.
+fn moved_to(placement: Placement, output: OutputId) -> [WindowRequest; 2] {
+    let surface = surface::bar_surface(placement, output);
+    [
+        WindowRequest::SetSize(f64::from(surface::FIRST_WIDTH), f64::from(surface.height)),
+        WindowRequest::SetLayer(Box::new(surface.layer)),
+    ]
+}
+
+/// The line a bar on `output` says when it is placed at `placement`: the
+/// output by its id, which has no name in the harness.
+fn placed(output: OutputId, placement: Placement) -> String {
+    deskrinch_panel::placed(&format!("{output:?}"), placement.edge, placement.height)
+}
+
 #[test]
 fn a_bar_opens_borderless_on_its_output_at_the_placement() {
     let placement = at(Edge::Bottom, 40);
@@ -109,4 +127,73 @@ fn a_bar_closed_by_the_compositor_comes_back_with_its_output() {
     assert_eq!(now.len(), 2);
     assert_eq!(now[0], windows[0]);
     assert_ne!(now[1], windows[1], "the closed window again, not a new one");
+}
+
+/// The settings change after the turn that builds a row and before its
+/// window opens: the outputs set from the test's body build the row with
+/// the first settings, its window pending until the requests are served
+/// (`settle`); the second settings come in between. The window opens with
+/// the first, and is asked once for the second's size and layer, in that
+/// order, and nothing more.
+#[test]
+fn a_settings_change_before_a_rows_window_opens_is_sent_once() {
+    let first = at(Edge::Bottom, 40);
+    let second = at(Edge::Top, 56);
+    let (mut app, owned) = mount(vec![], first);
+    owned.outputs.set(vec![output(1)]);
+    assert_eq!(
+        app.windows(),
+        [],
+        "the window opened before the requests were served"
+    );
+    owned.placement.set(second);
+    app.settle();
+    let windows = app.windows();
+    assert_eq!(windows.len(), 1);
+    let mut window = app.window(windows[0]);
+    let opened = surface::bar_surface(first, output(1));
+    assert_eq!(
+        window.props().height,
+        opened.height,
+        "not opened with the first settings"
+    );
+    assert_eq!(window.props().wayland_layer, Some(opened.layer));
+    assert_eq!(window.take_requests(), moved_to(second, output(1)));
+    app.settle();
+    assert_eq!(app.window(windows[0]).take_requests(), []);
+}
+
+/// An output goes in the turn the placement changes: the other bar moves
+/// and says so; the bar of the output that went asks nothing of its
+/// closing window and says nothing; nothing is said at warn or error.
+#[test]
+fn an_output_going_as_the_settings_change_moves_only_the_bar_that_stays() {
+    let first = at(Edge::Bottom, 40);
+    let second = at(Edge::Top, 56);
+    let (mut app, owned) = mount(vec![output(1), output(2)], first);
+    let windows = app.windows();
+    assert_eq!(windows.len(), 2);
+    drop(app.take_window_requests());
+    let log = deskrinch_test_log::capture();
+    owned.outputs.set(vec![output(1)]);
+    owned.placement.set(second);
+    app.settle();
+    assert_eq!(app.windows(), [windows[0]]);
+    assert_eq!(
+        app.window(windows[0]).take_requests(),
+        moved_to(second, output(1))
+    );
+    let asked: Vec<WindowRequest> = app
+        .take_window_requests()
+        .into_iter()
+        .filter(|request| matches!(request, WindowRequest::OtherWindow { .. }))
+        .collect();
+    assert_eq!(asked, [], "asked of the window that went");
+    let placed_lines: Vec<String> = log
+        .lines()
+        .into_iter()
+        .filter(|line| line.contains(" is placed along the "))
+        .collect();
+    assert_eq!(placed_lines, [placed(output(1), second)]);
+    assert_eq!(log.warnings_and_errors(), Vec::<String>::new());
 }
