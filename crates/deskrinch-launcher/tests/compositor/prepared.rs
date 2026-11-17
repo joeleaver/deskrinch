@@ -5,6 +5,11 @@
 //! an idle hidden launcher prepares nothing more. That the first show then
 //! draws the right content is [`crate::screen`]'s and [`crate::frequent`]'s
 //! tests, which summon a hidden launcher.
+//!
+//! The order of the requests (a prepare after each hide, none while shown)
+//! is also the binary's `root::tests`', in rinch's test harness. Those say
+//! the launcher asks; these say a real runtime honours the request on a
+//! real layer surface, with a prepared frame and nothing presented.
 
 use std::fs;
 use std::path::Path;

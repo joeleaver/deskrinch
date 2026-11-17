@@ -114,14 +114,11 @@ fn the_pointer_over_a_popup_holds_its_expiry() {
 /// closed, is held as one the pointer entered: rinch tells the element now
 /// under the pointer that it was entered, with no motion of the pointer.
 ///
-/// It fails until rinch issue 2766 is fixed: rinch sends no enter for an
-/// element that moves under a resting pointer
-/// (<https://github.com/joeleaver/rinch/issues/2766>). The fix is on rinch's
-/// main at 51e345ef2, not in the pin (689f87c3a): the suite skips this test
-/// (its row in `SUITES`) until the sixth pin move, which takes both the skip
-/// and this note away.
+/// It needs rinch issue 2766's fix, in the pin since the sixth pin move:
+/// hover follows a layout under a still pointer
+/// (<https://github.com/joeleaver/rinch/issues/2766>).
 #[test]
-#[ignore = "needs a nested compositor, and rinch issue 2766's fix (rinch 51e345ef2): skipped by its suite until the sixth pin move"]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn a_popup_that_moves_under_a_resting_pointer_is_held() {
     let mut notifications = Notifications::start();
     let lower = notifications.client.simple(0, "Lower", "moves up", 0);

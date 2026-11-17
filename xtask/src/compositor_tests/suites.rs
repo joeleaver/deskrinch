@@ -40,12 +40,6 @@ const UNSUPPORTED: &str = "unsupported::";
 const KWIN_DESKTOPS: &str = "desktops::";
 /// The workspace tests that share a connection with window management.
 const SHARED: &str = "shared::";
-/// The notification daemon's test that waits on rinch issue 2766 (an
-/// element that moves under a resting pointer gets no enter), whose fix is
-/// on rinch's main at 51e345ef2 and not in the pin: the sixth pin move
-/// brings it, and removes this and its skip.
-const NOTIFICATIONS_WAITING_ON_RINCH_2766: &str =
-    "clicks::a_popup_that_moves_under_a_resting_pointer_is_held";
 
 /// The binaries, in the order they run.
 pub(super) const SUITES: [Suite; 24] = [
@@ -219,10 +213,7 @@ pub(super) const SUITES: [Suite; 24] = [
         renders: true,
         // The daemon, and the panel the room tests start along the top.
         programs: &[&deskrinch_shell::NOTIFICATIONS, &deskrinch_shell::PANEL],
-        // The resting-pointer test waits on rinch issue 2766, whose fix
-        // (rinch 51e345ef2) is not in the pin: skipped until the sixth pin
-        // move, which removes this skip.
-        filter: &["--skip", NOTIFICATIONS_WAITING_ON_RINCH_2766],
+        filter: &[],
     },
     // The panel's real binary, checked by the screen: it captures under
     // KWin. Not in the flipped pass: a full-width band along an edge is the

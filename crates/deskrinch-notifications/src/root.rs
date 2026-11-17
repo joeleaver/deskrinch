@@ -34,7 +34,7 @@ use crate::{surface, view};
 /// What the daemon says, at info level, once its root is built and rinch's
 /// event loop runs.
 ///
-/// Where that is true, in rinch (at 689f87c3a): `App::try_run` reaches
+/// Where that is true, in rinch (at 73b97d4ee): `App::try_run` reaches
 /// `try_run_rinch_with_window_props_and_menu`
 /// (`crates/rinch/src/shell/rinch_runtime/entry.rs`), which makes the event
 /// loop (`overlay_window::new_event_loop`) and then runs it; a windowless
