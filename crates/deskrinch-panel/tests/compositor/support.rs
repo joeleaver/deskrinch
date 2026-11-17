@@ -324,9 +324,9 @@ fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
 /// Captures every output until each shows its bar at `band` against
 /// `before`; returns the first output's name (the first the session made,
 /// by name), one of the bars for a test that looks at one, and the
-/// pictures, taken once the screen is still ([`Pictures::still`]): KWin fades a bar in, and the
-/// band is already the band halfway through, but not yet the bar's own
-/// pixels, which a later check compares with.
+/// pictures, taken once the screen is still ([`Pictures::still`]): KWin
+/// fades a bar in, and the band is already the band halfway through, but
+/// not yet the bar's own pixels, which a later check compares with.
 ///
 /// The name is only that: one of the bars. It is not where a window will
 /// open, which is the compositor's choice (sway's is the focused output,

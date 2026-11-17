@@ -187,11 +187,12 @@ fn wait_settled(panel: &Panel, settled: Settled, window: PerfWindow, surface: u6
 /// another output changed and settled as `settled` says, if anything: for
 /// [`Settled::BySize`], a frame that repainted (`paint_frames`). Such a bar
 /// may still get a frame: under sway and labwc, one served from its cached
-/// pixels (its present skipped with the software renderer), whose
-/// `effect_runs` and `signal_notifies` are the changed bar's, since rinch
-/// counts them per thread and writes them on the next frame line (seen on
-/// rinch 73b97d4ee). A [`Settled::ByAWindow`] change repaints every bar for
-/// the window opened.
+/// pixels (its present skipped with the software renderer). Its line
+/// carries the same `effect_runs`, `signal_notifies` and
+/// `rerender_events_queued` as the changed bar's frame of that pass, the
+/// changed bar's work (seen on rinch 73b97d4ee: rinch writes the thread's
+/// counters on each window's frame line). A [`Settled::ByAWindow`] change
+/// repaints every bar for the window opened.
 fn unchanged_repainted(settled: Settled, drawn: &[String]) -> Option<String> {
     match settled {
         Settled::ByAWindow => None,
@@ -203,10 +204,10 @@ fn unchanged_repainted(settled: Settled, drawn: &[String]) -> Option<String> {
 }
 
 /// The second output changed by `change` (given the first output's state
-/// and its own) and put back, each settled as `settled` says: the bars are the ones the
-/// panel started with each time, and no window was made or closed. What the
-/// first output's bar, which nothing changed, repaints nothing for a
-/// change settled [`Settled::BySize`] ([`unchanged_repainted`]).
+/// and its own) and put back, each settled as `settled` says: the bars are
+/// the ones the panel started with each time, and no window was made or
+/// closed. For a change settled [`Settled::BySize`], the first output's
+/// bar, which nothing changed, repaints nothing ([`unchanged_repainted`]).
 fn keeps_its_bars(
     what: &str,
     settled: Settled,
