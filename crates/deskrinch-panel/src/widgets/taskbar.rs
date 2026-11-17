@@ -8,11 +8,11 @@
 //!
 //! Each bar's taskbar shows the windows on its own output, from the one
 //! list of buttons the panel follows: a memo over that list, the bar's
-//! output, the bars there are, and the [`GraceClock`]
-//! ([`deskrinch_taskbar::on_bar`]: a window whose outputs have no bar is on
-//! every bar, and one the compositor has not yet placed waits a short
-//! grace, then is on every bar until it is placed). A window's change wakes
-//! only the bars whose list it changes.
+//! output, the bars there are, and the [`GraceClock`]. The rule is
+//! [`deskrinch_taskbar::on_bar`](mod@deskrinch_taskbar::on_bar)'s: a window
+//! whose outputs have no bar is on every bar, and one the compositor has
+//! not yet placed waits a short grace, then is on every bar until it is
+//! placed. A window's change wakes only the bars whose list it changes.
 //!
 //! The buttons share the room the bar leaves the taskbar (its width, from
 //! rinch's `bounds_signal`, refreshed after each layout), shrink to their

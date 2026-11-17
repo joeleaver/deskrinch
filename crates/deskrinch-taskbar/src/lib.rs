@@ -56,7 +56,7 @@
 //! window is on, a window whose outputs have no bar is on every bar, and a
 //! new window the compositor has not yet placed waits a short grace before
 //! it is shown on every bar: with several bars, every window that is placed
-//! or whose grace is over is on at least one ([`on_bar`]).
+//! or whose grace is over is on at least one ([`on_bar`](mod@on_bar)).
 //!
 //! # When the buttons do not fit
 //!

@@ -1,6 +1,7 @@
-//! The one timer for the new windows' graces ([`deskrinch_taskbar::on_bar`]):
-//! a window the compositor has not yet placed is on no bar until its grace
-//! is over, and the bars must look again then.
+//! The one timer for the new windows' graces
+//! ([`deskrinch_taskbar::on_bar`](mod@deskrinch_taskbar::on_bar)): a window
+//! the compositor has not yet placed is on no bar until its grace is over,
+//! and the bars must look again then.
 //!
 //! It lives on the UI's thread, beside the bars that read it: the buttons
 //! come to the UI through their hand-over as before, and an effect over

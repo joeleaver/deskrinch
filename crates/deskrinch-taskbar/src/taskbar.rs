@@ -23,7 +23,7 @@ pub struct TaskWindow<Id> {
     pub parent: Option<Id>,
     /// The outputs it is on, by name, as this report gives them; none when
     /// the compositor reports none (not yet, for an instant, or not at
-    /// all). The model keeps its [`Placement`] ([`crate::on_bar`]).
+    /// all). The model keeps its [`Placement`] ([`crate::on_bar`](mod@crate::on_bar)).
     pub outputs: BTreeSet<String>,
 }
 
@@ -54,7 +54,7 @@ pub enum PointerButton {
 #[derive(Debug, Clone)]
 pub enum Input<Id> {
     /// The window list changed, heard at this time: a new window's grace
-    /// counts from it ([`crate::on_bar`]).
+    /// counts from it ([`crate::on_bar`](mod@crate::on_bar)).
     Change(Change<Id>, Instant),
     /// A pointer button went down on the button of the window with this id,
     /// or (`None`) on the taskbar but on no button.
@@ -90,7 +90,7 @@ pub struct Button<Id> {
     /// The window or one of its dialogs asks for attention.
     pub attention: bool,
     /// Where the window is, as far as the taskbar knows: which bars show
-    /// the button ([`crate::on_bar`]).
+    /// the button ([`crate::on_bar`](mod@crate::on_bar)).
     pub placement: Placement,
 }
 
