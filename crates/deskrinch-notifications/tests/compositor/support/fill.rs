@@ -28,24 +28,40 @@ const QUIET_LINES: Duration = Duration::from_millis(300);
 /// The reason `NotificationClosed` carries for a close by its sender.
 const CLOSED: u32 = 3;
 
-/// The fit the daemon's `lines` settle on for `live` notifications: its last
-/// fit line, when it counts `live` (shown and waiting) and a frame that drew
-/// came after it.
-fn settled_fit(lines: &[String], live: usize) -> Option<(usize, usize)> {
+/// The fit the daemon's `lines` settle on for `live` notifications, said
+/// from line `from` on: its last fit line, when it is from then, counts
+/// `live` (shown and waiting), and a frame that drew came after it.
+fn settled_fit(lines: &[String], from: usize, live: usize) -> Option<(usize, usize)> {
     let at = lines.iter().rposition(|line| fit_of(line).is_some())?;
     let (shown, waiting) = fit_of(&lines[at])?;
     let drawn = lines[at..].iter().any(|line| drew(line));
-    (shown + waiting == live && drawn).then_some((shown, waiting))
+    (at >= from && shown + waiting == live && drawn).then_some((shown, waiting))
 }
 
 impl Notifications {
+    /// Where the daemon's lines are now: what it says next is from after
+    /// this mark ([`fit_drawn_since`](Self::fit_drawn_since)).
+    pub(crate) fn mark(&self) -> usize {
+        self.daemon().watch().lines().len()
+    }
+
     /// Waits, in the daemon's lines, until it has settled on a fit of
     /// `live` notifications and drawn it, with nothing more said for
-    /// [`QUIET_LINES`]; the fit then.
+    /// [`QUIET_LINES`]; the fit then. For a change that changes how many
+    /// are live: no fit said before it counts them. After a change that
+    /// keeps the count, [`fit_drawn_since`](Self::fit_drawn_since).
     pub(crate) fn fit_drawn(&self, live: usize) -> (usize, usize) {
+        self.fit_drawn_since(0, live)
+    }
+
+    /// [`fit_drawn`](Self::fit_drawn), the fit said after `mark` (taken
+    /// before a change that moves the fit, such as the room shrinking): a
+    /// fit said before the change does not count, though it may count the
+    /// same notifications.
+    pub(crate) fn fit_drawn_since(&self, mark: usize, live: usize) -> (usize, usize) {
         wait_for(&format!("a fit of {live} drawn"), || {
             let lines = self.daemon().watch().lines();
-            let Some(fit) = settled_fit(&lines, live) else {
+            let Some(fit) = settled_fit(&lines, mark, live) else {
                 return Err(self.said());
             };
             std::thread::sleep(QUIET_LINES);
@@ -117,18 +133,35 @@ mod tests {
             "INFO column: showing 5, 2 waiting",
             FRAME,
         ]);
-        assert_eq!(settled_fit(&drawn, 7), Some((5, 2)));
+        assert_eq!(settled_fit(&drawn, 0, 7), Some((5, 2)));
         // Another count: a popup the daemon has not taken yet.
-        assert_eq!(settled_fit(&drawn, 8), None);
+        assert_eq!(settled_fit(&drawn, 0, 8), None);
         // No frame after the last fit: the fit may move again.
         let undrawn = lines(&[FRAME, "INFO column: showing 6, 1 waiting"]);
-        assert_eq!(settled_fit(&undrawn, 7), None);
+        assert_eq!(settled_fit(&undrawn, 0, 7), None);
         // A frame of cached pixels draws nothing.
         let cached = lines(&[
             "INFO column: showing 6, 1 waiting",
             "[PERF] window 1 frame 4: style 0.10ms | paint_cached_frames=1",
         ]);
-        assert_eq!(settled_fit(&cached, 7), None);
-        assert_eq!(settled_fit(&lines(&[]), 0), None);
+        assert_eq!(settled_fit(&cached, 0, 7), None);
+        assert_eq!(settled_fit(&lines(&[]), 0, 0), None);
+    }
+
+    #[test]
+    fn a_fit_said_before_the_mark_does_not_count() {
+        // The full column's fit, drawn, then the room shrinking (the mark,
+        // at line 2) before the daemon has said anything of it.
+        let before = lines(&["INFO column: showing 7, 0 waiting", FRAME]);
+        assert_eq!(settled_fit(&before, 0, 7), Some((7, 0)));
+        assert_eq!(settled_fit(&before, 2, 7), None);
+        // Said after the mark: it counts.
+        let after = lines(&[
+            "INFO column: showing 7, 0 waiting",
+            FRAME,
+            "INFO column: showing 4, 3 waiting",
+            FRAME,
+        ]);
+        assert_eq!(settled_fit(&after, 2, 7), Some((4, 3)));
     }
 }

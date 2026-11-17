@@ -59,10 +59,11 @@ fn all_whole(notifications: &mut Notifications, shown: usize, waiting: usize) {
     assert_whole(notifications, &column);
 }
 
-/// The fit the daemon settles on for `live` notifications, read from its
-/// lines, once the screen agrees and every shown popup is drawn whole.
-fn settle(notifications: &mut Notifications, live: usize) -> (usize, usize) {
-    let (shown, waiting) = notifications.fit_drawn(live);
+/// The fit the daemon settles on for `live` notifications, said after its
+/// line `since` (a mark taken before the change that moves it), read from
+/// its lines, once the screen agrees and every shown popup is drawn whole.
+fn settle(notifications: &mut Notifications, since: usize, live: usize) -> (usize, usize) {
+    let (shown, waiting) = notifications.fit_drawn_since(since, live);
     all_whole(notifications, shown, waiting);
     (shown, waiting)
 }
@@ -71,6 +72,7 @@ fn settle(notifications: &mut Notifications, live: usize) -> (usize, usize) {
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn more_than_fit_the_shown_whole_the_rest_counted_and_held() {
     let mut notifications = Notifications::start();
+    let mark = notifications.mark();
     // The oldest, last in the column's order: the first to wait.
     let oldest = notifications.client.simple(0, "Oldest", THREE, 0);
     let others: Vec<u32> = (1..=9)
@@ -80,7 +82,7 @@ fn more_than_fit_the_shown_whole_the_rest_counted_and_held() {
                 .simple(0, &format!("Newer {n}"), THREE, 0)
         })
         .collect();
-    let (shown, waiting) = settle(&mut notifications, 10);
+    let (shown, waiting) = settle(&mut notifications, mark, 10);
     assert!(
         waiting > 0,
         "{shown} shown: ten three-line popups fit the room"
@@ -103,12 +105,13 @@ fn more_than_fit_the_shown_whole_the_rest_counted_and_held() {
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn a_critical_one_into_a_full_column_goes_on_top() {
     let mut notifications = Notifications::start();
+    let mark = notifications.mark();
     for n in 1..=10 {
         notifications
             .client
             .simple(0, &format!("Normal {n}"), THREE, 0);
     }
-    let (shown, waiting) = settle(&mut notifications, 10);
+    let (shown, waiting) = settle(&mut notifications, mark, 10);
     assert!(waiting > 0, "{shown} shown: the column is not full");
     let critical = std::collections::HashMap::from([("urgency", Variant::from(2_u8))]);
     notifications.send(0, "Critical", "on top", &[], &critical, 0);
@@ -135,9 +138,11 @@ fn the_room_shrinking_holds_a_shown_one_back_and_its_return_shows_it() {
     assert_whole(&mut notifications, &column);
     let oldest = live[0];
     // The tallest panel there is, along the top: the room shrinks by more
-    // than a popup's height.
+    // than a popup's height. The full column's own fit counts the same
+    // notifications, so only a fit said after the panel came counts.
+    let mark = notifications.mark();
     let panel = Panel::along_the_top(256);
-    let (_, waiting) = settle(&mut notifications, live.len());
+    let (_, waiting) = settle(&mut notifications, mark, live.len());
     assert!(waiting > 0, "the room shrank and all still fit");
     // The oldest, last in the column's order, waits, held: given a
     // timeout, it outlives it.
@@ -163,8 +168,9 @@ fn a_first_popup_taller_than_the_room_is_never_drawn_cut() {
     // The tallest panel there is: the room left is less than a six-line
     // popup where the output is 360 logical pixels high (scale 2).
     let _panel = Panel::along_the_top(256);
+    let mark = notifications.mark();
     notifications.client.simple(0, "Tall", SIX, 0);
-    let (shown, waiting) = settle(&mut notifications, 1);
+    let (shown, waiting) = settle(&mut notifications, mark, 1);
     if notifications.scale >= 2 {
         assert_eq!(
             (shown, waiting),
