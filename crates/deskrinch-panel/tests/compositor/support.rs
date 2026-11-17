@@ -8,7 +8,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_component::{Component, PerfWindow, Renderer, Watch, log, programs};
+use deskrinch_test_component::{Component, PerfWindow, Renderer, Watch, programs};
 use deskrinch_test_screen::{Image, Screen};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
@@ -100,37 +100,10 @@ impl Panel {
     pub(crate) fn start_with(command: Command) -> Self {
         let renderer = Renderer::of_run();
         let component = Component::start(command, renderer).unwrap();
-        let watch = component.watch();
-        let said = watch.wait_for_line(PATIENCE, |line| {
-            log::presents_with_software(line) || log::adapter(line).is_some()
-        });
-        assert!(
-            said,
-            "the panel never said what it presents with; its last lines:\n{}",
-            watch.tail()
-        );
-        let as_asked = match renderer {
-            Renderer::Software => watch.presents_with_software(),
-            Renderer::Gpu => {
-                !watch.presents_with_software()
-                    && watch
-                        .adapter()
-                        .is_some_and(|adapter| !adapter.is_software())
-            }
-        };
-        assert!(
-            as_asked,
-            "the panel was to present with the {} renderer; its last lines:\n{}",
-            renderer.env(),
-            watch.tail()
-        );
         let outputs = TestClient::connect().unwrap().output_names().len();
-        assert!(
-            watch.wait_first_frames(outputs, PATIENCE).is_some(),
-            "the panel did not present a frame in a bar on each of {outputs} outputs; its \
-             windows: {:?}",
-            watch.windows()
-        );
+        if let Err(why) = component.wait_presented_in_each(renderer, outputs) {
+            panic!("the panel did not present a bar on each of {outputs} outputs: {why}");
+        }
         Self { component }
     }
 
@@ -149,19 +122,6 @@ impl Panel {
     /// Whether the panel is still running.
     pub(crate) fn running(&mut self) -> bool {
         matches!(self.component.wait_exit(Duration::ZERO), Ok(None))
-    }
-
-    /// The lines the panel has written at warn or error level.
-    pub(crate) fn warnings_and_errors(&self) -> Vec<String> {
-        self.component
-            .watch()
-            .lines()
-            .into_iter()
-            .filter(|line| {
-                let line = log::strip_ansi(line);
-                line.contains(" WARN ") || line.contains(" ERROR ")
-            })
-            .collect()
     }
 
     /// The window of the bar on the output `output`.
@@ -363,11 +323,16 @@ fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
 
 /// Captures every output until each shows its bar at `band` against
 /// `before`; returns the first output's name (the first the session made,
-/// by name: where the compositors open a window unless told otherwise), the
-/// bar a test that looks at one works with, and the pictures, taken once the screen is still
-/// ([`Pictures::still`]): KWin fades a bar in, and the band is already the
-/// band halfway through, but not yet the bar's own pixels, which a later
-/// check compares with.
+/// by name), one of the bars for a test that looks at one, and the
+/// pictures, taken once the screen is still ([`Pictures::still`]): KWin fades a bar in, and the
+/// band is already the band halfway through, but not yet the bar's own
+/// pixels, which a later check compares with.
+///
+/// The name is only that: one of the bars. It is not where a window will
+/// open, which is the compositor's choice (sway's is the focused output,
+/// wherever an earlier test left the focus); a test that needs the bar
+/// beside a window asks the window which output it is on
+/// (`TestWindow::wait_output`).
 ///
 /// # Panics
 ///

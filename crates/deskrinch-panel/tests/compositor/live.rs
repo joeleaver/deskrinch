@@ -35,9 +35,9 @@ fn a_maximised_window_follows_the_zone_as_it_changes() {
     let scale = scale_of(&screen.outputs()[0]);
     let before = Pictures::still(&mut screen);
     let _panel = Panel::start();
-    let (output, _) = wait_band(&mut screen, &before, Band::of(Edge::Bottom, 40, scale));
+    wait_band(&mut screen, &before, Band::of(Edge::Bottom, 40, scale));
     let client = TestClient::connect().unwrap();
-    let window = maximised(&client, &output, 40);
+    let (window, output) = maximised(&client, 40);
 
     write_settings(&panel_table(Edge::Top, 56));
     let top = Band::of(Edge::Top, 56, scale);
@@ -46,7 +46,7 @@ fn a_maximised_window_follows_the_zone_as_it_changes() {
     wait_window_size(&client, &window, &output, 56);
     drop(window);
     let (_, shown) = wait_band(&mut screen, &before, top);
-    let _window = maximised(&client, &output, 56);
+    let (_window, output) = maximised(&client, 56);
     wait_window_beside(&mut screen, &output, picture(&shown, &output), top);
 }
 

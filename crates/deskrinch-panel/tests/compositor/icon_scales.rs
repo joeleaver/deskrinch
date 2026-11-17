@@ -1,10 +1,14 @@
 //! Each bar draws its icons at its own output's scale, with two outputs at
 //! different scales: the icon theme has the application's icon in two
 //! files, green for scale 1 and magenta for scale 2, so the colour a bar
-//! shows says which file it drew. Read after each bar's first frame, as the
-//! scale a window reads may only come with its window (rinch issue 2789:
-//! until rinch's fix, a bar in a window of its own reads the process's
-//! scale, not its window's, and this test fails on the output at scale 2).
+//! shows says which file it drew.
+//!
+//! Both tests are regression tests, and pass today: a bar reads its
+//! window's scale when it makes a button, and the taskbar makes its buttons
+//! only after the bar's first layout has given it a width, by when the
+//! window's own facts are there. Were a button made during the bar's
+//! mount, it would read the process's scale and keep it (rinch issue 2789),
+//! and the bar on the output at scale 2 would draw the scale-1 icon.
 
 use std::fs;
 use std::path::Path;
@@ -130,9 +134,7 @@ fn at_two_scales() -> (
 /// and on again, draws its icons at scale 2: there the icon index is
 /// already in place when the bar mounts, so the bar's first read of its
 /// scale is the one it keeps, with nothing else in between to read it
-/// again (no window, title or theme changed). It fails until rinch's fix
-/// for issue 2789 is in a pin: a bar in a window of its own reads the
-/// process's scale at its mount and does not follow its window's.
+/// again (no window, title or theme changed).
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn a_bar_made_later_draws_its_icons_at_its_outputs_scale() {
@@ -173,57 +175,15 @@ fn a_bar_made_later_draws_its_icons_at_its_outputs_scale() {
     changed.restore().unwrap();
 }
 
+/// Every bar of a panel started with its outputs at two scales draws its
+/// icons at its own output's scale.
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn each_bar_draws_its_icons_at_its_outputs_scale() {
-    in_nested_session();
-    write_settings(&panel_table(Edge::Bottom, 40));
-    let layout = outputs().unwrap();
-    let second = layout[1].name.clone();
-    let other = if scale_of(&layout[0].name) == 1 {
-        2.0
-    } else {
-        1.0
-    };
-    let changed = change_output(
-        &second,
-        OutputChange {
-            scale: Some(other),
-            ..OutputChange::default()
-        },
-    )
-    .unwrap();
-    let dirs = tempfile::tempdir().unwrap();
-    install(dirs.path());
-    let mut command = Panel::command();
-    command.env("XDG_DATA_HOME", dirs.path());
-    let panel = Panel::start_with(command);
-    let client = TestClient::connect().unwrap();
-    let _window = client.open("Scales", APP).unwrap();
+    let (panel, _window, changed, _dirs) = at_two_scales();
     let mut screen = Screen::connect().unwrap();
     for (_, output) in panel.bars() {
-        let (want, not) = if scale_of(&output) >= 2 {
-            (AT_TWO, AT_ONE)
-        } else {
-            (AT_ONE, AT_TWO)
-        };
-        wait_for(
-            &format!(
-                "{output}'s bar to draw the icon of its scale {}",
-                scale_of(&output)
-            ),
-            || {
-                if shows(&mut screen, &output, want) && !shows(&mut screen, &output, not) {
-                    Ok(())
-                } else {
-                    Err(format!(
-                        "it shows the scale-1 icon: {}, the scale-2 icon: {}",
-                        shows(&mut screen, &output, AT_ONE),
-                        shows(&mut screen, &output, AT_TWO)
-                    ))
-                }
-            },
-        );
+        wait_icon_of_its_scale(&mut screen, &output);
     }
     drop(panel);
     changed.restore().unwrap();

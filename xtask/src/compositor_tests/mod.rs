@@ -460,9 +460,22 @@ mod tests {
             refused.to_string().contains("--output-size cannot change"),
             "{refused}"
         );
-        let wallpaper =
-            Selection::new(&["deskrinch-wallpaper compositor".to_owned()], None).unwrap();
-        let sized = sessions(&[Compositor::Kwin], &[size], &plan, &wallpaper).unwrap();
+        // Any binary under KWin none of whose rows is on a pass with outputs
+        // of its own, whichever that is as the table grows.
+        let free = SUITES
+            .iter()
+            .map(|suite| suite.target)
+            .find(|&target| {
+                let rows = || SUITES.iter().filter(move |suite| suite.target == target);
+                rows().any(|suite| suite.compositors.contains(&Compositor::Kwin))
+                    && rows()
+                        .flat_map(|suite| suite.passes)
+                        .all(|pass| !pass.has_outputs_of_its_own())
+            })
+            .expect("a binary under KWin with no pass of outputs of its own");
+        let free = Selection::new(&[free.name()], None).unwrap();
+        let sized = sessions(&[Compositor::Kwin], &[size], &plan, &free).unwrap();
+        assert_ne!(sized.len(), 0, "no session for {free:?}");
         assert!(sized.iter().all(|(place, _)| place.outputs.size(0) == size));
     }
 }

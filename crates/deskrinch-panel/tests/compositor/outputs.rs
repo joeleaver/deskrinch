@@ -7,14 +7,17 @@
 //! rinch's per-window lines (`[PERF] window N opened/closed/frame`).
 
 use std::collections::BTreeSet;
+use std::time::{SystemTime, UNIX_EPOCH};
 
 use deskrinch_test_client::{
     OutputChange, OutputState, TestClient, change_output, outputs, turn_output_off,
 };
-use deskrinch_test_component::{Mark, PerfWindow};
+use deskrinch_test_component::perf::parse;
+use deskrinch_test_component::{Mark, PerfLine, PerfWindow, counter};
 use deskrinch_test_screen::{Rgba, Screen, Transform};
 use deskrinch_test_wait::wait_for;
 
+use crate::frames::{drawn_since, step};
 use crate::support::{
     Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
@@ -136,26 +139,104 @@ fn an_output_turned_off_and_on_gets_exactly_one_new_bar() {
     assert_eq!(panel.window_on(&kept_name), kept, "{}", panel.log());
 }
 
-/// The second output changed by `change` (given the first output's state)
-/// and put back: the bars are the ones the panel started with each time,
-/// each having drawn since, and no other window was made.
-fn keeps_its_bars(what: &str, change: impl FnOnce(&OutputState) -> OutputChange) {
+/// How a test knows the panel has dealt with an output's change.
+#[derive(Debug, Clone, Copy)]
+enum Settled {
+    /// The changed output's bar has presented at a size it was not before
+    /// (a rescale, a turn), and put back, at the size it was.
+    BySize,
+    /// The bar keeps its size (a move): a window opened since has been
+    /// drawn on every bar.
+    ByAWindow,
+}
+
+/// The `surface_px` of the last frame `window` presented, among `lines`.
+fn last_surface(lines: &[String], window: PerfWindow) -> Option<u64> {
+    lines
+        .iter()
+        .rev()
+        .filter(|line| matches!(parse(line), Some(PerfLine::Frame { window: drew, .. }) if drew == window))
+        .find_map(|line| counter(line, "surface_px"))
+}
+
+/// Waits for what `settled` says after an output's change, its bar
+/// `window` having presented at `surface` before it; `back` for the change
+/// put back.
+fn wait_settled(panel: &Panel, settled: Settled, window: PerfWindow, surface: u64, back: bool) {
+    match settled {
+        Settled::BySize => {
+            wait_for(
+                "the changed output's bar to present at its new size",
+                || match last_surface(&panel.watch().lines(), window) {
+                    Some(now) if (now == surface) == back => Ok(()),
+                    now => Err(format!("{now:?}, {surface} before")),
+                },
+            );
+        }
+        Settled::ByAWindow => {
+            let mark = panel.watch().mark();
+            let client = TestClient::connect().unwrap();
+            let opened = client.open("A window", "org.deskrinch.Outputs").unwrap();
+            wait_each_bar_drew_since(panel, &mark, "for a window opened");
+            drop(opened);
+        }
+    }
+}
+
+/// What is wrong with `drawn`, the frames of a bar nothing changed while
+/// another output changed and settled as `settled` says, if anything: for
+/// [`Settled::BySize`], a frame that repainted (`paint_frames`). Such a bar
+/// may still get a frame: under sway and labwc, one served from its cached
+/// pixels (its present skipped with the software renderer), whose
+/// `effect_runs` and `signal_notifies` are the changed bar's, since rinch
+/// counts them per thread and writes them on the next frame line (seen on
+/// rinch 73b97d4ee). A [`Settled::ByAWindow`] change repaints every bar for
+/// the window opened.
+fn unchanged_repainted(settled: Settled, drawn: &[String]) -> Option<String> {
+    match settled {
+        Settled::ByAWindow => None,
+        Settled::BySize => drawn
+            .iter()
+            .find(|frame| counter(frame, "paint_frames").is_some())
+            .map(|frame| format!("repainted: {frame}")),
+    }
+}
+
+/// The second output changed by `change` (given the first output's state
+/// and its own) and put back, each settled as `settled` says: the bars are the ones the
+/// panel started with each time, and no window was made or closed. What the
+/// first output's bar, which nothing changed, repaints nothing for a
+/// change settled [`Settled::BySize`] ([`unchanged_repainted`]).
+fn keeps_its_bars(
+    what: &str,
+    settled: Settled,
+    change: impl FnOnce(&OutputState, &OutputState) -> OutputChange,
+) {
     let (panel, _screen, _) = start_bars();
     let started = ever(&panel);
     let layout = outputs().unwrap();
-    let name = layout[1].name.clone();
-    let mark = panel.watch().mark();
-    let changed = change_output(&name, change(&layout[0])).unwrap();
-    wait_each_bar_drew_since(&panel, &mark, &format!("after {what}"));
+    let (name, kept) = (layout[1].name.clone(), layout[0].name.clone());
+    let (window, unchanged) = (panel.window_on(&name), panel.window_on(&kept));
+    let surface = last_surface(&panel.watch().lines(), window).expect("the bar's frame");
+    let from = step(&panel);
+    let changed = change_output(&name, change(&layout[0], &layout[1])).unwrap();
+    wait_settled(&panel, settled, window, surface, false);
     assert_eq!(open(&panel), started, "{what}: {}", panel.log());
-    let mark = panel.watch().mark();
+    let (drawn, from) = drawn_since(&panel, &unchanged, from);
+    if let Some(why) = unchanged_repainted(settled, &drawn) {
+        panic!("{what}: the bar on {kept}, which nothing changed, {why}");
+    }
     changed.restore().unwrap();
-    wait_each_bar_drew_since(&panel, &mark, &format!("after {what}, put back"));
+    wait_settled(&panel, settled, window, surface, true);
+    let (drawn, _) = drawn_since(&panel, &unchanged, from);
+    if let Some(why) = unchanged_repainted(settled, &drawn) {
+        panic!("{what}, put back: the bar on {kept}, which nothing changed, {why}");
+    }
     assert_eq!(open(&panel), started, "{what}, put back: {}", panel.log());
     assert_eq!(
         ever(&panel),
         started,
-        "{what}: a window was made: {}",
+        "{what}: a window was made or closed: {}",
         panel.log()
     );
 }
@@ -163,7 +244,7 @@ fn keeps_its_bars(what: &str, change: impl FnOnce(&OutputState) -> OutputChange)
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn an_output_moved_keeps_its_bar() {
-    keeps_its_bars("the move", |first| {
+    keeps_its_bars("the move", Settled::ByAWindow, |first, _| {
         let (_, height) = TestClient::connect()
             .unwrap()
             .output_info(&first.name)
@@ -179,7 +260,7 @@ fn an_output_moved_keeps_its_bar() {
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn an_output_rescaled_keeps_its_bar() {
-    keeps_its_bars("the scale", |_| OutputChange {
+    keeps_its_bars("the scale", Settled::BySize, |_, _| OutputChange {
         scale: Some(1.5),
         ..OutputChange::default()
     });
@@ -188,8 +269,13 @@ fn an_output_rescaled_keeps_its_bar() {
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn an_output_turned_keeps_its_bar() {
-    keeps_its_bars("the turn", |_| OutputChange {
-        transform: Some(Transform::Rotated90),
+    // A quarter turn from however the pass has it.
+    keeps_its_bars("the turn", Settled::BySize, |_, second| OutputChange {
+        transform: Some(if second.transform == Transform::Rotated90 {
+            Transform::Normal
+        } else {
+            Transform::Rotated90
+        }),
         ..OutputChange::default()
     });
 }
@@ -225,9 +311,17 @@ fn every_bar_follows_a_window_opened_and_retitled() {
     wait_each_bar_drew_since(&panel, &mark, "for the title changed");
 }
 
+/// The whole seconds of the system's time at `at`.
+fn whole_seconds(at: SystemTime) -> u64 {
+    at.duration_since(UNIX_EPOCH)
+        .expect("the system's time is after 1970")
+        .as_secs()
+}
+
 /// The clock's one worker paints every bar's face once a tick: with
-/// seconds shown, over several ticks each bar draws as many frames as the
-/// others, within the one tick that may fall between two bars' reads.
+/// seconds shown, each bar draws as many frames as there were ticks (the
+/// system time's whole seconds that began) over the same span, within the
+/// one tick that may fall between the span's ends and a bar's read.
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_clock_paints_each_bar_once_a_tick() {
@@ -240,8 +334,10 @@ fn the_clock_paints_each_bar_once_a_tick() {
     let settled = panel.watch().mark();
     wait_each_bar_drew_since(&panel, &settled, "for the clock's first second");
     let mark = panel.watch().mark();
-    let counts = wait_for("three ticks on every bar", || {
+    let from = SystemTime::now();
+    let (counts, ticks) = wait_for("five ticks on every bar", || {
         let since = panel.watch().since(&mark);
+        let to = SystemTime::now();
         let counts: Vec<u64> = open(&panel)
             .iter()
             .map(|window| {
@@ -251,17 +347,16 @@ fn the_clock_paints_each_bar_once_a_tick() {
                     .map_or(0, |s| s.frames)
             })
             .collect();
-        if counts.iter().all(|&frames| frames >= 3) {
-            Ok(counts)
+        if counts.iter().all(|&frames| frames >= 5) {
+            Ok((counts, whole_seconds(to) - whole_seconds(from)))
         } else {
             Err(counts)
         }
     });
-    let (fewest, most) = (counts.iter().min(), counts.iter().max());
+    assert!(counts.len() >= 2, "fewer than two bars: {counts:?}");
     assert!(
-        most.zip(fewest)
-            .is_some_and(|(most, fewest)| most - fewest <= 1),
-        "the bars drew {counts:?} frames over the same ticks: {}",
+        counts.iter().all(|&frames| frames.abs_diff(ticks) <= 1),
+        "the bars drew {counts:?} frames over {ticks} ticks: {}",
         panel.log()
     );
 }
@@ -308,5 +403,6 @@ fn a_change_of_scheme_reaches_every_bar() {
         let alike = now.windows(2).all(|pair| pair[0] == pair[1]);
         if changed && alike { Ok(now) } else { Err(now) }
     });
+    assert!(bars.len() >= 2, "fewer than two bars: {bars:?}");
     assert_eq!(light.len(), bars.len(), "{bars:?}");
 }

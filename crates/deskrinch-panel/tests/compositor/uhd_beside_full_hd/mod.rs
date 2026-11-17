@@ -1,9 +1,13 @@
 //! A full taskbar on a 3840x2160 output, beside a 1920x1080 one (the pass
 //! of `cargo xtask compositor-tests` with those outputs, which runs this
-//! module alone): every bar drawn whole across its width, and, with the GPU
+//! module alone): every bar's taskbar drawn full against the bar as it was
+//! before any window, its buttons to the end with none missing and the
+//! count of those left out after the last ([`strip`]); and, with the GPU
 //! renderer, each frame's Vello usage under half of every buffer's first
 //! size. A frame that ran out of buffer space would go out undrawn on a bar
 //! in a window of its own (rinch issue 2781).
+
+mod strip;
 
 use std::fmt::Write as _;
 
@@ -57,35 +61,56 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     in_nested_session();
     require_outputs(&[(3840, 2160), (1920, 1080)]);
     write_settings(&panel_table(Edge::Bottom, 40));
-    let mut screen = Screen::connect().unwrap();
-    let before = Pictures::still(&mut screen);
     let mut command = Panel::command();
     command.env("RUST_LOG", "warn,deskrinch_panel=info,vello=debug");
     let panel = Panel::start_with(command);
+    let mut screen = Screen::connect().unwrap();
+    let empty = Pictures::still(&mut screen);
     let client = TestClient::connect().unwrap();
-    let windows: Vec<_> = (0..WINDOWS)
-        .map(|i| {
-            client
-                .open(
-                    &format!("Window {i}"),
-                    &format!("org.deskrinch.wide.App{i}"),
-                )
-                .unwrap()
-        })
-        .collect();
-    // Every column of every bar differs from what was under it: drawn
-    // whole, its last button and its count of those left out included.
-    wait_for("every bar to be drawn whole across its width", || {
-        let now = Pictures::still(&mut screen);
-        let faults: Vec<String> = before
+    let open = |i: usize| {
+        client
+            .open(
+                &format!("Window {i}"),
+                &format!("org.deskrinch.wide.App{i}"),
+            )
+            .unwrap()
+    };
+    let mut windows: Vec<_> = (0..WINDOWS).map(open).collect();
+    let band = Band::of(Edge::Bottom, 40, 1);
+    let read = |now: &Pictures| -> Result<Vec<strip::Full>, String> {
+        let mut taskbars = Vec::new();
+        let mut faults = Vec::new();
+        for ((name, was), (_, is)) in empty.0.iter().zip(&now.0) {
+            match strip::full(was, is, &band.rows_in(is.height())) {
+                Ok(taskbar) => taskbars.push(taskbar),
+                Err(why) => faults.push(format!("{name}: {why}")),
+            }
+        }
+        if faults.is_empty() {
+            Ok(taskbars)
+        } else {
+            Err(faults.join("; "))
+        }
+    };
+    wait_for("every bar's taskbar to be drawn full", || {
+        read(&Pictures::take(&mut screen)).map(drop)
+    });
+    let full = Pictures::still(&mut screen);
+    let taskbars = read(&full).unwrap_or_else(|why| panic!("{why}"));
+    // One more window left out: each bar's count changes, and nothing
+    // among its buttons.
+    windows.push(open(WINDOWS));
+    wait_for("every bar's count to change for one more window", || {
+        let more = Pictures::take(&mut screen);
+        let faults: Vec<String> = full
             .0
             .iter()
-            .zip(&now.0)
-            .filter_map(|((name, was), (_, is))| {
-                let rows = Band::of(Edge::Bottom, 40, 1).rows_in(is.height());
-                let blank = (0..is.width())
-                    .find(|&x| rows.clone().all(|y| was.pixel(x, y) == is.pixel(x, y)))?;
-                Some(format!("{name}'s bar is not drawn at column {blank}"))
+            .zip(&more.0)
+            .zip(&taskbars)
+            .filter_map(|(((name, was), (_, is)), &taskbar)| {
+                let rows = band.rows_in(is.height());
+                let why = strip::count_changed(taskbar, was, is, &rows).err()?;
+                Some(format!("{name}: {why}"))
             })
             .collect();
         if faults.is_empty() {
