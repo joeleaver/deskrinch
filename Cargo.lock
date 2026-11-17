@@ -1030,6 +1030,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-dbus",
+ "deskrinch-test-notify",
  "deskrinch-test-wait",
  "deskrinch-untrusted",
  "futures-core",
@@ -1037,6 +1038,34 @@ dependencies = [
  "proptest",
  "serde",
  "thiserror 2.0.21",
+ "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-notifications"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-appearance",
+ "deskrinch-applications",
+ "deskrinch-bus",
+ "deskrinch-component",
+ "deskrinch-desktop-entries",
+ "deskrinch-icons",
+ "deskrinch-notification-service",
+ "deskrinch-settings",
+ "deskrinch-shell",
+ "deskrinch-test-client",
+ "deskrinch-test-component",
+ "deskrinch-test-dbus",
+ "deskrinch-test-input",
+ "deskrinch-test-notify",
+ "deskrinch-test-screen",
+ "deskrinch-test-wait",
+ "deskrinch-theme",
+ "deskrinch-xdg",
+ "rinch",
+ "tempfile",
+ "tracing",
  "zbus 6.2.1",
 ]
 
@@ -1229,6 +1258,15 @@ name = "deskrinch-test-log"
 version = "0.1.0"
 dependencies = [
  "tracing",
+]
+
+[[package]]
+name = "deskrinch-test-notify"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-wait",
+ "futures-core",
+ "zbus 6.2.1",
 ]
 
 [[package]]
@@ -6538,6 +6576,7 @@ dependencies = [
  "deskrinch-test-dbus",
  "deskrinch-test-input",
  "deskrinch-test-lifetime",
+ "deskrinch-test-notify",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",

@@ -6,7 +6,7 @@ use deskrinch_notification_service::{
     Config, Event, ManualClock, NameRequest, NameStatus, Service, StartError,
 };
 
-use crate::common::{Client, PrivateBus, start, start_with};
+use crate::common::{PrivateBus, start, start_with};
 
 fn with_name(bus: &PrivateBus, name: NameRequest) -> Config {
     Config {
@@ -43,7 +43,7 @@ fn dropping_the_service_releases_the_name() {
     drop(first);
     let (second, events, _clock) = start(&bus);
     assert_eq!(second.initial_status(), NameStatus::Owned);
-    Client::new(&bus).simple(0, "reaches the second", "", 0);
+    bus.notify_client().simple(0, "reaches the second", "", 0);
     assert_eq!(events.next_shown().summary, "reaches the second");
 }
 
@@ -63,7 +63,7 @@ fn a_service_that_allows_replacement_loses_the_name_to_one_that_replaces() {
     assert_eq!(new.initial_status(), NameStatus::Owned);
     assert_eq!(old_events.next(), Event::NameLost);
     assert!(!old.handle().owns_name());
-    Client::new(&bus).simple(0, "to the new owner", "", 0);
+    bus.notify_client().simple(0, "to the new owner", "", 0);
     assert_eq!(new_events.next_shown().summary, "to the new owner");
 }
 
@@ -81,7 +81,8 @@ fn a_queued_service_acquires_the_name_when_the_owner_leaves() {
     drop(owner);
     assert_eq!(events.next(), Event::NameAcquired);
     assert!(queued.handle().owns_name());
-    Client::new(&bus).simple(0, "to the one that waited", "", 0);
+    bus.notify_client()
+        .simple(0, "to the one that waited", "", 0);
     assert_eq!(events.next_shown().summary, "to the one that waited");
 }
 

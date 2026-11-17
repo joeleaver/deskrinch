@@ -97,3 +97,70 @@ fn a_status_is_given_as_a_shell_gives_it() {
     // Ended by SIGTERM (15).
     assert_eq!(shell_status(ExitStatus::from_raw(15)), Some(143));
 }
+
+#[test]
+fn the_waits_on_the_bus_need_the_name() {
+    for until in ["owned", "notified"] {
+        let without = [
+            "--dir",
+            "/d",
+            "--until",
+            until,
+            "--then",
+            "kill-compositor",
+            "/c",
+        ];
+        assert!(parsed(&without).is_err(), "{until} without --name");
+        let with = [
+            "--dir",
+            "/d",
+            "--until",
+            until,
+            "--name",
+            "org.freedesktop.Notifications",
+            "--said",
+            "up",
+            "--then",
+            "kill-compositor",
+            "/c",
+        ];
+        let args = parsed(&with).unwrap();
+        assert_eq!(args.name.as_deref(), Some("org.freedesktop.Notifications"));
+    }
+}
+
+#[test]
+fn owned_needs_the_line_too() {
+    let without = [
+        "--dir",
+        "/d",
+        "--until",
+        "owned",
+        "--name",
+        "n",
+        "--then",
+        "kill-compositor",
+        "/c",
+    ];
+    assert!(parsed(&without).is_err());
+    let notified = [
+        "--dir",
+        "/d",
+        "--until",
+        "notified",
+        "--name",
+        "n",
+        "--then",
+        "kill-compositor",
+        "/c",
+    ];
+    assert!(parsed(&notified).is_ok());
+}
+
+#[test]
+fn notified_waits_for_a_presented_frame_and_owned_for_none() {
+    let presented =
+        "[PERF] window 1 frame 1: style 0.1ms layout 0.2ms paint 0.3ms present 0.4ms | x=1";
+    assert!(Until::Notified.in_log(presented));
+    assert!(!Until::Owned.in_log(presented));
+}

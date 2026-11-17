@@ -6,7 +6,7 @@
 
 use deskrinch_test_component::log::strip_ansi;
 use deskrinch_test_component::perf::parse;
-use deskrinch_test_component::{PerfLine, PerfWindow, counter};
+use deskrinch_test_component::{PerfLine, PerfWindow, counter, drew};
 use deskrinch_test_wait::Deadline;
 
 use crate::support::Panel;
@@ -37,13 +37,7 @@ fn split(lines: &[String], window: &PerfWindow) -> (Vec<String>, Vec<String>) {
         })
         .cloned()
         .partition(|line| counter(line, "signal_notifies").is_some());
-    let drawn = frames
-        .into_iter()
-        .filter(|line| {
-            counter(line, "paint_frames").is_some()
-                || counter(line, "paint_cached_frames").is_none()
-        })
-        .collect();
+    let drawn = frames.into_iter().filter(|line| drew(line)).collect();
     (reactive, drawn)
 }
 

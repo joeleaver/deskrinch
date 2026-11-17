@@ -1,11 +1,23 @@
 //! The view and the wiring mounted in rinch's test harness
 //! (`rinch::testing::TestApp`): input sent through rinch's own dispatch, as
 //! the desktop shell sends it, and what reached the model, `act` and the
-//! log read back. What needs a compositor (the window shown and hidden, the
-//! activation token, the application started) is the compositor tests'. So
-//! is what follows the window's keyboard focus (hiding when it is lost, the
-//! has-keyboard line): `TestApp` sends the focus change but does not publish
-//! it to `rinch::window::window_focused`, as the desktop shell does.
+//! log read back.
+//!
+//! The wiring is mounted in the window the launcher opens
+//! ([`crate::surface::window_props`]). `TestApp` publishes that window's
+//! keyboard focus to `rinch::window::window_focused` as the desktop shell
+//! does, and records and applies the show and hide requests the wiring
+//! makes, so [`window`] holds what the launcher asks of its window and in
+//! what order: shown and hidden, the keyboard in the field, and the
+//! keyboard lost while shown hiding it. The prepare requests are made by
+//! the root, and are its tests' (`root::tests`).
+//!
+//! That it happens on a real surface is the compositor tests'
+//! (`tests/compositor`): the layer surface mapped and unmapped with its
+//! exclusive keyboard, another client's surface taking the keyboard, the
+//! activation token, the application started.
+
+mod window;
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -52,7 +64,8 @@ fn taken<T: Copy>(slot: &Slot<T>) -> T {
 /// `component` mounted as the launcher draws it: in a window of its size,
 /// with the shell's look, so its padding and the field's box are the
 /// launcher's own (with no look, the launcher has no padding, and its
-/// corner is the field).
+/// corner is the field). The wiring is mounted in the launcher's own window
+/// instead ([`wired_as`]: its props, which have its size, and the look).
 fn launcher_window(component: impl FnOnce(&mut RenderScope) -> NodeHandle + 'static) -> TestApp {
     TestApp::builder(component)
         .size(surface::WIDTH, surface::HEIGHT)
@@ -206,7 +219,8 @@ fn a_press_on_the_padding_round_the_results_is_off_them() {
 
 // ── The wiring, `act` recorded ──────────────────────────────────────────
 
-/// The wiring mounted, what it hands `act` recorded.
+/// The wiring mounted in the launcher's window, what it hands `act`
+/// recorded.
 pub(super) struct Wired {
     pub(super) app: TestApp,
     pub(super) acts: Rc<RefCell<Vec<Action>>>,
@@ -249,7 +263,7 @@ pub(super) fn wired_as(mount: Mount) -> Wired {
         Arc::clone(&visibility),
         Rc::clone(&model_slot),
     );
-    let app = launcher_window(move |__scope: &mut RenderScope| {
+    let app = TestApp::builder(move |__scope: &mut RenderScope| {
         let model = Signal::new(Model::new());
         *slot.borrow_mut() = Some(model);
         let all = entries();
@@ -276,7 +290,10 @@ pub(super) fn wired_as(mount: Mount) -> Wired {
         } else {
             content
         }
-    });
+    })
+    .window_props(surface::window_props(mount.shown))
+    .theme(deskrinch_theme::look::props(Scheme::Light))
+    .mount();
     let model = taken(&model_slot);
     Wired {
         app,

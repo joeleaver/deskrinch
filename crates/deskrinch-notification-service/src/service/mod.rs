@@ -324,9 +324,10 @@ impl Handle {
     /// Stops `id`'s timer, keeping the time it has left, while the user looks
     /// at it (the pointer is over its popup, say). It stays paused through a
     /// replacement, with its new full timeout left, until
-    /// [`resume`](Self::resume). Pausing twice, or pausing a notification
-    /// that never expires, changes nothing. A paused notification is closed
-    /// like any other: by the user, the sender, or the service stopping.
+    /// [`resume`](Self::resume). A notification that never expires is
+    /// paused too: a replacement that gives it a timeout keeps it paused.
+    /// Pausing twice changes nothing. A paused notification is closed like
+    /// any other: by the user, the sender, or the service stopping.
     ///
     /// # Errors
     ///

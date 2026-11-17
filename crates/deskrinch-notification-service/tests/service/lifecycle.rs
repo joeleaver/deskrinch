@@ -6,7 +6,7 @@ use std::time::Duration;
 use deskrinch_notification_service::{CloseReason, Event, OperationError};
 use zbus::Variant;
 
-use crate::common::{Client, PrivateBus, Signal, id, start};
+use crate::common::{PrivateBus, Signal, id, start};
 use crate::time::Time;
 use deskrinch_test_wait::recv;
 
@@ -14,7 +14,7 @@ use deskrinch_test_wait::recv;
 fn replacement_keeps_the_id_and_emits_no_close() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let signals = &client.signals;
     let first = client.simple(0, "Downloading", "10%", 0);
     let other = client.simple(0, "Other", "", 0);
@@ -55,7 +55,7 @@ fn replacement_keeps_the_id_and_emits_no_close() {
 fn expiry_follows_the_clock_without_sleeping() {
     let bus = PrivateBus::start();
     let (service, events, clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let signals = &client.signals;
     let time = Time {
         client: &client,
@@ -100,7 +100,7 @@ fn expiry_follows_the_clock_without_sleeping() {
 fn replacing_restarts_the_timer() {
     let bus = PrivateBus::start();
     let (service, events, clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let signals = &client.signals;
     let time = Time {
         client: &client,
@@ -120,7 +120,7 @@ fn replacing_restarts_the_timer() {
 fn close_notification_closes_once() {
     let bus = PrivateBus::start();
     let (_service, events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let signals = &client.signals;
     let n = client.simple(0, "a", "", 0);
     events.next_shown();
@@ -160,7 +160,7 @@ fn close_notification_closes_once() {
 fn the_user_dismisses() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let signals = &client.signals;
     let n = client.simple(0, "a", "", 0);
     events.next_shown();
@@ -174,7 +174,7 @@ fn the_user_dismisses() {
 fn invoking_an_action_sends_the_token_then_the_action_then_closes() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let signals = &client.signals;
     let actions = ["default", "Open", "reply", "Reply"];
     let n = client
@@ -204,7 +204,7 @@ fn invoking_an_action_sends_the_token_then_the_action_then_closes() {
 fn a_resident_notification_stays_after_an_action() {
     let bus = PrivateBus::start();
     let (service, events, _clock) = start(&bus);
-    let client = Client::new(&bus);
+    let client = bus.notify_client();
     let signals = &client.signals;
     let hints = HashMap::from([("resident", Variant::from(true))]);
     let n = client
@@ -240,7 +240,7 @@ fn the_subscriber_may_call_back_into_the_handle() {
         })
         .unwrap();
     handle_slot.set(service.handle()).unwrap();
-    let n = Client::new(&bus).simple(0, "a", "", 0);
+    let n = bus.notify_client().simple(0, "a", "", 0);
     let first = recv("an event", &rx);
     assert!(matches!(first, Event::Shown(_)));
     let second = recv("an event", &rx);

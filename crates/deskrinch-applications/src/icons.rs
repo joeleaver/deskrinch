@@ -126,8 +126,8 @@ pub fn path_of(index: &Index, icon: Option<&Icon>, size: u32, scale: u32) -> Opt
         Icon::Path(path) => path.to_str().map(str::to_owned),
     };
     icon.and_then(name)
-        .and_then(|name| find(index, &name, size, scale))
-        .or_else(|| find(index, FALLBACK, size, scale))
+        .and_then(|name| path_of_name(index, &name, size, scale))
+        .or_else(|| path_of_name(index, FALLBACK, size, scale))
 }
 
 /// The icon scale to draw at for a window `factor` (rinch's scale factor,
@@ -142,8 +142,10 @@ pub fn icon_scale(factor: f64) -> u32 {
     }
 }
 
-/// The file `name` is drawn from at `size` and `scale`, if the index has one.
-fn find(index: &Index, name: &str, size: u32, scale: u32) -> Option<String> {
+/// The file the icon `name` is drawn from, `size` logical pixels square at
+/// `scale`, if the index has one; no generic icon stands in for it.
+#[must_use]
+pub fn path_of_name(index: &Index, name: &str, size: u32, scale: u32) -> Option<String> {
     let found = index.find(&Request::new(name, size).at_scale(scale)).ok()?;
     found.path.to_str().map(str::to_owned)
 }
@@ -210,6 +212,17 @@ mod tests {
             path_of(&index, Some(&missing), 32, 1),
             Some(png(dir.path(), FALLBACK))
         );
+    }
+
+    #[test]
+    fn an_icon_by_name_has_no_stand_in() {
+        let dir = tempfile::tempdir().unwrap();
+        let index = index(dir.path(), &["files", FALLBACK]);
+        assert_eq!(
+            path_of_name(&index, "files", 32, 1),
+            Some(png(dir.path(), "files"))
+        );
+        assert_eq!(path_of_name(&index, "not-in-the-theme", 32, 1), None);
     }
 
     #[test]
