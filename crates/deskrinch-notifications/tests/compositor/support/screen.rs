@@ -8,15 +8,24 @@
 
 use std::time::Duration;
 
+use deskrinch_test_client::Compositor;
 use deskrinch_test_screen::{Image, Rgba, Screen};
 use deskrinch_test_wait::{Deadline, wait_for};
 
 use super::{Notifications, PADDING, WIDTH};
 
-/// How long the screen must not change to count as still: longer than the
-/// longest close animation KWin runs by default (its fading popups, 600 ms);
-/// sway and labwc animate nothing.
-const STILL: Duration = Duration::from_millis(600);
+/// How long the screen must not change to count as still under
+/// `compositor`. Under KWin, longer than the longest close animation it runs
+/// by default (its fading popups, 600 ms). sway and labwc animate nothing:
+/// there a few frames' time is enough (six at 60 Hz). A capture taken
+/// before a change has landed is no harm: each wait on the screen holds the
+/// column to what it waits for, and looks again.
+fn still_for(compositor: Compositor) -> Duration {
+    match compositor {
+        Compositor::Kwin => Duration::from_millis(600),
+        Compositor::Sway | Compositor::Labwc => Duration::from_millis(100),
+    }
+}
 
 /// How far a colour on the screen may be from the one looked for, per
 /// channel: a compositor's rounding, far less than between two colours.
@@ -27,11 +36,13 @@ const TOLERANCE: u8 = 8;
 pub(super) struct Pictures(Vec<(String, Image)>);
 
 impl Pictures {
-    fn take(screen: &mut Screen) -> Self {
+    /// Every output's picture, or with `only` that output's alone.
+    fn take(screen: &mut Screen, only: Option<&str>) -> Self {
         Self(
             screen
                 .outputs()
                 .into_iter()
+                .filter(|name| only.is_none_or(|only| only == name))
                 .map(|name| {
                     let image = screen.capture(&name).unwrap();
                     (name, image)
@@ -40,14 +51,15 @@ impl Pictures {
         )
     }
 
-    /// Each output once it is still: the same in two captures [`STILL`]
-    /// apart.
-    pub(super) fn still(screen: &mut Screen) -> Self {
+    /// Each output (or with `only` that output alone) once it is still: the
+    /// same in two captures apart by the compositor's [`still_for`].
+    pub(super) fn still(screen: &mut Screen, only: Option<&str>) -> Self {
         let deadline = Deadline::patience();
-        let mut last = Self::take(screen);
+        let gap = still_for(Compositor::current());
+        let mut last = Self::take(screen, only);
         loop {
-            std::thread::sleep(STILL);
-            let now = Self::take(screen);
+            std::thread::sleep(gap);
+            let now = Self::take(screen, only);
             if now == last {
                 return now;
             }
@@ -167,11 +179,19 @@ fn changed(output: &str, before: &Image, now: &Image, scale: u32) -> Option<Colu
 impl Notifications {
     /// The columns on the screen now, once it is still: one per output
     /// where something changed since before the daemon showed anything.
+    ///
+    /// Until a column has been found every output is captured, so that the
+    /// first wait sees the column on one output and nowhere else; from then
+    /// on, only the output it was found on (a capture of every output costs
+    /// a few hundred milliseconds a time, and the later waits are about the
+    /// column's content).
     fn columns(&mut self) -> Vec<Column> {
-        let now = Pictures::still(&mut self.screen);
+        let on = self.on.clone();
+        let now = Pictures::still(&mut self.screen, on.as_deref());
         self.before
             .0
             .iter()
+            .filter(|(name, _)| on.as_ref().is_none_or(|on| on == name))
             .zip(&now.0)
             .filter_map(|((name, was), (_, is))| changed(name, was, is, self.scale))
             .collect()
@@ -180,13 +200,15 @@ impl Notifications {
     /// Waits until the column on the screen is one `accept` takes, and
     /// returns it.
     pub(crate) fn column(&mut self, what: &str, accept: impl Fn(&Column) -> bool) -> Column {
-        wait_for(what, || {
+        let column = wait_for(what, || {
             let columns = self.columns();
             match columns.as_slice() {
                 [column] if accept(column) => Ok(column.clone()),
                 _ => Err((columns, self.said())),
             }
-        })
+        });
+        self.on = Some(column.output.clone());
+        column
     }
 
     /// Waits until the column shows `shown` popups, its count line is there
@@ -207,7 +229,7 @@ impl Notifications {
         what: &str,
         accept: impl Fn((usize, usize)) -> bool,
     ) -> (Column, (usize, usize)) {
-        wait_for(what, || {
+        let settled = wait_for(what, || {
             let columns = self.columns();
             let said = self.fit();
             match (columns.as_slice(), said) {
@@ -220,16 +242,18 @@ impl Notifications {
                 }
                 _ => Err((columns, said, self.said())),
             }
-        })
+        });
+        self.on = Some(settled.0.output.clone());
+        settled
     }
 
-    /// Waits until the screen is as it was before the daemon showed
-    /// anything.
+    /// Waits until the screen, every output of it, is as it was before the
+    /// daemon showed anything.
     pub(crate) fn wait_gone(&mut self) {
         let before = &self.before;
         let screen = &mut self.screen;
         wait_for("the screen as it was", || {
-            let now = Pictures::still(screen);
+            let now = Pictures::still(screen, None);
             if now == *before {
                 Ok(())
             } else {

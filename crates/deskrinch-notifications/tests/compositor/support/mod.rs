@@ -11,6 +11,7 @@
 //! methods.
 
 mod daemon;
+mod fill;
 mod pointer;
 mod screen;
 
@@ -49,6 +50,9 @@ pub(crate) struct Notifications {
     input: Input,
     /// Every output before the daemon showed anything.
     before: screen::Pictures,
+    /// The output a column was last found on: the screen's waits capture
+    /// it alone from then on.
+    on: Option<String>,
     /// The session's scale: the screen's pixels per logical pixel.
     pub(crate) scale: u32,
 }

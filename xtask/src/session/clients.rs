@@ -5,6 +5,7 @@ use std::ffi::{OsStr, OsString};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, Command, ExitStatus, Stdio};
+use std::time::Instant;
 
 use deskrinch_test_dbus::session::isolate;
 
@@ -17,8 +18,9 @@ pub(crate) struct ClientId(usize);
 
 impl Session {
     /// Runs a test binary's ignored tests in the session, one at a time,
-    /// with `filter` (libtest arguments) choosing which. Returns whether they
-    /// passed.
+    /// with `filter` (libtest arguments) choosing which, handing each line
+    /// of its standard output to `on_line` with when it was read
+    /// ([`super::lines`]). Returns whether they passed.
     ///
     /// The tests are told the compositor and the session's process group, so
     /// that one can end the session underneath a connection.
@@ -27,6 +29,7 @@ impl Session {
         binary: &Path,
         filter: &[&str],
         env: &[(String, OsString)],
+        on_line: &mut dyn FnMut(Instant, &str),
     ) -> Result<bool, Error> {
         let mut command = self.outside_client(binary.as_os_str());
         command
@@ -37,10 +40,11 @@ impl Session {
                 "DESKRINCH_TEST_SESSION_GROUP",
                 self.group.as_raw_nonzero().to_string(),
             );
-        let status = command.status().map_err(|source| Error::Spawn {
-            program: binary.display().to_string(),
-            source,
-        })?;
+        let status =
+            super::lines::run_with_lines(&mut command, on_line).map_err(|source| Error::Spawn {
+                program: binary.display().to_string(),
+                source,
+            })?;
         interrupt::check()?;
         Ok(status.success())
     }
