@@ -30,8 +30,8 @@ const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 
 const PLAIN: &[Pass] = &[Pass::Plain];
 
-/// The test client's tests of [`Pass::UhdBesideFullHd`]'s outputs: run by
-/// that pass's row alone.
+/// The tests of [`Pass::UhdBesideFullHd`]'s outputs, in the test client's
+/// binary and the wallpaper's: run by that pass's rows alone.
 const UHD_BESIDE_FULL_HD_TESTS: &str = "uhd_beside_full_hd::";
 
 /// The workspace tests that need a compositor with no workspace protocol
@@ -42,7 +42,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 24] = [
+pub(super) const SUITES: [Suite; 25] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -264,7 +264,24 @@ pub(super) const SUITES: [Suite; 24] = [
         renders: true,
         // The wallpaper the tests start, and the panel started over it.
         programs: &[&deskrinch_shell::WALLPAPER, &deskrinch_shell::PANEL],
-        filter: &[],
+        filter: &["--skip", UHD_BESIDE_FULL_HD_TESTS],
+    },
+    // The wallpaper's tests of a 3840x2160 output beside a 1920x1080 one: a
+    // picture made smaller for each output, and one shown as itself on one
+    // output and scaled on the other. The same binary as the row before,
+    // granted by that row's grant.
+    Suite {
+        target: Target {
+            package: WALLPAPER,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: ALL,
+        passes: &[Pass::UhdBesideFullHd],
+        renders: true,
+        programs: &[&deskrinch_shell::WALLPAPER, &deskrinch_shell::PANEL],
+        filter: &[UHD_BESIDE_FULL_HD_TESTS],
     },
     // The workspaces. KWin offers its virtual-desktop protocol ungranted, so
     // the grant lists only what the tests also use: window management on a

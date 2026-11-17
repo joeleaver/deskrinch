@@ -32,6 +32,11 @@
 //!   the wallpaper of only one, the wallpaper follows four settings edits
 //!   in turn on the output shown, and both outputs show the last once
 //!   apart (rinch issue 2669).
+//! - [`uhd_beside_full_hd`], run only on the pass with outputs of its own
+//!   (a 3840x2160 output beside a 1920x1080 one): a picture larger than
+//!   both is drawn one pixel per pixel on each at its own size; one the
+//!   size of the larger is the picture itself on both, the smaller scaled
+//!   at paint.
 //!
 //! An output unplugged and one plugged in are tested as an output turned
 //! off and on. To a client both are the same: a `wl_output` global removed,
@@ -81,3 +86,5 @@ mod reconfigured;
 mod support;
 #[cfg(test)]
 mod together;
+#[cfg(test)]
+mod uhd_beside_full_hd;

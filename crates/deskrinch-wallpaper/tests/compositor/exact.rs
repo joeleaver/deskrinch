@@ -19,7 +19,7 @@ use crate::support::{
 };
 
 /// Generous limits for the test's own decode.
-const ROOMY: Limits = Limits {
+pub(crate) const ROOMY: Limits = Limits {
     max_encoded_bytes: 256 << 20,
     max_side: 16_384,
     max_decoded_bytes: 512 << 20,
@@ -29,8 +29,14 @@ const ROOMY: Limits = Limits {
 /// Writes a `width` × `height` picture of 13-pixel blocks of colour, as a
 /// PNG at `path`.
 fn write_blocks(path: &Path, width: u32, height: u32) {
+    write_blocks_of(path, width, height, 13);
+}
+
+/// Writes a `width` × `height` picture of `side`-pixel blocks of colour, as
+/// a PNG at `path`.
+pub(crate) fn write_blocks_of(path: &Path, width: u32, height: u32, side: u32) {
     let picture = image::RgbaImage::from_fn(width, height, |x, y| {
-        let (bx, by) = (x / 13, y / 13);
+        let (bx, by) = (x / side, y / side);
         let n = bx.wrapping_mul(2_654_435_761) ^ by.wrapping_mul(40_503);
         let [r, g, b, _] = n.to_le_bytes();
         image::Rgba([r, g, b, 255])
@@ -40,7 +46,11 @@ fn write_blocks(path: &Path, width: u32, height: u32) {
 
 /// The first pixel of `shown`, within `area` (x, y, width, height), that
 /// is not `expected`'s at the same place in the area, with where.
-fn first_different(shown: &Image, area: (u32, u32, u32, u32), expected: &[u8]) -> Option<String> {
+pub(crate) fn first_different(
+    shown: &Image,
+    area: (u32, u32, u32, u32),
+    expected: &[u8],
+) -> Option<String> {
     let (ax, ay, aw, ah) = area;
     for y in 0..ah {
         for x in 0..aw {
@@ -55,7 +65,7 @@ fn first_different(shown: &Image, area: (u32, u32, u32, u32), expected: &[u8]) -
     None
 }
 
-fn settings(picture: &Path, fit: &str) -> String {
+pub(crate) fn settings(picture: &Path, fit: &str) -> String {
     format!(
         "[wallpaper]\ncolor = \"{}\"\nimage = \"{}\"\nfit = \"{fit}\"\n",
         written(BLUE),
