@@ -4095,7 +4095,7 @@ dependencies = [
 [[package]]
 name = "rinch"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "base64",
  "bytemuck",
@@ -4144,7 +4144,7 @@ dependencies = [
 [[package]]
 name = "rinch-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "thiserror 1.0.69",
  "tracing",
@@ -4154,7 +4154,7 @@ dependencies = [
 [[package]]
 name = "rinch-debug"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "getrandom 0.3.4",
  "libc",
@@ -4166,7 +4166,7 @@ dependencies = [
 [[package]]
 name = "rinch-dom"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -4210,7 +4210,7 @@ dependencies = [
 [[package]]
 name = "rinch-editable"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "rinch-words",
 ]
@@ -4218,7 +4218,7 @@ dependencies = [
 [[package]]
 name = "rinch-editor-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "regex",
  "rinch-core",
@@ -4229,7 +4229,7 @@ dependencies = [
 [[package]]
 name = "rinch-editor-view"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "rinch-core",
  "rinch-editor-core",
@@ -4239,7 +4239,7 @@ dependencies = [
 [[package]]
 name = "rinch-macros"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4249,7 +4249,7 @@ dependencies = [
 [[package]]
 name = "rinch-platform"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "peniko",
  "vello",
@@ -4259,7 +4259,7 @@ dependencies = [
 [[package]]
 name = "rinch-renderer"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "rinch-core",
  "thiserror 1.0.69",
@@ -4271,12 +4271,12 @@ dependencies = [
 [[package]]
 name = "rinch-theme"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 
 [[package]]
 name = "rinch-words"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#73b97d4ee084988974b5d73f389d49db83a412c8"
+source = "git+https://github.com/joeleaver/rinch?branch=main#293024ce3cfe402090d147a3b4cd4bca6542e6d2"
 dependencies = [
  "icu_segmenter",
  "regex",
