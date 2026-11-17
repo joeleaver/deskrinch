@@ -94,6 +94,13 @@ impl ClockText {
     fn shown(self) -> String {
         self.0.get()
     }
+
+    /// A face's text that `text` alone writes, with no clock: for the
+    /// tests of what holds the faces.
+    #[cfg(test)]
+    pub(crate) fn fixed(text: Signal<String>) -> Self {
+        Self(text)
+    }
 }
 
 /// Starts the panel's one clock, following `panel`'s `[panel.clock]`, and
