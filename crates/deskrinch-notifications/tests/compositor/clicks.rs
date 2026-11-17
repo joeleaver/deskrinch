@@ -14,6 +14,20 @@ use crate::support::{Notifications, RED_ICON, RED_ICON_NAME, close_button, find}
 const EXPIRED: u32 = 1;
 const DISMISSED: u32 = 2;
 
+/// The timeout a held popup is given, in milliseconds: short enough that a
+/// hold that failed shows well inside [`HOLD_WATCHED`].
+const HOLD_TIMEOUT_MS: i32 = 2000;
+
+/// How long a held popup is watched for not expiring: its timeout and 2 s
+/// more, so that a hold that failed, expiring 2 s after the replacement
+/// that gave it the timeout, shows with 2 s to spare on a loaded runner.
+const HOLD_WATCHED: Duration = Duration::from_secs(4);
+
+/// How long the pointer's enter is given before the timeout is: its events
+/// take milliseconds, and an enter that came later still pauses the timer,
+/// as long as it comes within the timeout.
+const POINTER_FIRST: Duration = Duration::from_millis(300);
+
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_close_button_dismisses() {
@@ -84,28 +98,24 @@ fn a_click_on_the_popup_invokes_its_default_action() {
 fn the_pointer_over_a_popup_holds_its_expiry() {
     let mut notifications = Notifications::start();
     // Shown with no timeout, so that a slow first frame is not taken for the
-    // expiry; then given one by a replacement, which starts its timer, and
-    // the pointer moved onto it, which pauses it. The timeout is long
-    // enough for the pointer to be on it first; the wait under the pointer
-    // outlasts it.
-    let timeout = Duration::from_secs(8);
+    // expiry; the pointer moved onto it, which pauses it; then given a
+    // timeout by a replacement, which keeps the pause. The pointer's enter
+    // has POINTER_FIRST to arrive before the replacement, and the timeout
+    // more besides: the enter pauses the timer whenever it comes within the
+    // timeout. A hold that failed expires HOLD_TIMEOUT after the
+    // replacement, inside HOLD_WATCHED with 2 s to spare.
     let id = notifications
         .client
         .simple(0, "Hold", "under the pointer", 0);
     let column = notifications.column("the popup", |c| c.popups.len() == 1);
     let (top, bottom) = column.popups[0];
     let middle = (column.left.midpoint(column.right), top.midpoint(bottom));
-    notifications.client.simple(
-        id,
-        "Hold",
-        "under the pointer",
-        i32::try_from(timeout.as_millis()).unwrap(),
-    );
     notifications.point(&column, middle.0, middle.1);
+    std::thread::sleep(POINTER_FIRST);
     notifications
         .client
-        .signals
-        .none_within(timeout + Duration::from_secs(2));
+        .simple(id, "Hold", "under the pointer", HOLD_TIMEOUT_MS);
+    notifications.client.signals.none_within(HOLD_WATCHED);
     notifications.point_away(&column);
     assert_eq!(notifications.next_signal(), Signal::Closed(id, EXPIRED));
 }
@@ -133,14 +143,12 @@ fn a_popup_that_moves_under_a_resting_pointer_is_held() {
     assert_eq!(notifications.next_signal(), Signal::Closed(upper, 3));
     notifications.column("one popup", |c| c.popups.len() == 1);
     // Now under the resting pointer, given a timeout: held, the
-    // replacement keeping the pause, it outlives it.
+    // replacement keeping the pause, it outlives it. The enter came with
+    // the layout the screen was waited for, before the timeout.
     notifications
         .client
-        .simple(lower, "Lower", "moves up", 1000);
-    notifications
-        .client
-        .signals
-        .none_within(Duration::from_secs(3));
+        .simple(lower, "Lower", "moves up", HOLD_TIMEOUT_MS);
+    notifications.client.signals.none_within(HOLD_WATCHED);
     notifications.point_away(&column);
     assert_eq!(notifications.next_signal(), Signal::Closed(lower, EXPIRED));
 }

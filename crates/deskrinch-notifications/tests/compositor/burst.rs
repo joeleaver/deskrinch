@@ -63,10 +63,12 @@ fn changes_in_quick_succession_leave_every_shown_popup_whole() {
 
     // Left: `last` and `short` (now six lines); both shown where the room
     // holds them (scale 1), the second waiting where it does not (scale 2,
-    // 360 logical pixels high).
-    notifications.column("the column", |c| !c.popups.is_empty());
-    let (shown, waiting) = notifications.fit().expect("a fit said");
-    assert_eq!(shown + waiting, 2, "two live notifications");
+    // 360 logical pixels high). Two were live before the last change too
+    // (the short one and the medium one, before `last`), so the state the
+    // burst ends in is waited for as an event: its last change signalled,
+    // then the daemon done with it, saying nothing more; its fit then.
+    notifications.quiet();
+    let (shown, waiting) = notifications.fit_drawn(2);
     let column = notifications.settled(shown, waiting);
     let image = notifications.picture(&column);
     for (at, popup) in column.popups.iter().enumerate() {

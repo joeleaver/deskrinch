@@ -124,15 +124,8 @@ fn the_count_line_and_the_room_under_the_popups_let_the_pointer_through() {
     let beneath = Beneath::open();
     let mut notifications = Notifications::start();
     // Popups until one waits: the count line shows.
-    let column = loop {
-        notifications.client.simple(0, "Filling", "", 0);
-        notifications.column("the column", |_| true);
-        let (shown, waiting) = notifications.fit().expect("a fit said");
-        let column = notifications.settled(shown, waiting);
-        if waiting > 0 {
-            break column;
-        }
-    };
+    let (_, (shown, waiting)) = notifications.fill();
+    let column = notifications.settled(shown, waiting);
     let (left, top, right, bottom) = column.count_line.expect("the count line");
     let (_, last) = *column.popups.last().expect("a shown popup");
     let middle = column.left.midpoint(column.right);
