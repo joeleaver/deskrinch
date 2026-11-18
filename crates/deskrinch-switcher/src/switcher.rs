@@ -58,6 +58,9 @@ pub struct Button<Id> {
 pub struct Run<Id> {
     /// Its buttons.
     pub buttons: Vec<Button<Id>>,
+    /// The names of its group's outputs, sorted: none for the run of the
+    /// workspaces in no known group, and for a group that names none.
+    pub outputs: Vec<String>,
 }
 
 /// The workspaces and groups as last reported.
@@ -128,16 +131,16 @@ impl<Id: Copy + PartialEq, G: Copy + PartialEq> Switcher<Id, G> {
         let known = |group: Option<G>| group.is_some_and(|g| groups.iter().any(|(k, _)| *k == g));
         groups
             .iter()
-            .map(|(id, _)| self.run(|entry| entry.group == Some(*id)))
-            .chain(std::iter::once(self.run(|entry| !known(entry.group))))
+            .map(|(id, outputs)| self.run(|entry| entry.group == Some(*id), outputs))
+            .chain(std::iter::once(self.run(|entry| !known(entry.group), &[])))
             .filter(|run| !run.buttons.is_empty())
             .collect()
     }
 
-    /// The run of the shown workspaces `member` picks, in the
-    /// compositor's layout where every one of them has a place in it, else
-    /// in the order reported.
-    fn run(&self, member: impl Fn(&Entry<Id, G>) -> bool) -> Run<Id> {
+    /// The run of the shown workspaces `member` picks, on the outputs named
+    /// `outputs`, in the compositor's layout where every one of them has a
+    /// place in it, else in the order reported.
+    fn run(&self, member: impl Fn(&Entry<Id, G>) -> bool, outputs: &[String]) -> Run<Id> {
         let mut entries: Vec<&Entry<Id, G>> = self
             .entries
             .iter()
@@ -156,7 +159,10 @@ impl<Id: Copy + PartialEq, G: Copy + PartialEq> Switcher<Id, G> {
                 activatable: entry.activatable,
             })
             .collect();
-        Run { buttons }
+        Run {
+            buttons,
+            outputs: outputs.to_vec(),
+        }
     }
 }
 
