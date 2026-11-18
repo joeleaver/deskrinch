@@ -226,3 +226,20 @@ fn another_bad_path_is_decoded_and_said_once_and_the_first_never_again() {
     assert!(lines[0].contains(PICTURE), "{lines:?}");
     assert!(lines[1].contains(OTHER), "{lines:?}");
 }
+
+/// Every window closes when the wallpaper ends, its surface going while its
+/// output is still listed: that output was served, and nothing is decoded
+/// for it again.
+#[test]
+fn a_surface_gone_while_its_output_is_still_listed_is_not_decoded_for_again() {
+    let (file, decodes) = files();
+    let mut state = state(&file, &decodes);
+    let both = [(1, surface(1280, 720)), (2, surface(1280, 720))];
+    state.step([listed(PICTURE, Fit::Cover, &[1, 2], &[])]);
+    state.step([listed(PICTURE, Fit::Cover, &[1, 2], &both)]);
+    assert!(!state.holds_picture());
+    state.step([listed(PICTURE, Fit::Cover, &[1, 2], &both[1..])]);
+    state.step([listed(PICTURE, Fit::Cover, &[1, 2], &[])]);
+    assert_eq!(*decodes.borrow(), 1);
+    assert!(!state.holds_picture());
+}

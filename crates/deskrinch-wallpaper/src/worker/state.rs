@@ -82,6 +82,11 @@ pub(crate) struct State<D> {
     /// changes: never on a timer, and never because an output came, went,
     /// or got a size. So a bad file is decoded and said once.
     failed: bool,
+    /// The listed outputs that have had a size since they were listed: an
+    /// output whose surface goes while it is still listed (its window
+    /// closing, as every window does when the wallpaper ends) has been
+    /// served, and is not waited for again.
+    sized: BTreeSet<OutputId>,
     /// What the UI was last handed.
     shown: Shown,
 }
@@ -108,6 +113,7 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
             picture: None,
             size: None,
             failed: false,
+            sized: BTreeSet::new(),
             shown: Shown::default(),
         }
     }
@@ -131,6 +137,9 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
                 self.failed = false;
             }
             self.wanted = wanted;
+            let outputs = &self.wanted.outputs;
+            self.sized.retain(|output| outputs.contains(output));
+            self.sized.extend(self.wanted.surfaces.keys());
         }
         let next = self.next(changed);
         (next != self.shown).then(|| {
@@ -193,12 +202,13 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
         !self.wanted.outputs.is_empty() || !self.wanted.surfaces.is_empty()
     }
 
-    /// Whether a listed output still lacks its pixels: it has no size yet.
+    /// Whether a listed output still lacks its pixels: it has not had a
+    /// size since it was listed.
     fn pending(&self) -> bool {
         self.wanted
             .outputs
             .iter()
-            .any(|output| !self.wanted.surfaces.contains_key(output))
+            .any(|output| !self.sized.contains(output))
     }
 
     /// Decodes the picture at `path` as it is now, with a new generation. A
