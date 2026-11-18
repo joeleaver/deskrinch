@@ -56,10 +56,13 @@ fn an_action_s_button_is_invoked_and_signalled() {
         &hints,
         0,
     );
-    let column = notifications.column("the popup with its action", |c| c.popups.len() == 1);
-    let image = &column.image;
+    // The icon is looked up and drawn after the popup itself: the column
+    // waited for is one with it drawn.
+    let column = notifications.column("the popup with its action's icon", |c| {
+        c.popups.len() == 1 && find(&c.image, c.popups[0], RED_ICON).is_some()
+    });
     let (left, top, right, bottom) =
-        find(image, column.popups[0], RED_ICON).expect("the action's icon");
+        find(&column.image, column.popups[0], RED_ICON).expect("the action's icon");
     notifications.click(&column, left.midpoint(right), top.midpoint(bottom));
     assert_eq!(
         notifications.next_signal(),
