@@ -83,9 +83,8 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     for output in &outputs {
         // The pointer onto the output for the first window only: the
         // compositors open the rest beside it. (Moved before each window,
-        // sway 1.11 sent no `wl_surface.enter` to the 65th window opened on
-        // the output, nor to any after it, within 120 s; the first 64 had
-        // theirs.)
+        // sway 1.11 sent no `wl_surface.enter` within 120 s to the 65th
+        // window opened on the output; the first 64 had theirs.)
         let (title, app_id) = named(0);
         windows.push(open_on(&mut input, &client, output, &title, &app_id));
         let (width, _) = client
