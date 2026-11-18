@@ -49,7 +49,7 @@ pub(crate) struct Notifications {
     screen: Screen,
     input: Input,
     /// Every output before the daemon showed anything.
-    before: screen::Pictures,
+    before: deskrinch_test_screen::Pictures,
     /// The output a column was last found on: the screen's waits capture
     /// it alone from then on.
     on: Option<String>,

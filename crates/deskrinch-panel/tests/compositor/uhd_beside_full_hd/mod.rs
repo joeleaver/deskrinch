@@ -93,7 +93,7 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
         }
     };
     wait_for("every bar's taskbar to be drawn full", || {
-        read(&Pictures::take(&mut screen)).map(drop)
+        read(&Pictures::take(&mut screen, None).unwrap()).map(drop)
     });
     let full = Pictures::still(&mut screen);
     let taskbars = read(&full).unwrap_or_else(|why| panic!("{why}"));
@@ -101,7 +101,7 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     // among its buttons.
     windows.push(open(WINDOWS));
     wait_for("every bar's count to change for one more window", || {
-        let more = Pictures::take(&mut screen);
+        let more = Pictures::take(&mut screen, None).unwrap();
         let faults: Vec<String> = full
             .0
             .iter()
