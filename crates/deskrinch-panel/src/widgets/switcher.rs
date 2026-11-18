@@ -11,10 +11,15 @@
 //! Where the compositor offers no workspace protocol, it is not shown at
 //! all, and takes no room.
 //!
+//! Each bar's switcher shows the runs of its own output's groups, from the
+//! one list of runs the panel follows: a memo over that list, the bar's
+//! output and the bars there are. The rule is
+//! [`deskrinch_switcher::on_bar`](mod@deskrinch_switcher::on_bar)'s.
+//!
 //! It draws only when what it shows changes, or the pointer moves onto or
 //! off a button: the runs come as one value per batch of the compositor's
-//! changes, what is drawn is a memo of them and of the room, and each item
-//! drawn is keyed by its workspace.
+//! changes, what is drawn is a memo of its bar's runs and of the room, and
+//! each item drawn is keyed by its workspace.
 
 mod follow;
 
@@ -23,12 +28,12 @@ pub(crate) use follow::{Following, Runs};
 use std::fmt::Display;
 use std::rc::Rc;
 
-use deskrinch_switcher::{Button, Fitted, Room, fit};
+use deskrinch_switcher::{Button, Fitted, Room, fit, runs_on};
 use deskrinch_workspaces::WorkspaceId;
 use rinch::prelude::*;
 
 use crate::bar::BarWidth;
-use crate::widgets::buttons;
+use crate::widgets::{BarOutput, BarOutputs, buttons};
 
 /// The most of the bar the switcher takes, as a fraction of its width: the
 /// taskbar takes what the switcher and the clock leave, and its windows
@@ -96,7 +101,13 @@ fn items<Id>(fitted: Vec<Fitted<Id>>) -> Vec<Item<Id>> {
 #[component]
 pub(crate) fn SwitcherWidget() -> NodeHandle {
     let following: Rc<Following> = use_context();
-    let runs: Signal<Runs> = use_context();
+    let all: Signal<Runs> = use_context();
+    let BarOutput(output) = use_context();
+    let BarOutputs(bars) = use_context();
+    let runs = Memo::new(move || {
+        let bars = bars.get();
+        output.with(|output| all.with(|all| runs_on(all, output.as_deref(), &bars)))
+    });
     let BarWidth(bar_width) = use_context();
     let drawn = Memo::new(move || {
         let room = Room {
@@ -106,7 +117,7 @@ pub(crate) fn SwitcherWidget() -> NodeHandle {
             run_gap: RUN_GAP,
             count_width: COUNT_WIDTH,
         };
-        runs.with(|runs| items(fit(runs, room)))
+        items(fit(&runs.get(), room))
     });
     let keys = Memo::new(move || drawn.get().iter().map(Item::key).collect::<Vec<_>>());
     let shown = Memo::new(move || !keys.get().is_empty());

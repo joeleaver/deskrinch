@@ -8,5 +8,14 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[dependencies]
+# Which bars show a group's run: the bars of its outputs.
+deskrinch-bars.workspace = true
+
+[dev-dependencies]
+# The property tests' configuration, shared with the other crates.
+deskrinch-untrusted = { workspace = true, features = ["proptest"] }
+proptest.workspace = true
+
 [lints]
 workspace = true

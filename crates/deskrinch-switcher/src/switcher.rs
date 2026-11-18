@@ -1,6 +1,8 @@
 //! [`Switcher`]: the workspaces as the switcher keeps them, and the runs of
 //! buttons they make.
 
+use std::collections::BTreeSet;
+
 /// What the switcher uses of a workspace.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry<Id, G> {
@@ -58,9 +60,10 @@ pub struct Button<Id> {
 pub struct Run<Id> {
     /// Its buttons.
     pub buttons: Vec<Button<Id>>,
-    /// The names of its group's outputs, sorted: none for the run of the
-    /// workspaces in no known group, and for a group that names none.
-    pub outputs: Vec<String>,
+    /// The names of its group's outputs: none for the run of the workspaces
+    /// in no known group, and for a group that names none. Which bars show
+    /// it ([`crate::runs_on`]).
+    pub outputs: BTreeSet<String>,
 }
 
 /// The workspaces and groups as last reported.
@@ -161,7 +164,7 @@ impl<Id: Copy + PartialEq, G: Copy + PartialEq> Switcher<Id, G> {
             .collect();
         Run {
             buttons,
-            outputs: outputs.to_vec(),
+            outputs: outputs.iter().cloned().collect(),
         }
     }
 }

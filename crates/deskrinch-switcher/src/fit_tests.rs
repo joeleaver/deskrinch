@@ -11,6 +11,7 @@ fn run(count: u32, current: Option<u32>) -> Run<u32> {
                 activatable: true,
             })
             .collect(),
+        outputs: std::collections::BTreeSet::new(),
     }
 }
 

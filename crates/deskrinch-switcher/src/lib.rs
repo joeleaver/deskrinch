@@ -22,8 +22,8 @@
 //!   outputs' names, so that no output's workspaces are hidden while one
 //!   panel serves every output. No compositor the shell is tested against
 //!   has several groups, so that case is covered by this crate's tests
-//!   alone. Once each output has a panel of its own, each panel shows its
-//!   own output's group.
+//!   alone. With a bar on each output, each bar's switcher shows the runs
+//!   of its own output's groups ([`on_bar`](mod@on_bar)).
 //! - Workspaces that belong to no group the compositor has reported form a
 //!   run of their own, last.
 //!
@@ -53,7 +53,9 @@
 //! current one.
 
 mod fit;
+pub mod on_bar;
 mod switcher;
 
 pub use fit::{Fitted, Room, fit};
+pub use on_bar::runs_on;
 pub use switcher::{Button, Change, Entry, Run, Switcher};
