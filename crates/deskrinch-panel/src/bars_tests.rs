@@ -88,23 +88,31 @@ fn placed(output: OutputId, placement: Placement) -> String {
     deskrinch_panel::placed(&format!("{output:?}"), placement.edge, placement.height)
 }
 
+/// Each bar opens on its own output: two outputs, so that a bar opened on
+/// the first whatever its row would not pass for the second.
 #[test]
 fn a_bar_opens_borderless_on_its_output_at_the_placement() {
     let placement = at(Edge::Bottom, 40);
-    let (mut app, _) = mount(vec![output(1)], placement);
+    let (mut app, _) = mount(vec![output(1), output(2)], placement);
     let windows = app.windows();
-    assert_eq!(windows.len(), 1);
-    let mut window = app.window(windows[0]);
-    let props = window.props().clone();
-    let opened = surface::bar_surface(placement, output(1));
-    assert_eq!(props.title, surface::TITLE);
-    assert_eq!(props.width, surface::FIRST_WIDTH);
-    assert_eq!(props.height, 40);
-    assert!(props.borderless);
-    assert_eq!(props.app_id.as_deref(), Some(surface::NAMESPACE));
-    assert_eq!(props.wayland_layer, Some(opened.layer));
-    // Opened as it is to be: nothing more is asked of it.
-    assert_eq!(window.take_requests(), []);
+    assert_eq!(windows.len(), 2);
+    for (window, id) in windows.into_iter().zip([output(1), output(2)]) {
+        let mut window = app.window(window);
+        let props = window.props().clone();
+        let opened = surface::bar_surface(placement, id);
+        assert_eq!(props.title, surface::TITLE);
+        assert_eq!(props.width, surface::FIRST_WIDTH);
+        assert_eq!(props.height, 40);
+        assert!(props.borderless);
+        assert_eq!(props.app_id.as_deref(), Some(surface::NAMESPACE));
+        assert_eq!(
+            props.wayland_layer,
+            Some(opened.layer),
+            "the bar for {id:?} opened on its own output"
+        );
+        // Opened as it is to be: nothing more is asked of it.
+        assert_eq!(window.take_requests(), []);
+    }
 }
 
 /// The compositor closes a bar's window while its output stays (never seen
@@ -165,7 +173,9 @@ fn a_settings_change_before_a_rows_window_opens_is_sent_once() {
 
 /// An output goes in the turn the placement changes: the other bar moves
 /// and says so; the bar of the output that went asks nothing of its
-/// closing window and says nothing; nothing is said at warn or error.
+/// closing window and says nothing; nothing is said at warn or error. The
+/// first output goes and the second stays, so that a bar reading the first
+/// output's presence for its own would not pass.
 #[test]
 fn an_output_going_as_the_settings_change_moves_only_the_bar_that_stays() {
     let first = at(Edge::Bottom, 40);
@@ -175,13 +185,13 @@ fn an_output_going_as_the_settings_change_moves_only_the_bar_that_stays() {
     assert_eq!(windows.len(), 2);
     drop(app.take_window_requests());
     let log = deskrinch_test_log::capture();
-    owned.outputs.set(vec![output(1)]);
+    owned.outputs.set(vec![output(2)]);
     owned.placement.set(second);
     app.settle();
-    assert_eq!(app.windows(), [windows[0]]);
+    assert_eq!(app.windows(), [windows[1]]);
     assert_eq!(
-        app.window(windows[0]).take_requests(),
-        moved_to(second, output(1))
+        app.window(windows[1]).take_requests(),
+        moved_to(second, output(2))
     );
     let asked: Vec<WindowRequest> = app
         .take_window_requests()
@@ -194,6 +204,6 @@ fn an_output_going_as_the_settings_change_moves_only_the_bar_that_stays() {
         .into_iter()
         .filter(|line| line.contains(" is placed along the "))
         .collect();
-    assert_eq!(placed_lines, [placed(output(1), second)]);
+    assert_eq!(placed_lines, [placed(output(2), second)]);
     assert_eq!(log.warnings_and_errors(), Vec::<String>::new());
 }

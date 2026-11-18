@@ -24,10 +24,10 @@
 //! - Each event's level and `message`, written out, in order, on the
 //!   thread that emitted it, while that thread captures: [`Capture::lines`]
 //!   reads the messages, [`Capture::events`] both, and
-//!   [`Capture::warnings_and_errors`] the messages at warn or error. An event emitted on another
-//!   thread (a worker the code under test started) goes to that thread's
-//!   buffer, which nothing reads unless that thread captures; it is not in
-//!   the test's lines.
+//!   [`Capture::warnings_and_errors`] the messages at warn or error. An
+//!   event emitted on another thread (a worker the code under test
+//!   started) goes to that thread's buffer, which nothing reads unless that
+//!   thread captures; it is not in the test's lines.
 //! - One capture at a time on a thread: a second [`capture`] while the
 //!   first is alive panics.
 //! - Code under test that installs a global subscriber of its own fails to
