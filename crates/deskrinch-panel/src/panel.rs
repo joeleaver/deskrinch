@@ -199,12 +199,19 @@ fn output_bar(
             applied = sent;
         }
     });
-    // The output's name, followed: rinch lists an output only once winit
-    // has its mode or `xdg_output` rectangle, and on a compositor whose
-    // `wl_output` is older than version 4 the name comes with `xdg_output`
-    // and may follow the rectangle. Set only when it changes, so another
-    // output's change wakes no taskbar; kept when the output goes, for the
-    // one run before its row does.
+    // The output's name, followed, since it can come after the output is
+    // listed:
+    // - rinch's list is winit's `available_monitors()`, sctk's every bound
+    //   `wl_output`, a new one before its first `done` included;
+    // - rinch leaves out one with neither a mode nor an `xdg_output`
+    //   rectangle, which is one before that `done`;
+    // - with `wl_output` version 4 (KWin 6, sway 1.11, labwc 0.9), the name
+    //   comes before the first `done`, so a listed output has it;
+    // - below version 4 the name comes only with `xdg_output`, and an
+    //   output can be listed by its modes before it.
+    // Set only when it changes, so another output's change wakes no
+    // taskbar; kept when the output goes, for the one run before its row
+    // does.
     let name = Signal::new(untracked(|| rinch::prelude::output(output)).and_then(|o| o.name));
     Effect::new(move || {
         if let Some(now) = rinch::prelude::output(output)
