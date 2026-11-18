@@ -7,13 +7,13 @@ use deskrinch_taskbar::GRACE;
 use deskrinch_test_client::{TestClient, TestWindow};
 use deskrinch_test_component::{Mark, PerfWindow};
 use deskrinch_test_input::Input;
-use deskrinch_test_screen::Screen;
+use deskrinch_test_screen::{Screen, still_gap};
 use deskrinch_test_wait::{Deadline, wait_for};
 use tempfile::TempDir;
 
 use crate::open_on::open_on;
 use crate::support::{
-    Band, Edge, Panel, Pictures, STILL, in_nested_session, panel_table, scale_of, wait_band,
+    Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
 use crate::taskbar::{RED, icon_in, install};
@@ -139,7 +139,7 @@ fn a_retitle_draws_only_the_bar_that_shows_the_window() {
         );
         // The stability window: a frame of the other bar for the same
         // change would come within it.
-        std::thread::sleep(STILL);
+        std::thread::sleep(still_gap());
         let drawn = this.frames_since(&mark, other);
         if drawn == 0 {
             return;
@@ -205,7 +205,7 @@ fn a_window_moved_leaves_one_bar_and_joins_the_other() {
                 return Ok((name, frames));
             }
             last = Some(frames);
-            std::thread::sleep(STILL);
+            std::thread::sleep(still_gap());
             Err(format!("the bars drew {frames:?}; keeping still?"))
         });
         let [a, b] = frames;
@@ -261,7 +261,7 @@ fn an_ordinary_window_draws_nothing_on_another_outputs_bar() {
             // The stability window, past the grace: a window shown on every
             // bar until it was placed, or once its grace was over, would
             // have drawn on the other bar within it.
-            std::thread::sleep(GRACE + STILL);
+            std::thread::sleep(GRACE + still_gap());
             let drawn = presented_since(&panel, &mark, elsewhere);
             drop(window);
             if drawn == 0 {
