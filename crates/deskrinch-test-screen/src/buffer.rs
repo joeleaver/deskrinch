@@ -24,23 +24,25 @@ pub(crate) enum Layout {
 }
 
 impl Layout {
-    fn pixel(self, [b0, b1, b2, b3]: [u8; 4]) -> Rgba {
+    /// How a pixel's four bytes, in memory order, read in this layout:
+    /// chosen once per buffer, not matched per pixel.
+    fn reader(self) -> fn(&[u8]) -> Rgba {
         match self {
-            Self::Bgra => Rgba::from_premultiplied(b2, b1, b0, b3),
-            Self::Bgrx => Rgba::opaque(b2, b1, b0),
-            Self::BgraStraight => Rgba {
-                r: b2,
-                g: b1,
-                b: b0,
-                a: b3,
+            Self::Bgra => |p| Rgba::from_premultiplied(p[2], p[1], p[0], p[3]),
+            Self::Bgrx => |p| Rgba::opaque(p[2], p[1], p[0]),
+            Self::BgraStraight => |p| Rgba {
+                r: p[2],
+                g: p[1],
+                b: p[0],
+                a: p[3],
             },
-            Self::Rgba => Rgba::from_premultiplied(b0, b1, b2, b3),
-            Self::Rgbx => Rgba::opaque(b0, b1, b2),
-            Self::RgbaStraight => Rgba {
-                r: b0,
-                g: b1,
-                b: b2,
-                a: b3,
+            Self::Rgba => |p| Rgba::from_premultiplied(p[0], p[1], p[2], p[3]),
+            Self::Rgbx => |p| Rgba::opaque(p[0], p[1], p[2]),
+            Self::RgbaStraight => |p| Rgba {
+                r: p[0],
+                g: p[1],
+                b: p[2],
+                a: p[3],
             },
         }
     }
@@ -62,6 +64,13 @@ pub(crate) struct Buffer<'a> {
 
 impl Buffer<'_> {
     /// The upright image the buffer holds.
+    ///
+    /// Row by row: an upright row lies along one of the buffer's rows or
+    /// columns, whatever the transform, so it is the pixel its first lies at
+    /// and a fixed step to the next. Where the step is a pixel forwards (no
+    /// quarter turn and no mirror) the row is one run of the buffer's bytes.
+    /// Each row's two ends are checked against the buffer once, which
+    /// bounds every pixel between them.
     pub(crate) fn to_image(&self) -> Result<Image, CaptureError> {
         let bad = |why: &str| CaptureError::BadBuffer(why.to_owned());
         let row_bytes = u64::from(self.width) * 4;
@@ -77,29 +86,55 @@ impl Buffer<'_> {
         } else {
             (self.width, self.height)
         };
+        let too_large = || bad("it is too large");
         let mut pixels = Vec::with_capacity(
-            usize::try_from(u64::from(size.0) * u64::from(size.1))
-                .map_err(|_| bad("it is too large"))?,
+            usize::try_from(u64::from(size.0) * u64::from(size.1)).map_err(|_| too_large())?,
         );
+        let read = self.layout.reader();
+        let width = usize::try_from(size.0).map_err(|_| too_large())?;
         for y in 0..size.1 {
-            for x in 0..size.0 {
-                let (bx, by) = self.transform.buffer_position((x, y), size);
-                let by = if self.y_inverted {
-                    self.height - 1 - by
-                } else {
-                    by
-                };
-                let offset = u64::from(by) * u64::from(self.stride) + u64::from(bx) * 4;
-                let offset = usize::try_from(offset).map_err(|_| bad("it is too large"))?;
-                let bytes = self
-                    .bytes
-                    .get(offset..offset + 4)
-                    .and_then(|bytes| <[u8; 4]>::try_from(bytes).ok())
-                    .ok_or_else(|| bad("a pixel lies outside it"))?;
-                pixels.push(self.layout.pixel(bytes));
+            if width == 0 {
+                break;
+            }
+            let first = self.offset((0, y), size);
+            let step = if width > 1 {
+                self.offset((1, y), size) - first
+            } else {
+                4
+            };
+            let last = first + step * (i64::from(size.0) - 1);
+            let inside = |offset: i64| {
+                offset >= 0 && u64::try_from(offset).is_ok_and(|o| o + 4 <= self.bytes.len() as u64)
+            };
+            if !inside(first) || !inside(last) {
+                return Err(bad("a pixel lies outside it"));
+            }
+            let first = usize::try_from(first).map_err(|_| too_large())?;
+            if step == 4 {
+                let row = &self.bytes[first..first + width * 4];
+                pixels.extend(row.as_chunks::<4>().0.iter().map(|pixel| read(pixel)));
+            } else {
+                let step = isize::try_from(step).map_err(|_| too_large())?;
+                let mut at = first;
+                for _ in 0..width {
+                    pixels.push(read(&self.bytes[at..at + 4]));
+                    at = at.wrapping_add_signed(step);
+                }
             }
         }
         Image::new(size.0, size.1, pixels).ok_or_else(|| bad("its size overflows"))
+    }
+
+    /// The byte offset in the buffer of the upright picture's pixel
+    /// `(x, y)`, the picture being `size`.
+    fn offset(&self, (x, y): (u32, u32), size: (u32, u32)) -> i64 {
+        let (bx, by) = self.transform.buffer_position((x, y), size);
+        let by = if self.y_inverted {
+            self.height - 1 - by
+        } else {
+            by
+        };
+        i64::from(by) * i64::from(self.stride) + i64::from(bx) * 4
     }
 }
 
@@ -220,5 +255,45 @@ mod tests {
         assert!(matches!(short.to_image(), Err(CaptureError::BadBuffer(_))));
         let narrow = Buffer { stride: 4, ..short };
         assert!(matches!(narrow.to_image(), Err(CaptureError::BadBuffer(_))));
+    }
+
+    /// Every transform, rows from the top or the bottom, a stride wider
+    /// than a row: each pixel of the image is the one `buffer_position`
+    /// names, read a pixel at a time, as the conversion was defined before
+    /// it read whole rows.
+    #[test]
+    fn each_pixel_is_the_one_its_transform_names() {
+        let (width, height, stride) = (5_u32, 3_u32, 24_u32);
+        let bytes: Vec<u8> = (0..stride * height)
+            .map(|i| u8::try_from(i % 251).unwrap())
+            .collect();
+        for transform in Transform::ALL {
+            for y_inverted in [false, true] {
+                let buffer = Buffer {
+                    bytes: &bytes,
+                    width,
+                    height,
+                    stride,
+                    layout: Layout::Rgbx,
+                    y_inverted,
+                    transform,
+                };
+                let image = buffer.to_image().unwrap();
+                let size = (image.width(), image.height());
+                for y in 0..size.1 {
+                    for x in 0..size.0 {
+                        let (bx, by) = transform.buffer_position((x, y), size);
+                        let by = if y_inverted { height - 1 - by } else { by };
+                        let at = (by * stride + bx * 4) as usize;
+                        let wanted = Rgba::opaque(bytes[at], bytes[at + 1], bytes[at + 2]);
+                        assert_eq!(
+                            image.pixel(x, y),
+                            Some(wanted),
+                            "{transform:?}, inverted {y_inverted}, at ({x}, {y})"
+                        );
+                    }
+                }
+            }
+        }
     }
 }
