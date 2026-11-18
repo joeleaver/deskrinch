@@ -9,12 +9,10 @@
 //!   [`Placement::after`]). Until then it is **unplaced**, since it was
 //!   announced.
 //! - With one bar, every window is on it, placed or not.
+//! - A placed window is on the bars `deskrinch-bars` gives for its known
+//!   outputs ([`deskrinch_bars::outputs_on_bar`], whose documentation has
+//!   the rule and why each case is shown where it is).
 //! - With several bars ([`on_bar`]):
-//!   - a placed window is on the bars of its known outputs (a window on
-//!     two outputs is on both), and on every bar when none of its known
-//!     outputs is a bar's (they have gone, or their names match no bar's);
-//!   - a bar whose own output has no name (or an empty one) shows every
-//!     placed window;
 //!   - an unplaced window is on no bar for [`GRACE`] from its announcement,
 //!     and then, while it is still unplaced, on every bar: where it is
 //!     cannot be told, so it is shown. Placed within the grace, it joins its
@@ -34,10 +32,6 @@
 //! over together. It wakes only while some window is unplaced and its
 //! grace not yet over by the clock.
 //!
-//! Outputs are matched by name, the `wl_output` name the compositor gives
-//! both the window's outputs and the panel's. Two outputs sharing a name,
-//! or an output with an empty name, are harmless: the window is shown,
-//! on more bars than it is on at worst, never on fewer.
 //!
 //! # When a new window first reports an output
 //!
@@ -93,6 +87,8 @@
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
 
+use deskrinch_bars::{Bars, outputs_on_bar};
+
 use crate::Button;
 
 /// How long a new window may stay unplaced before it is shown on every
@@ -138,31 +134,13 @@ impl Placement {
     }
 }
 
-/// The bars there are: how many, and the names of their outputs (a bar on
-/// an output with no name counted, not named).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Bars {
-    /// The names of the bars' outputs.
-    pub named: BTreeSet<String>,
-    /// How many bars there are.
-    pub count: usize,
-}
-
 /// Whether a window at `placement` is on the bar of the output named `bar`
 /// (`None` for an output with no name), among `bars`, at `now`.
 #[must_use]
 pub fn on_bar(placement: &Placement, bar: Option<&str>, bars: &Bars, now: Instant) -> bool {
-    if bars.count <= 1 {
-        return true;
-    }
     match placement {
-        Placement::Unplaced { since } => now >= *since + GRACE,
-        Placement::Placed(known) => {
-            let Some(bar) = bar.filter(|name| !name.is_empty()) else {
-                return true;
-            };
-            known.contains(bar) || known.is_disjoint(&bars.named)
-        }
+        Placement::Unplaced { since } => bars.count <= 1 || now >= *since + GRACE,
+        Placement::Placed(known) => outputs_on_bar(known, bar, bars),
     }
 }
 

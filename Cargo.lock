@@ -884,6 +884,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-bars"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-untrusted",
+ "proptest",
+]
+
+[[package]]
 name = "deskrinch-bus"
 version = "0.1.0"
 dependencies = [
@@ -1075,6 +1083,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-appearance",
  "deskrinch-applications",
+ "deskrinch-bars",
  "deskrinch-clock",
  "deskrinch-component",
  "deskrinch-desktop-entries",
@@ -1178,6 +1187,7 @@ version = "0.1.0"
 name = "deskrinch-taskbar"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-bars",
  "deskrinch-gestures",
  "deskrinch-untrusted",
  "deskrinch-window-management",

@@ -73,59 +73,46 @@ impl Replay {
 }
 
 #[test]
-fn a_placed_window_is_on_the_bars_of_its_known_outputs() {
-    let bars = bars(&["A", "B", "C"]);
+fn a_placed_window_is_where_deskrinch_bars_puts_its_known_outputs() {
     let now = Instant::now();
-    let showing = |known: &[&str]| -> BTreeSet<String> {
-        let placement = Placement::Placed(names(known));
-        bars.named
-            .iter()
-            .filter(|bar| on_bar(&placement, Some(bar), &bars, now))
-            .cloned()
-            .collect()
+    let three = bars(&["A", "B", "C"]);
+    let unnamed = Bars {
+        named: names(&["A"]),
+        count: 2,
     };
-    assert_eq!(showing(&["B"]), names(&["B"]));
-    assert_eq!(showing(&["A", "C"]), names(&["A", "C"]));
-    // A known output with no bar is left out while another has one.
-    assert_eq!(showing(&["B", "D"]), names(&["B"]));
-    // None of its known outputs has a bar: every bar.
-    assert_eq!(showing(&["D"]), bars.named);
+    for (known, bar, bars) in [
+        (names(&["B"]), Some("B"), &three),
+        (names(&["B"]), Some("A"), &three),
+        (names(&["D"]), Some("A"), &three),
+        (names(&["C"]), None, &unnamed),
+    ] {
+        assert_eq!(
+            on_bar(&Placement::Placed(known.clone()), bar, bars, now),
+            outputs_on_bar(&known, bar, bars),
+            "{known:?} on {bar:?}"
+        );
+    }
 }
 
 #[test]
-fn a_bar_on_an_output_with_no_name_shows_every_placed_window() {
+fn an_unplaced_window_inside_its_grace_is_on_no_bar_not_even_an_unnamed_one() {
     let bars = Bars {
         named: names(&["A"]),
         count: 2,
     };
     let now = Instant::now();
-    for known in [names(&["A"]), names(&["C"])] {
-        assert!(on_bar(&Placement::Placed(known.clone()), None, &bars, now));
-        assert!(on_bar(&Placement::Placed(known), Some(""), &bars, now));
-    }
-    // An unplaced window inside its grace is on no bar, unnamed ones too.
-    assert!(!on_bar(
-        &Placement::Unplaced { since: now },
-        None,
-        &bars,
-        now
-    ));
+    let unplaced = Placement::Unplaced { since: now };
+    assert!(!on_bar(&unplaced, None, &bars, now));
+    assert!(!on_bar(&unplaced, Some("A"), &bars, now));
 }
 
 #[test]
-fn with_one_bar_every_window_is_on_it() {
-    let one = bars(&["A"]);
+fn with_one_bar_an_unplaced_window_is_on_it_at_once() {
     let now = Instant::now();
     assert!(on_bar(
         &Placement::Unplaced { since: now },
         Some("A"),
-        &one,
-        now
-    ));
-    assert!(on_bar(
-        &Placement::Placed(names(&["B"])),
-        Some("A"),
-        &one,
+        &bars(&["A"]),
         now
     ));
 }
@@ -442,10 +429,9 @@ proptest::proptest! {
 
     /// With one bar every window is on it; with several, every window that
     /// is placed or whose grace is over is on at least one, whatever it
-    /// knows and whatever the bars' outputs are called (one with no name,
-    /// two alike, or names none of its outputs has); and a placed window
-    /// with a known output on a named bar, where no bar is unnamed, is on
-    /// exactly those bars.
+    /// knows and whatever the bars' outputs are called, and none inside its
+    /// grace; and a placed window is where `deskrinch-bars` puts its known
+    /// outputs, whose own tests have the rule.
     #[test]
     fn every_window_due_a_bar_is_on_at_least_one(
         known in proptest::option::of(proptest::collection::btree_set(name(), 1..4)),
@@ -476,18 +462,12 @@ proptest::proptest! {
         } else {
             proptest::prop_assert_eq!(shown, 0, "inside its grace, on {:?}", outputs);
         }
-        let unnamed = outputs.iter().any(|bar| bar.as_deref().is_none_or(str::is_empty));
-        if let Some(known) = known
-            && outputs.len() > 1
-            && !unnamed
-            && !known.is_disjoint(&bars.named)
-        {
+        if let Some(known) = known {
             for bar in &outputs {
-                let named = bar.as_deref().unwrap_or_default();
                 proptest::prop_assert_eq!(
-                    on_bar(&placement, Some(named), &bars, now),
-                    known.contains(named),
-                    "{} with {:?}", named, known
+                    on_bar(&placement, bar.as_deref(), &bars, now),
+                    outputs_on_bar(&known, bar.as_deref(), &bars),
+                    "{:?} with {:?}", bar, known
                 );
             }
         }

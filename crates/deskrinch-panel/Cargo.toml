@@ -29,6 +29,8 @@ debug = ["rinch/debug", "deskrinch-component/debug"]
 deskrinch-appearance.workspace = true
 # The installed applications and the icon theme, for the taskbar's icons.
 deskrinch-applications.workspace = true
+# The bars there are, one on each output.
+deskrinch-bars.workspace = true
 deskrinch-clock.workspace = true
 deskrinch-component.workspace = true
 # The user's locales, and the applications' entries.

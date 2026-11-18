@@ -9,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Which bars show something on a set of named outputs: a placed window.
+deskrinch-bars.workspace = true
 # A click on a button: a press and a release of one button on it.
 deskrinch-gestures.workspace = true
 # Window states, actions and why a connection ended.
