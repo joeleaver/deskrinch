@@ -199,19 +199,14 @@ impl<D: Decode, M: Make> State<D, M> {
             self.forget();
             return Shown::default();
         }
-        if self.size.is_none() || changed {
-            if self.unreadable {
-                // Said at its read; not read again until it changes.
-                return Shown::default();
-            }
+        if (self.size.is_none() || changed) && !self.unreadable {
             // At start this runs as soon as an output is listed, before
             // any window has a size: the decode needs none, so it runs
             // while the windows open, and only the fit waits for a size.
-            match self.read(&path) {
-                Read::Fresh => {}
-                Read::Keep => return self.shown.clone(),
-                Read::Colour => return Shown::default(),
-            }
+            // Whatever it comes to, the plan is made next: over no picture
+            // (the colour), or over the one kept, where each output keeps
+            // what it shows and nothing is decoded while the file is bad.
+            self.read(&path);
         }
         let next = self.made(&path);
         if self.pending() {
@@ -248,14 +243,13 @@ impl<D: Decode, M: Make> State<D, M> {
     /// picture that cannot be shown is said once here; one that was shown
     /// and is replaced by one that cannot be keeps what was shown, and a
     /// file taken away shows the colour.
-    fn read(&mut self, path: &Path) -> Read {
+    fn read(&mut self, path: &Path) {
         match (self.decode)(path) {
             Ok(image) => {
                 self.generation += 1;
                 self.refused.clear();
                 self.size = Some((image.width(), image.height()));
                 self.picture = Some(image);
-                Read::Fresh
             }
             Err(error) if gone(&error) && self.size.is_some() => {
                 tracing::warn!(
@@ -264,7 +258,6 @@ impl<D: Decode, M: Make> State<D, M> {
                 );
                 self.forget();
                 self.unreadable = true;
-                Read::Colour
             }
             Err(error) if self.size.is_some() => {
                 tracing::warn!(
@@ -273,7 +266,6 @@ impl<D: Decode, M: Make> State<D, M> {
                     why(&error)
                 );
                 self.unreadable = true;
-                Read::Keep
             }
             Err(error) => {
                 tracing::warn!(
@@ -283,7 +275,6 @@ impl<D: Decode, M: Make> State<D, M> {
                 );
                 self.forget();
                 self.unreadable = true;
-                Read::Colour
             }
         }
     }
@@ -386,16 +377,6 @@ impl<D: Decode, M: Make> State<D, M> {
     pub(crate) fn holds_picture(&self) -> bool {
         self.picture.is_some()
     }
-}
-
-/// What reading the picture again came to.
-enum Read {
-    /// A picture, of a new generation.
-    Fresh,
-    /// None; what was shown stays.
-    Keep,
-    /// None; the colour alone.
-    Colour,
 }
 
 /// Whether `error` says the file is not there.

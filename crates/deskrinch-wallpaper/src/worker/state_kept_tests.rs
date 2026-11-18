@@ -192,3 +192,80 @@ fn a_refused_image_is_asked_for_again_for_a_new_picture() {
     state.step([Input::Changed]);
     assert_eq!(*attempts.borrow(), 2);
 }
+
+/// The file gone bad and output 2 unlisted, in one step: the plan is made
+/// all the same, so output 2's name and image go with it.
+#[test]
+fn an_output_unlisted_in_the_step_its_file_goes_bad_is_let_go() {
+    let (file, decodes) = files();
+    let mut state = state(&file, &decodes);
+    let three = [
+        (1, surface(1280, 720)),
+        (2, surface(1600, 900)),
+        (3, surface(800, 600)),
+    ];
+    state.step([wanted(Fit::Cover, &three)]);
+    *file.borrow_mut() = File::Damaged;
+    let capture = deskrinch_test_log::capture();
+    let shown = state
+        .step([Input::Changed, wanted(Fit::Cover, &[three[0], three[2]])])
+        .unwrap();
+    assert_eq!(
+        names(&shown),
+        BTreeMap::from([
+            (1, "wallpaper/1/cover/1280x720".to_owned()),
+            (3, "wallpaper/1/cover/800x600".to_owned()),
+        ])
+    );
+    assert!(!shown.pictures.contains_key("wallpaper/1/cover/1600x900"));
+    assert_eq!(*decodes.borrow(), 2, "one failed decode");
+    assert_eq!(capture.lines().len(), 1, "{:?}", capture.lines());
+}
+
+/// The picture itself shown (a 3840x2160 output beside a 1920x1080 one),
+/// then in one step the file gone bad and output 3 sized: by the fifth
+/// principle output 3 takes the picture too, served by the name already
+/// shown, with no decode.
+#[test]
+fn an_output_sized_in_the_step_its_file_goes_bad_is_served_from_the_picture_shown() {
+    let (file, decodes) = files();
+    let mut state = state(&file, &decodes);
+    let two = [(1, surface(1920, 1080)), (2, surface(3840, 2160))];
+    state.step([wanted(Fit::Cover, &two)]);
+    assert!(state.holds_picture());
+    *file.borrow_mut() = File::Damaged;
+    let shown = state
+        .step([
+            Input::Changed,
+            wanted(Fit::Cover, &[two[0], two[1], (3, surface(1280, 720))]),
+        ])
+        .unwrap();
+    assert_eq!(names(&shown)[&3], "wallpaper/1/picture");
+    assert_eq!(*decodes.borrow(), 2, "one failed decode");
+}
+
+/// Output 1 shown, output 2 listed without a size (so the picture is held
+/// for it), then in one step the file gone bad and output 2 sized: its
+/// image is made from the held picture, with no decode.
+#[test]
+fn an_output_sized_in_the_step_its_file_goes_bad_is_made_from_the_picture_held() {
+    let (file, decodes) = files();
+    let mut state = state(&file, &decodes);
+    let one = [(1, surface(1280, 720))];
+    state.step([listed(PICTURE, Fit::Cover, &[1, 2], &one)]);
+    assert!(state.holds_picture());
+    *file.borrow_mut() = File::Damaged;
+    let shown = state
+        .step([
+            Input::Changed,
+            listed(
+                PICTURE,
+                Fit::Cover,
+                &[1, 2],
+                &[one[0], (2, surface(1600, 900))],
+            ),
+        ])
+        .unwrap();
+    assert_eq!(names(&shown)[&2], "wallpaper/1/cover/1600x900");
+    assert_eq!(*decodes.borrow(), 2, "one failed decode");
+}
