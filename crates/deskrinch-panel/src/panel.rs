@@ -180,3 +180,7 @@ fn output_bar(
         Bar {}
     }
 }
+
+#[cfg(test)]
+#[path = "bars_tests.rs"]
+mod bars_tests;
