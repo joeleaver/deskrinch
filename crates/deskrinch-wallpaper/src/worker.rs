@@ -22,10 +22,11 @@ use std::path::Path;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use deskrinch_component::Handover;
-use deskrinch_picture::{DecodeError, Profile, decode_file};
+use deskrinch_picture::{DecodeError, Fit as Fitting, FitError, Profile, crop, decode_file, fit};
 use deskrinch_untrusted::Image;
 
 use crate::limits::{FORMATS, LIMITS};
+use crate::plan::Need;
 
 mod state;
 
@@ -71,14 +72,15 @@ impl Worker {
 }
 
 /// The worker's loop: everything that came in while it worked is one step,
-/// decoding through `decode`, and what is to be shown goes to `deliver`.
-/// Ends when every sender of `inputs` is gone.
+/// decoding through `decode` and making each output's image with
+/// [`make`], and what is to be shown goes to `deliver`. Ends when every
+/// sender of `inputs` is gone.
 fn run(
     inputs: &Receiver<Input>,
     decode: impl FnMut(&Path) -> Result<Image, DecodeError>,
     mut deliver: impl FnMut(Shown),
 ) {
-    let mut state = State::new(decode);
+    let mut state = State::new(decode, make);
     while let Ok(first) = inputs.recv() {
         let more = inputs.try_iter();
         if let Some(shown) = state.step(std::iter::once(first).chain(more)) {
@@ -104,6 +106,22 @@ fn decode(path: &Path) -> Result<Image, DecodeError> {
         );
     }
     Ok(decoded.image)
+}
+
+/// The image `need` asks for, made from `picture` under the wallpaper's
+/// limits.
+fn make(picture: &Image, need: Need) -> Result<Image, FitError> {
+    match need {
+        Need::Picture => Ok(picture.clone()),
+        Need::Cover { width, height } => fit(picture, width, height, Fitting::Cover, &LIMITS),
+        Need::Scaled { width, height } => fit(picture, width, height, Fitting::Stretch, &LIMITS),
+        Need::Crop {
+            x,
+            y,
+            width,
+            height,
+        } => crop(picture, x, y, width, height, &LIMITS),
+    }
 }
 
 #[cfg(test)]

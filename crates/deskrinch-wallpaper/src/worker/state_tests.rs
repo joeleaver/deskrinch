@@ -20,23 +20,34 @@ enum File {
     Gone,
 }
 
-/// A state whose decoder reads `file`, counting its decodes.
+/// A state whose decoder reads `file`, counting its decodes, and which
+/// makes each image as the worker does.
 fn state(
     file: &Rc<RefCell<File>>,
     decodes: &Rc<RefCell<u32>>,
-) -> State<impl FnMut(&Path) -> Result<Image, DecodeError>> {
+) -> State<impl Decode + use<>, impl Make + use<>> {
+    State::new(decoder(file, decodes), crate::worker::make)
+}
+
+/// A decoder that reads `file`, counting its decodes.
+fn decoder(file: &Rc<RefCell<File>>, decodes: &Rc<RefCell<u32>>) -> impl Decode + use<> {
     let (file, decodes) = (Rc::clone(file), Rc::clone(decodes));
-    State::new(move |path: &Path| {
+    move |path: &Path| {
         assert_eq!(path, Path::new(PICTURE));
         *decodes.borrow_mut() += 1;
-        match *file.borrow() {
-            File::Picture(w, h) => Ok(Image::filled(w, h, |rgba| rgba.fill(u8::MAX)).unwrap()),
-            File::Damaged => Err(DecodeError::NotRecognised),
-            File::Gone => Err(DecodeError::File(FileError::Io(std::io::Error::from(
-                ErrorKind::NotFound,
-            )))),
-        }
-    })
+        decoded(*file.borrow())
+    }
+}
+
+/// What decoding a file holding `file` gives.
+fn decoded(file: File) -> Result<Image, DecodeError> {
+    match file {
+        File::Picture(w, h) => Ok(Image::filled(w, h, |rgba| rgba.fill(u8::MAX)).unwrap()),
+        File::Damaged => Err(DecodeError::NotRecognised),
+        File::Gone => Err(DecodeError::File(FileError::Io(std::io::Error::from(
+            ErrorKind::NotFound,
+        )))),
+    }
 }
 
 fn surface(w: u32, h: u32) -> Surface {
@@ -303,3 +314,9 @@ fn a_file_missing_at_the_first_load_cannot_be_shown_rather_than_gone() {
 
 #[path = "state_start_tests.rs"]
 mod start;
+
+#[path = "state_outputs_tests.rs"]
+mod outputs;
+
+#[path = "state_kept_tests.rs"]
+mod kept;

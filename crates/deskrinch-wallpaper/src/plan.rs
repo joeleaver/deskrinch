@@ -24,6 +24,12 @@
 //!    could have had better made-smaller pixels sometimes gets rinch's
 //!    scaling at paint, as before this was written. Memory first.
 //!
+//!    One exception, held by the worker and not by the plan: an output
+//!    whose new image cannot be made (its file gone bad while the picture
+//!    is kept, or the image refused) keeps the image it shows beside the
+//!    ones newly made, which together may then be more than the picture,
+//!    until the file changes or the refused need goes.
+//!
 //! # Each fit
 //!
 //! A surface is its size in device pixels (rinch's

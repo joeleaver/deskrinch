@@ -12,25 +12,20 @@ const OTHER: &str = "/pictures/b.png";
 fn two_files(
     file: &Rc<RefCell<File>>,
     other: &Rc<RefCell<File>>,
-    decoded: &Rc<RefCell<Vec<String>>>,
-) -> State<impl FnMut(&Path) -> Result<Image, DecodeError>> {
-    let (file, other, decoded) = (Rc::clone(file), Rc::clone(other), Rc::clone(decoded));
-    State::new(move |path: &Path| {
+    paths: &Rc<RefCell<Vec<String>>>,
+) -> State<impl Decode + use<>, impl Make + use<>> {
+    let (file, other, paths) = (Rc::clone(file), Rc::clone(other), Rc::clone(paths));
+    let decode = move |path: &Path| {
         let path = path.to_str().unwrap().to_owned();
         let now = if path == PICTURE {
             *file.borrow()
         } else {
             *other.borrow()
         };
-        decoded.borrow_mut().push(path);
-        match now {
-            File::Picture(w, h) => Ok(Image::filled(w, h, |rgba| rgba.fill(u8::MAX)).unwrap()),
-            File::Damaged => Err(DecodeError::NotRecognised),
-            File::Gone => Err(DecodeError::File(FileError::Io(std::io::Error::from(
-                ErrorKind::NotFound,
-            )))),
-        }
-    })
+        paths.borrow_mut().push(path);
+        decoded(now)
+    };
+    State::new(decode, crate::worker::make)
 }
 
 #[test]
