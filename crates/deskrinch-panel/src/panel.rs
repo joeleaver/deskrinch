@@ -45,7 +45,7 @@ use crate::widgets::{
     AppIcons, BarOutputs, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock,
     follow_graces,
 };
-use deskrinch_taskbar::Bars;
+use deskrinch_bars::Bars;
 
 /// What the panel runs with.
 pub(crate) struct Parts {

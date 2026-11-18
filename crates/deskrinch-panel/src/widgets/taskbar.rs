@@ -36,7 +36,8 @@ pub(crate) use grace::{GraceClock, follow as follow_graces};
 use std::rc::Rc;
 use std::sync::Arc;
 
-use deskrinch_taskbar::{Bars, Room, fit, shown_on};
+use deskrinch_bars::Bars;
+use deskrinch_taskbar::{Room, fit, shown_on};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
