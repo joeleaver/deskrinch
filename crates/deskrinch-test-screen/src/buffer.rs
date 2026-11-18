@@ -69,8 +69,11 @@ impl Buffer<'_> {
     /// columns, whatever the transform, so it is the pixel its first lies at
     /// and a fixed step to the next. Where the step is a pixel forwards (no
     /// quarter turn and no mirror) the row is one run of the buffer's bytes.
-    /// Each row's two ends are checked against the buffer once, which
-    /// bounds every pixel between them.
+    ///
+    /// The buffer's length is checked once, against its size and stride:
+    /// every transform maps the upright picture onto the buffer's own
+    /// `width` x `height` pixels, so every pixel read lies inside the bytes
+    /// that check asks for.
     pub(crate) fn to_image(&self) -> Result<Image, CaptureError> {
         let bad = |why: &str| CaptureError::BadBuffer(why.to_owned());
         let row_bytes = u64::from(self.width) * 4;
@@ -78,7 +81,7 @@ impl Buffer<'_> {
             return Err(bad("its stride is shorter than a row"));
         }
         let needed = u64::from(self.stride) * u64::from(self.height.saturating_sub(1)) + row_bytes;
-        if self.height > 0 && (self.bytes.len() as u64) < needed {
+        if self.height > 0 && u64::try_from(self.bytes.len()).is_ok_and(|len| len < needed) {
             return Err(bad("it is shorter than its size and stride say"));
         }
         let size = if self.transform.swaps_axes() {
@@ -102,13 +105,6 @@ impl Buffer<'_> {
             } else {
                 4
             };
-            let last = first + step * (i64::from(size.0) - 1);
-            let inside = |offset: i64| {
-                offset >= 0 && u64::try_from(offset).is_ok_and(|o| o + 4 <= self.bytes.len() as u64)
-            };
-            if !inside(first) || !inside(last) {
-                return Err(bad("a pixel lies outside it"));
-            }
             let first = usize::try_from(first).map_err(|_| too_large())?;
             if step == 4 {
                 let row = &self.bytes[first..first + width * 4];
@@ -255,6 +251,32 @@ mod tests {
         assert!(matches!(short.to_image(), Err(CaptureError::BadBuffer(_))));
         let narrow = Buffer { stride: 4, ..short };
         assert!(matches!(narrow.to_image(), Err(CaptureError::BadBuffer(_))));
+    }
+
+    /// A buffer a byte short of its size and stride, under every transform
+    /// and both row orders, is refused, never read past its end.
+    #[test]
+    fn a_short_buffer_is_refused_under_every_transform() {
+        let (width, height, stride) = (5_u32, 3_u32, 24_u32);
+        let needed = (stride * (height - 1) + width * 4) as usize;
+        let bytes = vec![7; needed - 1];
+        for transform in Transform::ALL {
+            for y_inverted in [false, true] {
+                let buffer = Buffer {
+                    bytes: &bytes,
+                    width,
+                    height,
+                    stride,
+                    layout: Layout::Bgrx,
+                    y_inverted,
+                    transform,
+                };
+                assert!(
+                    matches!(buffer.to_image(), Err(CaptureError::BadBuffer(_))),
+                    "{transform:?}, inverted {y_inverted}"
+                );
+            }
+        }
     }
 
     /// Every transform, rows from the top or the bottom, a stride wider
