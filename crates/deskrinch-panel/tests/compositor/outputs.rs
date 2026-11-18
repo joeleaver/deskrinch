@@ -52,9 +52,18 @@ fn wait_each_bar_drew_since(panel: &Panel, mark: &Mark, what: &str) {
     });
 }
 
-/// The panel at the bottom, 40 high, once every output shows its bar; the
-/// screen, for the tests that look again; and the outputs as they were
-/// before the panel, to compare its bars with.
+/// The panel at the bottom, 40 high, once each output's bar has presented
+/// its first frame ([`Panel::start`]): for the tests that read the panel's
+/// lines, not the screen.
+fn start_panel() -> Panel {
+    in_nested_session();
+    write_settings(&panel_table(Edge::Bottom, 40));
+    Panel::start()
+}
+
+/// The panel at the bottom, 40 high, once every output shows its bar on the
+/// screen; the screen, for the tests that look again; and the outputs as
+/// they were before the panel, to compare its bars with.
 fn start_bars() -> (Panel, Screen, Pictures) {
     in_nested_session();
     write_settings(&panel_table(Edge::Bottom, 40));
@@ -71,8 +80,12 @@ fn start_bars() -> (Panel, Screen, Pictures) {
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn every_output_has_its_own_bar() {
-    let (panel, screen, _) = start_bars();
-    let names: BTreeSet<String> = screen.outputs().into_iter().collect();
+    let panel = start_panel();
+    let names: BTreeSet<String> = TestClient::connect()
+        .unwrap()
+        .output_names()
+        .into_iter()
+        .collect();
     let on: BTreeSet<String> = panel.bars().into_iter().map(|(_, output)| output).collect();
     assert_eq!(on, names, "the bars: {:?}", panel.bars());
     assert_eq!(panel.bars().len(), names.len(), "{:?}", panel.bars());
@@ -91,7 +104,7 @@ fn every_output_has_its_own_bar() {
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn an_output_turned_off_and_on_gets_exactly_one_new_bar() {
-    let (panel, _screen, _) = start_bars();
+    let panel = start_panel();
     let layout = outputs().unwrap();
     let (gone_name, kept_name) = (layout[1].name.clone(), layout[0].name.clone());
     let gone = panel.window_on(&gone_name);
@@ -213,7 +226,7 @@ fn keeps_its_bars(
     settled: Settled,
     change: impl FnOnce(&OutputState, &OutputState) -> OutputChange,
 ) {
-    let (panel, _screen, _) = start_bars();
+    let panel = start_panel();
     let started = ever(&panel);
     let layout = outputs().unwrap();
     let (name, kept) = (layout[1].name.clone(), layout[0].name.clone());
@@ -302,7 +315,7 @@ fn an_edit_moves_every_bar_each_on_its_own_output() {
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn every_bar_follows_a_window_opened_and_retitled() {
-    let (panel, _screen, _) = start_bars();
+    let panel = start_panel();
     let client = TestClient::connect().unwrap();
     let mark = panel.watch().mark();
     let window = client.open("A window", "org.deskrinch.Outputs").unwrap();
@@ -326,7 +339,7 @@ fn whole_seconds(at: SystemTime) -> u64 {
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_clock_paints_each_bar_once_a_tick() {
-    let (panel, _screen, _) = start_bars();
+    let panel = start_panel();
     write_settings(&format!(
         "{}\n[panel.clock]\nseconds = true\n",
         panel_table(Edge::Bottom, 40)

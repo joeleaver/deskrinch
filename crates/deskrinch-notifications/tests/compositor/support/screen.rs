@@ -6,68 +6,14 @@
 //! apart from each other by the column's gaps, which paint nothing; the
 //! count line is the run under them that spans only a few words.
 
-use std::time::Duration;
-
-use deskrinch_test_client::Compositor;
-use deskrinch_test_screen::{Image, Rgba, Screen};
-use deskrinch_test_wait::{Deadline, wait_for};
+use deskrinch_test_screen::{Image, Pictures, Rgba};
+use deskrinch_test_wait::wait_for;
 
 use super::{Notifications, PADDING, WIDTH};
-
-/// How long the screen must not change to count as still under
-/// `compositor`. Under KWin, longer than the longest close animation it runs
-/// by default (its fading popups, 600 ms). sway and labwc animate nothing:
-/// there a few frames' time is enough (six at 60 Hz). A capture taken
-/// before a change has landed is no harm: each wait on the screen holds the
-/// column to what it waits for, and looks again.
-fn still_for(compositor: Compositor) -> Duration {
-    match compositor {
-        Compositor::Kwin => Duration::from_millis(600),
-        Compositor::Sway | Compositor::Labwc => Duration::from_millis(100),
-    }
-}
 
 /// How far a colour on the screen may be from the one looked for, per
 /// channel: a compositor's rounding, far less than between two colours.
 const TOLERANCE: u8 = 8;
-
-/// Each output's picture, by name.
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct Pictures(Vec<(String, Image)>);
-
-impl Pictures {
-    /// Every output's picture, or with `only` that output's alone.
-    fn take(screen: &mut Screen, only: Option<&str>) -> Self {
-        Self(
-            screen
-                .outputs()
-                .into_iter()
-                .filter(|name| only.is_none_or(|only| only == name))
-                .map(|name| {
-                    let image = screen.capture(&name).unwrap();
-                    (name, image)
-                })
-                .collect(),
-        )
-    }
-
-    /// Each output (or with `only` that output alone) once it is still: the
-    /// same in two captures apart by the compositor's [`still_for`].
-    pub(super) fn still(screen: &mut Screen, only: Option<&str>) -> Self {
-        let deadline = Deadline::patience();
-        let gap = still_for(Compositor::current());
-        let mut last = Self::take(screen, only);
-        loop {
-            std::thread::sleep(gap);
-            let now = Self::take(screen, only);
-            if now == last {
-                return now;
-            }
-            assert!(!deadline.passed(), "the screen never stood still");
-            last = now;
-        }
-    }
-}
 
 /// The column on the screen: the output it is on and the box of its popups
 /// there, in the screen's pixels, inclusive.
@@ -187,7 +133,13 @@ impl Notifications {
     /// column's content).
     fn columns(&mut self) -> Vec<Column> {
         let on = self.on.clone();
-        let now = Pictures::still(&mut self.screen, on.as_deref());
+        // A capture taken before a change has landed is no harm: each wait
+        // on the screen holds the column to what it waits for, and looks
+        // again.
+        let now = match on.as_deref() {
+            Some(output) => Pictures::still_of(&mut self.screen, output),
+            None => Pictures::still(&mut self.screen),
+        };
         self.before
             .0
             .iter()
@@ -253,7 +205,7 @@ impl Notifications {
         let before = &self.before;
         let screen = &mut self.screen;
         wait_for("the screen as it was", || {
-            let now = Pictures::still(screen, None);
+            let now = Pictures::still(screen);
             if now == *before {
                 Ok(())
             } else {

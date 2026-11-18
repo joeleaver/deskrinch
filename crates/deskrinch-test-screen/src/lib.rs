@@ -29,6 +29,12 @@
 //! until the picture shows what a test waits for, since a client's commit
 //! reaches the screen a frame or more later.
 //!
+//! [`Pictures::still`] waits for the screen to keep still where nothing
+//! reports that a change has ended (a compositor's open or close
+//! animation): the same in two captures [`still_gap`] apart, a gap decided
+//! here per compositor ([`still_gap_for`]), the one home of that wait for
+//! every suite.
+//!
 //! The crate's compositor tests check, under all three compositors, outputs
 //! at scale 1, at scale 2, turned a quarter from the start
 //! (`cargo xtask session --transform 90`), and mirrored and turned
@@ -71,12 +77,14 @@ mod error;
 mod image;
 mod kwin;
 mod screen;
+mod still;
 mod wayland;
 
 pub use deskrinch_test_wayland::{Rgba, Transform};
 pub use error::{CaptureError, ConnectError};
 pub use image::Image;
 pub use screen::{Method, Screen};
+pub use still::{Pictures, still_gap, still_gap_for};
 
 /// The D-Bus interface KWin must grant an executable that captures under
 /// KWin: the name its desktop file lists in
