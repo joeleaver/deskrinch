@@ -13,12 +13,11 @@ use deskrinch_test_client::TestClient;
 use deskrinch_test_component::{Component, Renderer, programs};
 use deskrinch_test_input::Input;
 use deskrinch_test_notify::{Client, Signal};
-use deskrinch_test_screen::{Rgba, Screen};
+use deskrinch_test_screen::{Pictures, Rgba, Screen};
 use deskrinch_test_wait::comes_true;
 use zbus::Variant;
 use zbus::fdo::DBusProxy;
 
-use super::screen::Pictures;
 use super::{Notifications, in_nested_session};
 
 /// The colour of the test's icon for an action, `test-red`.
@@ -39,7 +38,7 @@ impl Notifications {
         // Out of the way of the column, so that nothing is under it.
         let first = screen.outputs()[0].clone();
         input.move_pointer(&first, 1.0, 1.0).ok();
-        let before = Pictures::still(&mut screen, None);
+        let before = Pictures::still(&mut screen);
         let mut command =
             Command::new(programs::program(deskrinch_shell::NOTIFICATIONS.package).unwrap());
         command.env("XDG_DATA_HOME", data.path());
