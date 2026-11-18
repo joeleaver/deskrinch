@@ -199,10 +199,20 @@ fn output_bar(
             applied = sent;
         }
     });
-    // An output's name is its connector's, fixed while it is connected,
-    // so read once; untracked, so the bar is not made again at every change
-    // of any output.
-    let name = untracked(|| rinch::prelude::output(output)).and_then(|output| output.name);
+    // The output's name, followed: rinch lists an output only once winit
+    // has its mode or `xdg_output` rectangle, and on a compositor whose
+    // `wl_output` is older than version 4 the name comes with `xdg_output`
+    // and may follow the rectangle. Set only when it changes, so another
+    // output's change wakes no taskbar; kept when the output goes, for the
+    // one run before its row does.
+    let name = Signal::new(untracked(|| rinch::prelude::output(output)).and_then(|o| o.name));
+    Effect::new(move || {
+        if let Some(now) = rinch::prelude::output(output)
+            && untracked(|| name.get()) != now.name
+        {
+            name.set(now.name);
+        }
+    });
     rsx! {
         Bar { output: name }
     }

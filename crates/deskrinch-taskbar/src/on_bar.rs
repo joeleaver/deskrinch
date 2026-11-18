@@ -25,9 +25,14 @@
 //! that is placed, or whose grace is over, is on at least one: the
 //! property the tests check for every window and every set of bars.
 //!
-//! The time is handed in ([`on_bar`]'s `now`), never read here; the panel
-//! wakes once at the earliest grace's end ([`next_deadline`]), and only
-//! while some window is unplaced and inside its grace.
+//! The time is handed in, never read here. Whether a grace is over is
+//! judged by one clock alone, the time handed to [`on_bar`] as `now`: the
+//! panel wakes for the earliest grace that has not ended by that clock
+//! ([`next_wake`]), at once when it has already ended in real time, and on
+//! waking moves the clock to the later of that end and the real time
+//! ([`clock_on_wake`]), so that every grace that has run out by then is
+//! over together. It wakes only while some window is unplaced and its
+//! grace not yet over by the clock.
 //!
 //! Outputs are matched by name, the `wl_output` name the compositor gives
 //! both the window's outputs and the panel's. Two outputs sharing a name,
@@ -177,16 +182,40 @@ pub fn shown_on<Id: Clone>(
         .collect()
 }
 
-/// The earliest end of a grace still running at `now`, among `buttons`'
-/// unplaced windows: when to look again. `None` when no window is inside
-/// its grace, which is when nothing needs a wake.
+/// When the panel next looks at the graces ([`next_wake`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Wake {
+    /// The end of the grace it wakes for.
+    pub at: Instant,
+    /// How long from the real time until then: none when it has passed.
+    pub after: Duration,
+}
+
+/// The earliest end, among `buttons`' unplaced windows, of a grace not yet
+/// over by `clock` (the time the bars judge the graces by), and how long
+/// from `now`, the real time, until it. `None` when every grace is over by
+/// the clock, or no window is unplaced: then nothing needs a wake, and the
+/// clock stays as it is.
 #[must_use]
-pub fn next_deadline<Id>(buttons: &[Button<Id>], now: Instant) -> Option<Instant> {
-    buttons
+pub fn next_wake<Id>(buttons: &[Button<Id>], clock: Instant, now: Instant) -> Option<Wake> {
+    let at = buttons
         .iter()
         .filter_map(|button| button.placement.grace_ends())
-        .filter(|&end| end > now)
-        .min()
+        .filter(|&end| end > clock)
+        .min()?;
+    Some(Wake {
+        at,
+        after: at.saturating_duration_since(now),
+    })
+}
+
+/// The clock once the wake for the grace ending at `at` comes, at `now`,
+/// the real time: the later of the two, so that every grace that has run
+/// out by then is over together, the one woken for included even if the
+/// wake came early.
+#[must_use]
+pub fn clock_on_wake(at: Instant, now: Instant) -> Instant {
+    at.max(now)
 }
 
 #[cfg(test)]

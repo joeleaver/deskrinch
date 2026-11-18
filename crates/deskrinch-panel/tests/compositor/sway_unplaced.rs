@@ -18,7 +18,7 @@ use crate::support::{
     Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
-use crate::taskbar::{App, FULLSCREEN, HIDDEN, icon_in, install};
+use crate::taskbar::{App, FULLSCREEN, HIDDEN, HIDDEN_TOO, icon_in, install};
 
 /// Runs `command` through `swaymsg`.
 ///
@@ -112,6 +112,31 @@ fn a_window_opened_on_a_workspace_not_shown_is_on_every_bar_then_its_own() {
         &format!("the window on {on}'s bar alone"),
     );
     swaymsg("workspace back_and_forth");
+}
+
+/// Two windows opened on a workspace not shown, one just after the other:
+/// both graces end within a moment, and both windows are on every bar
+/// after them, whichever end the one timer wakes for.
+#[test]
+#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
+fn two_windows_opened_on_a_workspace_not_shown_are_both_on_every_bar() {
+    let mut bars = Bars::start();
+    let outputs = bars.screen.outputs();
+    for app in [HIDDEN, HIDDEN_TOO] {
+        swaymsg(&format!(
+            "for_window [app_id=\"^{}$\"] move container to workspace 9",
+            app.id
+        ));
+    }
+    let _first = bars.client.open("Hidden", HIDDEN.id).unwrap();
+    let _second = bars.client.open("Hidden too", HIDDEN_TOO.id).unwrap();
+    for app in [HIDDEN, HIDDEN_TOO] {
+        bars.wait_showing(
+            app,
+            &outputs,
+            &format!("{} on every bar after its grace", app.id),
+        );
+    }
 }
 
 #[test]

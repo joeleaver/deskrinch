@@ -64,12 +64,18 @@ pub(crate) const HIDDEN: App = App {
     id: "org.deskrinch.taskbar.Hidden",
     colour: Rgba::opaque(30, 150, 220),
 };
+/// sway's second window opened on a workspace not shown, just after the
+/// first ([`crate::sway_unplaced`]).
+pub(crate) const HIDDEN_TOO: App = App {
+    id: "org.deskrinch.taskbar.HiddenToo",
+    colour: Rgba::opaque(140, 90, 30),
+};
 /// sway's window opened fullscreen ([`crate::sway_unplaced`]).
 pub(crate) const FULLSCREEN: App = App {
     id: "org.deskrinch.taskbar.Fullscreen",
     colour: Rgba::opaque(230, 190, 20),
 };
-const APPS: [App; 5] = [RED, GREEN, MAGENTA, HIDDEN, FULLSCREEN];
+const APPS: [App; 6] = [RED, GREEN, MAGENTA, HIDDEN, HIDDEN_TOO, FULLSCREEN];
 
 /// A panel with the test's applications, the screen it is on, the pointer
 /// to click it with, and a client to open windows with.

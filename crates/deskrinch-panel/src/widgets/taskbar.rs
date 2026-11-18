@@ -52,10 +52,10 @@ const SIZES: ButtonSizes = ButtonSizes {
     count_width: 36.0,
 };
 
-/// The name of the output a bar is on (`None` when it has none), which
-/// each bar provides as a context for its taskbar.
-#[derive(Debug, Clone)]
-pub(crate) struct BarOutput(pub(crate) Option<String>);
+/// The name of the output a bar is on, as it is now (`None` while it has
+/// none), which each bar provides as a context for its taskbar.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BarOutput(pub(crate) Signal<Option<String>>);
 
 /// The bars there are, which the panel's root provides as a context: one
 /// on every output, counted, and named by the outputs that have a name. A
@@ -75,7 +75,7 @@ pub(crate) fn TaskbarWidget() -> NodeHandle {
     let buttons = Memo::new(move || {
         let bars = bars.get();
         let now = clock.get();
-        all.with(|all| Arc::new(shown_on(all, output.as_deref(), &bars, now)))
+        output.with(|output| all.with(|all| Arc::new(shown_on(all, output.as_deref(), &bars, now))))
     });
     let width = Signal::new(0.0_f32);
     let fitted = Memo::new(move || {

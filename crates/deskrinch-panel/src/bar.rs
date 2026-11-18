@@ -26,10 +26,11 @@ use crate::widgets::{BarOutput, ClockWidget, SwitcherWidget, TaskbarWidget, butt
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct BarWidth(pub(crate) Signal<f32>);
 
-/// The panel's content on the output named `output` (`None` for an output
-/// with no name), which its taskbar reads from the context ([`BarOutput`]).
+/// The panel's content on the output whose name `output` follows (`None`
+/// while it has none), which its taskbar reads from the context
+/// ([`BarOutput`]).
 #[component]
-pub(crate) fn Bar(output: Option<String>) -> NodeHandle {
+pub(crate) fn Bar(output: Signal<Option<String>>) -> NodeHandle {
     let width = Signal::new(0.0_f32);
     create_context(BarWidth(width));
     create_context(BarOutput(output));

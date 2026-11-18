@@ -196,36 +196,81 @@ fn the_buttons_a_bar_shows_keep_their_order() {
     assert_eq!(ids(None), [1, 2, 3, 4]);
 }
 
-#[test]
-fn the_next_deadline_is_the_earliest_grace_still_running() {
-    let now = Instant::now();
-    let button = |id: u32, placement: Placement| Button {
+fn unplaced(id: u32, since: Instant) -> Button<u32> {
+    Button {
         id,
         title: String::new(),
         app_id: String::new(),
         active: false,
         minimized: false,
         attention: false,
-        placement,
-    };
-    let early = button(1, Placement::Unplaced { since: now });
-    let late = button(
-        2,
-        Placement::Unplaced {
-            since: now + ms(100),
-        },
-    );
-    let placed = button(3, Placement::Placed(names(&["A"])));
-    let all = [placed.clone(), late.clone(), early];
-    assert_eq!(next_deadline(&all, now), Some(now + GRACE));
-    // Once the first grace is over, the second.
+        placement: Placement::Unplaced { since },
+    }
+}
+
+/// Whether the unplaced window `button` is over its grace by `clock`, with
+/// two bars.
+fn over(button: &Button<u32>, clock: Instant) -> bool {
+    on_bar(&button.placement, Some("A"), &bars(&["A", "B"]), clock)
+}
+
+#[test]
+fn two_ends_a_moment_apart_are_both_over_after_one_late_wake() {
+    let t0 = Instant::now();
+    let windows = [unplaced(1, t0), unplaced(2, t0 + ms(1))];
+    let wake = next_wake(&windows, t0, t0).unwrap();
     assert_eq!(
-        next_deadline(&all, now + GRACE),
-        Some(now + ms(100) + GRACE)
+        wake,
+        Wake {
+            at: t0 + GRACE,
+            after: GRACE
+        }
     );
-    // None running: nothing to wake for.
-    assert_eq!(next_deadline(&all, now + ms(100) + GRACE), None);
-    assert_eq!(next_deadline(&[placed], now), None);
+    // The timer comes late, after both ends.
+    let fired = t0 + GRACE + ms(5);
+    let clock = clock_on_wake(wake.at, fired);
+    assert!(windows.iter().all(|window| over(window, clock)));
+    assert_eq!(next_wake(&windows, clock, fired), None);
+}
+
+#[test]
+fn an_end_already_past_when_first_seen_is_woken_for_at_once() {
+    let t0 = Instant::now();
+    let windows = [unplaced(1, t0)];
+    // The UI first sees it after its grace (busy at a loaded start).
+    let seen = t0 + GRACE + ms(50);
+    let wake = next_wake(&windows, t0, seen).unwrap();
+    assert_eq!(
+        wake,
+        Wake {
+            at: t0 + GRACE,
+            after: Duration::ZERO
+        }
+    );
+    let clock = clock_on_wake(wake.at, seen);
+    assert!(over(&windows[0], clock));
+}
+
+#[test]
+fn a_wake_that_comes_early_still_ends_the_grace_it_was_for() {
+    let t0 = Instant::now();
+    let windows = [unplaced(1, t0)];
+    let wake = next_wake(&windows, t0, t0).unwrap();
+    let clock = clock_on_wake(wake.at, t0 + GRACE.saturating_sub(ms(1)));
+    assert!(over(&windows[0], clock));
+}
+
+#[test]
+fn with_no_window_unplaced_nothing_wakes() {
+    let t0 = Instant::now();
+    let placed = Button {
+        placement: Placement::Placed(names(&["A"])),
+        ..unplaced(1, t0)
+    };
+    assert_eq!(next_wake(&[placed], t0, t0), None);
+    assert_eq!(next_wake::<u32>(&[], t0, t0), None);
+    // A grace already over by the clock needs no wake either.
+    assert_eq!(next_wake(&[unplaced(2, t0)], t0 + GRACE, t0 + GRACE), None);
 }
 
 #[test]
@@ -234,11 +279,11 @@ fn a_window_closed_inside_its_grace_leaves_nothing_to_wake_for() {
     replay.added(&[], 0);
     let at = replay.t0 + ms(10);
     assert_eq!(
-        next_deadline(&replay.model.buttons(), at),
+        next_wake(&replay.model.buttons(), replay.t0, at).map(|wake| wake.at),
         Some(replay.t0 + GRACE)
     );
     replay.model.input(Input::Change(Change::Removed(1), at));
-    assert_eq!(next_deadline(&replay.model.buttons(), at), None);
+    assert_eq!(next_wake(&replay.model.buttons(), replay.t0, at), None);
 }
 
 #[test]
@@ -444,6 +489,41 @@ proptest::proptest! {
                     known.contains(named),
                     "{} with {:?}", named, known
                 );
+            }
+        }
+    }
+
+    /// Whatever the announcements and however late each wake comes, every
+    /// window whose grace has ended in real time is over by the clock once
+    /// the wakes asked for have come, with nothing else to move it.
+    #[test]
+    fn every_grace_ended_in_real_time_is_over_after_the_wakes(
+        announced in proptest::collection::vec(0_u64..1000, 1..6),
+        seen_after in 0_u64..700,
+        lateness in proptest::collection::vec(0_u64..700, 8),
+    ) {
+        let t0 = Instant::now();
+        let windows: Vec<Button<u32>> = (0_u32..)
+            .zip(&announced)
+            .map(|(id, &at)| unplaced(id, t0 + ms(at)))
+            .collect();
+        // The UI sees them all once the last is announced, maybe later
+        // (busy at a loaded start).
+        let last = announced.iter().copied().max().unwrap_or_default();
+        let mut now = t0 + ms(last + seen_after);
+        let mut clock = t0;
+        let mut wakes = 0;
+        while let Some(wake) = next_wake(&windows, clock, now) {
+            // A wake comes no earlier than asked, and maybe late.
+            now = (now + wake.after).max(wake.at) + ms(lateness[wakes % lateness.len()]);
+            clock = clock_on_wake(wake.at, now);
+            wakes += 1;
+            proptest::prop_assert!(wakes <= windows.len(), "more wakes than graces");
+        }
+        for window in &windows {
+            let ended = window.placement.grace_ends().is_some_and(|end| end <= now);
+            if ended {
+                proptest::prop_assert!(over(window, clock), "{window:?} not over at {clock:?}");
             }
         }
     }
