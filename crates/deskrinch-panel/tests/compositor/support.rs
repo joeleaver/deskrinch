@@ -5,21 +5,12 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
-use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
 use deskrinch_test_component::{Component, Renderer, Watch, programs};
+pub(crate) use deskrinch_test_screen::Pictures;
 use deskrinch_test_screen::{Image, Screen};
-use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
-
-/// How long the screen must not change to count as still: a stability
-/// window, not a quiet one. It must outlast the longest close animation
-/// KWin runs by default, so that two equal captures this far apart cannot
-/// both fall inside one: the fading popups' fade-out, `animationTime(150) * 4`
-/// = 600 ms at the default animation speed a fresh session has (KWin 6.6,
-/// `effects/fadingpopups/contents/code/main.js`; its window scale effect
-/// takes 200 ms, `effects/scale`). sway and labwc animate nothing.
-pub(crate) const STILL: Duration = Duration::from_millis(600);
+use deskrinch_test_wait::{PATIENCE, wait_for};
 
 /// The panel binary: this suite declares the panel as one of its programs,
 /// so that it is granted what the shell grants it, and runs it from the
@@ -179,49 +170,6 @@ impl Band {
         match self.edge {
             Edge::Top => 0..self.rows,
             Edge::Bottom => height.saturating_sub(self.rows)..height,
-        }
-    }
-}
-
-/// Every output's picture, by name.
-#[derive(Debug, PartialEq, Eq)]
-pub(crate) struct Pictures(pub(crate) Vec<(String, Image)>);
-
-impl Pictures {
-    /// Each output of `screen`, captured now.
-    pub(crate) fn take(screen: &mut Screen) -> Self {
-        Self(
-            screen
-                .outputs()
-                .into_iter()
-                .map(|name| {
-                    let image = screen.capture(&name).unwrap();
-                    (name, image)
-                })
-                .collect(),
-        )
-    }
-
-    /// Each output of `screen` once it is still: the same in two captures
-    /// [`STILL`] apart. What the last test showed may still be going: KWin
-    /// fades a closed window or panel out, the more slowly the busier the
-    /// machine is, and a picture taken during the fade would count the
-    /// whole fade as the panel's. A window, since nothing reports a fade's
-    /// end: two pictures alike are the only sign of it.
-    pub(crate) fn still(screen: &mut Screen) -> Self {
-        let deadline = Deadline::patience();
-        let mut last = Self::take(screen);
-        loop {
-            std::thread::sleep(STILL);
-            let now = Self::take(screen);
-            if now == last {
-                return now;
-            }
-            assert!(
-                !deadline.passed(),
-                "waited {PATIENCE:?} for the screen to keep still"
-            );
-            last = now;
         }
     }
 }

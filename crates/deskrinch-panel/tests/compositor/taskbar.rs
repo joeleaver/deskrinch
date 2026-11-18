@@ -17,13 +17,13 @@ use std::path::Path;
 
 use deskrinch_test_client::TestClient;
 use deskrinch_test_input::{Button, Input};
-use deskrinch_test_screen::{Image, Rgba, Screen};
+use deskrinch_test_screen::{Image, Rgba, Screen, still_gap};
 use deskrinch_test_wait::{recv, wait_for};
 use deskrinch_window_management::{Event, WindowId, WindowManager};
 use tempfile::TempDir;
 
 use crate::support::{
-    Band, Edge, Panel, Pictures, STILL, in_nested_session, panel_table, scale_of, wait_band,
+    Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
 
@@ -133,13 +133,13 @@ impl Bar {
     }
 
     /// `part` of the panel's output once it is still: the same in two
-    /// captures [`STILL`] apart. Nothing reports the end of a change the
+    /// captures [`still_gap`] apart. Nothing reports the end of a change the
     /// compositor animates, so two pictures alike are the only sign of it.
     pub(crate) fn settled<T: PartialEq>(&mut self, part: impl Fn(&Image) -> T) -> T {
         let output = self.output.clone();
         let mut last = part(&self.screen.capture(&output).unwrap());
         wait_for(&format!("{output} to keep still"), || {
-            std::thread::sleep(STILL);
+            std::thread::sleep(still_gap());
             let now = part(&self.screen.capture(&output).unwrap());
             if now == last {
                 Ok(now)
