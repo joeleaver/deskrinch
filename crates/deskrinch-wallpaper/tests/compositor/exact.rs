@@ -9,6 +9,7 @@
 //! output is captured at, which is its device size in every pass (scale 1,
 //! scale 2, turned).
 
+use std::cell::RefCell;
 use std::path::Path;
 
 use deskrinch_picture::{Fit, Formats, Limits, decode_file, fit};
@@ -65,6 +66,46 @@ pub(crate) fn first_different(
     None
 }
 
+/// The picture fitted as the wallpaper fits it, made once per size: a check
+/// runs on every capture until the screen passes, and fitting a large
+/// picture again on each, unoptimised, cost seconds an attempt.
+pub(crate) struct Expected<'a> {
+    decoded: &'a deskrinch_untrusted::Image,
+    fit: Fit,
+    made: RefCell<Option<((u32, u32), deskrinch_untrusted::Image)>>,
+}
+
+impl<'a> Expected<'a> {
+    /// `decoded` fitted with `fit`, at whatever size it is asked for.
+    pub(crate) fn new(decoded: &'a deskrinch_untrusted::Image, fit: Fit) -> Self {
+        Self {
+            decoded,
+            fit,
+            made: RefCell::new(None),
+        }
+    }
+
+    /// The fitted picture's pixels at `width` × `height`, made the first time
+    /// that size is asked for.
+    pub(crate) fn rgba(&self, width: u32, height: u32) -> std::cell::Ref<'_, [u8]> {
+        let size = (width, height);
+        if self
+            .made
+            .borrow()
+            .as_ref()
+            .is_none_or(|(at, _)| *at != size)
+        {
+            let image = fit(self.decoded, width, height, self.fit, &ROOMY).unwrap();
+            *self.made.borrow_mut() = Some((size, image));
+        }
+        std::cell::Ref::map(self.made.borrow(), |made| {
+            made.as_ref()
+                .map(|(_, image)| image.rgba())
+                .unwrap_or_default()
+        })
+    }
+}
+
 pub(crate) fn settings(picture: &Path, fit: &str) -> String {
     format!(
         "[wallpaper]\ncolor = \"{}\"\nimage = \"{}\"\nfit = \"{fit}\"\n",
@@ -84,10 +125,10 @@ fn a_picture_covering_a_smaller_output_is_drawn_one_pixel_per_pixel() {
     write_settings(&settings(&picture, "cover"));
     let _wallpaper = Wallpaper::start();
     for name in &Screen::connect().unwrap().outputs() {
+        let expected = Expected::new(&decoded, Fit::Cover);
         wait_output(name, |shown| {
             let (w, h) = (shown.width(), shown.height());
-            let expected = fit(&decoded, w, h, Fit::Cover, &ROOMY).unwrap();
-            first_different(shown, (0, 0, w, h), expected.rgba())
+            first_different(shown, (0, 0, w, h), &expected.rgba(w, h))
         });
     }
 }
@@ -117,6 +158,7 @@ fn a_picture_contained_in_a_smaller_output_is_drawn_one_pixel_per_pixel() {
     write_settings(&settings(&picture, "contain"));
     let _wallpaper = Wallpaper::start();
     for name in &Screen::connect().unwrap().outputs() {
+        let expected = Expected::new(&decoded, Fit::Stretch);
         wait_output(name, |shown| {
             let Some(area) = inner_box(shown) else {
                 return Some("no picture between the bars".to_owned());
@@ -125,8 +167,7 @@ fn a_picture_contained_in_a_smaller_output_is_drawn_one_pixel_per_pixel() {
             if x != 0 && y != 0 {
                 return Some(format!("bars on both axes: {area:?}"));
             }
-            let expected = fit(&decoded, w, h, Fit::Stretch, &ROOMY).unwrap();
-            first_different(shown, area, expected.rgba())
+            first_different(shown, area, &expected.rgba(w, h))
         });
     }
 }

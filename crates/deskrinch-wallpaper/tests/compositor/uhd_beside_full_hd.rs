@@ -11,11 +11,11 @@
 //!   the larger output shows it one pixel per pixel, the smaller shows it
 //!   scaled by rinch at paint.
 
-use deskrinch_picture::{Fit, Formats, decode_file, fit};
+use deskrinch_picture::{Fit, Formats, decode_file};
 use deskrinch_test_client::require_outputs;
 use deskrinch_test_screen::{Image, Rgba, Screen};
 
-use crate::exact::{ROOMY, first_different, settings, write_blocks_of};
+use crate::exact::{Expected, ROOMY, first_different, settings, write_blocks_of};
 use crate::support::{Wallpaper, about, in_nested_session, wait_output, write_settings};
 
 /// The pass's outputs, the larger first.
@@ -33,10 +33,10 @@ fn a_picture_larger_than_both_outputs_is_drawn_one_pixel_per_pixel_on_each() {
     write_settings(&settings(&picture, "cover"));
     let _wallpaper = Wallpaper::start();
     for name in &Screen::connect().unwrap().outputs() {
+        let expected = Expected::new(&decoded, Fit::Cover);
         wait_output(name, |shown| {
             let (w, h) = (shown.width(), shown.height());
-            let expected = fit(&decoded, w, h, Fit::Cover, &ROOMY).unwrap();
-            first_different(shown, (0, 0, w, h), expected.rgba())
+            first_different(shown, (0, 0, w, h), &expected.rgba(w, h))
         });
     }
 }
@@ -73,6 +73,7 @@ fn a_picture_the_size_of_the_larger_output_is_the_picture_itself_on_both() {
     write_settings(&settings(&picture, "cover"));
     let _wallpaper = Wallpaper::start();
     for name in &Screen::connect().unwrap().outputs() {
+        let expected = Expected::new(&decoded, Fit::Cover);
         wait_output(name, |shown| {
             let (w, h) = (shown.width(), shown.height());
             if (w, h) == (3840, 2160) {
@@ -80,8 +81,7 @@ fn a_picture_the_size_of_the_larger_output_is_the_picture_itself_on_both() {
                 first_different(shown, (0, 0, w, h), decoded.rgba())
             } else {
                 // The picture scaled at paint: each block's centre.
-                let expected = fit(&decoded, w, h, Fit::Cover, &ROOMY).unwrap();
-                first_block_different(shown, expected.rgba(), 32)
+                first_block_different(shown, &expected.rgba(w, h), 32)
             }
         });
     }
