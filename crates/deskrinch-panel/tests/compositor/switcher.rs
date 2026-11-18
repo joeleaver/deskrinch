@@ -200,7 +200,10 @@ impl Pager {
         self.input.click(Button::PRIMARY).unwrap();
     }
 
-    /// Under sway: no switcher drawn, and the panel says why.
+    /// Under sway: the panel says why there is no switcher, and once the
+    /// bar's output stands still after that, nothing is drawn at the bar's
+    /// start. The picture judged is a still one, so a capture taken before
+    /// the switcher would have been drawn cannot pass for one without it.
     fn assert_absent(&mut self) {
         assert!(
             self.panel
@@ -209,9 +212,11 @@ impl Pager {
             "the panel did not say {ABSENT:?}; it logged:\n{}",
             self.panel.log()
         );
-        let image = self.screen.capture(&self.output.clone()).unwrap();
+        let output = self.output.clone();
+        let still = Pictures::still_of(&mut self.screen, &output);
+        let image = still.get(&output).expect("the bar's output, captured");
         assert_eq!(
-            self.mark(&image),
+            self.mark(image),
             None,
             "something is drawn at the bar's start"
         );

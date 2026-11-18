@@ -94,6 +94,12 @@ fn a_button_follows_its_window_title_and_goes_with_it() {
         .set_title("Quite another title, and a longer one")
         .unwrap();
     bar.see("the new title", |_, image| title_of(image, icon) != before);
+    // Exactly the title it is given: put back, the button draws the first
+    // title's very pixels again.
+    magenta.set_title("A short title").unwrap();
+    bar.see("the first title again", |_, image| {
+        title_of(image, icon) == before
+    });
     drop(magenta);
     bar.see("the button gone", |bar, image| {
         bar.icon(image, MAGENTA).is_none() && bar.icon(image, RED).is_some()
