@@ -21,7 +21,7 @@
 use deskrinch_test_client::Compositor;
 use deskrinch_test_desktops as kwin;
 use deskrinch_test_input::{Button, Input};
-use deskrinch_test_screen::{Image, Screen};
+use deskrinch_test_screen::{Image, Screen, still_gap};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 use deskrinch_workspaces::{
     Action, Workspace, WorkspaceManager, WorkspaceState, Workspaces, connect,
@@ -29,7 +29,7 @@ use deskrinch_workspaces::{
 
 use crate::frames;
 use crate::support::{
-    Band, Edge, Panel, Pictures, STILL, in_nested_session, panel_table, scale_of, wait_band,
+    Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
 use crate::taskbar::near;
@@ -150,7 +150,7 @@ impl Pager {
     }
 
     /// Captures the panel's output until its mark is what `accept` takes
-    /// in two captures [`STILL`] apart, alike: the mark settled where it is
+    /// in two captures [`still_gap`] apart, alike: the mark settled where it is
     /// wanted, not caught on its way. Returns it.
     fn wait_mark(
         &mut self,
@@ -164,7 +164,7 @@ impl Pager {
             if !accept(before) {
                 return Err(before);
             }
-            std::thread::sleep(STILL);
+            std::thread::sleep(still_gap());
             let image = self.screen.capture(&output).unwrap();
             let after = self.mark(&image);
             if after == before {
