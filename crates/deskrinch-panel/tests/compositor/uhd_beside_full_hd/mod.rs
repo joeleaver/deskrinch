@@ -20,10 +20,15 @@ use deskrinch_test_wait::wait_for;
 use crate::open_on::open_on;
 use crate::support::{Band, Edge, Panel, Pictures, in_nested_session, panel_table, write_settings};
 
-/// More windows than the wide bar has room for, so that it is full and
-/// says how many it leaves out: as many on each output, since each bar
-/// shows its own output's.
-const WINDOWS: usize = 140;
+/// How many windows an output `width` logical pixels wide is given: more
+/// than its bar has room for, so that the bar is full and says how many
+/// it leaves out. A button with its icon alone and the gap after it are 32
+/// logical pixels; a 27th of the width is more buttons than that (142 on
+/// the 3840 output, 71 on the 1920 one), and no more, since each window
+/// opened costs the compositor a tile.
+fn windows_for(width: i32) -> usize {
+    usize::try_from(width / 27).unwrap_or_default()
+}
 
 /// The counters of one of Vello's usage lines, `used … of …`, as
 /// (name, used, size) for each buffer it names in both (the allocators'
@@ -81,7 +86,11 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
         // sway stopped telling a window's output after the 63rd.)
         let (title, app_id) = named(0);
         windows.push(open_on(&mut input, &client, output, &title, &app_id));
-        for i in 1..WINDOWS {
+        let (width, _) = client
+            .output_info(output)
+            .and_then(|info| info.logical_size)
+            .unwrap_or_else(|| panic!("{output}'s logical size"));
+        for i in 1..windows_for(width) {
             let (title, app_id) = named(i);
             windows.push(client.open(&title, &app_id).unwrap());
         }
@@ -110,7 +119,7 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     // One more window left out on each output: each bar's count changes,
     // and nothing among its buttons.
     for output in &outputs {
-        let (title, app_id) = named(WINDOWS);
+        let (title, app_id) = named(windows.len());
         windows.push(open_on(&mut input, &client, output, &title, &app_id));
     }
     wait_for("every bar's count to change for one more window", || {
