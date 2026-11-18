@@ -23,8 +23,10 @@
 //! Each window tells the root its surface's size, in device pixels
 //! (rinch's `window_physical_size`, the buffer's own) and logical pixels
 //! (its `window_size`), as rinch reports them for that window; the root
-//! tells the worker the path, the fit and every surface
-//! ([`crate::worker`]), and the worker hands back each output's image
+//! tells the worker the path, the fit, every output listed and every
+//! surface ([`crate::worker`]): the outputs listed let the decode start
+//! before any window has a size, and the surfaces let each fit run when
+//! its size comes. The worker hands back each output's image
 //! ([`Shown`]), which the root registers with rinch ([`Registered`]) before
 //! each window's style points at its own.
 
@@ -96,6 +98,7 @@ pub(crate) fn wallpaper(
             worker.want(Wanted {
                 path: path.get(),
                 fit: settings.get().fit,
+                outputs: output_ids().into_iter().collect(),
                 surfaces: surfaces.get(),
             });
         });

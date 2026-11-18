@@ -1,22 +1,25 @@
 //! The picture's worker: a thread that decodes the picture and makes each
 //! output's pixels, off the UI thread, and hands the UI what to show.
 //!
-//! The UI tells it what it wants (the path, the fit, every output's
-//! surface: [`Worker::want`]), and the file's watcher that the file
-//! changed ([`Worker::changed`]). Everything that came in while it worked
-//! is one step ([`State::step`]): a burst of outputs configured at once,
-//! or a file written in several closes, is one decode. What the UI is to
-//! show goes back through a hand-over ([`Shown`]), complete each time, so
-//! the newest is all the UI needs.
+//! The UI tells it what it wants (the path, the fit, every output listed
+//! and every output's surface: [`Worker::want`]), and the file's watcher
+//! that the file changed ([`Worker::changed`]). Everything that came in
+//! while it worked is one step ([`State::step`]): a burst of outputs
+//! configured at once, or a file written in several closes, is one decode,
+//! and a size that came while the picture was decoded is fitted after it
+//! with no second decode. What the UI is to show goes back through a
+//! hand-over ([`Shown`]), complete each time, so the newest is all the UI
+//! needs.
 //!
-//! The decoded picture is held while pixels are made from it, and then
-//! only while it is itself shown, when rinch holds the same buffer; the
+//! The picture is decoded as soon as an output is listed, while its window
+//! opens, and held while any listed output still lacks its pixels; then
+//! only while it is itself shown, when rinch holds the same buffer. The
 //! next change that needs pixels decodes it again ([`State`]). The thread
 //! ends when the last sender (the UI's and the watcher's) is dropped.
 
 use std::io;
 use std::path::Path;
-use std::sync::mpsc::{self, Sender};
+use std::sync::mpsc::{self, Receiver, Sender};
 
 use deskrinch_component::Handover;
 use deskrinch_picture::{DecodeError, Profile, decode_file};
@@ -45,21 +48,7 @@ impl Worker {
         let (input, inputs) = mpsc::channel();
         std::thread::Builder::new()
             .name("wallpaper-picture".to_owned())
-            .spawn(move || {
-                let mut state = State::new(decode);
-                while let Ok(first) = inputs.recv() {
-                    let more = inputs.try_iter();
-                    if let Some(shown) = state.step(std::iter::once(first).chain(more)) {
-                        tracing::debug!(
-                            "wallpaper: {} images for {} outputs: {:?}",
-                            shown.pictures.len(),
-                            shown.names.len(),
-                            shown.names
-                        );
-                        deliver.deliver(shown);
-                    }
-                }
-            })?;
+            .spawn(move || run(&inputs, decode, |shown| deliver.deliver(shown)))?;
         Ok(Self { input })
     }
 
@@ -81,6 +70,29 @@ impl Worker {
     }
 }
 
+/// The worker's loop: everything that came in while it worked is one step,
+/// decoding through `decode`, and what is to be shown goes to `deliver`.
+/// Ends when every sender of `inputs` is gone.
+fn run(
+    inputs: &Receiver<Input>,
+    decode: impl FnMut(&Path) -> Result<Image, DecodeError>,
+    mut deliver: impl FnMut(Shown),
+) {
+    let mut state = State::new(decode);
+    while let Ok(first) = inputs.recv() {
+        let more = inputs.try_iter();
+        if let Some(shown) = state.step(std::iter::once(first).chain(more)) {
+            tracing::debug!(
+                "wallpaper: {} images for {} outputs: {:?}",
+                shown.pictures.len(),
+                shown.names.len(),
+                shown.names
+            );
+            deliver(shown);
+        }
+    }
+}
+
 /// The picture at `path`, decoded under the wallpaper's limits: sRGB,
 /// upright. A colour profile that could not be used is said, at debug.
 fn decode(path: &Path) -> Result<Image, DecodeError> {
@@ -93,3 +105,7 @@ fn decode(path: &Path) -> Result<Image, DecodeError> {
     }
     Ok(decoded.image)
 }
+
+#[cfg(test)]
+#[path = "worker/run_tests.rs"]
+mod tests;

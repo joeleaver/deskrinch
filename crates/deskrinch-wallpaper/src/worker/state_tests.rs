@@ -46,10 +46,20 @@ fn surface(w: u32, h: u32) -> Surface {
     }
 }
 
+/// The picture wanted with `fit` on `surfaces`, each output listed with
+/// its size.
 fn wanted(fit: Fit, surfaces: &[(u64, Surface)]) -> Input {
+    let ids: Vec<u64> = surfaces.iter().map(|&(id, _)| id).collect();
+    listed(PICTURE, fit, &ids, surfaces)
+}
+
+/// The picture at `path` wanted with `fit`, the outputs `outputs` listed
+/// and those of `surfaces` with a size.
+fn listed(path: &str, fit: Fit, outputs: &[u64], surfaces: &[(u64, Surface)]) -> Input {
     Input::Wanted(Wanted {
-        path: Some(PathBuf::from(PICTURE)),
+        path: Some(PathBuf::from(path)),
         fit,
+        outputs: outputs.iter().map(|&id| OutputId::from_raw(id)).collect(),
         surfaces: surfaces
             .iter()
             .map(|&(id, s)| (OutputId::from_raw(id), s))
@@ -291,20 +301,5 @@ fn a_file_missing_at_the_first_load_cannot_be_shown_rather_than_gone() {
     );
 }
 
-/// A window not configured yet reads (0, 0), which the UI does not pass on:
-/// until an output has a size, nothing is decoded, said or shown, and the
-/// first size asks for one decode, of the real size.
-#[test]
-fn no_output_with_a_size_yet_decodes_nothing_and_the_first_size_asks_once() {
-    let (file, decodes) = files();
-    let mut state = state(&file, &decodes);
-    let capture = deskrinch_test_log::capture();
-    assert_eq!(state.step([wanted(Fit::Cover, &[])]), None);
-    assert_eq!(*decodes.borrow(), 0);
-    let shown = state
-        .step([wanted(Fit::Cover, &[(1, surface(1280, 720))])])
-        .unwrap();
-    assert_eq!(*decodes.borrow(), 1);
-    assert_eq!(names(&shown)[&1], "wallpaper/1/cover/1280x720");
-    assert!(capture.lines().is_empty(), "{:?}", capture.lines());
-}
+#[path = "state_start_tests.rs"]
+mod start;

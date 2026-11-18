@@ -3,7 +3,7 @@
 //! pictures are made through the decoder it is given, and what the UI is to
 //! show is the value [`State::step`] returns.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -17,14 +17,19 @@ use crate::limits::{LIMITS, why};
 use crate::plan::{Need, Surface, plan};
 
 /// What the UI asks for: the picture's path (none: the colour alone), how
-/// it is fitted, and every output's surface that has a size yet.
+/// it is fitted, every output listed, and every output's surface that has
+/// a size yet.
 #[derive(Debug, Clone, Default, PartialEq)]
 pub(crate) struct Wanted {
     /// The picture's path, `~/` expanded.
     pub(crate) path: Option<PathBuf>,
     /// The fit the settings name.
     pub(crate) fit: Fit,
-    /// Each output's surface.
+    /// Every output listed (rinch's `output_ids()`), with a size or not:
+    /// the outputs the picture is decoded for, before their windows are
+    /// configured.
+    pub(crate) outputs: BTreeSet<OutputId>,
+    /// Each output's surface, once it has a size.
     pub(crate) surfaces: BTreeMap<OutputId, Surface>,
 }
 
@@ -61,13 +66,22 @@ pub(crate) struct State<D> {
     /// Counts the pictures decoded from a changed file: part of every name,
     /// so a name always means the same pixels.
     generation: u64,
-    /// The decoded picture: held while pixels are made from it, and kept
-    /// only while it is itself shown (when rinch holds the same buffer, so
-    /// keeping it costs nothing).
+    /// The decoded picture: held while any listed output still lacks its
+    /// pixels (from the moment an output is listed, before any has a size,
+    /// so that the decode runs while the windows open), and then only while
+    /// it is itself shown (when rinch holds the same buffer, so keeping it
+    /// costs nothing).
     picture: Option<Image>,
     /// The decoded picture's size, kept after it is let go: what the plan
     /// is made from.
     size: Option<(u32, u32)>,
+    /// The path's file could not be shown at its last read (not a picture,
+    /// over the limits, missing, or taken away), and has not changed since.
+    /// It is read again only when it changes, as the file's watcher says
+    /// ([`Input::Changed`]: written, made, or taken away), or when the path
+    /// changes: never on a timer, and never because an output came, went,
+    /// or got a size. So a bad file is decoded and said once.
+    failed: bool,
     /// What the UI was last handed.
     shown: Shown,
 }
@@ -79,6 +93,7 @@ impl<D> std::fmt::Debug for State<D> {
             .field("generation", &self.generation)
             .field("holds_picture", &self.picture.is_some())
             .field("size", &self.size)
+            .field("failed", &self.failed)
             .finish_non_exhaustive()
     }
 }
@@ -92,6 +107,7 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
             generation: 0,
             picture: None,
             size: None,
+            failed: false,
             shown: Shown::default(),
         }
     }
@@ -109,9 +125,10 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
         }
         if let Some(wanted) = wanted {
             if wanted.path != self.wanted.path {
-                // Another picture: nothing of the last one is kept.
-                self.picture = None;
-                self.size = None;
+                // Another picture: nothing of the last one is kept, not
+                // even its failure.
+                self.forget();
+                self.failed = false;
             }
             self.wanted = wanted;
         }
@@ -124,19 +141,30 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
 
     /// What is shown next, the file having `changed` or not.
     fn next(&mut self, changed: bool) -> Shown {
+        if changed {
+            // Something new to read, whatever is listed now.
+            self.failed = false;
+        }
         let Some(path) = self.wanted.path.clone() else {
             self.forget();
+            self.failed = false;
             return Shown::default();
         };
-        if self.wanted.surfaces.is_empty() {
-            // No output has a size yet (a window not configured reads
-            // (0, 0), which the UI does not pass on), or none is connected:
-            // nothing to show, so nothing is decoded or said. What changes
-            // meanwhile is read afresh when an output has a size.
+        if !self.listed() {
+            // No output is connected: a wallpaper with nowhere to show
+            // decodes nothing. What changes meanwhile is read afresh when
+            // one is.
             self.forget();
             return Shown::default();
         }
-        if changed || self.size.is_none() {
+        if self.size.is_none() || changed {
+            if self.failed {
+                // Said at its read; not read again until it changes.
+                return Shown::default();
+            }
+            // At start this runs as soon as an output is listed, before
+            // any window has a size: the decode needs none, so it runs
+            // while the windows open, and only the fit waits for a size.
             match self.read(&path) {
                 Read::Fresh => {}
                 Read::Keep => return self.shown.clone(),
@@ -144,14 +172,33 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
             }
         }
         let next = self.made(&path);
-        // Kept only while it is itself shown, when rinch holds it anyway.
-        if !next
+        if self.pending() {
+            // An output still to be served: the picture is held for it, and
+            // decoded again for one listed after it was let go.
+            self.hold(&path);
+        } else if !next
             .pictures
             .contains_key(&Need::Picture.name(self.generation))
         {
+            // Every output served: kept only while it is itself shown, when
+            // rinch holds it anyway.
             self.picture = None;
         }
         next
+    }
+
+    /// Whether any output is listed (a surface counts as listing its
+    /// output, whatever order the UI's two lists arrive in).
+    fn listed(&self) -> bool {
+        !self.wanted.outputs.is_empty() || !self.wanted.surfaces.is_empty()
+    }
+
+    /// Whether a listed output still lacks its pixels: it has no size yet.
+    fn pending(&self) -> bool {
+        self.wanted
+            .outputs
+            .iter()
+            .any(|output| !self.wanted.surfaces.contains_key(output))
     }
 
     /// Decodes the picture at `path` as it is now, with a new generation. A
@@ -172,6 +219,7 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
                     path.display()
                 );
                 self.forget();
+                self.failed = true;
                 Read::Colour
             }
             Err(error) if self.size.is_some() => {
@@ -189,6 +237,7 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
                     why(&error)
                 );
                 self.forget();
+                self.failed = true;
                 Read::Colour
             }
         }
@@ -228,22 +277,7 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
     /// The image `need` asks for, from the picture, decoded again if it was
     /// let go; `None` (said) when it cannot be made.
     fn make(&mut self, path: &Path, need: Need) -> Option<Image> {
-        if self.picture.is_none() {
-            match (self.decode)(path) {
-                // The same file as the generation's, unless it changed and
-                // its change is still on its way, which brings the next one.
-                Ok(image) => self.picture = Some(image),
-                Err(error) => {
-                    tracing::warn!(
-                        "wallpaper: cannot show {} on a new output: {}",
-                        path.display(),
-                        why(&error)
-                    );
-                    return None;
-                }
-            }
-        }
-        let picture = self.picture.as_ref()?;
+        let picture = self.hold(path)?;
         let made = match need {
             Need::Picture => Ok(picture.clone()),
             Need::Cover { width, height } => fit(picture, width, height, Fitting::Cover, &LIMITS),
@@ -264,6 +298,27 @@ impl<D: FnMut(&Path) -> Result<Image, DecodeError>> State<D> {
             );
         })
         .ok()
+    }
+
+    /// The picture, decoded again if it was let go; `None` (said) when it
+    /// cannot be.
+    fn hold(&mut self, path: &Path) -> Option<&Image> {
+        if self.picture.is_none() {
+            match (self.decode)(path) {
+                // The same file as the generation's, unless it changed and
+                // its change is still on its way, which brings the next one.
+                Ok(image) => self.picture = Some(image),
+                Err(error) => {
+                    tracing::warn!(
+                        "wallpaper: cannot show {} on a new output: {}",
+                        path.display(),
+                        why(&error)
+                    );
+                    return None;
+                }
+            }
+        }
+        self.picture.as_ref()
     }
 
     /// Whether the picture is held now: for the tests.
