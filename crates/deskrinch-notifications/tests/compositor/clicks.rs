@@ -36,8 +36,8 @@ fn the_close_button_dismisses() {
         .client
         .simple(0, "Dismiss me", "with its close button", 0);
     let column = notifications.column("the popup", |c| c.popups.len() == 1);
-    let image = notifications.picture(&column);
-    let (x, y) = close_button(&image, &column, column.popups[0], notifications.scale);
+    let image = &column.image;
+    let (x, y) = close_button(image, &column, column.popups[0], notifications.scale);
     notifications.click(&column, x, y);
     assert_eq!(notifications.next_signal(), Signal::Closed(id, DISMISSED));
     notifications.wait_gone();
@@ -57,9 +57,9 @@ fn an_action_s_button_is_invoked_and_signalled() {
         0,
     );
     let column = notifications.column("the popup with its action", |c| c.popups.len() == 1);
-    let image = notifications.picture(&column);
+    let image = &column.image;
     let (left, top, right, bottom) =
-        find(&image, column.popups[0], RED_ICON).expect("the action's icon");
+        find(image, column.popups[0], RED_ICON).expect("the action's icon");
     notifications.click(&column, left.midpoint(right), top.midpoint(bottom));
     assert_eq!(
         notifications.next_signal(),
