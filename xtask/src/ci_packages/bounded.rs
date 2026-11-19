@@ -1,9 +1,11 @@
-//! A command run as root, for at most a given time.
+//! A command run for at most a given time, as root or as the job's own
+//! user.
 //!
-//! The limit is enforced inside the privilege boundary: `sudo timeout …
-//! <command>`. xtask could not stop the command itself: it may not signal a
-//! root process, and `sudo` does not pass on a signal sent from its own
-//! process group, which xtask is in. `timeout`, running as root, can.
+//! The limit is `timeout`'s, and for a root command it is enforced inside
+//! the privilege boundary: `sudo timeout … <command>`. xtask could not stop
+//! a root command itself: it may not signal a root process, and `sudo` does
+//! not pass on a signal sent from its own process group, which xtask is in.
+//! `timeout`, running as root, can.
 
 use std::io::{BufRead, BufReader, Read};
 use std::process::{Command, ExitStatus, Stdio};
@@ -34,22 +36,47 @@ fn command_line(program: &str, args: &[String], limit: Duration) -> Vec<String> 
     line
 }
 
-/// Runs `program` with `args` as root, printing its output as it comes;
+/// Whom a command runs as.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum User {
+    /// root, through `sudo`.
+    Root,
+    /// The job's own user.
+    Job,
+}
+
+/// Runs `program` with `args` as `user`, printing its output as it comes;
 /// returns how it ended and what it printed. It ends within `limit` (plus
 /// [`KILL_AFTER`] for a command that ignores `SIGTERM`).
-pub(super) fn run_as_root(
+pub(super) fn run(
+    user: User,
     program: &str,
     args: &[String],
     limit: Duration,
 ) -> Result<(Ended, String), Error> {
-    let mut child = Command::new("sudo")
-        .args(command_line(program, args, limit))
+    let line = command_line(program, args, limit);
+    let mut command = match user {
+        User::Root => {
+            let mut sudo = Command::new("sudo");
+            sudo.args(&line);
+            sudo
+        }
+        User::Job => {
+            let mut timeout = Command::new(&line[0]);
+            timeout.args(&line[1..]);
+            timeout
+        }
+    };
+    let mut child = command
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|source| Error::Spawn {
-            program: format!("sudo {program}"),
+            program: match user {
+                User::Root => format!("sudo {program}"),
+                User::Job => format!("timeout {program}"),
+            },
             source,
         })?;
     let output = Arc::new(Mutex::new(String::new()));
@@ -146,8 +173,13 @@ mod tests {
         // A duration no other process uses, to find it by.
         let marker = "600.4242";
         let start = Instant::now();
-        let (ended, _) =
-            run_as_root("sleep", &[marker.to_owned()], Duration::from_secs(2)).unwrap();
+        let (ended, _) = run(
+            User::Root,
+            "sleep",
+            &[marker.to_owned()],
+            Duration::from_secs(2),
+        )
+        .unwrap();
         let took = start.elapsed();
         assert_eq!(ended, Ended::CutOff(Duration::from_secs(2)));
         assert!(took < Duration::from_secs(10), "stopped after {took:?}");
@@ -157,12 +189,43 @@ mod tests {
         );
     }
 
+    /// The job's own commands are bounded the same way, without `sudo`:
+    /// this one runs everywhere.
+    #[test]
+    fn a_job_command_past_its_limit_is_stopped() {
+        let marker = "600.4343";
+        let start = Instant::now();
+        let (ended, _) = run(
+            User::Job,
+            "sleep",
+            &[marker.to_owned()],
+            Duration::from_secs(1),
+        )
+        .unwrap();
+        assert_eq!(ended, Ended::CutOff(Duration::from_secs(1)));
+        assert!(start.elapsed() < Duration::from_secs(10));
+        assert!(
+            !running(&["sleep", marker]),
+            "the command outlived its limit"
+        );
+        let (ended, output) = run(
+            User::Job,
+            "sh",
+            &["-c".to_owned(), "echo hello; exit 3".to_owned()],
+            Duration::from_mins(1),
+        )
+        .unwrap();
+        assert_eq!(ended, Ended::Exited(3));
+        assert_eq!(output, "hello\n");
+    }
+
     #[test]
     fn a_root_command_within_its_limit_reports_its_status() {
         if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true") {
             return;
         }
-        let (ended, output) = run_as_root(
+        let (ended, output) = run(
+            User::Root,
             "sh",
             &["-c".to_owned(), "echo hello; exit 3".to_owned()],
             Duration::from_mins(1),

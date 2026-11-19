@@ -18,8 +18,9 @@ pub(crate) fn annotation(verdict: &Verdict) -> Option<String> {
         )),
         Verdict::Slow(progress) => Some(format!(
             "::error title=Package download too slow::{}. The package servers answered and \
-             served slowly: not an outage, so a re-run later may pass, and caching the packages \
-             is the cure.",
+             served slowly: not an outage, so a re-run later may pass. Only what the package \
+             cache lacked was fetched; once main has cached these packages, they are not \
+             fetched at all.",
             slow(progress)
         )),
         Verdict::CutOffAfterDownload {
@@ -33,6 +34,11 @@ pub(crate) fn annotation(verdict: &Verdict) -> Option<String> {
             seconds = limit.as_secs(),
             after = after_the_download(*step),
             report = downloaded.report,
+        )),
+        Verdict::Unsandboxed(notice) => Some(format!(
+            "::error title=apt downloaded outside its sandbox::{notice} The package cache \
+             directory must be one apt's _apt user can reach: see cache.rs in xtask's \
+             ci_packages."
         )),
         Verdict::Failed { step, ended } => Some(format!(
             "::error title=apt-get {step} failed::apt-get {step} {ended}; see its output above."
@@ -69,6 +75,7 @@ fn slow(progress: &Progress) -> String {
 fn after_the_download(step: Step) -> &'static str {
     match step {
         Step::Update => "while reading the package lists",
+        Step::List => "while working out what to fetch",
         Step::Install => "while unpacking and configuring",
     }
 }

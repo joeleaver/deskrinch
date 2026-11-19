@@ -2,22 +2,59 @@ name: Install system packages
 description: >-
   Installs Ubuntu packages a job needs beyond what the runner image has, such
   as the D-Bus daemon the notification service's tests run on, with
-  `cargo xtask ci-packages`: an unreachable package server fails the step
-  within minutes, saying so. Runs after the toolchain is set up; xtask builds
-  without any of these packages.
+  `cargo xtask ci-packages`, from GitHub's cache where it can: an
+  unreachable or slow package server fails the step within minutes, saying
+  so. Runs after the toolchain is set up; xtask builds without any of these
+  packages.
 
 inputs:
   packages:
     description: Space-separated Ubuntu package names.
     required: true
 
+# The cache holds the `.deb` files apt would fetch for the packages on this
+# runner image, under a key `ci-packages update` names after those files
+# (the image, the architecture, a hash of the packages and a hash of the
+# files): a key restored exactly is the files apt needs. When the image's
+# packages change, an older cache of the same packages is restored by the
+# key's prefix; `ci-packages install` removes from it what apt no longer
+# fetches, and apt fetches what it lacks. Only `main` saves, and only a key
+# it did not restore; pull requests restore `main`'s caches and save none.
+# A job whose packages are all on the image fetches nothing, and has no
+# cache.
 runs:
   using: composite
   steps:
-    - name: Install the packages
+    - name: Update the package index and name the cache
+      id: plan
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
       # Word splitting of the list into package names is intended.
       # shellcheck disable=SC2086
-      run: cargo xtask ci-packages $PACKAGES
+      run: cargo xtask ci-packages update $PACKAGES
+    - name: Restore the packages
+      id: restore
+      if: steps.plan.outputs.files != '0'
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      env:
+        # A job's packages are one segment (at most 115 MB, of 128): one
+        # that does not come within a minute is a miss, not ten minutes of
+        # the job's time. `ci-packages`'s budget test reads this line.
+        SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
+      with:
+        # The packages only: not apt's lock, nor its partial downloads.
+        path: ${{ steps.plan.outputs.directory }}/*.deb
+        key: ${{ steps.plan.outputs.key }}
+        restore-keys: ${{ steps.plan.outputs.restore-key }}
+    - name: Install the packages
+      shell: bash
+      run: cargo xtask ci-packages install
+    - name: Save the packages
+      if: >-
+        github.ref == 'refs/heads/main' && steps.plan.outputs.files != '0'
+        && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ${{ steps.plan.outputs.directory }}/*.deb
+        key: ${{ steps.plan.outputs.key }}

@@ -152,19 +152,22 @@ enum Task {
     /// per frame, or with `--instructions` instruction counts.
     #[command(long_about = measure::LONG_ABOUT)]
     Measure(Box<measure::Args>),
-    /// Install Ubuntu packages a CI job needs, failing fast when the package
-    /// servers cannot be reached.
+    /// Install Ubuntu packages a CI job needs, from GitHub's cache where it
+    /// can, failing fast when the package servers cannot be reached.
     ///
-    /// Runs `sudo apt-get update` and `sudo apt-get install --yes
-    /// --no-install-recommends`, each with apt's retry and request timeouts
-    /// and cut off after five minutes, and reports a server that could not
-    /// be reached as a GitHub annotation that says to re-run the job. It
-    /// refuses to run anywhere but in GitHub Actions (`GITHUB_ACTIONS=true`):
-    /// it never installs packages on a developer's machine.
+    /// `update` runs `sudo apt-get update` and names the package cache
+    /// after the files apt would fetch; `install`, after the cache is
+    /// restored, runs `sudo apt-get install --yes --no-install-recommends`
+    /// into it. Each apt run has apt's retry and request timeouts and a
+    /// limit of its own, and a server that could not be reached, or one
+    /// that served too slowly, is reported as a GitHub annotation that says
+    /// so. It refuses to run anywhere but in GitHub Actions
+    /// (`GITHUB_ACTIONS=true`): it never installs packages on a developer's
+    /// machine.
     CiPackages {
-        /// The packages.
-        #[arg(required = true)]
-        packages: Vec<String>,
+        /// The step.
+        #[command(subcommand)]
+        command: ci_packages::Command,
     },
     /// Run the desktop-entries test that launches into a real transient
     /// systemd scope.
@@ -200,7 +203,7 @@ impl Task {
             Self::BuildComponents { release, package } => {
                 components::run(root, release, package.as_deref())
             }
-            Self::CiPackages { packages } => ci_packages::run(&packages),
+            Self::CiPackages { command } => ci_packages::run(&command),
             Self::CompositorTests(args) => compositor_tests::run(root, &args),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Desktop(args) => desktop::run(root, &args),
