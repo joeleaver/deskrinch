@@ -11,8 +11,8 @@ use deskrinch_test_pictures::{icc, jpeg};
 use deskrinch_test_screen::{Image, Rgba, Screen};
 
 use crate::support::{
-    BLUE, ORANGE, Wallpaper, about, in_nested_session, wait_covered, wait_output, write_settings,
-    written,
+    BLUE, ORANGE, Wallpaper, about, in_nested_session, stays_covered, stays_output, wait_covered,
+    wait_output, write_settings, written,
 };
 
 const GREEN: Rgba = Rgba::opaque(0x1f, 0xb0, 0x4a);
@@ -37,11 +37,23 @@ fn stretched(picture: &Path) -> String {
 /// its edges, where a scaled picture's edge may blend with the colour.
 fn wait_all(color: Rgba) {
     for name in &Screen::connect().unwrap().outputs() {
-        wait_output(name, |image| {
-            crate::support::first_other_within(image, color, 2)
-                .map(|at| format!("not all {color:?}: {at:?}"))
-        });
+        wait_output(name, |image| all_within(image, color));
     }
+}
+
+/// As [`wait_all`], judged on each output once it is still: that the
+/// picture stays `color` ([`stays_output`]).
+fn stays_all(color: Rgba) {
+    for name in &Screen::connect().unwrap().outputs() {
+        stays_output(name, |image| all_within(image, color));
+    }
+}
+
+/// What is not `color` in `image`, but for a strip of 2 pixels at its
+/// edges.
+fn all_within(image: &Image, color: Rgba) -> Option<String> {
+    crate::support::first_other_within(image, color, 2)
+        .map(|at| format!("not all {color:?}: {at:?}"))
 }
 
 #[test]
@@ -79,7 +91,7 @@ fn a_picture_replaced_by_one_that_cannot_be_shown_stays_and_is_said() {
         "cannot show {} as it is now: not a format this decodes",
         picture.display()
     ));
-    wait_all(ORANGE);
+    stays_all(ORANGE);
 }
 
 #[test]
@@ -155,7 +167,7 @@ fn a_picture_over_the_limits_leaves_the_colour_and_says_which() {
         65_u64 << 20,
         64_u64 << 20
     ));
-    wait_covered(BLUE);
+    stays_covered(BLUE);
 }
 
 #[test]
