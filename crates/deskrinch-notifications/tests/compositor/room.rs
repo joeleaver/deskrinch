@@ -43,10 +43,10 @@ const SHOWN_AGAIN_TIMEOUT_MS: i32 = 6000;
 
 /// Asserts that every popup of `column` is drawn whole.
 fn assert_whole(notifications: &mut Notifications, column: &Column) {
-    let image = notifications.picture(column);
+    let image = &column.image;
     for (at, popup) in column.popups.iter().enumerate() {
         assert!(
-            whole(&image, column, *popup, notifications.scale),
+            whole(image, column, *popup, notifications.scale),
             "popup {at} is cut: {column:?}"
         );
     }
@@ -122,7 +122,7 @@ fn a_critical_one_into_a_full_column_goes_on_top() {
     );
     let column = notifications.settled(shown_after, waiting_after);
     assert_whole(&mut notifications, &column);
-    let image = notifications.picture(&column);
+    let image = &column.image;
     let (first, last) = column.popups[0];
     let red = (first..=last)
         .any(|y| (column.left..=column.right).any(|x| image.pixel(x, y).is_some_and(reddish)));

@@ -38,7 +38,7 @@ fn popups_stack_the_newest_on_top() {
     notifications.send(0, "Newer", "critical", &[], &critical, 0);
     let column = notifications.column("two popups", |c| c.popups.len() == 2);
     assert!(notifications.top_right(&column), "{column:?}");
-    let image = notifications.picture(&column);
+    let image = &column.image;
     let red_in = |(first, last): (u32, u32)| {
         (first..=last)
             .any(|y| (column.left..=column.right).any(|x| image.pixel(x, y).is_some_and(reddish)))

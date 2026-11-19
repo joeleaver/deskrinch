@@ -34,6 +34,10 @@ pub(crate) struct Column {
     /// What changed, coarsely, for a failure to show: every eighth row
     /// that changed, with the spans of its columns that did.
     pub(crate) map: Vec<String>,
+    /// The output's picture the column was read from: a still one, so a
+    /// test that reads pixels of the column reads the very picture that was
+    /// judged, never a later capture.
+    pub(crate) image: Image,
 }
 
 /// The spans of `row`'s pixels that differ between `before` and `now`, as
@@ -119,6 +123,7 @@ fn changed(output: &str, before: &Image, now: &Image, scale: u32) -> Option<Colu
             .step_by(8)
             .filter_map(|row| spans(before, now, row))
             .collect(),
+        image: now.clone(),
     })
 }
 
@@ -212,11 +217,6 @@ impl Notifications {
                 Err("it differs")
             }
         });
-    }
-
-    /// The image of `column`'s output now.
-    pub(crate) fn picture(&mut self, column: &Column) -> Image {
-        self.screen.capture(&column.output).unwrap()
     }
 
     /// Whether `column` sits in its output's top-right corner: its right and
