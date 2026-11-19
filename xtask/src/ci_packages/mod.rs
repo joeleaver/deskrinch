@@ -118,13 +118,13 @@ fn update(packages: &[String]) -> Result<Outcome, Error> {
     let Some(updated) = run_step(Step::Update, packages, Path::new(cache::DIRECTORY), None)? else {
         return Ok(Outcome::Failed);
     };
-    // Listed against an empty directory, the listing is every file the
-    // packages need, whatever is cached.
-    let empty = tempfile::tempdir().map_err(|source| Error::Io {
-        what: "make an empty archives directory".into(),
-        source,
-    })?;
-    let Some(listed) = run_step(Step::List, packages, empty.path(), updated.sign.as_deref())?
+    let scratch = listing_directory(Path::new(EXTENDED_STATES))?;
+    let Some(listed) = run_step(
+        Step::List,
+        packages,
+        scratch.path(),
+        updated.sign.as_deref(),
+    )?
     else {
         return Ok(Outcome::Failed);
     };
@@ -193,16 +193,17 @@ struct Ran {
     output: String,
 }
 
-/// Runs `step`, with `archives` as apt's archives directory, and reports
-/// its verdict; `None` if the job is to stop. `update_sign` is what an
-/// earlier `update` could not reach.
+/// Runs `step` in `dir` (see [`arguments`]) and reports its verdict;
+/// `None` if the job is to stop. `update_sign` is what an earlier `update`
+/// could not reach.
 fn run_step(
     step: Step,
     packages: &[String],
-    archives: &Path,
+    dir: &Path,
     update_sign: Option<&str>,
 ) -> Result<Option<Ran>, Error> {
-    // The listing fetches and writes nothing: the job's user may run it.
+    // The listing fetches nothing and writes only in its own directory: the
+    // job's user may run it.
     let user = if step.fetches() {
         User::Root
     } else {
@@ -211,7 +212,7 @@ fn run_step(
     let (ended, output) = bounded::run(
         user,
         "apt-get",
-        &arguments(step, packages, archives),
+        &arguments(step, packages, dir),
         limit(step),
     )?;
     let verdict = classify(step, ended, &output, update_sign);
@@ -230,6 +231,31 @@ fn run_step(
         | Verdict::Unsandboxed(_)
         | Verdict::Failed { .. } => None,
     })
+}
+
+/// apt's record of which packages were installed only as another's
+/// dependency.
+const EXTENDED_STATES: &str = "/var/lib/apt/extended_states";
+
+/// The listing's own directory: an empty `archives`, so that it lists
+/// every file the packages need, whatever is cached, and a copy of
+/// `extended_states` (apt's record, [`EXTENDED_STATES`], when there is
+/// one). `apt-get install` rewrites that record even when it only lists,
+/// to mark a named package that was installed as a dependency (the
+/// runner's `dbus-user-session`) as installed by name, and only root may
+/// write apt's own.
+fn listing_directory(extended_states: &Path) -> Result<tempfile::TempDir, Error> {
+    let io = |what: String| move |source| Error::Io { what, source };
+    let dir = tempfile::tempdir().map_err(io("make the listing's directory".into()))?;
+    let archives = dir.path().join("archives");
+    std::fs::create_dir(&archives).map_err(io(format!("make {}", archives.display())))?;
+    match std::fs::copy(extended_states, dir.path().join("extended_states")) {
+        Err(error) if error.kind() != std::io::ErrorKind::NotFound => {
+            return Err(io(format!("copy {}", extended_states.display()))(error));
+        }
+        _ => {}
+    }
+    Ok(dir)
 }
 
 /// Whether [`CI_VARIABLE`]'s value, `value`, says this is a CI job.
@@ -265,26 +291,34 @@ fn write_outputs(path: &Path, outputs: &[(&str, &str)]) -> Result<(), Error> {
     Ok(())
 }
 
-/// The arguments of `apt-get` for `step`, with `archives` as apt's
-/// archives directory.
-fn arguments(step: Step, packages: &[String], archives: &Path) -> Vec<String> {
+/// The arguments of `apt-get` for `step`, in `dir`: apt's archives
+/// directory for `update` and `install`, and for the listing its own
+/// directory ([`listing_directory`]).
+fn arguments(step: Step, packages: &[String], dir: &Path) -> Vec<String> {
     let mut args = Vec::new();
     if step.fetches() {
         args.extend(APT_OPTIONS.iter().map(|&option| option.to_owned()));
     }
     let install = ["install", "--yes", "--no-install-recommends"].map(String::from);
-    let archives = format!("Dir::Cache::Archives={}/", archives.display());
+    let archives = |archives: &Path| format!("Dir::Cache::Archives={}/", archives.display());
     match step {
         Step::Update => args.push("update".into()),
         Step::List => {
-            args.extend(["-o".into(), archives]);
+            args.extend(["-o".into(), archives(&dir.join("archives"))]);
+            args.extend([
+                "-o".into(),
+                format!(
+                    "Dir::State::extended_states={}",
+                    dir.join("extended_states").display()
+                ),
+            ]);
             args.extend(install);
             args.extend(["--print-uris", "-qq"].map(String::from));
             args.extend(packages.iter().cloned());
         }
         Step::Install => {
             // apt-get keeps what it fetches by default; the cache needs it.
-            args.extend(["-o".into(), archives]);
+            args.extend(["-o".into(), archives(dir)]);
             args.extend(["-o", "APT::Keep-Downloaded-Packages=true"].map(String::from));
             args.extend(install);
             args.extend(packages.iter().cloned());

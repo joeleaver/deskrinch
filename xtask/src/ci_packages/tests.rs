@@ -30,10 +30,33 @@ fn installs_into_the_cache_with_apts_limits_and_no_recommends() {
 fn the_listing_is_the_install_against_an_empty_directory_fetching_nothing() {
     let packages = ["sway".to_owned()];
     assert_eq!(
-        arguments(Step::List, &packages, Path::new("/tmp/empty")).join(" "),
-        "-o Dir::Cache::Archives=/tmp/empty/ install --yes --no-install-recommends \
-         --print-uris -qq sway"
+        arguments(Step::List, &packages, Path::new("/tmp/list")).join(" "),
+        "-o Dir::Cache::Archives=/tmp/list/archives/ \
+         -o Dir::State::extended_states=/tmp/list/extended_states \
+         install --yes --no-install-recommends --print-uris -qq sway"
     );
+}
+
+#[test]
+fn the_listing_has_an_empty_archives_and_its_own_copy_of_apts_record() {
+    let source = tempfile::tempdir().unwrap();
+    let record = source.path().join("extended_states");
+    std::fs::write(&record, "Package: dbus-user-session\nAuto-Installed: 1\n").unwrap();
+    let dir = listing_directory(&record).unwrap();
+    assert_eq!(
+        std::fs::read_dir(dir.path().join("archives"))
+            .unwrap()
+            .count(),
+        0
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("extended_states")).unwrap(),
+        "Package: dbus-user-session\nAuto-Installed: 1\n"
+    );
+    // An image with no record yet: apt starts one of the listing's own.
+    let dir = listing_directory(&source.path().join("missing")).unwrap();
+    assert!(dir.path().join("archives").is_dir());
+    assert!(!dir.path().join("extended_states").exists());
 }
 
 #[test]
