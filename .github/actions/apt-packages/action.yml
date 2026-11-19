@@ -39,8 +39,9 @@ runs:
       uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       env:
         # A job's packages are one segment (at most 115 MB, of 128): one
-        # that does not come within a minute is a miss, not ten minutes of
-        # the job's time. `ci-packages`'s budget test reads this line.
+        # that does not come within a minute is a miss, and the install
+        # fetches what it lacks, not ten minutes of the job's time spent
+        # waiting.
         SEGMENT_DOWNLOAD_TIMEOUT_MINS: "1"
       with:
         # The packages only: not apt's lock, nor its partial downloads.

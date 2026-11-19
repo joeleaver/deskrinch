@@ -1,6 +1,7 @@
 //! The words a verdict puts before the reader: one GitHub annotation per
 //! verdict that has something to say, written here and nowhere else.
 
+use super::budget::BUDGET;
 use super::classify::{Step, Verdict};
 use super::progress::Progress;
 
@@ -39,6 +40,21 @@ pub(crate) fn annotation(verdict: &Verdict) -> Option<String> {
             "::error title=apt downloaded outside its sandbox::{notice} The package cache \
              directory must be one apt's _apt user can reach: see cache.rs in xtask's \
              ci_packages."
+        )),
+        Verdict::NoTimeLeft {
+            step,
+            used,
+            left,
+            floor,
+        } => Some(format!(
+            "::error title=No time left for apt-get {step}::The package step had used {}s of \
+             its {}s when apt-get {step} was to start, leaving it {}s, under the {}s it needs. \
+             This is not the mirror: the times of the runs above, and the restore between \
+             them, say where the time went.",
+            used.as_secs(),
+            BUDGET.as_secs(),
+            left.as_secs(),
+            floor.as_secs()
         )),
         Verdict::Failed { step, ended } => Some(format!(
             "::error title=apt-get {step} failed::apt-get {step} {ended}; see its output above."
@@ -158,6 +174,29 @@ mod tests {
             "{said}"
         );
         assert!(said.contains("This is not the network"), "{said}");
+        assert!(!said.contains("slow"), "{said}");
+    }
+
+    /// An install with too little of the budget left says where its time
+    /// went, and does not blame the mirror.
+    #[test]
+    fn no_time_left_says_so_and_not_slow() {
+        let said = annotation(&Verdict::NoTimeLeft {
+            step: Step::Install,
+            used: Duration::from_secs(703),
+            left: Duration::from_secs(79),
+            floor: Duration::from_mins(2),
+        })
+        .unwrap();
+        assert!(
+            said.starts_with("::error title=No time left for apt-get install::"),
+            "{said}"
+        );
+        assert!(
+            said.contains("used 703s of its 822s when apt-get install was to start, leaving it 79s, under the 120s it needs"),
+            "{said}"
+        );
+        assert!(said.contains("This is not the mirror"), "{said}");
         assert!(!said.contains("slow"), "{said}");
     }
 

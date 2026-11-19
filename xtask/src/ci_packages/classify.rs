@@ -90,6 +90,17 @@ pub(crate) enum Verdict {
     /// archives directory is one apt's `_apt` user cannot reach. apt's own
     /// notice says which file.
     Unsandboxed(String),
+    /// It was not run: the step's budget had too little left for it.
+    NoTimeLeft {
+        /// The command.
+        step: Step,
+        /// The step's time so far, since `ci-packages update` started.
+        used: Duration,
+        /// What it could have been given.
+        left: Duration,
+        /// The least it needs.
+        floor: Duration,
+    },
     /// It failed for another reason.
     Failed {
         /// The command.

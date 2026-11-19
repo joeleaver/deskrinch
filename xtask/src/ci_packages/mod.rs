@@ -11,16 +11,18 @@
 //!   cache ([`plan::Plan::key`]). It writes the directory, the key, the key's
 //!   prefix and the number of files to `$GITHUB_OUTPUT`, and the plan to
 //!   `$RUNNER_TEMP` for the next step.
-//! - `ci-packages install` removes from the restored cache what apt no
-//!   longer fetches, then runs `apt-get install --yes
-//!   --no-install-recommends <packages>` with the cache's directory as apt's
-//!   archives, fetching only what the cache lacks.
+//! - `ci-packages install` holds every restored file to the plan's size
+//!   and checksum and removes what does not match ([`check`]), then runs
+//!   `apt-get install --yes --no-install-recommends <packages>` with the
+//!   cache's directory as apt's archives, fetching only what the cache
+//!   lacks.
 //!
 //! apt runs as root, each run with apt's own retry and request timeouts
-//! ([`APT_OPTIONS`]) and cut off after its limit ([`limit`]) by `timeout`
-//! running as root ([`bounded`]; apt has no option for a name that does not
-//! resolve). apt's own timeouts end a request that gets no answer; the
-//! limits bound what they do not: a name that never resolves, which shows
+//! ([`APT_OPTIONS`]) and cut off after its limit, its share of the step's
+//! one budget ([`budget`]), by `timeout` running as root ([`bounded`]; apt
+//! has no option for a name that does not resolve). apt's own timeouts end
+//! a request that gets no answer; the limits bound what they do not: a
+//! name that never resolves, which shows
 //! at `update`, the first contact, and a mirror that answers but serves
 //! slowly, which shows at `install`, where the files are. A run cut off
 //! while still fetching is reported as a slow mirror, not an unreachable
@@ -30,18 +32,22 @@
 
 mod annotation;
 mod bounded;
+mod budget;
 mod cache;
+mod check;
 mod classify;
 mod plan;
 mod progress;
 
+use std::collections::BTreeMap;
 use std::fs::OpenOptions;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Instant, SystemTime};
 
 use self::annotation::annotation;
 use self::bounded::User;
+use self::budget::Limit;
 use self::classify::{Step, Verdict, classify};
 use self::plan::{Plan, downloads, megabytes};
 use crate::Outcome;
@@ -73,30 +79,6 @@ const APT_OPTIONS: [&str; 6] = [
     "Acquire::https::Timeout=20",
 ];
 
-/// How long `apt-get` may run for `step`, so that the whole package step
-/// ends before GitHub ends the tightest job; the test
-/// `the_whole_step_fits_the_tightest_job` holds the figures.
-///
-/// - `update` fetches about 3.5 MB of indexes, in 2 to 15 s on every night
-///   seen, and is where a server that cannot be reached shows: two minutes.
-/// - The listing reads what `update` fetched and fetches nothing: well
-///   under a second; twenty.
-/// - `install` fetches what the cache lacks: nothing once `main` has saved
-///   the job's packages, all of them (4 to 115 MB) for a job whose cache is
-///   gone. On 2026-11-18 the mirror served steadily slowly, with no fetch
-///   stalled and nothing retried: 97 kB/s for labwc's 53.3 MB (about 9
-///   minutes needed) and 72 kB/s for sway's 52.2 MB (about 12). Eight
-///   minutes, what the tightest jobs leave once the cache's restore and
-///   save are counted: on such a night a job with no cache fails as slow,
-///   and the next run of `main` that gets its packages caches them.
-fn limit(step: Step) -> Duration {
-    match step {
-        Step::Update => Duration::from_mins(2),
-        Step::List => Duration::from_secs(20),
-        Step::Install => Duration::from_mins(8),
-    }
-}
-
 /// The variable GitHub Actions sets to `true` in every job.
 const CI_VARIABLE: &str = "GITHUB_ACTIONS";
 
@@ -114,8 +96,16 @@ pub(crate) fn run(command: &Command) -> Result<Outcome, Error> {
 
 /// `ci-packages update`.
 fn update(packages: &[String]) -> Result<Outcome, Error> {
+    let started = SystemTime::now();
     cache::prepare()?;
-    let Some(updated) = run_step(Step::Update, packages, Path::new(cache::DIRECTORY), None)? else {
+    let Some(updated) = run_step(
+        Step::Update,
+        packages,
+        Path::new(cache::DIRECTORY),
+        None,
+        started,
+    )?
+    else {
         return Ok(Outcome::Failed);
     };
     let scratch = listing_directory(Path::new(EXTENDED_STATES))?;
@@ -124,11 +114,12 @@ fn update(packages: &[String]) -> Result<Outcome, Error> {
         packages,
         scratch.path(),
         updated.sign.as_deref(),
+        started,
     )?
     else {
         return Ok(Outcome::Failed);
     };
-    let plan = Plan::new(packages, downloads(&listed.output)?);
+    let plan = Plan::new(started, packages, downloads(&listed.output)?);
     let key = plan.key(&ci_variable("ImageOS")?, &ci_variable("RUNNER_ARCH")?);
     println!(
         "Package cache key {}: the {} files apt fetches for {}, {}.",
@@ -155,29 +146,41 @@ fn update(packages: &[String]) -> Result<Outcome, Error> {
 fn install() -> Result<Outcome, Error> {
     let plan = Plan::load(&plan_path()?)?;
     let directory = Path::new(cache::DIRECTORY);
-    let restored = cache::contents(directory)?;
-    println!("Package cache restored: {}.", cache::summary(&restored));
-    let stale = cache::prune(directory, &plan.files())?;
-    if stale.is_empty() {
-        println!("Package cache: nothing in it that apt no longer fetches.");
-    } else {
-        println!(
-            "Package cache: removed {} files apt no longer fetches: {}. Left: {}.",
-            stale.len(),
-            stale.join(" "),
-            cache::summary(&cache::contents(directory)?)
-        );
+    let checked = check::check(directory, &plan.downloads)?;
+    println!(
+        "Package cache restored: {} files; {} match the index's size and checksum.",
+        checked.kept.len() + checked.removed.len(),
+        cache::summary(&checked.kept)
+    );
+    for (file, unfit) in &checked.removed {
+        println!("Package cache: removed {file}: {unfit}.");
     }
-    if run_step(Step::Install, &plan.packages, directory, None)?.is_none() {
+    if run_step(Step::Install, &plan.packages, directory, None, plan.started)?.is_none() {
         return Ok(Outcome::Failed);
     }
-    let kept = cache::contents(directory)?;
+    let after = cache::contents(directory)?;
+    let fetched: BTreeMap<String, u64> = after
+        .iter()
+        .filter(|(file, _)| !checked.kept.contains_key(*file))
+        .map(|(file, size)| (file.clone(), *size))
+        .collect();
+    println!(
+        "Packages from the cache: {}; fetched: {}.",
+        cache::summary(&checked.kept),
+        cache::summary(&fetched)
+    );
+    if !fetched.is_empty() {
+        println!(
+            "apt fetched them in its download sandbox: its output has no \"unsandboxed\" \
+             notice."
+        );
+    }
     let named = plan.files();
     println!(
-        "apt kept its download sandbox (no \"unsandboxed\" notice). Package cache after the \
-         install: {}, {} of the {} files the key names.",
-        cache::summary(&kept),
-        kept.keys()
+        "Package cache after the install: {}, {} of the {} files the key names.",
+        cache::summary(&after),
+        after
+            .keys()
             .filter(|file| named.contains(file.as_str()))
             .count(),
         named.len()
@@ -193,15 +196,36 @@ struct Ran {
     output: String,
 }
 
-/// Runs `step` in `dir` (see [`arguments`]) and reports its verdict;
-/// `None` if the job is to stop. `update_sign` is what an earlier `update`
-/// could not reach.
+/// Runs `step` in `dir` (see [`arguments`]), within its share of the budget
+/// of a step that started at `started`, and reports its verdict; `None` if
+/// the job is to stop. `update_sign` is what an earlier `update` could not
+/// reach.
 fn run_step(
     step: Step,
     packages: &[String],
     dir: &Path,
     update_sign: Option<&str>,
+    started: SystemTime,
 ) -> Result<Option<Ran>, Error> {
+    let now = SystemTime::now();
+    let limit = match budget::limit(step, started, now) {
+        Limit::Run(limit) => limit,
+        Limit::NoTimeLeft { used, left, floor } => {
+            report(&Verdict::NoTimeLeft {
+                step,
+                used,
+                left,
+                floor,
+            });
+            return Ok(None);
+        }
+    };
+    println!(
+        "apt-get {step}: given {}s; the package step has used {}s of its {}s.",
+        limit.as_secs(),
+        now.duration_since(started).unwrap_or_default().as_secs(),
+        budget::BUDGET.as_secs()
+    );
     // The listing fetches nothing and writes only in its own directory: the
     // job's user may run it.
     let user = if step.fetches() {
@@ -209,16 +233,11 @@ fn run_step(
     } else {
         User::Job
     };
-    let (ended, output) = bounded::run(
-        user,
-        "apt-get",
-        &arguments(step, packages, dir),
-        limit(step),
-    )?;
+    let began = Instant::now();
+    let (ended, output) = bounded::run(user, "apt-get", &arguments(step, packages, dir), limit)?;
+    println!("apt-get {step} ran {}s.", began.elapsed().as_secs());
     let verdict = classify(step, ended, &output, update_sign);
-    if let Some(line) = annotation(&verdict) {
-        println!("{line}");
-    }
+    report(&verdict);
     Ok(match verdict {
         Verdict::Done => Some(Ran { sign: None, output }),
         Verdict::IndexNotUpdated(sign) => Some(Ran {
@@ -229,8 +248,16 @@ fn run_step(
         | Verdict::Slow(_)
         | Verdict::CutOffAfterDownload { .. }
         | Verdict::Unsandboxed(_)
+        | Verdict::NoTimeLeft { .. }
         | Verdict::Failed { .. } => None,
     })
+}
+
+/// Prints `verdict`'s annotation, if it has one.
+fn report(verdict: &Verdict) {
+    if let Some(line) = annotation(verdict) {
+        println!("{line}");
+    }
 }
 
 /// apt's record of which packages were installed only as another's

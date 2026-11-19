@@ -9,7 +9,7 @@
 //! keeps its `lock` and `partial` there too; the cache saves only the
 //! `.deb` files.
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use std::fs;
 use std::os::unix::fs::{MetadataExt as _, PermissionsExt as _};
 use std::path::Path;
@@ -75,23 +75,6 @@ pub(super) fn summary(files: &BTreeMap<String, u64>) -> String {
     format!("{} files, {}", files.len(), megabytes(files.values().sum()))
 }
 
-/// Removes from `dir` each `.deb` file not in `wanted`: what an older cache
-/// holds that apt no longer fetches. Returns their names.
-pub(super) fn prune(dir: &Path, wanted: &BTreeSet<&str>) -> Result<Vec<String>, Error> {
-    let stale: Vec<String> = contents(dir)?
-        .into_keys()
-        .filter(|file| !wanted.contains(file.as_str()))
-        .collect();
-    for file in &stale {
-        let path = dir.join(file);
-        fs::remove_file(&path).map_err(|source| Error::Io {
-            what: format!("remove {}", path.display()),
-            source,
-        })?;
-    }
-    Ok(stale)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -120,25 +103,5 @@ mod tests {
             ]
         );
         assert_eq!(summary(&contents(dir.path()).unwrap()), "2 files, 0.0 MB");
-    }
-
-    #[test]
-    fn pruning_removes_the_packages_apt_no_longer_fetches_and_nothing_else() {
-        let dir = archives();
-        let wanted = BTreeSet::from(["sway_1.11-1_amd64v3.deb", "labwc_0.9_amd64v3.deb"]);
-        assert_eq!(
-            prune(dir.path(), &wanted).unwrap(),
-            ["sway_1.10-2_amd64v3.deb"]
-        );
-        assert_eq!(
-            contents(dir.path())
-                .unwrap()
-                .into_keys()
-                .collect::<Vec<_>>(),
-            ["sway_1.11-1_amd64v3.deb"]
-        );
-        assert!(dir.path().join("lock").exists());
-        assert!(dir.path().join("partial/labwc_0.9_amd64v3.deb").exists());
-        assert_eq!(prune(dir.path(), &wanted).unwrap(), Vec::<String>::new());
     }
 }

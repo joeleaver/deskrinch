@@ -3,12 +3,13 @@
 //! leaves for `ci-packages install`.
 
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::path::Path;
+use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
+use super::check::hex;
 use crate::error::Error;
 
 /// A file apt would fetch, as `apt-get install --print-uris` lists it.
@@ -52,9 +53,12 @@ fn download(line: &str) -> Option<Download> {
 }
 
 /// The packages a job installs and the files apt would fetch for them, on
-/// this runner image, with nothing cached.
+/// this runner image, with nothing cached; and when the package step
+/// began, which its budget counts from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Plan {
+    /// When `ci-packages update` started.
+    pub(super) started: SystemTime,
     /// The packages, sorted, each once.
     pub(super) packages: Vec<String>,
     /// The files, sorted by name.
@@ -73,11 +77,17 @@ pub(super) struct Key {
 }
 
 impl Plan {
-    /// The plan for `packages`, of which apt would fetch `downloads`.
-    pub(super) fn new(packages: &[String], mut downloads: Vec<Download>) -> Self {
+    /// The plan for `packages`, of which apt would fetch `downloads`, in a
+    /// step that started at `started`.
+    pub(super) fn new(
+        started: SystemTime,
+        packages: &[String],
+        mut downloads: Vec<Download>,
+    ) -> Self {
         let packages: BTreeSet<&String> = packages.iter().collect();
         downloads.sort_by(|a, b| a.file.cmp(&b.file));
         Self {
+            started,
             packages: packages.into_iter().cloned().collect(),
             downloads,
         }
@@ -144,13 +154,7 @@ fn hash<S: AsRef<str>>(lines: impl Iterator<Item = S>) -> String {
         sha.update(line.as_ref().as_bytes());
         sha.update(b"\n");
     }
-    sha.finalize()
-        .iter()
-        .take(8)
-        .fold(String::new(), |mut hex, byte| {
-            let _infallible = write!(hex, "{byte:02x}");
-            hex
-        })
+    hex(&sha.finalize()[..8])
 }
 
 /// A size in megabytes, as apt writes one: `53.3 MB`.
@@ -173,6 +177,7 @@ W: Target Packages (main/binary-amd64/Packages) is configured multiple times
 
     fn plan() -> Plan {
         Plan::new(
+            SystemTime::UNIX_EPOCH,
             &["sway".into(), "dbus-daemon".into(), "sway".into()],
             downloads(LISTED).unwrap(),
         )
@@ -236,7 +241,9 @@ W: Target Packages (main/binary-amd64/Packages) is configured multiple times
         assert_eq!(parts.len(), 5, "{key:?}");
         assert!(parts[3..].iter().all(|part| part.len() == 16), "{key:?}");
         // The order packages are named in does not change it.
+        // Nor does when the step started.
         let again = Plan::new(
+            SystemTime::now(),
             &["dbus-daemon".into(), "sway".into()],
             plan.downloads.clone(),
         );
@@ -258,7 +265,11 @@ W: Target Packages (main/binary-amd64/Packages) is configured multiple times
             assert_ne!(new.exact, key.exact);
             assert_eq!(new.prefix, key.prefix);
         }
-        let other = Plan::new(&["labwc".into()], plan.downloads.clone());
+        let other = Plan::new(
+            SystemTime::UNIX_EPOCH,
+            &["labwc".into()],
+            plan.downloads.clone(),
+        );
         assert_ne!(other.key("ubuntu26", "X64").prefix, key.prefix);
         assert_ne!(plan.key("ubuntu24", "X64").prefix, key.prefix);
         assert_ne!(plan.key("ubuntu26", "ARM64").prefix, key.prefix);
