@@ -54,6 +54,9 @@ pub(crate) enum Verdict {
     /// The package servers could not be reached; re-running the job is the
     /// remedy.
     Unreachable(String),
+    /// The run was cut off while apt was still downloading: the servers
+    /// answered, and served slowly.
+    Slow(Progress),
     /// It failed for another reason.
     Failed {
         /// The command.
@@ -61,6 +64,80 @@ pub(crate) enum Verdict {
         /// How it ended.
         ended: Ended,
     },
+}
+
+/// What a run cut off while still downloading had fetched.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct Progress {
+    /// The command.
+    pub(crate) step: Step,
+    /// How long it had run when it was cut off.
+    pub(crate) limit: Duration,
+    /// The files it had begun to fetch (apt's `Get:` lines).
+    pub(crate) files: usize,
+    /// Their sizes, as apt states them, in kB.
+    pub(crate) kilobytes: u64,
+    /// The last of them, as apt names it.
+    pub(crate) last: String,
+}
+
+impl fmt::Display for Progress {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let seconds = self.limit.as_secs().max(1);
+        write!(
+            f,
+            "apt-get {} was cut off after {seconds}s while still downloading: {} files \
+             begun, {} kB, about {} kB/s; the last {}",
+            self.step,
+            self.files,
+            self.kilobytes,
+            self.kilobytes / seconds,
+            self.last
+        )
+    }
+}
+
+/// What `output` shows of the files apt began to fetch: its `Get:` lines,
+/// such as `Get:42 http://archive.ubuntu.com/ubuntu resolute/main amd64
+/// libgtk-3-dev amd64 3.24.43-1 [1,810 kB]`; `None` when there are none.
+fn progress(step: Step, limit: Duration, output: &str) -> Option<Progress> {
+    let gets: Vec<&str> = output
+        .lines()
+        .filter(|line| line.starts_with("Get:"))
+        .collect();
+    let last = gets.last()?;
+    Some(Progress {
+        step,
+        limit,
+        files: gets.len(),
+        kilobytes: gets.iter().filter_map(|line| kilobytes(line)).sum(),
+        last: last
+            .split_whitespace()
+            .nth(4)
+            .unwrap_or_else(|| last.trim())
+            .to_owned(),
+    })
+}
+
+/// The size at the end of a `Get:` line (`[1,810 kB]`, `[2.1 MB]`, `[912 B]`),
+/// in kB.
+fn kilobytes(line: &str) -> Option<u64> {
+    let (_, size) = line.trim_end().strip_suffix(']')?.rsplit_once('[')?;
+    let (number, unit) = size.split_once(' ')?;
+    let number: f64 = number.replace(',', "").parse().ok()?;
+    let factor = match unit {
+        "B" => 0.001,
+        "kB" => 1.0,
+        "MB" => 1000.0,
+        _ => return None,
+    };
+    // A file's size in kB, rounded: far inside u64.
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "a package's size in kB, non-negative and far below u64::MAX"
+    )]
+    Some((number * factor).round() as u64)
 }
 
 /// The signs in apt's output of a server it could not reach, each up to the
@@ -110,10 +187,17 @@ pub(crate) fn classify(
     update_sign: Option<&str>,
 ) -> Verdict {
     if let Ended::CutOff(limit) = ended {
-        return Verdict::Unreachable(format!(
-            "apt-get {step} did not finish within {}s",
-            limit.as_secs()
-        ));
+        // Still fetching when cut off is a slow mirror; a run that fetched
+        // nothing in all that time reached nothing.
+        return progress(step, limit, output).map_or_else(
+            || {
+                Verdict::Unreachable(format!(
+                    "apt-get {step} did not finish within {}s",
+                    limit.as_secs()
+                ))
+            },
+            Verdict::Slow,
+        );
     }
     let sign = unreachable_sign(output);
     match (sign, ended, step) {
@@ -174,6 +258,59 @@ E: Unable to fetch some archives, maybe run apt update or try with --fix-missing
             ),
             Verdict::Unreachable("apt-get update did not finish within 300s".into())
         );
+    }
+
+    /// The last files PR 142's sway job had begun when its install was cut
+    /// off on 2026-11-18: the mirror served steadily, at about 70 kB/s.
+    const SLOW: &str = "\
+Get:6 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 libc6 amd64 2.43-2ubuntu2.7 [2095 kB]
+Get:7 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 libc-bin amd64 2.43-2ubuntu2.7 [716 kB]
+Get:8 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 locales all 2.43-2ubuntu2.7 [4226 kB]
+";
+
+    #[test]
+    fn a_mirror_still_serving_when_cut_off_is_slow_not_unreachable() {
+        let limit = Duration::from_secs(600);
+        let verdict = classify(Step::Install, Ended::CutOff(limit), SLOW, None);
+        assert_eq!(
+            verdict,
+            Verdict::Slow(Progress {
+                step: Step::Install,
+                limit,
+                files: 3,
+                kilobytes: 2095 + 716 + 4226,
+                last: "locales".into(),
+            })
+        );
+        let Verdict::Slow(progress) = verdict else {
+            unreachable!()
+        };
+        let said = progress.to_string();
+        assert!(said.contains("while still downloading"), "{said}");
+        assert!(said.contains("about 11 kB/s"), "{said}");
+        assert!(!said.contains("re-run"), "{said}");
+    }
+
+    #[test]
+    fn a_run_that_fetched_nothing_before_its_cut_off_is_unreachable() {
+        let stalled = "Ign:1 http://azure.archive.ubuntu.com/ubuntu resolute InRelease\n";
+        assert_eq!(
+            classify(
+                Step::Update,
+                Ended::CutOff(Duration::from_secs(300)),
+                stalled,
+                None
+            ),
+            Verdict::Unreachable("apt-get update did not finish within 300s".into())
+        );
+    }
+
+    #[test]
+    fn sizes_read_in_each_unit() {
+        assert_eq!(kilobytes("Get:1 x [912 B]"), Some(1));
+        assert_eq!(kilobytes("Get:1 x [1,810 kB]"), Some(1810));
+        assert_eq!(kilobytes("Get:1 x [2.1 MB]"), Some(2100));
+        assert_eq!(kilobytes("Get:1 x"), None);
     }
 
     #[test]
