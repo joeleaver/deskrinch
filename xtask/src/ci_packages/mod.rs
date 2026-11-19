@@ -15,11 +15,14 @@
 //! annotations. It installs packages with `sudo`, so it runs only on CI
 //! (`GITHUB_ACTIONS=true`) and refuses everywhere else.
 
+mod annotation;
 mod bounded;
 mod classify;
+mod progress;
 
 use std::time::Duration;
 
+use self::annotation::annotation;
 use self::classify::{Ended, Step, Verdict, classify};
 use crate::Outcome;
 use crate::error::Error;
@@ -35,11 +38,10 @@ const APT_OPTIONS: [&str; 6] = [
     "Acquire::https::Timeout=20",
 ];
 
-/// How long `apt-get` may run for `step`. Both must end the step before
-/// GitHub ends the job, or this program's verdict is never printed: the
-/// tightest jobs leave the package step about 14.7 minutes (the Tests job and
-/// sway's compositor job: a 30 and a 45 minute limit, less their other
-/// steps at their longest, 2026-11-15 to 18).
+/// How long `apt-get` may run for `step`, so that the step (xtask's build,
+/// both runs and both runs' [`bounded::KILL_AFTER`]) ends before GitHub ends
+/// the tightest job; the test `the_whole_step_fits_the_tightest_job` holds
+/// the figures.
 ///
 /// - `update` fetches about 3.5 MB of indexes, in 2 to 15 s on every night
 ///   seen, and is where a server that cannot be reached shows: two minutes.
@@ -47,14 +49,15 @@ const APT_OPTIONS: [&str; 6] = [
 ///   steadily slowly, with no fetch stalled and nothing retried: 97 kB/s
 ///   for labwc's 53.3 MB (109 of 122 files begun when cut off at five
 ///   minutes, about 9 minutes needed) and 72 kB/s for sway's 52.2 MB (43 of
-///   117, about 12 minutes needed). Twelve minutes, what the tightest jobs
-///   leave after `update`'s two. KWin's 115 MB at those rates needs 20 to
-///   27 minutes, which no job limit leaves: that is the case for caching the
-///   packages, and its verdict says the mirror was slow.
+///   117, about 12 minutes needed). Eleven minutes, what the tightest jobs
+///   leave. One limit for every job rather than one each: the jobs that
+///   could afford more fetch the small sets, and KWin's job, which needs
+///   more (115 MB, 20 to 27 minutes at those rates), has 16.2 minutes: on
+///   such a night it fails as slow, and caching the packages is the cure.
 fn limit(step: Step) -> Duration {
     match step {
         Step::Update => Duration::from_mins(2),
-        Step::Install => Duration::from_mins(12),
+        Step::Install => Duration::from_mins(11),
     }
 }
 
@@ -67,35 +70,17 @@ pub(crate) fn run(packages: &[String]) -> Result<Outcome, Error> {
     let mut update_sign = None;
     for step in [Step::Update, Step::Install] {
         let (ended, output) = apt(step, packages)?;
-        match classify(step, ended, &output, update_sign.as_deref()) {
+        let verdict = classify(step, ended, &output, update_sign.as_deref());
+        if let Some(line) = annotation(&verdict) {
+            println!("{line}");
+        }
+        match verdict {
             Verdict::Done => {}
-            Verdict::IndexNotUpdated(sign) => {
-                println!("::warning title=Package index not updated::{sign}");
-                update_sign = Some(sign);
-            }
-            Verdict::Unreachable(reason) => {
-                println!(
-                    "::error title=Package servers unreachable::apt could not reach Ubuntu's \
-                     package servers ({reason}). This is the runner's network, not the code: \
-                     re-run the job."
-                );
-                return Ok(Outcome::Failed);
-            }
-            Verdict::Slow(progress) => {
-                println!(
-                    "::error title=Package download too slow::{progress}. The package \
-                     servers answered and served slowly: not an outage, so a re-run later \
-                     may pass, and caching the packages is the cure."
-                );
-                return Ok(Outcome::Failed);
-            }
-            Verdict::Failed { step, ended } => {
-                println!(
-                    "::error title=apt-get {step} failed::apt-get {step} {ended}; see its \
-                     output above."
-                );
-                return Ok(Outcome::Failed);
-            }
+            Verdict::IndexNotUpdated(sign) => update_sign = Some(sign),
+            Verdict::Unreachable(_)
+            | Verdict::Slow(_)
+            | Verdict::CutOffInstalling(_)
+            | Verdict::Failed { .. } => return Ok(Outcome::Failed),
         }
     }
     Ok(Outcome::Passed)
@@ -155,8 +140,34 @@ mod tests {
     #[test]
     fn update_is_bounded_short_and_install_for_a_slow_mirror() {
         assert_eq!(limit(Step::Update), Duration::from_mins(2));
-        assert_eq!(limit(Step::Install), Duration::from_mins(12));
-        // Inside the tightest job's 14.7 minutes for the package step.
-        assert!(limit(Step::Update) + limit(Step::Install) < Duration::from_secs(14 * 60 + 42));
+        assert_eq!(limit(Step::Install), Duration::from_mins(11));
+    }
+
+    /// The step ends, with its verdict printed, before GitHub ends the
+    /// tightest job: the build, both runs, and both runs' grace after
+    /// `SIGTERM`.
+    /// What the tightest jobs leave the package step before GitHub ends them:
+    /// the Tests job and sway's compositor job, a 30 and a 45 minute limit less
+    /// their other steps at their longest over CI's runs of 2026-11-15 to 18
+    /// (cold caches included). A verdict is printed only if the step ends
+    /// within it.
+    const TIGHTEST_JOB_REMAINDER: Duration = Duration::from_secs(14 * 60 + 42);
+
+    /// The step's time before apt's first line: building xtask, which runs it.
+    /// At most 44 s over the 220 job logs of 2026-11-17 and 18 that reached
+    /// apt (median 9 s).
+    const BUILD_ALLOWANCE: Duration = Duration::from_mins(1);
+
+    #[test]
+    fn the_whole_step_fits_the_tightest_job() {
+        let step = BUILD_ALLOWANCE
+            + limit(Step::Update)
+            + bounded::KILL_AFTER
+            + limit(Step::Install)
+            + bounded::KILL_AFTER;
+        assert!(
+            step <= TIGHTEST_JOB_REMAINDER,
+            "{step:?} against {TIGHTEST_JOB_REMAINDER:?}"
+        );
     }
 }
