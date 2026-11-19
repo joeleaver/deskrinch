@@ -3,7 +3,7 @@
 use std::fmt;
 use std::time::Duration;
 
-use super::progress::{Progress, progress};
+use super::progress::{Downloaded, Progress, progress};
 
 /// Which `apt-get` command ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -61,9 +61,17 @@ pub(crate) enum Verdict {
     /// and served slowly.
     Slow(Progress),
     /// The run was cut off after its download had finished in less than
-    /// half its time: what did not finish was unpacking and configuring,
-    /// not the network.
-    CutOffInstalling(Progress),
+    /// half its time: what did not finish was the work after it (`update`
+    /// reading the package lists, `install` unpacking and configuring), not
+    /// the network.
+    CutOffAfterDownload {
+        /// The command.
+        step: Step,
+        /// How long it had run when it was cut off.
+        limit: Duration,
+        /// apt's report of the finished download.
+        downloaded: Downloaded,
+    },
     /// It failed for another reason.
     Failed {
         /// The command.
@@ -128,8 +136,16 @@ pub(crate) fn classify(
                 "apt-get {step} did not finish within {}s",
                 limit.as_secs()
             )),
-            Some(progress) if progress.download_used_the_time() => Verdict::Slow(progress),
-            Some(progress) => Verdict::CutOffInstalling(progress),
+            Some(progress) => match &progress.downloaded {
+                Some(downloaded) if !progress.download_used_the_time() => {
+                    Verdict::CutOffAfterDownload {
+                        step,
+                        limit,
+                        downloaded: downloaded.clone(),
+                    }
+                }
+                _ => Verdict::Slow(progress),
+            },
         };
     }
     let sign = unreachable_sign(output);
@@ -255,7 +271,7 @@ Unpacking gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
             None,
         );
         assert!(
-            matches!(verdict, Verdict::CutOffInstalling(_)),
+            matches!(verdict, Verdict::CutOffAfterDownload { .. }),
             "{verdict:?}"
         );
     }

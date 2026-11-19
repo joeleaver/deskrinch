@@ -79,7 +79,7 @@ pub(crate) fn run(packages: &[String]) -> Result<Outcome, Error> {
             Verdict::IndexNotUpdated(sign) => update_sign = Some(sign),
             Verdict::Unreachable(_)
             | Verdict::Slow(_)
-            | Verdict::CutOffInstalling(_)
+            | Verdict::CutOffAfterDownload { .. }
             | Verdict::Failed { .. } => return Ok(Outcome::Failed),
         }
     }
@@ -143,9 +143,6 @@ mod tests {
         assert_eq!(limit(Step::Install), Duration::from_mins(11));
     }
 
-    /// The step ends, with its verdict printed, before GitHub ends the
-    /// tightest job: the build, both runs, and both runs' grace after
-    /// `SIGTERM`.
     /// What the tightest jobs leave the package step before GitHub ends them:
     /// the Tests job and sway's compositor job, a 30 and a 45 minute limit less
     /// their other steps at their longest over CI's runs of 2026-11-15 to 18
@@ -158,6 +155,9 @@ mod tests {
     /// apt (median 9 s).
     const BUILD_ALLOWANCE: Duration = Duration::from_mins(1);
 
+    /// The step ends, with its verdict printed, before GitHub ends the
+    /// tightest job: the build, both runs, and both runs' grace after
+    /// `SIGTERM`.
     #[test]
     fn the_whole_step_fits_the_tightest_job() {
         let step = BUILD_ALLOWANCE
