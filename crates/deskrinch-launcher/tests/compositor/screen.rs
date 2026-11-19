@@ -16,11 +16,11 @@ use std::process::Command;
 
 use deskrinch_launcher::{HAS_KEYBOARD, query_at_hide};
 use deskrinch_test_input::{Input, Key};
-use deskrinch_test_screen::{Image, Rgba, Screen};
+use deskrinch_test_screen::{Image, Pictures, Rgba, Screen};
 use tempfile::TempDir;
 
 use crate::support::{Launcher, client, in_nested_session, launcher, stays};
-use deskrinch_test_wait::{PATIENCE, comes_true, wait_for};
+use deskrinch_test_wait::{comes_true, wait_for};
 
 /// The launcher's size on the screen (scale 1): its layer surface's.
 pub(crate) const WIDTH: u32 = 640;
@@ -206,17 +206,28 @@ impl Shown {
         })
     }
 
-    /// Captures until `accept` takes an image; panics, with what the
-    /// launcher logged, when none comes.
+    /// The launcher's output once it is still and `accept` takes it: a
+    /// settled picture, never the first frame that passes. A frame taken
+    /// while the compositor animates the launcher opening or closing (KWin
+    /// scales a window in and out) or before a change has reached the
+    /// screen is waited out, and the output looked at again until it is
+    /// still and accepted. Panics, with what the launcher logged, when no
+    /// such picture comes.
     pub(crate) fn see(&mut self, what: &str, accept: impl Fn(&Image) -> bool) -> Image {
-        self.screen
-            .capture_until(&self.output, PATIENCE, accept)
-            .unwrap_or_else(|error| {
-                panic!(
-                    "{what}: {error}\nthe launcher logged:\n{}",
-                    self.launcher.log()
-                )
-            })
+        let output = self.output.clone();
+        let screen = &mut self.screen;
+        let launcher = &self.launcher;
+        wait_for(what, || {
+            let still = Pictures::still_of(screen, &output);
+            let image = still
+                .get(&output)
+                .unwrap_or_else(|| panic!("{what}: no output {output}"));
+            if accept(image) {
+                Ok(image.clone())
+            } else {
+                Err(format!("the launcher logged:\n{}", launcher.log()))
+            }
+        })
     }
 
     /// What the applications started so far were run with, one list of

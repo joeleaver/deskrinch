@@ -104,8 +104,8 @@ fn the_gaps_padding_and_strip_below_let_the_pointer_through_and_a_popup_takes_it
     // no press.
     let window = beneath.under(&column);
     let mark = window.pointer_events().len();
-    let image = notifications.picture(&column);
-    let (x, y) = close_button(&image, &column, column.popups[0], scale);
+    let image = &column.image;
+    let (x, y) = close_button(image, &column, column.popups[0], scale);
     notifications.click(&column, x, y);
     assert_eq!(
         notifications.next_signal(),

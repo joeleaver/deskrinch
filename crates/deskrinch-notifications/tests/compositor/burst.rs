@@ -70,10 +70,10 @@ fn changes_in_quick_succession_leave_every_shown_popup_whole() {
     notifications.quiet();
     let (shown, waiting) = notifications.fit_drawn(2);
     let column = notifications.settled(shown, waiting);
-    let image = notifications.picture(&column);
+    let image = &column.image;
     for (at, popup) in column.popups.iter().enumerate() {
         assert!(
-            whole(&image, &column, *popup, scale),
+            whole(image, &column, *popup, scale),
             "popup {at} is not drawn whole: {column:?}\nthe daemon said:\n{}",
             notifications.said()
         );
