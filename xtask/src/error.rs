@@ -276,6 +276,32 @@ pub(crate) enum Error {
          (GITHUB_ACTIONS=true); install what you need yourself"
     )]
     NotInCi,
+    /// A variable GitHub Actions sets in every job was not set.
+    #[error("the CI variable `{name}` is not set: ci-packages runs in GitHub Actions only")]
+    CiVariable {
+        /// The variable.
+        name: &'static str,
+    },
+    /// `apt-get install --print-uris` printed a download it could not read.
+    #[error("apt-get install --print-uris listed a download xtask cannot read: {line}")]
+    AptListing {
+        /// The line.
+        line: String,
+    },
+    /// The plan `ci-packages update` leaves could not be read back.
+    #[error("{} is not the plan `ci-packages update` writes: {reason}", path.display())]
+    PackagePlan {
+        /// The file.
+        path: PathBuf,
+        /// What is wrong with it.
+        reason: String,
+    },
+    /// The package cache's directory could not be made.
+    #[error("could not make the package cache's directory: `install -d` {ended}")]
+    PackageCache {
+        /// How `install` ended.
+        ended: String,
+    },
     /// The nested compositor did not accept a connection on its socket in
     /// time, while it ran.
     #[error(
