@@ -214,14 +214,8 @@ impl Shown {
     /// still and accepted. Panics, with what the launcher logged, when no
     /// such picture comes.
     pub(crate) fn see(&mut self, what: &str, accept: impl Fn(&Image) -> bool) -> Image {
-        let output = self.output.clone();
-        let screen = &mut self.screen;
         let launcher = &self.launcher;
-        wait_for(what, || {
-            let still = Pictures::still_of(screen, &output);
-            let image = still
-                .get(&output)
-                .unwrap_or_else(|| panic!("{what}: no output {output}"));
+        Pictures::judged(&mut self.screen, &self.output, what, |image| {
             if accept(image) {
                 Ok(image.clone())
             } else {

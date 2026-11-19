@@ -4,11 +4,12 @@
 //! apart, are the only sign of it, and the gap is the compositor's
 //! ([`still_gap_for`]).
 
+use std::fmt::Debug;
 use std::thread;
 use std::time::Duration;
 
 use deskrinch_test_client::Compositor;
-use deskrinch_test_wait::{Deadline, PATIENCE};
+use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 
 use crate::error::CaptureError;
 use crate::image::Image;
@@ -75,7 +76,7 @@ impl Pictures {
     #[must_use]
     #[track_caller]
     pub fn still(screen: &mut Screen) -> Self {
-        Self::still_only(screen, None)
+        Self::still_only(screen, None, still_gap())
     }
 
     /// The output named `output` alone, once it is still, as
@@ -88,13 +89,12 @@ impl Pictures {
     #[must_use]
     #[track_caller]
     pub fn still_of(screen: &mut Screen, output: &str) -> Self {
-        Self::still_only(screen, Some(output))
+        Self::still_only(screen, Some(output), still_gap())
     }
 
     #[track_caller]
-    fn still_only(screen: &mut Screen, only: Option<&str>) -> Self {
+    fn still_only(screen: &mut Screen, only: Option<&str>, gap: Duration) -> Self {
         let deadline = Deadline::patience();
-        let gap = still_gap();
         let take = |screen: &mut Screen| {
             Self::take(screen, only).unwrap_or_else(|error| panic!("capturing the screen: {error}"))
         };
@@ -111,6 +111,65 @@ impl Pictures {
             );
             last = now;
         }
+    }
+
+    /// What `judge` takes from the output named `output` once it is still
+    /// ([`still_of`](Self::still_of)), the output looked at again until it
+    /// is still and `judge` answers with a value; `what` names the wait.
+    ///
+    /// The judgment for a picture that stays as it is. Whether a change
+    /// comes about is shown by the first capture that has it
+    /// ([`Screen::capture_until`]): no earlier picture can have it. That
+    /// something stays is judged on a still screen, because the first
+    /// capture after the event that could change it can come before the
+    /// change would reach the screen, and passes whatever the program
+    /// does. With a capture of a few milliseconds this is the common case,
+    /// not the rare one: the wallpaper's check that a picture replaced by
+    /// one that cannot be shown stays let a mutant that shows the colour
+    /// through on 11 of 27 passes as a first capture, and on none as this.
+    ///
+    /// # Panics
+    ///
+    /// When no such picture comes within [`PATIENCE`], with `what` and
+    /// `judge`'s last answer; as [`still_of`](Self::still_of).
+    #[track_caller]
+    pub fn judged<T, S: Debug>(
+        screen: &mut Screen,
+        output: &str,
+        what: &str,
+        judge: impl FnMut(&Image) -> Result<T, S>,
+    ) -> T {
+        Self::judged_over(screen, output, still_gap(), what, judge)
+    }
+
+    /// [`judged`](Self::judged), still meaning the same in two captures
+    /// `gap` apart rather than [`still_gap`]'s.
+    ///
+    /// The default gap is the one to use: it is calibrated per compositor
+    /// to outlast what the compositor itself animates. A longer gap is
+    /// right only where the change judged takes longer than the default
+    /// gap to reach the screen after the event the test waits for (a
+    /// client told to change its picture some time later, as this crate's
+    /// own test of the judgment does), never to make a wait pass.
+    ///
+    /// # Panics
+    ///
+    /// As [`judged`](Self::judged).
+    #[track_caller]
+    pub fn judged_over<T, S: Debug>(
+        screen: &mut Screen,
+        output: &str,
+        gap: Duration,
+        what: &str,
+        mut judge: impl FnMut(&Image) -> Result<T, S>,
+    ) -> T {
+        wait_for(what, || {
+            let still = Self::still_only(screen, Some(output), gap);
+            let image = still
+                .get(output)
+                .unwrap_or_else(|| panic!("{what}: no output {output}"));
+            judge(image)
+        })
     }
 
     /// The picture of the output named `name`, if there is one.
