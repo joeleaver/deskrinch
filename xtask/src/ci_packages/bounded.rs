@@ -15,7 +15,7 @@ use super::classify::Ended;
 use crate::error::Error;
 
 /// How long `timeout` waits after `SIGTERM` before it sends `SIGKILL`.
-const KILL_AFTER: Duration = Duration::from_secs(10);
+pub(super) const KILL_AFTER: Duration = Duration::from_secs(10);
 
 /// `timeout`'s status when the command outlived the limit and ended on
 /// `SIGTERM`, and when it needed `SIGKILL` (128 + 9).

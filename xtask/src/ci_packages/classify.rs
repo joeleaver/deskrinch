@@ -3,6 +3,8 @@
 use std::fmt;
 use std::time::Duration;
 
+use super::progress::{Downloaded, Progress, progress};
+
 /// Which `apt-get` command ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Step {
@@ -54,6 +56,22 @@ pub(crate) enum Verdict {
     /// The package servers could not be reached; re-running the job is the
     /// remedy.
     Unreachable(String),
+    /// The run was cut off, and the download is what used its time (still
+    /// going, or finished in more than half of it): the servers answered,
+    /// and served slowly.
+    Slow(Progress),
+    /// The run was cut off after its download had finished in less than
+    /// half its time: what did not finish was the work after it (`update`
+    /// reading the package lists, `install` unpacking and configuring), not
+    /// the network.
+    CutOffAfterDownload {
+        /// The command.
+        step: Step,
+        /// How long it had run when it was cut off.
+        limit: Duration,
+        /// apt's report of the finished download.
+        downloaded: Downloaded,
+    },
     /// It failed for another reason.
     Failed {
         /// The command.
@@ -110,10 +128,25 @@ pub(crate) fn classify(
     update_sign: Option<&str>,
 ) -> Verdict {
     if let Ended::CutOff(limit) = ended {
-        return Verdict::Unreachable(format!(
-            "apt-get {step} did not finish within {}s",
-            limit.as_secs()
-        ));
+        // A run that fetched nothing in all that time reached nothing; one
+        // whose download took the time met a slow mirror; one whose
+        // download was quick ran out of time installing.
+        return match progress(step, limit, output) {
+            None => Verdict::Unreachable(format!(
+                "apt-get {step} did not finish within {}s",
+                limit.as_secs()
+            )),
+            Some(progress) => match &progress.downloaded {
+                Some(downloaded) if !progress.download_used_the_time() => {
+                    Verdict::CutOffAfterDownload {
+                        step,
+                        limit,
+                        downloaded: downloaded.clone(),
+                    }
+                }
+                _ => Verdict::Slow(progress),
+            },
+        };
     }
     let sign = unreachable_sign(output);
     match (sign, ended, step) {
@@ -170,6 +203,87 @@ E: Unable to fetch some archives, maybe run apt update or try with --fix-missing
                 Step::Update,
                 Ended::CutOff(Duration::from_secs(300)),
                 "",
+                None
+            ),
+            Verdict::Unreachable("apt-get update did not finish within 300s".into())
+        );
+    }
+
+    /// The last files PR 142's sway job had begun when its install was cut
+    /// off on 2026-11-18: the mirror served steadily, at about 70 kB/s.
+    const SLOW: &str = "\
+Get:6 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 libc6 amd64 2.43-2ubuntu2.7 [2095 kB]
+Get:7 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 libc-bin amd64 2.43-2ubuntu2.7 [716 kB]
+Get:8 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 locales all 2.43-2ubuntu2.7 [4226 kB]
+";
+
+    #[test]
+    fn a_mirror_still_serving_when_cut_off_is_slow_not_unreachable() {
+        let limit = Duration::from_secs(600);
+        assert_eq!(
+            classify(Step::Install, Ended::CutOff(limit), SLOW, None),
+            Verdict::Slow(Progress {
+                step: Step::Install,
+                limit,
+                files: 3,
+                kilobytes: 2095 + 716 + 4226,
+                last: "locales".into(),
+                downloaded: None,
+            })
+        );
+    }
+
+    /// The end of a download, as a Tests job printed it on 2026-11-18, and
+    /// the unpacking it went on to.
+    fn downloaded_in(took: &str) -> String {
+        format!(
+            "{SLOW}Fetched 15.4 MB in {took} (55.6 kB/s)
+Selecting previously unselected package gir1.2-atk-1.0:amd64.
+Preparing to unpack .../00-gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64v3.deb ...
+Unpacking gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
+"
+        )
+    }
+
+    #[test]
+    fn a_slow_download_that_finished_before_the_cut_off_is_still_slow() {
+        let limit = Duration::from_mins(11);
+        let Verdict::Slow(progress) = classify(
+            Step::Install,
+            Ended::CutOff(limit),
+            &downloaded_in("6min 2s"),
+            None,
+        ) else {
+            panic!("not slow");
+        };
+        let downloaded = progress.downloaded.expect("the Fetched line");
+        assert_eq!(downloaded.report, "15.4 MB in 6min 2s (55.6 kB/s)");
+        assert_eq!(downloaded.took, Duration::from_secs(362));
+    }
+
+    #[test]
+    fn a_quick_download_then_a_cut_off_is_not_the_network() {
+        let limit = Duration::from_mins(11);
+        let verdict = classify(
+            Step::Install,
+            Ended::CutOff(limit),
+            &downloaded_in("8s"),
+            None,
+        );
+        assert!(
+            matches!(verdict, Verdict::CutOffAfterDownload { .. }),
+            "{verdict:?}"
+        );
+    }
+
+    #[test]
+    fn a_run_that_fetched_nothing_before_its_cut_off_is_unreachable() {
+        let stalled = "Ign:1 http://azure.archive.ubuntu.com/ubuntu resolute InRelease\n";
+        assert_eq!(
+            classify(
+                Step::Update,
+                Ended::CutOff(Duration::from_secs(300)),
+                stalled,
                 None
             ),
             Verdict::Unreachable("apt-get update did not finish within 300s".into())
