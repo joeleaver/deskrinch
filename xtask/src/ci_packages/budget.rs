@@ -4,7 +4,8 @@
 //!
 //! `update` and the listing have caps of their own; `install` has none and
 //! is given what is left. (Making the cache's directory comes first, with
-//! ten seconds of its own, counted in the time used.) Every run's limit is at most what remains of the
+//! ten seconds of its own, counted in the time used.) Every run's limit is
+//! at most what remains of the
 //! budget less [`RESERVE`], so the step, its verdict printed and the cache
 //! saved, ends before GitHub ends the tightest job, whatever the earlier
 //! runs and the restore took: a restore that took its time has left little

@@ -7,8 +7,9 @@
 //! plan, from `--print-uris`), and a file that does not match, or that the
 //! plan does not name, is removed for apt to fetch. A checksum of a kind
 //! other than SHA-256 or SHA-512 is not verified, so its file is removed
-//! too. What root installs from the cache is then exactly what the index
-//! names.
+//! too, and so is anything named `*.deb` that is not a regular file (a
+//! link, which apt would follow, is read as a link). What root installs
+//! from the cache is then exactly what the index names.
 
 use std::collections::BTreeMap;
 use std::fmt::{self, Write as _};
@@ -18,13 +19,14 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256, Sha512};
 
-use super::cache::contents;
 use super::plan::Download;
 use crate::error::Error;
 
 /// Why a restored file is not installed from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Unfit {
+    /// It is not a regular file: a link, say, or a directory.
+    NotAFile,
     /// apt no longer fetches it: an older cache's.
     NotPlanned,
     /// Its size is not the index's.
@@ -49,6 +51,7 @@ pub(super) enum Unfit {
 impl fmt::Display for Unfit {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::NotAFile => f.write_str("it is not a regular file"),
             Self::NotPlanned => f.write_str("apt no longer fetches it"),
             Self::Size { found, wanted } => {
                 write!(f, "{found} bytes, where the index says {wanted}")
@@ -68,28 +71,47 @@ pub(super) struct Checked {
     pub(super) removed: Vec<(String, Unfit)>,
 }
 
-/// Checks each `.deb` file in `dir` against `downloads`, the plan's, and
-/// removes those that do not match. apt's `lock` and `partial` are not
-/// touched.
+/// Checks everything named `*.deb` in `dir` against `downloads`, the
+/// plan's, and removes what does not match. apt's `lock` and `partial` are
+/// not touched.
 pub(super) fn check(dir: &Path, downloads: &[Download]) -> Result<Checked, Error> {
     let planned: BTreeMap<&str, &Download> =
         downloads.iter().map(|d| (d.file.as_str(), d)).collect();
+    let io = |what: String| move |source| Error::Io { what, source };
+    let mut names = Vec::new();
+    for entry in fs::read_dir(dir).map_err(io(format!("list {}", dir.display())))? {
+        let name = entry
+            .map_err(io(format!("list {}", dir.display())))?
+            .file_name()
+            .to_string_lossy()
+            .into_owned();
+        if Path::new(&name).extension().is_some_and(|e| e == "deb") {
+            names.push(name);
+        }
+    }
+    names.sort();
     let mut checked = Checked::default();
-    for (file, size) in contents(dir)? {
+    for file in names {
         let path = dir.join(&file);
+        // The entry itself, not what a link names.
+        let metadata =
+            fs::symlink_metadata(&path).map_err(io(format!("read {}", path.display())))?;
         let unfit = match planned.get(file.as_str()) {
+            _ if !metadata.is_file() => Some(Unfit::NotAFile),
             None => Some(Unfit::NotPlanned),
-            Some(download) => fits(&path, size, download)?,
+            Some(download) => fits(&path, metadata.len(), download)?,
         };
         match unfit {
             None => {
-                checked.kept.insert(file, size);
+                checked.kept.insert(file, metadata.len());
             }
             Some(unfit) => {
-                fs::remove_file(&path).map_err(|source| Error::Io {
-                    what: format!("remove {}", path.display()),
-                    source,
-                })?;
+                let removed = if metadata.is_dir() {
+                    fs::remove_dir_all(&path)
+                } else {
+                    fs::remove_file(&path)
+                };
+                removed.map_err(io(format!("remove {}", path.display())))?;
                 checked.removed.push((file, unfit));
             }
         }
@@ -265,8 +287,40 @@ mod tests {
         assert!(dir.path().join("partial/labwc_0.9_amd64v3.deb").exists());
     }
 
+    /// A link named as a planned package is removed, though what it names
+    /// is the package's very bytes: apt would follow it.
+    #[test]
+    fn a_link_named_as_a_planned_file_is_removed() {
+        let elsewhere = tempfile::tempdir().unwrap();
+        let good = elsewhere.path().join("good.deb");
+        fs::write(&good, GOOD).unwrap();
+        let dir = restored(&[]);
+        std::os::unix::fs::symlink(&good, dir.path().join("sway.deb")).unwrap();
+        fs::create_dir(dir.path().join("labwc.deb")).unwrap();
+        let checked = check(
+            dir.path(),
+            &[
+                package("sway.deb", GOOD, "SHA512"),
+                package("labwc.deb", GOOD, "SHA512"),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            checked.removed,
+            [
+                ("labwc.deb".into(), Unfit::NotAFile),
+                ("sway.deb".into(), Unfit::NotAFile)
+            ]
+        );
+        assert!(checked.kept.is_empty());
+        assert!(fs::symlink_metadata(dir.path().join("sway.deb")).is_err());
+        assert!(!dir.path().join("labwc.deb").exists());
+        assert!(good.exists(), "what the link named is not touched");
+    }
+
     #[test]
     fn each_reason_reads() {
+        assert_eq!(Unfit::NotAFile.to_string(), "it is not a regular file");
         assert_eq!(Unfit::NotPlanned.to_string(), "apt no longer fetches it");
         assert_eq!(
             Unfit::Size {
