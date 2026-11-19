@@ -1,11 +1,23 @@
 name: Install the pinned Rust toolchain
 description: >-
-  Installs the toolchain `rust-toolchain.toml` names, with its components, and
-  fails unless that file is what selects the toolchain `cargo` will use.
+  Installs the toolchain `rust-toolchain.toml` names, with its components, in
+  a rustup home of the job's own, and fails unless that file is what selects
+  the toolchain `cargo` will use.
 
 runs:
   using: composite
   steps:
+    # rust-cache's key hashes every toolchain rustup lists, and the runner
+    # images carry a stable toolchain of their own that changes from one
+    # image to the next: in a rollout, jobs alternated between two keys and
+    # held two caches each. In a home of the job's own, at the same path on
+    # every image, rustup lists the pin alone, and nothing the image
+    # installed is touched. No image carries the pin, so it is downloaded
+    # either way.
+    - name: Give the job a rustup home of its own
+      shell: bash
+      run: echo "RUSTUP_HOME=$RUNNER_TEMP/rustup" >> "$GITHUB_ENV"
+
     # With no argument, rustup (1.28 and later, preinstalled on GitHub's
     # runners) installs the toolchain and components the file names.
     - name: Install the toolchain rust-toolchain.toml pins
@@ -14,9 +26,13 @@ runs:
 
     # An environment override or a directory override would win over the
     # file silently; this fails the job instead.
-    - name: Check rust-toolchain.toml selects it
+    - name: Check rust-toolchain.toml selects it, and is all rustup lists
       shell: bash
       run: |
+        rustup toolchain list
+        if [ "$(rustup toolchain list | wc -l)" -ne 1 ]; then
+          echo "::error::rustup lists more than the pinned toolchain"; exit 1
+        fi
         active=$(rustup show active-toolchain)
         echo "$active"
         rustc --version
