@@ -6,10 +6,11 @@
 //! It fails today. rinch loads a source a document has not shown before on
 //! a background thread, so the frame in which a window's style moves to the
 //! new name paints before the picture has come, and draws the colour alone:
-//! one such frame per hand-over, in 35 of 36 passes over KWin, sway and
-//! labwc with both renderers. rinch issue 2857: a registered `rinch-image:`
-//! source resolved in the frame that names it, with no thread hop; this
-//! test is what it must pass.
+//! one such frame per hand-over, failing all 54 passes of three runs over
+//! KWin, sway and labwc (scale 1, scale 2, turned) with both renderers.
+//! rinch issue 2857: a registered `rinch-image:` source resolved in the
+//! frame that names it, with no thread hop. Against that change's branch
+//! the same 54 passes all pass.
 
 use std::fs;
 use std::path::Path;
@@ -30,8 +31,7 @@ const GREEN: Rgba = Rgba::opaque(0x1f, 0xb0, 0x4a);
 const SIDE: u32 = 2000;
 
 /// A `SIDE` square PNG whose top third is `top` and the rest `rest`:
-/// stretched to a wide output its edge is a third of the way down, covered
-/// a fifth of the way down.
+/// stretched to any output, its edge is a third of the way down.
 fn thirds(top: Rgba, rest: Rgba) -> Vec<u8> {
     let pixels: Vec<u8> = (0..SIDE)
         .flat_map(|y| {
@@ -50,15 +50,32 @@ fn settings(picture: &Path, fit: &str) -> String {
     )
 }
 
-/// Waits until every output shows `top` at a sixth of its height and `rest`
-/// at its middle, and, at 27% of its height, `at_27` (`top` stretched,
-/// `rest` covered).
-fn wait_shown(top: Rgba, rest: Rgba, at_27: Rgba) {
+/// Waits until every output shows the picture stretched: `top` at a sixth
+/// of its height and `rest` at its middle.
+fn wait_stretched(top: Rgba, rest: Rgba) {
     for name in &Screen::connect().unwrap().outputs() {
         wait_output(name, |image: &Image| {
             let (w, h) = (image.width(), image.height());
-            let seen = [h / 6, h * 27 / 100, h / 2].map(|y| image.pixel(w / 2, y).unwrap());
-            let want = [top, at_27, rest];
+            let seen = [h / 6, h / 2].map(|y| image.pixel(w / 2, y).unwrap());
+            let want = [top, rest];
+            (!seen.iter().zip(want).all(|(&s, w)| about(s, w)))
+                .then(|| format!("{seen:?}, waiting for {want:?}"))
+        });
+    }
+}
+
+/// Waits until every output shows the square picture contained: the colour
+/// in its top left corner (a bar, whichever way the output is turned) and
+/// the picture's `rest` at its middle.
+fn wait_contained(rest: Rgba) {
+    for name in &Screen::connect().unwrap().outputs() {
+        wait_output(name, |image: &Image| {
+            let (w, h) = (image.width(), image.height());
+            let seen = [
+                image.pixel(2, 2).unwrap(),
+                image.pixel(w / 2, h / 2).unwrap(),
+            ];
+            let want = [BLUE, rest];
             (!seen.iter().zip(want).all(|(&s, w)| about(s, w)))
                 .then(|| format!("{seen:?}, waiting for {want:?}"))
         });
@@ -81,17 +98,17 @@ fn every_frame_draws_the_picture_while_a_hand_over_replaces_it() {
     fs::write(&picture, thirds(ORANGE, GREEN)).unwrap();
     write_settings(&settings(&picture, "stretch"));
     let wallpaper = Wallpaper::start();
-    wait_shown(ORANGE, GREEN, ORANGE);
+    wait_stretched(ORANGE, GREEN);
     let before = wallpaper.watch().lines().len();
 
     // A new picture: a new generation, every name new.
     let staged = dir.path().join("a.png.new");
     fs::write(&staged, thirds(GREEN, ORANGE)).unwrap();
     fs::rename(&staged, &picture).unwrap();
-    wait_shown(GREEN, ORANGE, GREEN);
+    wait_stretched(GREEN, ORANGE);
     // A new fit: every made-smaller image new.
-    write_settings(&settings(&picture, "cover"));
-    wait_shown(GREEN, ORANGE, ORANGE);
+    write_settings(&settings(&picture, "contain"));
+    wait_contained(ORANGE);
 
     let lines = wallpaper.watch().lines();
     let blank: Vec<&String> = lines[before..]
