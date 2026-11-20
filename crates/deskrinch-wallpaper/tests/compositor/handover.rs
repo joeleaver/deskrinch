@@ -7,10 +7,9 @@
 //! a background thread, so the frame in which a window's style moves to the
 //! new name paints before the picture has come, and draws the colour alone:
 //! one such frame per hand-over, in 35 of 36 passes over KWin, sway and
-//! labwc with both renderers. Reported to rinch's session on 2026-11-20 to
-//! choose the mechanism (a registered source resolved at once, a background
-//! keeping its picture until a new one has loaded, or a way to know that it
-//! has); this test is what it must pass.
+//! labwc with both renderers. rinch issue 2857: a registered `rinch-image:`
+//! source resolved in the frame that names it, with no thread hop; this
+//! test is what it must pass.
 
 use std::fs;
 use std::path::Path;

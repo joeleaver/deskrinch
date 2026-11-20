@@ -70,8 +70,8 @@ impl Follower {
 /// A window still paints one frame without its picture when its style
 /// moves to a name it has not shown: rinch loads that source on a
 /// background thread, and the frame that applies the style comes before
-/// the picture does. That is rinch's, reported to its session on
-/// 2026-11-20; the compositor test `handover` holds it.
+/// the picture does. That is rinch's (issue 2857); the compositor test
+/// `handover` holds it.
 #[derive(Debug, Default)]
 pub(crate) struct Registered {
     names: BTreeSet<String>,
