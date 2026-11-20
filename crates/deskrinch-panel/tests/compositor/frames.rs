@@ -46,10 +46,22 @@ fn split(lines: &[String], window: &PerfWindow) -> (Vec<String>, Vec<String>) {
 /// at, where the next step's window begins: what a step that is no hover (a
 /// switch of the current workspace) drew.
 pub(crate) fn drawn_since(panel: &Panel, window: &PerfWindow, from: usize) -> (Vec<String>, usize) {
+    let end = step(panel);
+    (drawn_between(panel, window, from, end), end)
+}
+
+/// The frames the bar `window` drew between the panel's log lines `from`
+/// and `to`, as [`drawn_since`] keeps them.
+pub(crate) fn drawn_between(
+    panel: &Panel,
+    window: &PerfWindow,
+    from: usize,
+    to: usize,
+) -> Vec<String> {
     let lines = panel.watch().lines();
-    let (mut drawn, other) = split(&lines[from..], window);
+    let (mut drawn, other) = split(&lines[from..to], window);
     drawn.extend(other);
-    (drawn, lines.len())
+    drawn
 }
 
 /// The frames the bar `window` drew since the panel's log line `from`

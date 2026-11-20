@@ -103,6 +103,9 @@ fn the_panel_outlives_its_last_output_and_gives_it_a_bar_again() {
             }
         },
     );
+    // Nothing said at warn or error for the outputs going and coming back:
+    // bounded by the bars' `placed` lines for an edit made now.
+    panel.bound(Edge::Top, 40);
     assert!(panel.running(), "{}", panel.log());
     assert_eq!(panel.watch().warnings_and_errors(), Vec::<String>::new());
 }

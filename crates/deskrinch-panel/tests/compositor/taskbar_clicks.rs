@@ -41,6 +41,9 @@ fn a_click_activates_the_window_of_the_button() {
     let green_icon = bar.wait_button(GREEN);
     bar.click(green_icon, Button::PRIMARY);
     green.wait_keyboard().unwrap();
+    // Read once, and bounded: red and green are on one connection, where
+    // the seat's keyboard sends red's leave before green's enter, so with
+    // green's enter seen, red's leave is in.
     assert!(!red.has_keyboard(), "one active window");
 }
 

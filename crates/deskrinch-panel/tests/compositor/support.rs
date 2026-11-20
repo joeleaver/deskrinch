@@ -172,6 +172,32 @@ impl Panel {
         }
     }
 
+    /// Bounds what the panel did before now, for a judgment that something
+    /// did not happen (no window made or closed, no repaint, nothing said
+    /// at warn or error), and returns the index in its log of the line that
+    /// bounds it. The panel's main thread handles each event in turn, so
+    /// once every bar has said it is placed for a settings edit made now,
+    /// everything it did for the earlier events is in its log before those
+    /// lines, and a judgment read after them misses nothing that came late.
+    /// The edit moves the bars to `edge` at the height they have, `height`,
+    /// so no bar changes size.
+    ///
+    /// # Panics
+    ///
+    /// When the bars do not say so within [`PATIENCE`].
+    pub(crate) fn bound(&self, edge: Edge, height: u32) -> usize {
+        let from = self.watch().lines().len();
+        write_settings(&panel_table(edge, height));
+        if let Err(why) = self.wait_placed(edge, height) {
+            panic!("the bars did not move for the bound: {why}");
+        }
+        let lines = self.watch().lines();
+        from + lines[from..]
+            .iter()
+            .position(|line| line.contains(" is placed along the "))
+            .expect("a placed line, as the wait found")
+    }
+
     /// Waits until the panel has reported a mistake in its settings whose
     /// line `says` names (`panel.height`).
     pub(crate) fn wait_rejected(&self, says: &str) {

@@ -17,7 +17,7 @@ use deskrinch_test_component::{Mark, PerfLine, PerfWindow, counter};
 use deskrinch_test_screen::{Rgba, Screen, Transform};
 use deskrinch_test_wait::wait_for;
 
-use crate::frames::{drawn_since, step};
+use crate::frames::{drawn_between, drawn_since, step};
 use crate::support::{
     Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
@@ -81,6 +81,9 @@ fn start_bars() -> (Panel, Screen, Pictures) {
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn every_output_has_its_own_bar() {
     let panel = start_panel();
+    // No bar made or closed after the start: bounded by the bars' `placed`
+    // lines for an edit made now.
+    panel.bound(Edge::Top, 40);
     let names: BTreeSet<String> = TestClient::connect()
         .unwrap()
         .output_names()
@@ -119,6 +122,9 @@ fn an_output_turned_off_and_on_gets_exactly_one_new_bar() {
             Ok(())
         }
     });
+    // The kept bar kept, and no window made, for the output going: bounded
+    // by the bars' `placed` lines for an edit made now.
+    panel.bound(Edge::Top, 40);
     assert_eq!(panel.window_on(&kept_name), kept, "{}", panel.log());
     assert!(
         ever(&panel).is_subset(&started),
@@ -142,6 +148,9 @@ fn an_output_turned_off_and_on_gets_exactly_one_new_bar() {
             .map(|(window, _)| window)
             .ok_or_else(|| panel.log())
     });
+    // Exactly one new bar, the kept one kept, for the output coming back:
+    // bounded likewise, the new bar's `placed` line among them.
+    panel.bound(Edge::Bottom, 40);
     let made: BTreeSet<PerfWindow> = ever(&panel).difference(&started).copied().collect();
     assert_eq!(
         made,
@@ -242,7 +251,13 @@ fn keeps_its_bars(
     }
     changed.restore().unwrap();
     wait_settled(&panel, settled, window, surface, true);
-    let (drawn, _) = drawn_since(&panel, &unchanged, from);
+    // The windows read from `from` on are contiguous, so a late repaint for
+    // the change lands in the window for its putting back; that last window
+    // ends at the bars' `placed` lines for an edit made now, which bound
+    // everything before them. The edit's own move comes after those lines,
+    // and is not counted.
+    let to = panel.bound(Edge::Top, 40);
+    let drawn = drawn_between(&panel, &unchanged, from, to);
     if let Some(why) = unchanged_repainted(settled, &drawn) {
         panic!("{what}, put back: the bar on {kept}, which nothing changed, {why}");
     }
@@ -306,6 +321,9 @@ fn an_edit_moves_every_bar_each_on_its_own_output() {
     let scale = scale_of(&screen.outputs()[0]);
     write_settings(&panel_table(Edge::Top, 56));
     wait_band(&mut screen, &before, Band::of(Edge::Top, 56, scale));
+    // No window made or closed for the edit: bounded by the bars' `placed`
+    // lines for a second edit made now.
+    panel.bound(Edge::Bottom, 56);
     assert_eq!(open(&panel), started, "{}", panel.log());
     assert_eq!(ever(&panel), started, "a window was made: {}", panel.log());
 }
