@@ -15,8 +15,10 @@ use deskrinch_test_client::{TestClient, require_outputs};
 use deskrinch_test_component::Renderer;
 use deskrinch_test_screen::Screen;
 use deskrinch_test_wait::wait_for;
+use deskrinch_window_management::{Action, WindowManagement, WindowState};
 
 use crate::support::{Band, Edge, Panel, Pictures, in_nested_session, panel_table, write_settings};
+use crate::taskbar::window_of;
 
 /// More windows than the wide bar has room for, so that it is full and
 /// says how many it leaves out.
@@ -53,6 +55,22 @@ fn usage(line: &str) -> Vec<(String, u64, u64)> {
             Some((name, used, size))
         })
         .collect()
+}
+
+/// Makes the window opened last, `Window {WINDOWS}`, the active one through
+/// the compositor's window management, and waits until the compositor says
+/// it is.
+fn activate_newest() {
+    let app_id = format!("org.deskrinch.wide.App{WINDOWS}");
+    let (manager, id) = window_of(&app_id);
+    manager.perform(id, Action::Activate).unwrap();
+    wait_for(&format!("{app_id} to be the active window"), || {
+        let windows = manager.windows();
+        let active = windows
+            .iter()
+            .any(|window| window.id == id && window.state.contains(WindowState::ACTIVE));
+        if active { Ok(()) } else { Err(windows) }
+    });
 }
 
 #[test]
@@ -98,27 +116,23 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     let full = Pictures::still(&mut screen);
     let taskbars = read(&full).unwrap_or_else(|why| panic!("{why}"));
     // One more window left out: each bar's count changes, and nothing
-    // among its buttons.
+    // among its buttons. The buttons are alike but for the active one's
+    // mark, which stays on the last button only while the newest window is
+    // the active one; a compositor need not give the new window the focus
+    // (sway, on a pass, did not), so it is made active, and the bars judged
+    // once it is.
     windows.push(open(WINDOWS));
-    wait_for("every bar's count to change for one more window", || {
-        let more = Pictures::take(&mut screen, None).unwrap();
-        let faults: Vec<String> = full
-            .0
-            .iter()
-            .zip(&more.0)
-            .zip(&taskbars)
-            .filter_map(|(((name, was), (_, is)), &taskbar)| {
-                let rows = band.rows_in(is.height());
-                let why = strip::count_changed(taskbar, was, is, &rows).err()?;
-                Some(format!("{name}: {why}"))
-            })
-            .collect();
-        if faults.is_empty() {
-            Ok(())
-        } else {
-            Err(faults.join("; "))
-        }
-    });
+    activate_newest();
+    // That nothing among the buttons changes is what stays as it is: each
+    // bar is judged on a still picture of its output.
+    for ((name, was), &taskbar) in full.0.iter().zip(&taskbars) {
+        Pictures::judged(
+            &mut screen,
+            name,
+            &format!("{name}'s count to change for one more window, and nothing else"),
+            |is| strip::count_changed(taskbar, was, is, &band.rows_in(is.height())),
+        );
+    }
     if Renderer::of_run() == Renderer::Gpu {
         let lines = panel.watch().lines();
         let mut report = String::new();
