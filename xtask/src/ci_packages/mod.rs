@@ -36,6 +36,7 @@ mod budget;
 mod cache;
 mod check;
 mod classify;
+mod cut;
 mod plan;
 mod progress;
 
@@ -119,7 +120,8 @@ fn update(packages: &[String]) -> Result<Outcome, Error> {
     else {
         return Ok(Outcome::Failed);
     };
-    let plan = Plan::new(started, packages, downloads(&listed.output)?);
+    let mut plan = Plan::new(started, packages, downloads(&listed.output)?);
+    plan.update_warning = updated.sign;
     let key = plan.key(&ci_variable("ImageOS")?, &ci_variable("RUNNER_ARCH")?);
     let kinds: Vec<String> = plan
         .kinds()
@@ -173,7 +175,15 @@ fn install() -> Result<Outcome, Error> {
     for (file, unfit) in &checked.removed {
         println!("Package cache: removed {file}: {unfit}.");
     }
-    if run_step(Step::Install, &plan.packages, directory, None, plan.started)?.is_none() {
+    if run_step(
+        Step::Install,
+        &plan.packages,
+        directory,
+        plan.update_warning.as_deref(),
+        plan.started,
+    )?
+    .is_none()
+    {
         return Ok(Outcome::Failed);
     }
     let after = cache::contents(directory)?;
@@ -260,6 +270,10 @@ fn run_step(
         Verdict::Done => Some(Ran { sign: None, output }),
         Verdict::IndexNotUpdated(sign) => Some(Ran {
             sign: Some(sign),
+            output,
+        }),
+        Verdict::UpdateCutOff(cut) => Some(Ran {
+            sign: Some(cut.sign()),
             output,
         }),
         Verdict::Unreachable(_)

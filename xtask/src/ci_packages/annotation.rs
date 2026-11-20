@@ -13,6 +13,16 @@ pub(crate) fn annotation(verdict: &Verdict) -> Option<String> {
         Verdict::IndexNotUpdated(sign) => {
             Some(format!("::warning title=Package index not updated::{sign}"))
         }
+        Verdict::UpdateCutOff(cut) => Some(format!(
+            "::warning title=Package index partly updated::apt-get update was cut off after \
+             {}s {}. apt moves a repository's indexes into place only once all of them have \
+             come, so each repository still being fetched at the cut is left as the runner \
+             image had it, a consistent older set, and the others are fresh. The job goes on \
+             with that index; if a planned package depended on a repository left behind, the \
+             install's own verdict says so.",
+            cut.limit.as_secs(),
+            cut.doing()
+        )),
         Verdict::Unreachable(reason) => Some(format!(
             "::error title=Package servers unreachable::apt could not reach Ubuntu's package \
              servers ({reason}). This is the runner's network, not the code: re-run the job."
@@ -203,6 +213,32 @@ mod tests {
             "{said}"
         );
         assert!(said.contains("This is not the mirror"), "{said}");
+        assert!(!said.contains("slow"), "{said}");
+    }
+
+    /// A cut-off update that goes on warns in its own words: a stalled
+    /// host named, not a slow mirror, and the repositories left behind.
+    #[test]
+    fn a_cut_off_update_warns_of_the_stalled_host_and_goes_on() {
+        let said = annotation(&Verdict::UpdateCutOff(crate::ci_packages::cut::UpdateCut {
+            limit: Duration::from_secs(240),
+            stalled: Some(crate::ci_packages::cut::Stall {
+                host: "security.ubuntu.com".into(),
+                failures: 3,
+                last: "resolute-security/main amd64v3 Packages".into(),
+            }),
+            last_host: "security.ubuntu.com".into(),
+        }))
+        .unwrap();
+        assert!(
+            said.starts_with(
+                "::warning title=Package index partly updated::apt-get update was cut off after \
+                 240s with security.ubuntu.com stalled (3 failed attempts"
+            ),
+            "{said}"
+        );
+        assert!(said.contains("left as the runner image had it"), "{said}");
+        assert!(said.contains("The job goes on"), "{said}");
         assert!(!said.contains("slow"), "{said}");
     }
 

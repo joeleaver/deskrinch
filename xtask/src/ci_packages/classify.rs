@@ -3,6 +3,7 @@
 use std::fmt;
 use std::time::Duration;
 
+use super::cut::UpdateCut;
 use super::progress::{Downloaded, Progress, progress};
 
 /// Which `apt-get` command ran.
@@ -67,6 +68,11 @@ pub(crate) enum Verdict {
     /// runner image lists sources a job may not need): go on, and remember
     /// what it could not reach.
     IndexNotUpdated(String),
+    /// `apt-get update` was cut off after it had fetched something: the
+    /// repositories it was still fetching are left as the runner image had
+    /// them, and the others are fresh ([`super::cut`]). Go on, as for
+    /// [`Verdict::IndexNotUpdated`], with where it was.
+    UpdateCutOff(UpdateCut),
     /// The package servers could not be reached; re-running the job is the
     /// remedy.
     Unreachable(String),
@@ -175,14 +181,18 @@ pub(crate) fn classify(
     update_sign: Option<&str>,
 ) -> Verdict {
     if let (Ended::CutOff(limit), true) = (ended, step.fetches()) {
-        // A run that fetched nothing in all that time reached nothing; one
-        // whose download took the time met a slow mirror; one whose
-        // download was quick ran out of time installing.
+        // A run that fetched nothing in all that time reached nothing; an
+        // update that fetched something leaves a consistent index and goes
+        // on; an install whose download took the time met a slow mirror,
+        // and one whose download was quick ran out of time installing.
         return match progress(step, limit, output) {
             None => Verdict::Unreachable(format!(
                 "apt-get {step} did not finish within {}s",
                 limit.as_secs()
             )),
+            Some(_) if step == Step::Update => {
+                Verdict::UpdateCutOff(UpdateCut::read(limit, output))
+            }
             Some(progress) => match &progress.downloaded {
                 Some(downloaded) if !progress.download_used_the_time() => {
                     Verdict::CutOffAfterDownload {
@@ -203,7 +213,10 @@ pub(crate) fn classify(
     let sign = unreachable_sign(output);
     match (sign, ended, step) {
         (Some(sign), Ended::Exited(0), Step::Update) => Verdict::IndexNotUpdated(sign),
-        (Some(sign), _, _) => Verdict::Unreachable(sign),
+        (Some(sign), _, _) => Verdict::Unreachable(match update_sign {
+            Some(update) => format!("{sign}; {update}"),
+            None => sign,
+        }),
         (None, Ended::Exited(0), _) => Verdict::Done,
         (None, _, _) => match update_sign {
             Some(sign) => Verdict::Unreachable(sign.to_owned()),
