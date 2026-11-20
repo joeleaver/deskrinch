@@ -84,20 +84,13 @@ fn wait_said(desktop: &Desktop, line: &str) {
 }
 
 /// Closes the desktop's window and checks that it ended well.
-fn close(desktop: Desktop) {
-    close_saying(desktop);
-}
-
-/// [`close`], and all the desktop said, once it has ended.
-fn close_saying(mut desktop: Desktop) -> String {
+fn close(mut desktop: Desktop) {
     let windows = outer_windows();
     for window in windows.windows() {
         windows.perform(window.id, Action::Close).unwrap();
     }
     let status = desktop.wait();
-    let said = desktop.said();
-    assert!(status.success(), "{status}; it said:\n{said}");
-    said
+    assert!(status.success(), "{status}; it said:\n{}", desktop.said());
 }
 
 #[test]
@@ -158,19 +151,10 @@ fn a_component_ended_cleanly_is_not_started_again() {
     // its decision and, in the same call with nothing between that waits,
     // starts any component it starts again (`Components::ended`, a spawn):
     // after the launcher's answer, a round trip on the bus since that line
-    // was read, a start would have a process.
+    // was read, a start would have a process. The process is the witness,
+    // not the desktop's lines: it says nothing when it starts a component,
+    // and nothing of one ended with the session at its end.
     let panels = processes(&desktop.root, "deskrinch-panel");
     assert_eq!(panels, [], "a panel runs again: {}", desktop.said());
-    let root = desktop.root.clone();
-    let said = close_saying(desktop);
-    // And nothing started it later: once the desktop has ended, everything
-    // it said is in, and none of it after the clean exit starts the panel.
-    let exit = said
-        .find("deskrinch-panel exited cleanly")
-        .expect("the clean exit, said");
-    assert!(
-        !said[exit..].contains("deskrinch-panel failed"),
-        "the panel was started again:\n{said}"
-    );
-    assert_eq!(processes(&root, "deskrinch-panel"), []);
+    close(desktop);
 }

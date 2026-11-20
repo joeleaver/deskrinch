@@ -8,15 +8,15 @@ use zbus::Variant;
 
 use crate::support::{Notifications, reddish};
 
-/// The daemon has made no window by the time it is up and has answered on
-/// the bus, and makes one, at the top right, for its first notification. (That it makes none
-/// later while idle is [`crate::frames`]' and [`crate::lifecycle`]'s: the
-/// window goes with the last popup.)
 /// What the daemon has said so far, line by line.
 fn lines(notifications: &Notifications) -> Vec<String> {
     notifications.daemon().watch().lines()
 }
 
+/// The daemon has made no window by the time it is up and has answered on
+/// the bus, and makes one, at the top right, for its first notification.
+/// (That it makes none later while idle is [`crate::frames`]' and
+/// [`crate::lifecycle`]'s: the window goes with the last popup.)
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn no_window_until_a_notification_then_one_at_the_top_right() {
