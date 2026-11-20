@@ -2,7 +2,7 @@
 //! verdict that has something to say, written here and nowhere else.
 
 use super::budget::BUDGET;
-use super::classify::{Step, Verdict};
+use super::classify::Verdict;
 use super::progress::Progress;
 
 /// The annotation `run` prints for `verdict`; `None` for a run that did its
@@ -34,16 +34,11 @@ pub(crate) fn annotation(verdict: &Verdict) -> Option<String> {
              fetched at all.",
             slow(progress)
         )),
-        Verdict::CutOffAfterDownload {
-            step,
-            limit,
-            downloaded,
-        } => Some(format!(
-            "::error title=apt-get {step} did not finish::apt-get {step} was cut off after \
-             {seconds}s {after}; its download had finished (Fetched {report}). This is not \
-             the network: see its output above.",
+        Verdict::CutOffAfterDownload { limit, downloaded } => Some(format!(
+            "::error title=apt-get install did not finish::apt-get install was cut off after \
+             {seconds}s while unpacking and configuring; its download had finished (Fetched \
+             {report}). This is not the network: see its output above.",
             seconds = limit.as_secs(),
-            after = after_the_download(*step),
             report = downloaded.report,
         )),
         Verdict::Unsandboxed(notice) => Some(format!(
@@ -78,37 +73,24 @@ pub(crate) fn annotation(verdict: &Verdict) -> Option<String> {
     }
 }
 
-/// How far a slow run got: still downloading, or done downloading and cut
-/// off installing.
+/// How far a slow install got: still downloading, or done downloading and
+/// cut off unpacking and configuring.
 fn slow(progress: &Progress) -> String {
     let seconds = progress.limit.as_secs().max(1);
     match &progress.downloaded {
         None => format!(
-            "apt-get {} was cut off after {seconds}s while still downloading: {} files begun, \
-             {} kB, about {} kB/s; the last {}",
-            progress.step,
+            "apt-get install was cut off after {seconds}s while still downloading: {} files \
+             begun, {} kB, about {} kB/s; the last {}",
             progress.files,
             progress.kilobytes,
             progress.kilobytes / seconds,
             progress.last
         ),
         Some(downloaded) => format!(
-            "apt-get {} was cut off after {seconds}s: its download took most of that time \
-             (Fetched {}), and what was left ran out {}",
-            progress.step,
+            "apt-get install was cut off after {seconds}s: its download took most of that time \
+             (Fetched {}), and what was left ran out while unpacking and configuring",
             downloaded.report,
-            after_the_download(progress.step)
         ),
-    }
-}
-
-/// What `step` does once its download is done, as a run cut off then was
-/// doing.
-fn after_the_download(step: Step) -> &'static str {
-    match step {
-        Step::Update => "while reading the package lists",
-        Step::List => "while working out what to fetch",
-        Step::Install => "while unpacking and configuring",
     }
 }
 
@@ -117,11 +99,11 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
+    use crate::ci_packages::classify::Step;
     use crate::ci_packages::progress::Downloaded;
 
     fn progress(downloaded: Option<Downloaded>) -> Progress {
         Progress {
-            step: Step::Install,
             limit: Duration::from_mins(11),
             files: 43,
             kilobytes: 21392,
@@ -175,7 +157,6 @@ mod tests {
             took: Duration::from_secs(8),
         };
         let said = annotation(&Verdict::CutOffAfterDownload {
-            step: Step::Install,
             limit: Duration::from_mins(11),
             downloaded,
         })
@@ -255,40 +236,6 @@ Ign:15 http://security.ubuntu.com/ubuntu resolute-security/main amd64v3 Packages
         );
         assert!(said.contains("(the first: gir1.2-atk-1.0_"), "{said}");
         assert!(said.contains("could keep none of them"), "{said}");
-    }
-
-    /// `update` has a `Fetched` line too: after it, apt reads the package
-    /// lists, and says so.
-    #[test]
-    fn an_update_cut_off_after_its_download_is_reading_the_lists() {
-        let downloaded = Downloaded {
-            report: "3486 kB in 7s (498 kB/s)".into(),
-            took: Duration::from_secs(7),
-        };
-        let said = annotation(&Verdict::CutOffAfterDownload {
-            step: Step::Update,
-            limit: Duration::from_mins(2),
-            downloaded,
-        })
-        .unwrap();
-        assert!(
-            said.starts_with("::error title=apt-get update did not finish::"),
-            "{said}"
-        );
-        assert!(said.contains("while reading the package lists"), "{said}");
-        assert!(!said.contains("unpacking"), "{said}");
-        let slow = Progress {
-            step: Step::Update,
-            ..progress(Some(Downloaded {
-                report: "3486 kB in 1min 30s (38.7 kB/s)".into(),
-                took: Duration::from_secs(90),
-            }))
-        };
-        let said = annotation(&Verdict::Slow(slow)).unwrap();
-        assert!(
-            said.contains("ran out while reading the package lists"),
-            "{said}"
-        );
     }
 
     #[test]

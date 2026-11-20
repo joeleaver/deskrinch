@@ -76,17 +76,16 @@ pub(crate) enum Verdict {
     /// The package servers could not be reached; re-running the job is the
     /// remedy.
     Unreachable(String),
-    /// The run was cut off, and the download is what used its time (still
-    /// going, or finished in more than half of it): the servers answered,
-    /// and served slowly.
+    /// `apt-get install` was cut off, and the download is what used its
+    /// time (still going, or finished in more than half of it): the
+    /// servers answered, and served slowly. Only the install: an `update`
+    /// cut off is [`Verdict::UpdateCutOff`] or unreachable, and the
+    /// listing fetches nothing.
     Slow(Progress),
-    /// The run was cut off after its download had finished in less than
-    /// half its time: what did not finish was the work after it (`update`
-    /// reading the package lists, `install` unpacking and configuring), not
-    /// the network.
+    /// `apt-get install` was cut off after its download had finished in
+    /// less than half its time: what did not finish was unpacking and
+    /// configuring, not the network.
     CutOffAfterDownload {
-        /// The command.
-        step: Step,
         /// How long it had run when it was cut off.
         limit: Duration,
         /// apt's report of the finished download.
@@ -196,12 +195,11 @@ pub(crate) fn classify(
             // its first line on GitHub's runners) is not progress.
             return UpdateCut::read(limit, output).map_or_else(unreachable, Verdict::UpdateCutOff);
         }
-        return match progress(step, limit, output) {
+        return match progress(limit, output) {
             None => unreachable(),
             Some(progress) => match &progress.downloaded {
                 Some(downloaded) if !progress.download_used_the_time() => {
                     Verdict::CutOffAfterDownload {
-                        step,
                         limit,
                         downloaded: downloaded.clone(),
                     }
@@ -293,7 +291,6 @@ Get:8 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64
         assert_eq!(
             classify(Step::Install, Ended::CutOff(limit), SLOW, None),
             Verdict::Slow(Progress {
-                step: Step::Install,
                 limit,
                 files: 3,
                 kilobytes: 2095 + 716 + 4226,
