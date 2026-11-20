@@ -251,9 +251,21 @@ impl Pager {
     fn sweep(&mut self) -> Vec<Columns> {
         let shown = self.shown();
         assert!(shown.len() >= COUNT, "{shown:#?}");
-        // From the last, so that making the first current is a change.
-        self.activate(&shown[shown.len() - 1]);
-        let mut previous = self.wait_mark("the last workspace's mark", |m| m.is_some());
+        // From the last, so that making the first current is a change. Its
+        // mark is the first mark after the switch, not one the screen showed
+        // before it: the mark is taken still first, and unless the last was
+        // current already, the switch's mark is one that differs from it.
+        // A mark still for a gap is no proof of the switch, since the switch
+        // may be drawn later than the gap; a mark from before it, taken as
+        // the last's, is no mark of any switch made after, and the loop
+        // below then waits for a change that never comes.
+        let last = &shown[shown.len() - 1];
+        let current = last.state.contains(WorkspaceState::ACTIVE);
+        let before = self.wait_mark("the mark before the sweep", |_| true);
+        self.activate(last);
+        let mut previous = self.wait_mark("the last workspace's mark", |m| {
+            m.is_some() && (current || m != before)
+        });
         let window = self.panel.window_on(&self.output);
         let mut from = frames::step(&self.panel);
         let deadline = Deadline::patience();

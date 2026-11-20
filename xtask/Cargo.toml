@@ -27,7 +27,11 @@ deskrinch-test-wayland.workspace = true
 deskrinch-test-wait.workspace = true
 deskrinch-window-management.workspace = true
 rustix = { workspace = true, features = ["fs", "param", "pipe", "process"] }
+# The package plan `ci-packages update` leaves for `ci-packages install`.
+serde = { workspace = true, features = ["derive"] }
 serde_json.workspace = true
+# The package cache's key.
+sha2.workspace = true
 tempfile.workspace = true
 thiserror.workspace = true
 # Following the desktop's outputs, which are its windows.

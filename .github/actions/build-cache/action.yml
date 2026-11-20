@@ -1,0 +1,25 @@
+name: Restore the build cache
+description: >-
+  Restores the job's Cargo build cache (rust-cache, saved by `main` only),
+  and on `main`, after a restore that was not exact, empties `target/` with
+  `cargo clean`, so that what `main` saves is this lock's build alone. Runs
+  after the toolchain is installed.
+
+runs:
+  using: composite
+  steps:
+    - id: cache
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}
+    # rust-cache cleans `target/` by crate name alone before it saves, so a
+    # cache restored by its prefix after the lock changed carries every
+    # older version's artifacts on into the next save: chains of 3.2 and
+    # 2.9 GB where a cold build saves 1.45 and 1.67. `main` is the only ref
+    # that saves, so `main` alone pays for that with one cold build per
+    # change of lock, on a run nobody waits for; the registry and git parts
+    # of the restore stay. Pull requests keep what they restored.
+    - name: Start main's target directory afresh after a change of lock
+      if: github.ref == 'refs/heads/main' && steps.cache.outputs.cache-hit != 'true'
+      shell: bash
+      run: cargo clean
