@@ -157,6 +157,21 @@ impl Bar {
         icon_in(image, self.band, self.scale, app)
     }
 
+    /// What `judge` takes from the panel's output once it is still
+    /// ([`Pictures::judged`]), handed the way to find an app's icon on it:
+    /// the judgment for what stays as it is, where [`Self::see`]'s first
+    /// passing capture can come before a wrong change reaches the screen.
+    pub(crate) fn judged<T, S: fmt::Debug>(
+        &mut self,
+        what: &str,
+        judge: impl Fn(&dyn Fn(&Image, App) -> Option<(u32, u32, u32, u32)>, &Image) -> Result<T, S>,
+    ) -> T {
+        let (band, scale) = (self.band, self.scale);
+        let icon = move |image: &Image, app: App| icon_in(image, band, scale, app);
+        let output = self.output.clone();
+        Pictures::judged(&mut self.screen, &output, what, |image| judge(&icon, image))
+    }
+
     /// How many buttons of `app` `image` shows: icons side by side.
     pub(crate) fn icons(&self, image: &Image, app: App) -> usize {
         let Some((left, top, right, bottom)) = self.icon(image, app) else {

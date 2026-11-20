@@ -7,7 +7,6 @@ use crate::support::{
     Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
-use deskrinch_test_wait::wait_for;
 
 /// A colour neither the panel nor a compositor's background has.
 pub(crate) const WINDOW: Rgba = Rgba::opaque(13, 200, 77);
@@ -95,16 +94,18 @@ fn wrong(image: &Image, panel: &Image, band: Band, scale: u32) -> Option<String>
     None
 }
 
-/// Captures `output` until it shows a maximised [`WINDOW`] beside the panel
-/// at `band`, whose own rows are `panel`.
+/// Waits until `output` shows a maximised [`WINDOW`] beside the panel at
+/// `band`, whose own rows are `panel`, on a still picture
+/// ([`Pictures::judged`]): that the window stays out of the band is what
+/// stays as it is, which a first capture could pass before a wrong change
+/// reached the screen.
 pub(crate) fn wait_window_beside(screen: &mut Screen, output: &str, panel: &Image, band: Band) {
     let scale = scale_of(output);
-    wait_for(
+    Pictures::judged(
+        screen,
+        output,
         &format!("a maximised window beside the panel on {output}"),
-        || {
-            let image = screen.capture(output).unwrap();
-            wrong(&image, panel, band, scale).map_or(Ok(()), Err)
-        },
+        |image| wrong(image, panel, band, scale).map_or(Ok(()), Err),
     );
 }
 

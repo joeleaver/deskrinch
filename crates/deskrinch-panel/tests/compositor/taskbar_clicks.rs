@@ -105,7 +105,17 @@ fn a_button_follows_its_window_title_and_goes_with_it() {
     });
     drop(magenta);
     bar.see("the button gone", |bar, image| {
-        bar.icon(image, MAGENTA).is_none() && bar.icon(image, RED).is_some()
+        bar.icon(image, MAGENTA).is_none()
+    });
+    // Red's button stays. A wrong removal would come with a window list
+    // handed to the bars, as magenta's going did; the bars take the window
+    // list's hand-overs in order, so a window opened now, its button shown,
+    // bounds what they did for magenta's going. Then red's button is judged
+    // on a still picture, which a removal drawn late cannot slip past.
+    let _green = open_active(&bar, GREEN, "Green");
+    bar.wait_button(GREEN);
+    bar.judged("red's button kept", |icon, image| {
+        icon(image, RED).map(drop).ok_or("red's button is gone")
     });
 }
 

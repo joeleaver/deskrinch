@@ -14,10 +14,12 @@ use std::fs;
 use std::path::Path;
 
 use deskrinch_test_client::{OutputChange, TestClient, change_output, outputs, turn_output_off};
-use deskrinch_test_screen::{Rgba, Screen};
+use deskrinch_test_screen::{Image, Rgba, Screen};
 use deskrinch_test_wait::wait_for;
 
-use crate::support::{Band, Edge, Panel, in_nested_session, panel_table, scale_of, write_settings};
+use crate::support::{
+    Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, write_settings,
+};
 
 /// The application whose window the bars show.
 const APP: &str = "org.deskrinch.taskbar.Scales";
@@ -58,9 +60,8 @@ fn install(data: &Path) {
     .unwrap();
 }
 
-/// Whether the band of the output `name` shows `colour` anywhere.
-fn shows(screen: &mut Screen, name: &str, colour: Rgba) -> bool {
-    let image = screen.capture(name).unwrap();
+/// Whether `image`, the output `name`'s, shows `colour` anywhere in its band.
+fn shows(image: &Image, name: &str, colour: Rgba) -> bool {
     let band = Band::of(Edge::Bottom, 40, scale_of(name)).rows_in(image.height());
     band.into_iter()
         .filter_map(|y| image.row(y))
@@ -75,19 +76,23 @@ fn wait_icon_of_its_scale(screen: &mut Screen, output: &str) {
     } else {
         (AT_ONE, AT_TWO)
     };
-    wait_for(
+    // That the other scale's icon is not drawn is what stays as it is:
+    // both are read on one still picture ([`Pictures::judged`]).
+    Pictures::judged(
+        screen,
+        output,
         &format!(
             "{output}'s bar to draw the icon of its scale {}",
             scale_of(output)
         ),
-        || {
-            if shows(screen, output, want) && !shows(screen, output, not) {
+        |image| {
+            if shows(image, output, want) && !shows(image, output, not) {
                 Ok(())
             } else {
                 Err(format!(
                     "it shows the scale-1 icon: {}, the scale-2 icon: {}",
-                    shows(screen, output, AT_ONE),
-                    shows(screen, output, AT_TWO)
+                    shows(image, output, AT_ONE),
+                    shows(image, output, AT_TWO)
                 ))
             }
         },
