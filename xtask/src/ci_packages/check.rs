@@ -22,6 +22,36 @@ use sha2::{Digest, Sha256, Sha512};
 use super::plan::Download;
 use crate::error::Error;
 
+/// A kind of checksum this verifies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Kind {
+    /// `SHA256`.
+    Sha256,
+    /// `SHA512`.
+    Sha512,
+}
+
+impl Kind {
+    /// The kind apt names `name`, if this verifies it.
+    fn of(name: &str) -> Option<Self> {
+        match name {
+            "SHA256" => Some(Self::Sha256),
+            "SHA512" => Some(Self::Sha512),
+            _ => None,
+        }
+    }
+}
+
+/// The kind and value of apt's `checksum`, such as `SHA256:…`.
+pub(super) fn kind_and_value(checksum: &str) -> (&str, &str) {
+    checksum.split_once(':').unwrap_or((checksum, ""))
+}
+
+/// Whether the check can verify a file by `checksum`.
+pub(super) fn verifiable(checksum: &str) -> bool {
+    Kind::of(kind_and_value(checksum).0).is_some()
+}
+
 /// Why a restored file is not installed from.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum Unfit {
@@ -128,14 +158,11 @@ fn fits(path: &Path, size: u64, download: &Download) -> Result<Option<Unfit>, Er
             wanted: download.size,
         }));
     }
-    let (kind, wanted) = download
-        .checksum
-        .split_once(':')
-        .unwrap_or((download.checksum.as_str(), ""));
-    let found = match kind {
-        "SHA256" => digest::<Sha256>(path)?,
-        "SHA512" => digest::<Sha512>(path)?,
-        _ => {
+    let (kind, wanted) = kind_and_value(&download.checksum);
+    let found = match Kind::of(kind) {
+        Some(Kind::Sha256) => digest::<Sha256>(path)?,
+        Some(Kind::Sha512) => digest::<Sha512>(path)?,
+        None => {
             return Ok(Some(Unfit::Unverified {
                 kind: kind.to_owned(),
             }));
@@ -316,6 +343,15 @@ mod tests {
         assert!(fs::symlink_metadata(dir.path().join("sway.deb")).is_err());
         assert!(!dir.path().join("labwc.deb").exists());
         assert!(good.exists(), "what the link named is not touched");
+    }
+
+    #[test]
+    fn only_sha256_and_sha512_are_verifiable() {
+        assert!(verifiable("SHA256:8b20388677e978fe"));
+        assert!(verifiable("SHA512:1c92e78b35dc8317"));
+        for checksum in ["MD5Sum:975c86779ce88690", "SHA1:00", "sha256:00", ""] {
+            assert!(!verifiable(checksum), "{checksum}");
+        }
     }
 
     #[test]

@@ -56,6 +56,12 @@ pub(crate) fn annotation(verdict: &Verdict) -> Option<String> {
             left.as_secs(),
             floor.as_secs()
         )),
+        Verdict::Unverifiable { files, first } => Some(format!(
+            "::error title=Package checksums not verifiable::{files} of the files apt would \
+             fetch have no SHA-256 or SHA-512 checksum in its listing (the first: {first}), so \
+             the package cache could keep none of them. The listing asks for SHA-256 \
+             (Acquire::ForceHash); see its output above."
+        )),
         Verdict::Failed { step, ended } => Some(format!(
             "::error title=apt-get {step} failed::apt-get {step} {ended}; see its output above."
         )),
@@ -198,6 +204,22 @@ mod tests {
         );
         assert!(said.contains("This is not the mirror"), "{said}");
         assert!(!said.contains("slow"), "{said}");
+    }
+
+    #[test]
+    fn unverifiable_checksums_say_the_cache_could_keep_nothing() {
+        let said = annotation(&Verdict::Unverifiable {
+            files: 97,
+            first: "gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64v3.deb MD5Sum:975c86779ce8869032f1d82004544fba"
+                .into(),
+        })
+        .unwrap();
+        assert!(
+            said.starts_with("::error title=Package checksums not verifiable::97 of the files"),
+            "{said}"
+        );
+        assert!(said.contains("(the first: gir1.2-atk-1.0_"), "{said}");
+        assert!(said.contains("could keep none of them"), "{said}");
     }
 
     /// `update` has a `Fetched` line too: after it, apt reads the package

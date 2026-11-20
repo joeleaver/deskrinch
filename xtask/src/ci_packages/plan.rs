@@ -2,14 +2,14 @@
 //! cache key that names those files, and the plan `ci-packages update`
 //! leaves for `ci-packages install`.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::check::hex;
+use super::check::{hex, kind_and_value, verifiable};
 use crate::error::Error;
 
 /// A file apt would fetch, as `apt-get install --print-uris` lists it.
@@ -116,6 +116,26 @@ impl Plan {
         self.downloads.iter().map(|d| d.file.as_str()).collect()
     }
 
+    /// How many files have a checksum of each kind, as apt names it.
+    pub(super) fn kinds(&self) -> BTreeMap<&str, usize> {
+        let mut kinds = BTreeMap::new();
+        for download in &self.downloads {
+            *kinds
+                .entry(kind_and_value(&download.checksum).0)
+                .or_insert(0) += 1;
+        }
+        kinds
+    }
+
+    /// The files whose checksum the check cannot verify: the cache could
+    /// never keep them.
+    pub(super) fn unverifiable(&self) -> Vec<&Download> {
+        self.downloads
+            .iter()
+            .filter(|d| !verifiable(&d.checksum))
+            .collect()
+    }
+
     /// What the files come to, in bytes.
     pub(super) fn bytes(&self) -> u64 {
         self.downloads.iter().map(|d| d.size).sum()
@@ -167,18 +187,32 @@ pub(super) fn megabytes(bytes: u64) -> String {
 mod tests {
     use super::*;
 
-    /// What `apt-get install --print-uris -qq` printed for two of sway's
-    /// packages, after a warning of apt's own.
+    /// Two lines of what `apt-get install --print-uris -qq` printed in the
+    /// Clippy job of `main`'s run on 064ecac (2026-11-19), before the
+    /// listing forced its checksum's kind: apt chose `MD5Sum`. The second
+    /// file's name carries an epoch (`%3a`).
+    const LISTED_MD5: &str = "\
+'mirror+file:/etc/apt/apt-mirrors.txt/pool/main/a/at-spi2-core/gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64v3.deb' gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64v3.deb 23186 MD5Sum:975c86779ce8869032f1d82004544fba
+'mirror+file:/etc/apt/apt-mirrors.txt/pool/main/libx/libxau/libxau-dev_1.0.11-1build2_amd64v3.deb' libxau-dev_1%3a1.0.11-1build2_amd64v3.deb 9780 MD5Sum:01de0b27dc1770a5a3c3a42dcafdc7b4
+";
+
+    /// What the listing printed with `Acquire::ForceHash=SHA256`, as the
+    /// job's user with the listing's own directories, on a developer's
+    /// Ubuntu with apt 3.2.1 (2026-11-19): every file named by SHA256. The
+    /// second file's name carries an epoch (`%3a`).
     const LISTED: &str = "\
-W: Target Packages (main/binary-amd64/Packages) is configured multiple times
-'http://azure.archive.ubuntu.com/ubuntu/pool/universe/s/sway/sway_1.11-1_amd64v3.deb' sway_1.11-1_amd64v3.deb 412318 SHA512:9f2c
-'http://azure.archive.ubuntu.com/ubuntu/pool/main/libx/libxkbcommon/libxkbcommon0_1%3a1.11.0-1_amd64v3.deb' libxkbcommon0_1%3a1.11.0-1_amd64v3.deb 143020 SHA512:41ab
+'http://us.archive.ubuntu.com/ubuntu/pool/universe/c/cowsay/cowsay_3.03%2bdfsg2-8build1_all.deb' cowsay_3.03+dfsg2-8build1_all.deb 18100 SHA256:8b20388677e978fe2c2f77d921919c3f93f0571e8baa07bf5e44563eb4ece974
+'http://us.archive.ubuntu.com/ubuntu/pool/universe/x/xserver-xorg-video-dummy/xserver-xorg-video-dummy_0.4.0-1ubuntu1_amd64.deb' xserver-xorg-video-dummy_1%3a0.4.0-1ubuntu1_amd64.deb 10500 SHA256:50e7105e0cd49003f8629230dbf2c6fd35057861f56c99ab5b9fed3d8e8fcd76
 ";
 
     fn plan() -> Plan {
         Plan::new(
             SystemTime::UNIX_EPOCH,
-            &["sway".into(), "dbus-daemon".into(), "sway".into()],
+            &[
+                "xserver-xorg-video-dummy".into(),
+                "cowsay".into(),
+                "xserver-xorg-video-dummy".into(),
+            ],
             downloads(LISTED).unwrap(),
         )
     }
@@ -186,20 +220,40 @@ W: Target Packages (main/binary-amd64/Packages) is configured multiple times
     #[test]
     fn the_listing_reads_as_downloads() {
         assert_eq!(
-            downloads(LISTED).unwrap(),
+            downloads(LISTED_MD5).unwrap(),
             [
                 Download {
-                    file: "sway_1.11-1_amd64v3.deb".into(),
-                    size: 412_318,
-                    checksum: "SHA512:9f2c".into(),
+                    file: "gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64v3.deb".into(),
+                    size: 23186,
+                    checksum: "MD5Sum:975c86779ce8869032f1d82004544fba".into(),
                 },
                 Download {
-                    file: "libxkbcommon0_1%3a1.11.0-1_amd64v3.deb".into(),
-                    size: 143_020,
-                    checksum: "SHA512:41ab".into(),
+                    file: "libxau-dev_1%3a1.0.11-1build2_amd64v3.deb".into(),
+                    size: 9780,
+                    checksum: "MD5Sum:01de0b27dc1770a5a3c3a42dcafdc7b4".into(),
                 },
             ]
         );
+    }
+
+    /// The listing with its kind forced names every file by SHA256; the
+    /// one before it named every file by `MD5Sum`, which the cache could
+    /// keep none of.
+    #[test]
+    fn the_plan_counts_its_checksum_kinds_and_the_unverifiable() {
+        let forced = plan();
+        assert_eq!(
+            forced.kinds().into_iter().collect::<Vec<_>>(),
+            [("SHA256", forced.downloads.len())]
+        );
+        assert_eq!(forced.unverifiable(), Vec::<&Download>::new());
+        let md5 = Plan::new(
+            SystemTime::UNIX_EPOCH,
+            &["libgtk-3-dev".into()],
+            downloads(LISTED_MD5).unwrap(),
+        );
+        assert_eq!(md5.kinds().into_iter().collect::<Vec<_>>(), [("MD5Sum", 2)]);
+        assert_eq!(md5.unverifiable().len(), 2);
     }
 
     #[test]
@@ -219,13 +273,10 @@ W: Target Packages (main/binary-amd64/Packages) is configured multiple times
     #[test]
     fn the_plan_is_in_order_and_each_package_once() {
         let plan = plan();
-        assert_eq!(plan.packages, ["dbus-daemon", "sway"]);
-        assert_eq!(
-            plan.downloads[0].file,
-            "libxkbcommon0_1%3a1.11.0-1_amd64v3.deb"
-        );
-        assert_eq!(plan.bytes(), 555_338);
-        assert_eq!(megabytes(plan.bytes()), "0.6 MB");
+        assert_eq!(plan.packages, ["cowsay", "xserver-xorg-video-dummy"]);
+        assert_eq!(plan.downloads[0].file, "cowsay_3.03+dfsg2-8build1_all.deb");
+        assert_eq!(plan.bytes(), 28_600);
+        assert_eq!(megabytes(plan.bytes()), "0.0 MB");
         assert_eq!(megabytes(53_349_999), "53.3 MB");
         assert_eq!(megabytes(53_350_000), "53.4 MB");
         assert_eq!(megabytes(0), "0.0 MB");
@@ -244,7 +295,7 @@ W: Target Packages (main/binary-amd64/Packages) is configured multiple times
         // Nor does when the step started.
         let again = Plan::new(
             SystemTime::now(),
-            &["dbus-daemon".into(), "sway".into()],
+            &["cowsay".into(), "xserver-xorg-video-dummy".into()],
             plan.downloads.clone(),
         );
         assert_eq!(again.key("ubuntu26", "X64"), key);
