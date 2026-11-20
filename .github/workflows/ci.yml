@@ -55,9 +55,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/build-cache
       - uses: ./.github/actions/apt-packages
         with:
           packages: ${{ env.RINCH_BUILD_PACKAGES }}
@@ -74,9 +72,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/build-cache
       # The notification service's tests run on private D-Bus daemons and
       # check interoperability with libnotify's notify-send.
       - uses: ./.github/actions/apt-packages
@@ -100,9 +96,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/build-cache
       - uses: ./.github/actions/apt-packages
         with:
           packages: ${{ env.RINCH_BUILD_PACKAGES }}
@@ -134,9 +128,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/build-cache
       - run: cargo xtask file-length
 
   # The window-management and screen-capture crates against real
@@ -180,9 +172,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/build-cache
       # The steps after the compositor tests that run when those failed ask
       # for these two by id: they run on a compositor that was installed (and
       # under KWin given its device), and not after the setup failed, where
@@ -260,9 +250,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
-      - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          save-if: ${{ github.ref == 'refs/heads/main' }}
+      - uses: ./.github/actions/build-cache
       - uses: ./.github/actions/apt-packages
         with:
           packages: dbus-user-session
