@@ -225,6 +225,25 @@ fn unchanged_repainted(settled: Settled, drawn: &[String]) -> Option<String> {
     }
 }
 
+/// The least of a minute left for a span judged on a bar's repaints.
+const SPAN_ROOM: u64 = 30;
+
+/// The minute a span judged on a bar's repaints runs in, begun with at
+/// least [`SPAN_ROOM`] seconds of it left. The clock redraws every bar on
+/// the minute, which a judgment that a bar repainted nothing cannot tell
+/// from a repaint for what the span judges; with less left, the span
+/// waits for the clock's frame on every bar, the minute's end, first.
+fn clear_of_the_minute(panel: &Panel) -> u64 {
+    loop {
+        let now = whole_seconds(SystemTime::now());
+        if 60 - now % 60 >= SPAN_ROOM {
+            return now / 60;
+        }
+        let mark = panel.watch().mark();
+        wait_each_bar_drew_since(panel, &mark, "for the clock's minute");
+    }
+}
+
 /// The second output changed by `change` (given the first output's state
 /// and its own) and put back, each settled as `settled` says: the bars are
 /// the ones the panel started with each time, and no window was made or
@@ -241,6 +260,7 @@ fn keeps_its_bars(
     let (name, kept) = (layout[1].name.clone(), layout[0].name.clone());
     let (window, unchanged) = (panel.window_on(&name), panel.window_on(&kept));
     let surface = last_surface(&panel.watch().lines(), window).expect("the bar's frame");
+    let minute = clear_of_the_minute(&panel);
     let from = step(&panel);
     let changed = change_output(&name, change(&layout[0], &layout[1])).unwrap();
     wait_settled(&panel, settled, window, surface, false);
@@ -257,6 +277,11 @@ fn keeps_its_bars(
     // everything before them. The edit's own move comes after those lines,
     // and is not counted.
     let to = panel.bound(Edge::Top, 40);
+    assert_eq!(
+        whole_seconds(SystemTime::now()) / 60,
+        minute,
+        "{what}: the span judged outran its minute, in which the clock redraws every bar"
+    );
     let drawn = drawn_between(&panel, &unchanged, from, to);
     if let Some(why) = unchanged_repainted(settled, &drawn) {
         panic!("{what}, put back: the bar on {kept}, which nothing changed, {why}");
