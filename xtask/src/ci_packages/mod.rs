@@ -353,8 +353,9 @@ fn arguments(step: Step, packages: &[String], dir: &Path) -> Vec<String> {
     match step {
         Step::Update => args.push("update".into()),
         Step::List => {
-            // apt prints the weakest of a file's checksums unless told which:
-            // MD5Sum, which the check cannot verify.
+            // Unless told which, apt prints the first of a file's checksums
+            // in its own order of kinds (`HashStringList::find`): MD5Sum,
+            // which the check cannot verify.
             args.extend(["-o".into(), format!("Acquire::ForceHash={LISTED_CHECKSUM}")]);
             args.extend(["-o".into(), archives(&dir.join("archives"))]);
             args.extend([
