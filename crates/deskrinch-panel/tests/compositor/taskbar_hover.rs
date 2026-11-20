@@ -81,24 +81,32 @@ fn hover(scheme: &str, apart: bool) {
     let red = bar.wait_button(RED);
     let green = bar.wait_button(GREEN);
     bar.point_off();
-    let (plain, before, active) = bar.settled(|image| {
-        (
-            Bar::bar(image, red),
-            Bar::beside(image, red),
-            Bar::beside(image, green),
-        )
-    });
+    // Green made active, red's button loses the active window's mark: a
+    // change that comes about, which a compositor may report a while after
+    // green has the keyboard (sway, on a pass, later than the still gap).
+    // It is waited for on a still picture, whose colours are then the ones
+    // compared with.
+    let (plain, active) = bar.judged(
+        "red's button the bar's colour, green's marked, before the pointer",
+        |_, image| {
+            let plain = sample(Bar::bar(image, red));
+            let before = sample(Bar::beside(image, red));
+            let active = sample(Bar::beside(image, green));
+            if near(before, plain) {
+                Ok((plain, active))
+            } else {
+                Err(format!(
+                    "red's button is not the bar's colour before the pointer: {before:?} against \
+                     {plain:?}"
+                ))
+            }
+        },
+    );
     let colours = Colours {
-        plain: sample(plain),
-        active: sample(active),
+        plain,
+        active,
         apart,
     };
-    let before = sample(before);
-    assert!(
-        near(before, colours.plain),
-        "red's button is not the bar's colour before the pointer: {before:?} against {:?}",
-        colours.plain
-    );
     let window = bar.panel().window_on(bar.output());
     let from = frames::step(bar.panel());
     frames::until_clean_round(
