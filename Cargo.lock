@@ -1105,6 +1105,7 @@ dependencies = [
  "deskrinch-test-component",
  "deskrinch-test-desktops",
  "deskrinch-test-input",
+ "deskrinch-test-log",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-theme",

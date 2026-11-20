@@ -1,10 +1,19 @@
-//! The panel's root: its settings as a signal, the window following them,
-//! and what the widgets share.
+//! The panel's root: its settings as a signal, a bar on every output, and
+//! what the bars share.
 //!
-//! The settings the panel started with made its window. Every later change
-//! from the configuration arrives in a `Signal<PanelSettings>`, which the
-//! widgets read through the context. A change of edge or height moves the
-//! window ([`surface::place`]); anything else leaves it alone.
+//! The root is the document of an app with no window of its own
+//! (`App::windowless`): it holds one `Window` per output, a row of a `for`
+//! over rinch's `output_ids()`, keyed by the id, each a bar
+//! ([`output_bar`]). The row's item is the output's id alone, not rinch's
+//! whole `Output`, which changes with the output's position, size and scale:
+//! an output moved, rescaled or turned keeps its row and its window, whose
+//! layer surface the compositor reconfigures; only an output coming or
+//! going adds or removes a row ([`surface`]'s "When a window closes").
+//!
+//! Every change of the settings arrives in a `Signal<PanelSettings>`, which
+//! the widgets read through the context. A change of edge or height moves
+//! every bar, each from an effect of its own window ([`surface::place`]);
+//! anything else leaves them alone.
 //!
 //! The installed applications and the icon theme's index, followed
 //! (`deskrinch-applications`), are the taskbar's icons, also through the
@@ -26,9 +35,10 @@ use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
 use rinch::prelude::*;
 use rinch::reactive::Effect;
+use rinch::{OutputId, WindowHandle};
 
 use crate::bar::Bar;
-use crate::surface::{self, Placement};
+use crate::surface::{self, BarSurface, Placement};
 use crate::widgets::{AppIcons, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock};
 
 /// What the panel runs with.
@@ -70,21 +80,107 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     create_context(Rc::new(workspaces));
     create_context(buttons.into_signal(Arc::default()));
     create_context(runs.into_signal(Arc::default()));
-    // Where the window was made.
-    let mut placed = Placement::of(&live.initial);
     let settings = live.into_signal();
     create_context(settings);
     // The panel's one clock; its faces read the text.
     create_context(follow_clock(settings));
     let placement = Memo::new(move || Placement::of(&settings.get()));
+    bars(__scope, Memo::new(output_ids), placement)
+}
+
+/// A bar on each of `outputs`, at `placement`: one `Window` per output, a
+/// row keyed by the output's id. The root hands it rinch's `output_ids()`
+/// and the settings' placement; a test may hand it its own.
+pub(crate) fn bars(
+    __scope: &mut RenderScope,
+    outputs: Memo<Vec<OutputId>>,
+    placement: Memo<Placement>,
+) -> NodeHandle {
+    rsx! {
+        div {
+            for id in outputs.get() {
+                div {
+                    key: id,
+                    {bar_window(__scope, id, outputs, placement)}
+                }
+            }
+        }
+    }
+}
+
+/// The window of the bar on the output whose id is `output`, one of
+/// `outputs`, drawn with its row: opened at the placement as it is now,
+/// which its bar is handed as what its window was opened with.
+fn bar_window(
+    __scope: &mut RenderScope,
+    output: OutputId,
+    outputs: Memo<Vec<OutputId>>,
+    placement: Memo<Placement>,
+) -> NodeHandle {
+    let opened = surface::bar_surface(untracked(|| placement.get()), output);
+    let height = opened.height;
+    let layer = opened.layer.clone();
+    rsx! {
+        Window {
+            title: surface::TITLE.to_owned(),
+            width: surface::FIRST_WIDTH,
+            height: height,
+            borderless: true,
+            app_id: Some(surface::NAMESPACE.to_owned()),
+            wayland_layer: Some(layer),
+            on_closed: move || surface::closed(output),
+            {output_bar(__scope, output, outputs, placement, opened)}
+        }
+    }
+}
+
+/// The bar on the output whose id is `output`, inside that output's window:
+/// while `output` is among `outputs`, it follows `placement`, moving its
+/// window through the window's handle when the edge or height changes
+/// ([`surface::place`]). The handle is the
+/// window's own: rinch's current window while its content is built, which
+/// is when this runs.
+fn output_bar(
+    __scope: &mut RenderScope,
+    output: OutputId,
+    outputs: Memo<Vec<OutputId>>,
+    placement: Memo<Placement>,
+    opened: BarSurface,
+) -> NodeHandle {
+    let window = WindowHandle::current();
+    if window.is_none() {
+        tracing::error!(
+            "the bar on output {output:?} has no window handle at its mount, and cannot follow the \
+             edge and height"
+        );
+    }
+    // Compared first against what the window was opened with (`opened`):
+    // its row read the placement a turn before this mount, and the settings
+    // may have changed in between, so the first run sends the difference;
+    // rinch queues it behind the window's opening.
+    let mut applied = opened;
     Effect::new(move || {
-        let wanted = placement.get();
-        if wanted != placed {
-            surface::place(wanted);
-            placed = wanted;
+        let at = placement.get();
+        // The window's document, and this effect with it, goes when its
+        // close is served, not when the row goes: an output that goes in
+        // the turn its placement changes leaves this effect a run, in
+        // either order of the two, with the window closing. Read untracked:
+        // whether the output is there decides, its going does not move the
+        // bar.
+        let connected = untracked(|| outputs.get()).contains(&output);
+        if let Some(window) = window
+            && let Some(sent) =
+                surface::to_send(&applied, surface::bar_surface(at, output), connected)
+        {
+            surface::place(window, output, &sent, at);
+            applied = sent;
         }
     });
     rsx! {
         Bar {}
     }
 }
+
+#[cfg(test)]
+#[path = "bars_tests.rs"]
+mod bars_tests;

@@ -7,19 +7,20 @@
 use deskrinch_settings::panel::{Edge, Height};
 
 /// The line the panel writes, at info, each time its main thread applies a
-/// new edge and height to its window: once per applied change of either,
-/// never per frame. It says where the panel now is, which is worth having
-/// in a journal; and since only the main thread writes it, a test sees from
-/// it that the main thread goes on working while the compositor does not
-/// show the panel.
+/// new edge and height to the bar on `output` (the output's name, or its
+/// id where it has none): once per bar per applied change of either, never
+/// per frame. It says where that bar now is, which is worth having in a
+/// journal; and since only the main thread writes it, a test sees from it
+/// that the main thread goes on working while the compositor does not show
+/// the panel.
 #[must_use]
-pub fn placed(edge: Edge, height: Height) -> String {
+pub fn placed(output: &str, edge: Edge, height: Height) -> String {
     let edge = match edge {
         Edge::Bottom => "bottom",
         Edge::Top => "top",
     };
     format!(
-        "the panel is placed along the {edge} edge, {} high",
+        "the bar on {output} is placed along the {edge} edge, {} high",
         height.get()
     )
 }
@@ -29,15 +30,15 @@ mod tests {
     use super::*;
 
     #[test]
-    fn says_the_edge_and_the_height() {
+    fn says_the_bar_the_edge_and_the_height() {
         let height = Height::try_from(56).unwrap();
         assert_eq!(
-            placed(Edge::Bottom, height),
-            "the panel is placed along the bottom edge, 56 high"
+            placed("DP-1", Edge::Bottom, height),
+            "the bar on DP-1 is placed along the bottom edge, 56 high"
         );
         assert_eq!(
-            placed(Edge::Top, height),
-            "the panel is placed along the top edge, 56 high"
+            placed("HDMI-A-1", Edge::Top, height),
+            "the bar on HDMI-A-1 is placed along the top edge, 56 high"
         );
     }
 }

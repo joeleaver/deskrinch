@@ -67,37 +67,10 @@ impl Wallpaper {
     pub(crate) fn start() -> Self {
         let renderer = Renderer::of_run();
         let component = Component::start(Command::new(wallpaper_binary()), renderer).unwrap();
-        let watch = component.watch();
-        let said = watch.wait_for_line(PATIENCE, |line| {
-            log::presents_with_software(line) || log::adapter(line).is_some()
-        });
-        assert!(
-            said,
-            "the wallpaper never said what it presents with; its last lines:\n{}",
-            watch.tail()
-        );
-        let as_asked = match renderer {
-            Renderer::Software => watch.presents_with_software(),
-            Renderer::Gpu => {
-                !watch.presents_with_software()
-                    && watch
-                        .adapter()
-                        .is_some_and(|adapter| !adapter.is_software())
-            }
-        };
-        assert!(
-            as_asked,
-            "the wallpaper was to present with the {} renderer; its last lines:\n{}",
-            renderer.env(),
-            watch.tail()
-        );
         let outputs = Screen::connect().unwrap().outputs().len();
-        assert!(
-            watch.wait_first_frames(outputs, PATIENCE).is_some(),
-            "the wallpaper did not present a frame in each of {outputs} windows; its windows: \
-             {:?}",
-            watch.windows()
-        );
+        if let Err(why) = component.wait_presented_in_each(renderer, outputs) {
+            panic!("the wallpaper did not present a window on each of {outputs} outputs: {why}");
+        }
         Self { component }
     }
 

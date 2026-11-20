@@ -40,6 +40,9 @@ pub(crate) struct Status {
     failure: Option<ShmError>,
     /// What it heard of the keyboard and the pointer.
     pub(crate) input: Heard,
+    /// The outputs it is on, by name, in the order it entered them
+    /// ([`crate::entered`]).
+    pub(crate) outputs: Vec<String>,
 }
 
 /// What a window heard of the seat.
