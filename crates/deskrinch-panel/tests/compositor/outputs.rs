@@ -7,7 +7,8 @@
 //! rinch's per-window lines (`[PERF] window N opened/closed/frame`).
 
 use std::collections::BTreeSet;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::io::Write as _;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use deskrinch_test_client::{
     OutputChange, OutputState, TestClient, change_output, outputs, turn_output_off,
@@ -225,23 +226,11 @@ fn unchanged_repainted(settled: Settled, drawn: &[String]) -> Option<String> {
     }
 }
 
-/// The least of a minute left for a span judged on a bar's repaints.
-const SPAN_ROOM: u64 = 30;
-
-/// The minute a span judged on a bar's repaints runs in, begun with at
-/// least [`SPAN_ROOM`] seconds of it left. The clock redraws every bar on
-/// the minute, which a judgment that a bar repainted nothing cannot tell
-/// from a repaint for what the span judges; with less left, the span
-/// waits for the clock's frame on every bar, the minute's end, first.
-fn clear_of_the_minute(panel: &Panel) -> u64 {
-    loop {
-        let now = whole_seconds(SystemTime::now());
-        if 60 - now % 60 >= SPAN_ROOM {
-            return now / 60;
-        }
-        let mark = panel.watch().mark();
-        wait_each_bar_drew_since(panel, &mark, "for the clock's minute");
-    }
+/// Writes `line` to the standard error as it is, past the test harness's
+/// capture of what a test prints.
+fn say(line: &str) {
+    // A line the log may lack is no reason to fail the test.
+    writeln!(std::io::stderr(), "{line}").ok();
 }
 
 /// The second output changed by `change` (given the first output's state
@@ -252,7 +241,7 @@ fn clear_of_the_minute(panel: &Panel) -> u64 {
 fn keeps_its_bars(
     what: &str,
     settled: Settled,
-    change: impl FnOnce(&OutputState, &OutputState) -> OutputChange,
+    change: impl Fn(&OutputState, &OutputState) -> OutputChange,
 ) {
     let panel = start_panel();
     let started = ever(&panel);
@@ -260,31 +249,54 @@ fn keeps_its_bars(
     let (name, kept) = (layout[1].name.clone(), layout[0].name.clone());
     let (window, unchanged) = (panel.window_on(&name), panel.window_on(&kept));
     let surface = last_surface(&panel.watch().lines(), window).expect("the bar's frame");
-    let minute = clear_of_the_minute(&panel);
-    let from = step(&panel);
-    let changed = change_output(&name, change(&layout[0], &layout[1])).unwrap();
-    wait_settled(&panel, settled, window, surface, false);
-    assert_eq!(open(&panel), started, "{what}: {}", panel.log());
-    let (drawn, from) = drawn_since(&panel, &unchanged, from);
-    if let Some(why) = unchanged_repainted(settled, &drawn) {
-        panic!("{what}: the bar on {kept}, which nothing changed, {why}");
-    }
-    changed.restore().unwrap();
-    wait_settled(&panel, settled, window, surface, true);
-    // The windows read from `from` on are contiguous, so a late repaint for
-    // the change lands in the window for its putting back; that last window
-    // ends at the bars' `placed` lines for an edit made now, which bound
-    // everything before them. The edit's own move comes after those lines,
-    // and is not counted.
-    let to = panel.bound(Edge::Top, 40);
-    assert_eq!(
-        whole_seconds(SystemTime::now()) / 60,
-        minute,
-        "{what}: the span judged outran its minute, in which the clock redraws every bar"
-    );
-    let drawn = drawn_between(&panel, &unchanged, from, to);
-    if let Some(why) = unchanged_repainted(settled, &drawn) {
-        panic!("{what}, put back: the bar on {kept}, which nothing changed, {why}");
+    // The clock redraws every bar on the minute, which the judgment that
+    // the unchanged bar repainted nothing cannot tell from a repaint for
+    // the change. A span the minute turned inside is void: nothing is
+    // judged from it, and it is run again, once; the second cannot meet a
+    // turn unless a span lasts a minute. Each bound moves the bars to the
+    // edge they are not at.
+    for (attempt, edge) in [(1, Edge::Top), (2, Edge::Bottom)] {
+        let minute = whole_seconds(SystemTime::now()) / 60;
+        let began = Instant::now();
+        let from = step(&panel);
+        let changed = change_output(&name, change(&layout[0], &layout[1])).unwrap();
+        wait_settled(&panel, settled, window, surface, false);
+        assert_eq!(open(&panel), started, "{what}: {}", panel.log());
+        let (changing, from) = drawn_since(&panel, &unchanged, from);
+        changed.restore().unwrap();
+        wait_settled(&panel, settled, window, surface, true);
+        // The windows read from the change on are contiguous, so a late
+        // repaint for it lands in the window for its putting back; that
+        // last window ends at the bars' `placed` lines for an edit made
+        // now, which bound everything before them. The edit's own move
+        // comes after those lines, and is not counted.
+        let to = panel.bound(edge, 40);
+        let putting_back = drawn_between(&panel, &unchanged, from, to);
+        let turned = whole_seconds(SystemTime::now()) / 60 != minute;
+        // Said straight to the standard error, which the test harness does
+        // not capture, so that a run's log shows it whether the test passes
+        // or fails.
+        say(&format!(
+            "{what}: span {attempt} took {:?}",
+            began.elapsed()
+        ));
+        if turned && attempt == 1 {
+            say(&format!(
+                "{what}: the clock's minute turned inside span 1; it is void, and run again"
+            ));
+            continue;
+        }
+        assert!(
+            !turned,
+            "{what}: the span judged outran its minute, in which the clock redraws every bar"
+        );
+        if let Some(why) = unchanged_repainted(settled, &changing) {
+            panic!("{what}: the bar on {kept}, which nothing changed, {why}");
+        }
+        if let Some(why) = unchanged_repainted(settled, &putting_back) {
+            panic!("{what}, put back: the bar on {kept}, which nothing changed, {why}");
+        }
+        break;
     }
     assert_eq!(open(&panel), started, "{what}, put back: {}", panel.log());
     assert_eq!(
