@@ -24,7 +24,9 @@
 //!   uses the bounds as they are, so each axis is a pass of its own, with
 //!   the premultiplication done once around both.
 
-use deskrinch_untrusted::Image;
+use std::sync::Arc;
+
+use deskrinch_untrusted::{Image, SHARED_HEADER_BYTES, zeroed_pixels};
 use fast_image_resize::images::{Image as Pixels, ImageRef};
 use fast_image_resize::{
     CropBox, FilterType, IntoImageView, MulDiv, PixelType, ResizeAlg, ResizeOptions, Resizer,
@@ -56,7 +58,7 @@ pub(super) fn resample(
     size: (u32, u32),
     beside: usize,
     limits: &Limits,
-) -> Result<Vec<u8>, FitError> {
+) -> Result<Arc<[u8]>, FitError> {
     let opaque = image
         .rgba()
         .as_chunks::<4>()
@@ -95,7 +97,7 @@ pub(super) fn smaller_in_bands(
     opaque: bool,
     beside: usize,
     limits: &Limits,
-) -> Result<Vec<u8>, FitError> {
+) -> Result<Arc<[u8]>, FitError> {
     let (dw, dh) = (size.0 as usize, size.1 as usize);
     let sw = image.width() as usize;
     let per_row = crop.height / f64::from(size.1);
@@ -113,6 +115,7 @@ pub(super) fn smaller_in_bands(
     let needed = dw
         .checked_mul(dh)
         .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_add(SHARED_HEADER_BYTES))
         .and_then(|n| n.checked_add(beside))
         .and_then(|n| n.checked_add(sw.checked_mul(band_source)?.checked_mul(8)?))
         .and_then(|n| n.checked_add(dw.checked_mul(band_source)?.checked_mul(8)?))
@@ -122,7 +125,9 @@ pub(super) fn smaller_in_bands(
 
     let mapper = create_srgb_mapper();
     let mut resizer = Resizer::new();
-    let mut target = vec![0; dw * dh * 4];
+    // The result's own shared buffer, written in place.
+    let mut result = zeroed_pixels(dw * dh * 4);
+    let target = Arc::make_mut(&mut result);
     let source_height = f64::from(image.height());
     let mut r0 = 0;
     while r0 < size.1 {
@@ -178,7 +183,7 @@ pub(super) fn smaller_in_bands(
         mapper.backward_map(&out, &mut rows_out).map_err(refused)?;
         r0 = r1;
     }
-    Ok(target)
+    Ok(result)
 }
 
 /// The larger path.
@@ -189,7 +194,7 @@ fn larger(
     opaque: bool,
     beside: usize,
     limits: &Limits,
-) -> Result<Vec<u8>, FitError> {
+) -> Result<Arc<[u8]>, FitError> {
     let (dw, dh) = (size.0 as usize, size.1 as usize);
     let source = image.width() as usize * image.height() as usize;
     // The target; a premultiplied copy of the source where it has alpha;
@@ -197,6 +202,7 @@ fn larger(
     let needed = dw
         .checked_mul(dh)
         .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_add(SHARED_HEADER_BYTES))
         .and_then(|n| n.checked_add(beside))
         .and_then(|n| n.checked_add(if opaque { 0 } else { source.checked_mul(4)? }))
         .and_then(|n| n.checked_add(dw.checked_mul(image.height() as usize)?.checked_mul(4)?))
@@ -205,7 +211,11 @@ fn larger(
 
     let source = ImageRef::new(image.width(), image.height(), image.rgba(), PixelType::U8x4)
         .map_err(refused)?;
-    let mut target = Pixels::new(size.0, size.1, PixelType::U8x4);
+    // The result's own shared buffer, written in place.
+    let mut result = zeroed_pixels(dw * dh * 4);
+    let mut target =
+        Pixels::from_slice_u8(size.0, size.1, Arc::make_mut(&mut result), PixelType::U8x4)
+            .map_err(refused)?;
     let mut resizer = Resizer::new();
     if opaque {
         two_passes(
@@ -234,7 +244,8 @@ fn larger(
             .divide_alpha_inplace(&mut target)
             .map_err(refused)?;
     }
-    Ok(target.into_vec())
+    drop(target);
+    Ok(result)
 }
 
 /// `crop` of `source` resampled into `target` with `filter`, one axis at a

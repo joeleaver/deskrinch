@@ -22,6 +22,10 @@
 //! are, grey widened, CMYK and YCCK converted to RGB by zune (their print
 //! profiles are not RGB and are ignored, [`crate::Ignored::NotRgb`]).
 
+use std::sync::Arc;
+
+use deskrinch_untrusted::{held, zeroed_pixels};
+
 use image::metadata::Orientation;
 use zune_core::bytestream::ZCursor;
 use zune_core::colorspace::ColorSpace;
@@ -82,10 +86,10 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         header.progressive,
     );
     let needed = own
-        .and_then(|own| own.checked_add(result_bytes))
+        .and_then(|own| own.checked_add(held(result_bytes)))
         .and_then(|peak| peak.checked_add(kept?))
         .map(|peak| {
-            let turned = result_bytes
+            let turned = held(result_bytes)
                 .saturating_add(ours)
                 .saturating_add(orient::extra(header.orientation, result_bytes));
             peak.max(turned)
@@ -100,7 +104,10 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         options(side).jpeg_set_out_colorspace(out),
     );
     decoder.decode_headers().map_err(malformed)?;
-    let mut rgba = vec![0; result_bytes];
+    // The result's own shared buffer, written in place: handed on without
+    // a copy.
+    let mut rgba = zeroed_pixels(result_bytes);
+    let buffer = Arc::make_mut(&mut rgba);
     let native = result_bytes / 4 * channels.bytes();
     match decoder.output_buffer_size() {
         Some(buffer) if buffer == native => {}
@@ -111,9 +118,9 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         }
     }
     decoder
-        .decode_into(&mut rgba[..native])
+        .decode_into(&mut buffer[..native])
         .map_err(malformed)?;
-    rgba::widen(&mut rgba, result_bytes / 4, channels);
+    rgba::widen(buffer, result_bytes / 4, channels);
     let icc = match profile {
         Profile::None => Embedded::None,
         Profile::TooLarge => Embedded::Ignored(Ignored::TooLarge {

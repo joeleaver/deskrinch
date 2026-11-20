@@ -18,6 +18,9 @@
 //! orientation.
 
 use std::io::Cursor;
+use std::sync::Arc;
+
+use deskrinch_untrusted::{held, zeroed_pixels};
 
 use ::png::{BitDepth, ColorType, Decoder, DecodingError, Limits as PngLimits, Transformations};
 use image::metadata::Orientation;
@@ -55,12 +58,17 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         .saturating_add(row.saturating_mul(ROWS))
         .saturating_add(colour::MAX_PROFILE_BYTES)
         .saturating_add(metadata.exif);
-    let orientation_extra = if metadata.exif_first { result_bytes } else { 0 };
+    let orientation_extra = if metadata.exif_first {
+        held(result_bytes)
+    } else {
+        0
+    };
     // It reads a chunk into a buffer of its own and copies an eXIf out of
     // it: two copies at once, of which its limit counts one.
-    let needed = result_bytes.checked_add(own).map(|peak| {
+    // The result is a shared buffer: its bytes and its header.
+    let needed = held(result_bytes).checked_add(own).map(|peak| {
         peak.saturating_add(metadata.exif).max(
-            result_bytes
+            held(result_bytes)
                 .saturating_add(metadata.exif)
                 .saturating_add(orientation_extra),
         )
@@ -101,8 +109,11 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
             what: "a layout wider than 8-bit RGBA after expansion",
         });
     }
-    let mut rgba = vec![0; result_bytes];
-    let frame = reader.next_frame(&mut rgba[..native]).map_err(fault)?;
+    // The result's own shared buffer, written in place: handed on without
+    // a copy.
+    let mut rgba = zeroed_pixels(result_bytes);
+    let buffer = Arc::make_mut(&mut rgba);
+    let frame = reader.next_frame(&mut buffer[..native]).map_err(fault)?;
     if !animated {
         reader.finish().map_err(fault)?;
     }
@@ -126,7 +137,7 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
     {
         return Err(DecodeError::malformed(Format::Png, "padded rows"));
     }
-    rgba::widen(&mut rgba, pixels, channels);
+    rgba::widen(buffer, pixels, channels);
     Ok(Raw {
         width,
         height,

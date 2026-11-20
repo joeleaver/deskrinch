@@ -2,6 +2,7 @@
 //! colour profile and the orientation applied to the result.
 
 use std::path::Path;
+use std::sync::Arc;
 
 use deskrinch_untrusted::Image;
 use deskrinch_untrusted::file::{FileError, read_bounded};
@@ -28,8 +29,9 @@ pub struct Decoded {
 pub(crate) struct Raw {
     pub(crate) width: u32,
     pub(crate) height: u32,
-    /// `width * height * 4` bytes of RGBA8.
-    pub(crate) rgba: Vec<u8>,
+    /// `width * height * 4` bytes of RGBA8, in the buffer the result is
+    /// handed on in.
+    pub(crate) rgba: Arc<[u8]>,
     /// The embedded ICC profile.
     pub(crate) icc: Embedded,
     /// How the stored pixels are to be shown.
@@ -117,7 +119,7 @@ fn finish(raw: Raw, format: Format, limits: &Limits) -> Result<Decoded, DecodeEr
         {
             Profile::Ignored(Ignored::OverWorkingBound)
         }
-        Embedded::Bytes(icc) => colour::convert(&mut rgba, row, &icc)
+        Embedded::Bytes(icc) => colour::convert(Arc::make_mut(&mut rgba), row, &icc)
             .map_err(|failed| DecodeError::ColourConversion { fault: failed.0 })?,
     };
     let (rgba, width, height) = orient::apply(rgba, width, height, orientation);
