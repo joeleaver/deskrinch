@@ -121,13 +121,31 @@ fn update(packages: &[String]) -> Result<Outcome, Error> {
     };
     let plan = Plan::new(started, packages, downloads(&listed.output)?);
     let key = plan.key(&ci_variable("ImageOS")?, &ci_variable("RUNNER_ARCH")?);
+    let kinds: Vec<String> = plan
+        .kinds()
+        .into_iter()
+        .map(|(kind, files)| format!("{files} {kind}"))
+        .collect();
     println!(
-        "Package cache key {}: the {} files apt fetches for {}, {}.",
+        "Package cache key {}: the {} files apt fetches for {}, {}; their checksums: {}.",
         key.exact,
         plan.downloads.len(),
         plan.packages.join(" "),
-        megabytes(plan.bytes())
+        megabytes(plan.bytes()),
+        if kinds.is_empty() {
+            "none".to_owned()
+        } else {
+            kinds.join(", ")
+        }
     );
+    let unverifiable = plan.unverifiable();
+    if let Some(first) = unverifiable.first() {
+        report(&Verdict::Unverifiable {
+            files: unverifiable.len(),
+            first: format!("{} {}", first.file, first.checksum),
+        });
+        return Ok(Outcome::Failed);
+    }
     plan.save(&plan_path()?)?;
     let files = plan.downloads.len().to_string();
     write_outputs(
@@ -248,6 +266,7 @@ fn run_step(
         | Verdict::Slow(_)
         | Verdict::CutOffAfterDownload { .. }
         | Verdict::Unsandboxed(_)
+        | Verdict::Unverifiable { .. }
         | Verdict::NoTimeLeft { .. }
         | Verdict::Failed { .. } => None,
     })
@@ -259,6 +278,9 @@ fn report(verdict: &Verdict) {
         println!("{line}");
     }
 }
+
+/// The kind of checksum the listing asks apt for: one the check verifies.
+const LISTED_CHECKSUM: &str = "SHA256";
 
 /// apt's record of which packages were installed only as another's
 /// dependency.
@@ -331,6 +353,9 @@ fn arguments(step: Step, packages: &[String], dir: &Path) -> Vec<String> {
     match step {
         Step::Update => args.push("update".into()),
         Step::List => {
+            // apt prints the weakest of a file's checksums unless told which:
+            // MD5Sum, which the check cannot verify.
+            args.extend(["-o".into(), format!("Acquire::ForceHash={LISTED_CHECKSUM}")]);
             args.extend(["-o".into(), archives(&dir.join("archives"))]);
             args.extend([
                 "-o".into(),

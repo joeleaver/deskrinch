@@ -31,7 +31,7 @@ fn the_listing_is_the_install_against_an_empty_directory_fetching_nothing() {
     let packages = ["sway".to_owned()];
     assert_eq!(
         arguments(Step::List, &packages, Path::new("/tmp/list")).join(" "),
-        "-o Dir::Cache::Archives=/tmp/list/archives/ \
+        "-o Acquire::ForceHash=SHA256 -o Dir::Cache::Archives=/tmp/list/archives/ \
          -o Dir::State::extended_states=/tmp/list/extended_states \
          install --yes --no-install-recommends --print-uris -qq sway"
     );

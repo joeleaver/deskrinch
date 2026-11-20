@@ -101,6 +101,14 @@ pub(crate) enum Verdict {
         /// The least it needs.
         floor: Duration,
     },
+    /// The listing named files by a checksum the check cannot verify: the
+    /// cache could keep none of them.
+    Unverifiable {
+        /// How many files.
+        files: usize,
+        /// The first, with its checksum as apt printed it.
+        first: String,
+    },
     /// It failed for another reason.
     Failed {
         /// The command.
