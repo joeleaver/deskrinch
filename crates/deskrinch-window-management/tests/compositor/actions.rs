@@ -54,16 +54,23 @@ fn minimizes_and_restores_the_window_asked_for() {
         return;
     }
     watcher.wait_window("window one minimized", &one_id, has(WindowState::MINIMIZED));
-    let two = find(&watcher.seen(), &two_id).cloned().expect("window two");
     assert!(
-        !has(WindowState::MINIMIZED)(&two),
-        "only the window asked for"
+        find(&watcher.seen(), &two_id).is_some(),
+        "window two is listed"
     );
 
     watcher.manager.perform(one, Action::Restore).unwrap();
     watcher.wait_window("window one restored", &one_id, |window| {
         !window.state.contains(WindowState::MINIMIZED)
     });
+    // Only the window asked for: the compositor dealt with the minimize
+    // before the restore that came after it, so whatever the minimize did
+    // to window two is in what was heard before window one's restore.
+    assert!(
+        !watcher.ever(&two_id, has(WindowState::MINIMIZED)),
+        "window two was minimized too: {:#?}",
+        watcher.seen()
+    );
 }
 
 #[test]

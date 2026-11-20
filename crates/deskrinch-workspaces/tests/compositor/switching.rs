@@ -3,7 +3,7 @@
 
 use deskrinch_test_client::{Paint, TestClient};
 use deskrinch_test_input::{Input, Key};
-use deskrinch_test_screen::{Rgba, Screen};
+use deskrinch_test_screen::{Pictures, Rgba, Screen};
 use deskrinch_workspaces::{Action, WorkspaceState, Workspaces};
 
 use crate::support::{Compositor, Watcher, compositor, kwin, set_up};
@@ -73,7 +73,32 @@ fn a_switch_away_hides_the_windows_left_behind() {
     wait_marked(&mut screen, true);
     let target = watcher.inactive();
     watcher.activate(&target.name);
+    // The switch hides it: the first capture without it shows the change.
     wait_marked(&mut screen, false);
+    // And it stays hidden: on a still picture of each output, which a
+    // return within the still gap would show...
+    for output in screen.outputs() {
+        Pictures::judged(
+            &mut screen,
+            &output,
+            "the window left behind, off a still screen",
+            |image| {
+                (!image.pixels().contains(&MARK))
+                    .then_some(())
+                    .ok_or("the window left behind is on the screen")
+            },
+        );
+    }
+    // ...and in the compositor's own state, as the crate holds it after the
+    // still picture: the workspace switched to is still the active one, so
+    // the window's workspace is still the one left.
+    let listed = watcher.listed();
+    let active: Vec<_> = listed
+        .iter()
+        .filter(|workspace| workspace.state.contains(WorkspaceState::ACTIVE))
+        .map(|workspace| workspace.name.as_str())
+        .collect();
+    assert_eq!(active, [target.name.as_str()], "{listed:#?}");
     drop(window);
 }
 

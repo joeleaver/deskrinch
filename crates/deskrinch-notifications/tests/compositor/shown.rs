@@ -2,30 +2,59 @@
 
 use std::collections::HashMap;
 
+use deskrinch_shell::NOTIFICATIONS_UP_LINE;
+use deskrinch_test_wait::comes_true;
 use zbus::Variant;
 
 use crate::support::{Notifications, reddish};
 
-/// The daemon has made no window by the time it owns its name, and makes
-/// one, at the top right, for its first notification. (That it makes none
+/// The daemon has made no window by the time it is up and has answered on
+/// the bus, and makes one, at the top right, for its first notification. (That it makes none
 /// later while idle is [`crate::frames`]' and [`crate::lifecycle`]'s: the
 /// window goes with the last popup.)
+/// What the daemon has said so far, line by line.
+fn lines(notifications: &Notifications) -> Vec<String> {
+    notifications.daemon().watch().lines()
+}
+
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn no_window_until_a_notification_then_one_at_the_top_right() {
     let mut notifications = Notifications::start();
+    // Bounded by the daemon's own word and an answer of its loop: its up
+    // line is said as its root is built, which is where the column's window
+    // is declared, and an answer on the bus comes only once its loop has
+    // run since; no window opened before then.
     assert!(
-        notifications.daemon().watch().windows().is_empty(),
-        "a window with nothing to show; its last lines:\n{}",
+        comes_true(|| lines(&notifications)
+            .iter()
+            .any(|line| line.contains(NOTIFICATIONS_UP_LINE))),
+        "the daemon never said it was up; its last lines:\n{}",
         notifications.daemon().watch().tail()
     );
+    zbus::block_on(notifications.client.proxy.get_server_information()).unwrap();
+    let before = lines(&notifications);
+    assert!(
+        !before.iter().any(|line| line.contains(" opened:")),
+        "a window with nothing to show; its lines:\n{}",
+        before.join("\n")
+    );
+    let sent_at = before.len();
     notifications.client.simple(0, "Hello", "a body", 0);
     let column = notifications.column("one popup", |c| c.popups.len() == 1);
     assert!(
         notifications.top_right(&column),
         "the popup is not at the top right: {column:?}"
     );
+    // One window in all, opened after the notification was sent.
     assert_eq!(notifications.daemon().watch().windows().len(), 1);
+    let opened = lines(&notifications)
+        .iter()
+        .position(|line| line.contains(" opened:"));
+    assert!(
+        opened.is_some_and(|at| at >= sent_at),
+        "the window opened before the notification was sent (line {opened:?} of {sent_at})"
+    );
 }
 
 #[test]
