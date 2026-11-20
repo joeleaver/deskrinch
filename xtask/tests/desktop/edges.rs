@@ -27,8 +27,8 @@ use std::time::Duration;
 use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_client::{Compositor, Paint, TestClient};
 use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE, Key};
-use deskrinch_test_screen::{KWIN_SCREENSHOT_INTERFACE, Rgba, Screen};
-use deskrinch_test_wait::{Deadline, PATIENCE, POLL, comes_true, eventually, wait_for};
+use deskrinch_test_screen::{Image, KWIN_SCREENSHOT_INTERFACE, Pictures, Rgba, Screen};
+use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually, wait_for};
 
 use crate::push::{push, push_until};
 use crate::support::{TestProfile, start};
@@ -274,15 +274,68 @@ fn wait_effects(what: &str, effects: impl Fn(&[String]) -> bool) -> Vec<String> 
     })
 }
 
-/// Whether some pixel of `output`'s picture is [`SEEN`]: the window's
-/// thumbnail is drawn.
-fn shows_the_window(screen: &mut Screen, output: &str) -> bool {
-    let image = screen.capture(output).unwrap();
-    image.pixels().iter().any(|&pixel| {
-        pixel.r.abs_diff(SEEN.r) <= 2
-            && pixel.g.abs_diff(SEEN.g) <= 2
-            && pixel.b.abs_diff(SEEN.b) <= 2
-    })
+/// How many pixels of `image` are [`SEEN`], the window's colour.
+fn seen_area(image: &Image) -> usize {
+    image
+        .pixels()
+        .iter()
+        .filter(|pixel| {
+            pixel.r.abs_diff(SEEN.r) <= 2
+                && pixel.g.abs_diff(SEEN.g) <= 2
+                && pixel.b.abs_diff(SEEN.b) <= 2
+        })
+        .count()
+}
+
+/// A still picture of `output`, once it has kept still.
+fn still(screen: &mut Screen, output: &str) -> Image {
+    Pictures::still_of(screen, output)
+        .get(output)
+        .unwrap()
+        .clone()
+}
+
+/// Whether KWin has the Overview active.
+fn overview_active() -> bool {
+    active_effects().iter().any(|e| e == "overview")
+}
+
+/// What the Overview showed of the window.
+#[derive(Debug, PartialEq, Eq)]
+enum InOverview {
+    /// A still picture that KWin had the Overview active for, just before
+    /// and just after, holds this many pixels of the window's colour.
+    Shown(usize),
+    /// KWin had the Overview active around a still picture, and no pixel
+    /// of it was the window's colour.
+    NotShown,
+    /// KWin never had the Overview active both before and after a picture.
+    NeverAround,
+}
+
+/// What the Overview shows of the window on `output`: its colour must be
+/// in a still picture taken while KWin says the Overview is active, both
+/// just before the picture and just after it, so that the picture is the
+/// Overview's and not the desktop's, where the window shows anyway. A
+/// picture the Overview did not last through is taken again.
+fn in_the_overview(screen: &mut Screen, output: &str) -> InOverview {
+    let deadline = Deadline::patience();
+    let mut found = InOverview::NeverAround;
+    while !deadline.passed() {
+        if !overview_active() {
+            std::thread::sleep(POLL);
+            continue;
+        }
+        let picture = still(screen, output);
+        if !overview_active() {
+            continue;
+        }
+        match seen_area(&picture) {
+            0 => found = InOverview::NotShown,
+            area => return InOverview::Shown(area),
+        }
+    }
+    found
 }
 
 #[test]
@@ -365,17 +418,29 @@ fn inside_the_desktop_edges_and_the_overview() {
         now.iter().all(|e| e != "scale")
     });
     record.note(&format!("before: {before:?}"));
-    open_overview_by_its_shortcut();
     let mut screen = Screen::connect().unwrap();
+    let on_the_desktop = seen_area(&still(&mut screen, &output));
+    open_overview_by_its_shortcut();
     // Asserted after the Overview is closed again, which the next steps need.
-    let shown = comes_true(|| shows_the_window(&mut screen, &output));
-    record.note(&format!("the Overview shows the window: {shown}"));
-    invoke("Overview");
+    let shown = in_the_overview(&mut screen, &output);
+    // The areas are recorded, not judged: the Overview draws the window
+    // smaller, by how much is its own affair.
+    let total = screen.capture(&output).unwrap().pixels().len();
+    record.note(&format!(
+        "the window's colour: {on_the_desktop} pixels on the desktop; in the Overview: \
+         {shown:?}; of {total}"
+    ));
+    if overview_active() {
+        invoke("Overview");
+    }
     wait_effects("the Overview to close", |now| {
         now.iter().all(|e| e != "overview")
     });
     assert!(kwin_running(), "KWin is gone after the Overview");
-    assert!(shown, "the Overview did not show the window");
+    assert!(
+        matches!(shown, InOverview::Shown(_)),
+        "the Overview did not show the window: {shown:?}"
+    );
     let baseline = active_effects();
     let started = sweep(&mut input, &output, size, &baseline, &record, |place| {
         if place == "top-left corner" {
