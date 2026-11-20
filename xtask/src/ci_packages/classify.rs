@@ -3,19 +3,35 @@
 use std::fmt;
 use std::time::Duration;
 
+use super::progress::{Downloaded, Progress, progress};
+
 /// Which `apt-get` command ran.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Step {
     /// `apt-get update`.
     Update,
+    /// `apt-get install --print-uris`: what apt would fetch, fetching
+    /// nothing.
+    List,
     /// `apt-get install`.
     Install,
+}
+
+impl Step {
+    /// Whether the command fetches from the package servers.
+    pub(crate) fn fetches(self) -> bool {
+        match self {
+            Self::Update | Self::Install => true,
+            Self::List => false,
+        }
+    }
 }
 
 impl fmt::Display for Step {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
             Self::Update => "update",
+            Self::List => "install --print-uris",
             Self::Install => "install",
         })
     }
@@ -54,6 +70,37 @@ pub(crate) enum Verdict {
     /// The package servers could not be reached; re-running the job is the
     /// remedy.
     Unreachable(String),
+    /// The run was cut off, and the download is what used its time (still
+    /// going, or finished in more than half of it): the servers answered,
+    /// and served slowly.
+    Slow(Progress),
+    /// The run was cut off after its download had finished in less than
+    /// half its time: what did not finish was the work after it (`update`
+    /// reading the package lists, `install` unpacking and configuring), not
+    /// the network.
+    CutOffAfterDownload {
+        /// The command.
+        step: Step,
+        /// How long it had run when it was cut off.
+        limit: Duration,
+        /// apt's report of the finished download.
+        downloaded: Downloaded,
+    },
+    /// It did its work, but downloaded as root, outside apt's sandbox: the
+    /// archives directory is one apt's `_apt` user cannot reach. apt's own
+    /// notice says which file.
+    Unsandboxed(String),
+    /// It was not run: the step's budget had too little left for it.
+    NoTimeLeft {
+        /// The command.
+        step: Step,
+        /// The step's time so far, since `ci-packages update` started.
+        used: Duration,
+        /// What it could have been given.
+        left: Duration,
+        /// The least it needs.
+        floor: Duration,
+    },
     /// It failed for another reason.
     Failed {
         /// The command.
@@ -101,6 +148,16 @@ pub(crate) fn unreachable_sign(output: &str) -> Option<String> {
     })
 }
 
+/// apt's notice, in `output`, that it downloaded as root because `_apt`
+/// could not reach a file, as it writes it: "Download is performed
+/// unsandboxed as root as file '…' couldn't be accessed by user '_apt'."
+fn unsandboxed(output: &str) -> Option<String> {
+    output
+        .lines()
+        .find(|line| line.contains("unsandboxed as root"))
+        .map(|line| line.trim().to_owned())
+}
+
 /// What a run of `step` that ended as `ended`, printing `output`, means;
 /// `update_sign` is what an earlier `apt-get update` could not reach.
 pub(crate) fn classify(
@@ -109,11 +166,31 @@ pub(crate) fn classify(
     output: &str,
     update_sign: Option<&str>,
 ) -> Verdict {
-    if let Ended::CutOff(limit) = ended {
-        return Verdict::Unreachable(format!(
-            "apt-get {step} did not finish within {}s",
-            limit.as_secs()
-        ));
+    if let (Ended::CutOff(limit), true) = (ended, step.fetches()) {
+        // A run that fetched nothing in all that time reached nothing; one
+        // whose download took the time met a slow mirror; one whose
+        // download was quick ran out of time installing.
+        return match progress(step, limit, output) {
+            None => Verdict::Unreachable(format!(
+                "apt-get {step} did not finish within {}s",
+                limit.as_secs()
+            )),
+            Some(progress) => match &progress.downloaded {
+                Some(downloaded) if !progress.download_used_the_time() => {
+                    Verdict::CutOffAfterDownload {
+                        step,
+                        limit,
+                        downloaded: downloaded.clone(),
+                    }
+                }
+                _ => Verdict::Slow(progress),
+            },
+        };
+    }
+    if ended == Ended::Exited(0)
+        && let Some(notice) = unsandboxed(output)
+    {
+        return Verdict::Unsandboxed(notice);
     }
     let sign = unreachable_sign(output);
     match (sign, ended, step) {
@@ -176,6 +253,87 @@ E: Unable to fetch some archives, maybe run apt update or try with --fix-missing
         );
     }
 
+    /// The last files PR 142's sway job had begun when its install was cut
+    /// off on 2026-11-18: the mirror served steadily, at about 70 kB/s.
+    const SLOW: &str = "\
+Get:6 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 libc6 amd64 2.43-2ubuntu2.7 [2095 kB]
+Get:7 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 libc-bin amd64 2.43-2ubuntu2.7 [716 kB]
+Get:8 http://us-east-2.ec2.archive.ubuntu.com/ubuntu resolute-updates/main amd64v3 locales all 2.43-2ubuntu2.7 [4226 kB]
+";
+
+    #[test]
+    fn a_mirror_still_serving_when_cut_off_is_slow_not_unreachable() {
+        let limit = Duration::from_secs(600);
+        assert_eq!(
+            classify(Step::Install, Ended::CutOff(limit), SLOW, None),
+            Verdict::Slow(Progress {
+                step: Step::Install,
+                limit,
+                files: 3,
+                kilobytes: 2095 + 716 + 4226,
+                last: "locales".into(),
+                downloaded: None,
+            })
+        );
+    }
+
+    /// The end of a download, as a Tests job printed it on 2026-11-18, and
+    /// the unpacking it went on to.
+    fn downloaded_in(took: &str) -> String {
+        format!(
+            "{SLOW}Fetched 15.4 MB in {took} (55.6 kB/s)
+Selecting previously unselected package gir1.2-atk-1.0:amd64.
+Preparing to unpack .../00-gir1.2-atk-1.0_2.60.4-0ubuntu0.1_amd64v3.deb ...
+Unpacking gir1.2-atk-1.0:amd64 (2.60.4-0ubuntu0.1) ...
+"
+        )
+    }
+
+    #[test]
+    fn a_slow_download_that_finished_before_the_cut_off_is_still_slow() {
+        let limit = Duration::from_mins(11);
+        let Verdict::Slow(progress) = classify(
+            Step::Install,
+            Ended::CutOff(limit),
+            &downloaded_in("6min 2s"),
+            None,
+        ) else {
+            panic!("not slow");
+        };
+        let downloaded = progress.downloaded.expect("the Fetched line");
+        assert_eq!(downloaded.report, "15.4 MB in 6min 2s (55.6 kB/s)");
+        assert_eq!(downloaded.took, Duration::from_secs(362));
+    }
+
+    #[test]
+    fn a_quick_download_then_a_cut_off_is_not_the_network() {
+        let limit = Duration::from_mins(11);
+        let verdict = classify(
+            Step::Install,
+            Ended::CutOff(limit),
+            &downloaded_in("8s"),
+            None,
+        );
+        assert!(
+            matches!(verdict, Verdict::CutOffAfterDownload { .. }),
+            "{verdict:?}"
+        );
+    }
+
+    #[test]
+    fn a_run_that_fetched_nothing_before_its_cut_off_is_unreachable() {
+        let stalled = "Ign:1 http://azure.archive.ubuntu.com/ubuntu resolute InRelease\n";
+        assert_eq!(
+            classify(
+                Step::Update,
+                Ended::CutOff(Duration::from_secs(300)),
+                stalled,
+                None
+            ),
+            Verdict::Unreachable("apt-get update did not finish within 300s".into())
+        );
+    }
+
     #[test]
     fn an_unanswering_mirror_within_the_limit_warns() {
         let output = "W: Failed to fetch http://10.255.255.1/ubuntu/dists/resolute/InRelease  Could not connect to 10.255.255.1:80 (10.255.255.1), connection timed out\n";
@@ -227,6 +385,60 @@ E: Unable to fetch some archives, maybe run apt update or try with --fix-missing
         assert_eq!(
             Ended::CutOff(Duration::from_secs(300)).to_string(),
             "was stopped after 300s"
+        );
+    }
+
+    /// apt's notice, in the words of apt's `pkgAcquire::Run`, for an
+    /// archives directory under a home `_apt` may not enter.
+    const UNSANDBOXED: &str = "\
+Fetched 15.4 MB in 4s (3851 kB/s)
+W: Download is performed unsandboxed as root as file '/home/runner/apt/partial/libxdo3_1%3a3.20211022.1-2_amd64v3.deb' couldn't be accessed by user '_apt'. - pkgAcquire::Run (13: Permission denied)
+";
+
+    #[test]
+    fn a_download_outside_the_sandbox_is_not_done() {
+        let Verdict::Unsandboxed(notice) =
+            classify(Step::Install, Ended::Exited(0), UNSANDBOXED, None)
+        else {
+            panic!("not unsandboxed");
+        };
+        assert!(
+            notice
+                .starts_with("W: Download is performed unsandboxed as root as file '/home/runner"),
+            "{notice}"
+        );
+    }
+
+    /// The listing fetches nothing: a cut-off is its own failure, never a
+    /// slow or unreachable server.
+    #[test]
+    fn a_listing_cut_off_is_a_failure_not_the_network() {
+        let limit = Duration::from_secs(20);
+        assert_eq!(
+            classify(Step::List, Ended::CutOff(limit), "", None),
+            Verdict::Failed {
+                step: Step::List,
+                ended: Ended::CutOff(limit)
+            }
+        );
+        let missing = "E: Unable to locate package dbus-daemon\n";
+        assert_eq!(
+            classify(
+                Step::List,
+                Ended::Exited(100),
+                missing,
+                Some("Could not resolve 'archive.ubuntu.com'")
+            ),
+            Verdict::Unreachable("Could not resolve 'archive.ubuntu.com'".into())
+        );
+        assert_eq!(
+            classify(
+                Step::List,
+                Ended::Exited(0),
+                "'http://h/a.deb' a.deb 1 SHA512:00\n",
+                None
+            ),
+            Verdict::Done
         );
     }
 
