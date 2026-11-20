@@ -48,9 +48,10 @@ pub(crate) enum Input {
 /// rinch's registry, and each output's name. An output with no name shows
 /// the colour alone.
 ///
-/// Complete each time: the UI registers the names it does not have yet,
-/// points each output at its name, and only then lets go of the names no
-/// output shows any more.
+/// Complete each time: in one turn on the UI thread, the UI registers the
+/// names it does not have yet and lets go of those no output shows any
+/// more ([`crate::picture::Registered`]), and then each output's style
+/// moves to its name, before any window paints.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub(crate) struct Shown {
     /// The images, by name; the same buffers rinch is given, shared.

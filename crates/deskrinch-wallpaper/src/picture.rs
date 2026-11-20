@@ -61,11 +61,17 @@ impl Follower {
 }
 
 /// The images registered with rinch, kept in step with what the worker
-/// hands the UI: on the UI thread, in one turn, the new images are
-/// registered first, the outputs' styles then point at them (the caller's
-/// effects, which run after this one), and the images no output shows any
-/// more are let go last, so no output is ever pointed at a name that is not
-/// there.
+/// hands the UI: in one effect, the first that reads the hand-over, the new
+/// images are registered and those no output shows any more let go; the
+/// outputs' styles move to the new names in the windows' effects, which
+/// run after it in the same turn on the UI thread, before any window
+/// paints. So at a paint no element names an image that has been let go.
+///
+/// A window still paints one frame without its picture when its style
+/// moves to a name it has not shown: rinch loads that source on a
+/// background thread, and the frame that applies the style comes before
+/// the picture does. That is rinch's, reported to its session on
+/// 2026-11-20; the compositor test `handover` holds it.
 #[derive(Debug, Default)]
 pub(crate) struct Registered {
     names: BTreeSet<String>,

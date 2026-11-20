@@ -19,6 +19,8 @@
 //!   limits (a side, the decoded size, the file's size), the colour and
 //!   which limit; a picture stored turned is shown upright, and one with a
 //!   colour profile converted.
+//! - [`handover`]: each window draws its picture in every frame while a
+//!   hand-over replaces its image (the file replaced, the fit changed).
 //! - [`first_frame`]: each window's first frame is drawn at its output's
 //!   scale.
 //! - [`layers`]: a window is above the wallpaper, and so is the panel.
@@ -76,6 +78,8 @@ mod exact;
 mod file;
 #[cfg(test)]
 mod first_frame;
+#[cfg(test)]
+mod handover;
 #[cfg(test)]
 mod layers;
 #[cfg(test)]
