@@ -220,16 +220,15 @@ mod tests {
     /// host named, not a slow mirror, and the repositories left behind.
     #[test]
     fn a_cut_off_update_warns_of_the_stalled_host_and_goes_on() {
-        let said = annotation(&Verdict::UpdateCutOff(crate::ci_packages::cut::UpdateCut {
-            limit: Duration::from_secs(240),
-            stalled: Some(crate::ci_packages::cut::Stall {
-                host: "security.ubuntu.com".into(),
-                failures: 3,
-                last: "resolute-security/main amd64v3 Packages".into(),
-            }),
-            last_host: "security.ubuntu.com".into(),
-        }))
-        .unwrap();
+        let output = "\
+Get:14 http://security.ubuntu.com/ubuntu resolute-security InRelease [137 kB]
+Ign:15 http://security.ubuntu.com/ubuntu resolute-security/main amd64v3 Packages
+Ign:18 http://security.ubuntu.com/ubuntu resolute-security/universe Translation-en
+Ign:15 http://security.ubuntu.com/ubuntu resolute-security/main amd64v3 Packages
+";
+        let cut = crate::ci_packages::cut::UpdateCut::read(Duration::from_secs(240), output)
+            .expect("a host answered");
+        let said = annotation(&Verdict::UpdateCutOff(cut)).unwrap();
         assert!(
             said.starts_with(
                 "::warning title=Package index partly updated::apt-get update was cut off after \

@@ -8,8 +8,12 @@
 //! repository still being fetched as the runner image had it, a
 //! consistent, signed, older set, and every one already committed fresh:
 //! what apt itself leaves when a host fails within its retries, which goes
-//! on too (`IndexNotUpdated`). An `update` cut off before it had fetched
-//! anything reached nothing, and stays unreachable.
+//! on too (`IndexNotUpdated`). An `update` cut off before any host had
+//! answered (a `Get:` or `Hit:` line from a host; apt's first line on
+//! GitHub's runners is its local mirror list, which is not one) reached
+//! nothing, and stays unreachable.
+
+use std::fmt;
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -24,14 +28,25 @@ pub(crate) struct UpdateCut {
     /// The host it was retrying, if its output shows retries.
     pub(crate) stalled: Option<Stall>,
     /// The host of its last fetch.
-    pub(crate) last_host: String,
+    pub(crate) last_host: Host,
+}
+
+/// A host a fetch line names: never empty, made only from a URL that has
+/// one ([`host`]).
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) struct Host(String);
+
+impl fmt::Display for Host {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.0)
+    }
 }
 
 /// A host whose fetches apt was retrying: `Ign:` lines against it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Stall {
     /// The host.
-    pub(crate) host: String,
+    pub(crate) host: Host,
     /// How many attempts at its files failed.
     pub(crate) failures: usize,
     /// The last of them.
@@ -40,16 +55,21 @@ pub(crate) struct Stall {
 
 impl UpdateCut {
     /// What `output`, an `update` cut off after `limit`, shows of where it
-    /// was.
-    pub(crate) fn read(limit: Duration, output: &str) -> Self {
-        let fetches: Vec<(&str, String)> = output
+    /// was; `None` if no host had answered it (no `Get:` or `Hit:` line
+    /// from a host), which is an `update` that reached nothing.
+    pub(crate) fn read(limit: Duration, output: &str) -> Option<Self> {
+        let fetches: Vec<(&str, Host)> = output
             .lines()
             .filter_map(|line| Some((line, host(line)?)))
             .collect();
-        let mut failures: BTreeMap<&str, (usize, &str)> = BTreeMap::new();
+        let (_, last_host) = fetches
+            .iter()
+            .rev()
+            .find(|(line, _)| line.starts_with("Get:") || line.starts_with("Hit:"))?;
+        let mut failures: BTreeMap<&Host, (usize, &str)> = BTreeMap::new();
         for (line, host) in &fetches {
             if line.starts_with("Ign:") {
-                let entry = failures.entry(host.as_str()).or_insert((0, line));
+                let entry = failures.entry(host).or_insert((0, line));
                 entry.0 += 1;
                 entry.1 = line;
             }
@@ -58,17 +78,15 @@ impl UpdateCut {
             .into_iter()
             .max_by_key(|(_, (count, _))| *count)
             .map(|(host, (failures, line))| Stall {
-                host: host.to_owned(),
+                host: host.clone(),
                 failures,
                 last: fetched_item(line),
             });
-        Self {
+        Some(Self {
             limit,
             stalled,
-            last_host: fetches
-                .last()
-                .map_or_else(String::new, |(_, host)| host.clone()),
-        }
+            last_host: last_host.clone(),
+        })
     }
 
     /// What it was doing at the cut, in a few words.
@@ -96,7 +114,7 @@ impl UpdateCut {
 /// The host a fetch line (`Get:`, `Hit:`, `Ign:`, `Err:`) of `update` names,
 /// from its URL; `None` for any other line, or a URL with no host (apt's
 /// mirror list, a `file:` one).
-fn host(line: &str) -> Option<String> {
+fn host(line: &str) -> Option<Host> {
     let (tag, rest) = line.split_once(':')?;
     if !matches!(tag, "Get" | "Hit" | "Ign" | "Err") {
         return None;
@@ -104,7 +122,7 @@ fn host(line: &str) -> Option<String> {
     let url = rest.split_whitespace().nth(1)?;
     let (_, after) = url.split_once("://")?;
     let host = after.split('/').next()?;
-    (!host.is_empty()).then(|| host.to_owned())
+    (!host.is_empty()).then(|| Host(host.to_owned()))
 }
 
 #[cfg(test)]
@@ -147,14 +165,10 @@ Get:18 http://security.ubuntu.com/ubuntu resolute-security/universe Translation-
         let Verdict::UpdateCutOff(cut) = verdict else {
             panic!("not gone on: {verdict:?}");
         };
-        assert_eq!(
-            cut.stalled,
-            Some(Stall {
-                host: "security.ubuntu.com".into(),
-                failures: 3,
-                last: "resolute-security/main amd64v3 Packages".into(),
-            })
-        );
+        let stall = cut.stalled.as_ref().expect("a stall");
+        assert_eq!(stall.host.to_string(), "security.ubuntu.com");
+        assert_eq!(stall.failures, 3);
+        assert_eq!(stall.last, "resolute-security/main amd64v3 Packages");
         assert_eq!(
             cut.sign(),
             "apt-get update was cut off after 120s with security.ubuntu.com stalled (3 failed \
@@ -165,11 +179,29 @@ Get:18 http://security.ubuntu.com/ubuntu resolute-security/universe Translation-
     #[test]
     fn without_retries_it_names_the_host_still_fetching() {
         let mirror_only = STALLED.lines().take(9).collect::<Vec<_>>().join("\n");
-        let cut = UpdateCut::read(LIMIT, &mirror_only);
+        let cut = UpdateCut::read(LIMIT, &mirror_only).expect("the mirror answered");
         assert_eq!(cut.stalled, None);
         assert_eq!(
             cut.doing(),
             "while still fetching from us-east-2.ec2.archive.ubuntu.com"
+        );
+    }
+
+    /// What every `update` on GitHub's runners prints first, apt's local
+    /// mirror list (the fixture's first line): with nothing after it, no
+    /// host answered, and an `update` cut off then reached nothing.
+    #[test]
+    fn a_cut_off_update_with_only_the_mirror_list_is_unreachable() {
+        let mirror_list = STALLED.lines().next().unwrap();
+        assert!(mirror_list.starts_with("Get:1 file:"), "{mirror_list}");
+        assert_eq!(
+            classify(
+                Step::Update,
+                Ended::CutOff(LIMIT),
+                &format!("{mirror_list}\n"),
+                None
+            ),
+            Verdict::Unreachable("apt-get update did not finish within 120s".into())
         );
     }
 
@@ -191,7 +223,7 @@ Get:18 http://security.ubuntu.com/ubuntu resolute-security/universe Translation-
     /// beside it.
     #[test]
     fn an_install_failing_after_it_carries_the_update_s_warning() {
-        let cut = UpdateCut::read(LIMIT, STALLED);
+        let cut = UpdateCut::read(LIMIT, STALLED).expect("hosts answered");
         let gone = "E: Failed to fetch http://security.ubuntu.com/ubuntu/pool/main/g/glib2.0/libglib2.0-0t64_2.88.0-1ubuntu0.1_amd64v3.deb  404  Not Found [IP: 91.189.91.83 80]\n";
         assert_eq!(
             classify(Step::Install, Ended::Exited(100), gone, Some(&cut.sign())),
@@ -218,7 +250,7 @@ Get:18 http://security.ubuntu.com/ubuntu resolute-security/universe Translation-
             host(
                 "Ign:15 http://security.ubuntu.com/ubuntu resolute-security/main amd64v3 Packages"
             ),
-            Some("security.ubuntu.com".into())
+            Some(Host("security.ubuntu.com".into()))
         );
         assert_eq!(
             host("Get:1 file:/etc/apt/apt-mirrors.txt Mirrorlist [152 B]"),

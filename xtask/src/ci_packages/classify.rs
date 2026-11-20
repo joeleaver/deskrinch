@@ -185,14 +185,19 @@ pub(crate) fn classify(
         // update that fetched something leaves a consistent index and goes
         // on; an install whose download took the time met a slow mirror,
         // and one whose download was quick ran out of time installing.
-        return match progress(step, limit, output) {
-            None => Verdict::Unreachable(format!(
+        let unreachable = || {
+            Verdict::Unreachable(format!(
                 "apt-get {step} did not finish within {}s",
                 limit.as_secs()
-            )),
-            Some(_) if step == Step::Update => {
-                Verdict::UpdateCutOff(UpdateCut::read(limit, output))
-            }
+            ))
+        };
+        if step == Step::Update {
+            // A host must have answered: a local file (apt's mirror list,
+            // its first line on GitHub's runners) is not progress.
+            return UpdateCut::read(limit, output).map_or_else(unreachable, Verdict::UpdateCutOff);
+        }
+        return match progress(step, limit, output) {
+            None => unreachable(),
             Some(progress) => match &progress.downloaded {
                 Some(downloaded) if !progress.download_used_the_time() => {
                     Verdict::CutOffAfterDownload {
