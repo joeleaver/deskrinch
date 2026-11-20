@@ -63,11 +63,21 @@ fn a_rejected_value_leaves_it_where_it_was() {
     let band = Band::of(Edge::Top, 48, scale);
     wait_band(&mut screen, &before, band);
 
+    let rejected = panel.watch().lines().len();
     write_settings("[panel]\nedge = \"top\"\nheight = 0\n");
     panel.wait_rejected("panel.height");
     wait_band(&mut screen, &before, band);
     write_settings("[panel]\nedge = \"left\"\nheight = 80\n");
     panel.wait_rejected("panel.edge");
     wait_band(&mut screen, &before, band);
-    write_settings(&at);
+    // No bar placed for either rejected value: a move would say it is
+    // placed, and the bars' `placed` lines for an edit made now bound what
+    // the panel did for the two before it.
+    let to = panel.bound(Edge::Bottom, 48);
+    let placed: Vec<String> = panel.watch().lines()[rejected..to]
+        .iter()
+        .filter(|line| line.contains(" is placed along the "))
+        .cloned()
+        .collect();
+    assert_eq!(placed, Vec::<String>::new(), "a rejected value moved a bar");
 }
