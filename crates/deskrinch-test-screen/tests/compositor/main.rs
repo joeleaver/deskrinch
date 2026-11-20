@@ -13,5 +13,7 @@
 #[cfg(test)]
 mod capture;
 #[cfg(test)]
+mod still;
+#[cfg(test)]
 #[path = "../support/mod.rs"]
 mod support;

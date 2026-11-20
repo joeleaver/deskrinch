@@ -33,7 +33,9 @@
 //! reports that a change has ended (a compositor's open or close
 //! animation): the same in two captures [`still_gap`] apart, a gap decided
 //! here per compositor ([`still_gap_for`]), the one home of that wait for
-//! every suite.
+//! every suite. [`Pictures::judged`] judges a picture that stays as it is
+//! on such a still screen, where the first capture could pass whatever the
+//! program does.
 //!
 //! The crate's compositor tests check, under all three compositors, outputs
 //! at scale 1, at scale 2, turned a quarter from the start
