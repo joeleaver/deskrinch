@@ -28,6 +28,7 @@ use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_client::{Compositor, Paint, TestClient};
 use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE, Key};
 use deskrinch_test_screen::{Image, KWIN_SCREENSHOT_INTERFACE, Pictures, Rgba, Screen};
+use deskrinch_test_session::BUS_VARIABLE;
 use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually, wait_for};
 
 use crate::push::{push, push_until};
@@ -121,7 +122,7 @@ impl Record {
 
 /// The effects KWin has active, on the session's bus.
 fn active_effects() -> Vec<String> {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+    let address = std::env::var(BUS_VARIABLE).unwrap();
     zbus::block_on(async {
         let connection = zbus::connection::Builder::address(address.as_str())
             .build()
@@ -145,7 +146,7 @@ fn active_effects() -> Vec<String> {
 /// Calls `method` with no arguments on `path`'s `interface` of `name`, on
 /// the session's bus; its reply's body, or why there is none.
 fn call(name: &str, path: &str, interface: &str, method: &str, args: &str) -> Result<(), String> {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+    let address = std::env::var(BUS_VARIABLE).unwrap();
     zbus::block_on(async {
         let connection = zbus::connection::Builder::address(address.as_str())
             .build()
@@ -168,7 +169,7 @@ fn call(name: &str, path: &str, interface: &str, method: &str, args: &str) -> Re
 /// has started, and an effect not loaded yet neither takes its shortcut
 /// nor opens from its edge.
 fn effect_loaded(name: &str) -> bool {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+    let address = std::env::var(BUS_VARIABLE).unwrap();
     zbus::block_on(async {
         let connection = zbus::connection::Builder::address(address.as_str())
             .build()
@@ -191,7 +192,7 @@ fn effect_loaded(name: &str) -> bool {
 /// Whether KWin's global shortcut `name` is registered with its
 /// shortcut daemon.
 fn shortcut_registered(name: &str) -> bool {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+    let address = std::env::var(BUS_VARIABLE).unwrap();
     zbus::block_on(async {
         let connection = zbus::connection::Builder::address(address.as_str())
             .build()
@@ -551,7 +552,7 @@ fn launcher_answers(record: &Record) {
 /// The compositing type KWin's support information names (`OpenGL`,
 /// `QPainter`).
 fn compositing_type() -> String {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+    let address = std::env::var(BUS_VARIABLE).unwrap();
     let info: String = zbus::block_on(async {
         let connection = zbus::connection::Builder::address(address.as_str())
             .build()

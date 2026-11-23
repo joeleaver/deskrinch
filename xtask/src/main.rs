@@ -4,6 +4,7 @@
 //! returning [`Outcome`]. Adding a task is a new module, one [`Task`] variant
 //! and one match arm in [`Task::run`]; existing tasks are not touched.
 
+mod cargo;
 mod cargo_messages;
 mod ci_packages;
 mod components;

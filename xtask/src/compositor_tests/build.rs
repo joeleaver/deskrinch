@@ -1,7 +1,7 @@
 //! Building the compositor test binaries and finding where Cargo put them.
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 
 use crate::cargo_messages::{self, Kind};
 use crate::error::Error;
@@ -100,8 +100,7 @@ fn build(
     backend: Backend,
     targets: impl Iterator<Item = Target>,
 ) -> Result<String, Error> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let mut command = Command::new(&cargo);
+    let mut command = crate::cargo::command();
     command.current_dir(root).arg("test");
     for target in targets {
         command.args(["--package", target.package, "--test", target.test]);

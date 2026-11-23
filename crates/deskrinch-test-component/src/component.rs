@@ -402,7 +402,7 @@ mod tests {
 
     #[test]
     fn refuses_to_start_anything_outside_a_nested_session() {
-        if std::env::var_os("DESKRINCH_TEST_COMPOSITOR").is_some() {
+        if Compositor::nested().is_some() {
             // Run inside a nested session, where starting is allowed: there
             // is nothing to refuse, and nothing is started.
             eprintln!("in a nested session: the guard lets components start here");
@@ -415,8 +415,14 @@ mod tests {
             drop(Component::start(command, Renderer::Software));
         });
         let why = refused.expect_err("it started a component outside a nested session");
-        let message = why.downcast_ref::<&str>().copied().unwrap_or_default();
+        // The message carries the check's reason, so it is formatted: a
+        // `String`.
+        let message = why.downcast_ref::<String>().map_or("", String::as_str);
         assert!(message.contains("nested compositor"), "{message:?}");
+        assert!(
+            message.contains("not inside an isolated session"),
+            "{message:?}"
+        );
     }
 
     #[test]

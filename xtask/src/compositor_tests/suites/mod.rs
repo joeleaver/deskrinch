@@ -30,13 +30,14 @@ const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 const PLAIN: &[Pass] = &[Pass::Plain];
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 26] = [
+pub(super) const SUITES: [Suite; 27] = [
     // First: every change to the session's outputs is put back exactly,
     // which the suites after it rely on.
     support::TEST_CLIENT,
     support::TEST_CLIENT_UHD_BESIDE_FULL_HD,
     window_management::WINDOW_MANAGEMENT,
     window_management::WINDOW_MANAGEMENT_NOT_GRANTED,
+    support::KWIN_VIEW,
     support::SCREEN,
     support::SCREEN_WLROOTS,
     support::SCREEN_NOT_GRANTED,

@@ -1,10 +1,12 @@
 //! The rows of the test-support crates: the test client's output
-//! changes, the screen's captures and the input devices.
+//! changes, what KWin holds of its windows, the screen's captures and the
+//! input devices.
 
 use super::{ALL, Grant, KWIN, PLAIN, Pass, Suite, WLROOTS};
 use crate::compositor_tests::build::{Backend, Target};
 
 const TEST_CLIENT_PACKAGE: &str = "deskrinch-test-client";
+const KWIN_VIEW_PACKAGE: &str = "deskrinch-test-kwin";
 const SCREEN_PACKAGE: &str = "deskrinch-test-screen";
 const INPUT_PACKAGE: &str = "deskrinch-test-input";
 /// The test client's tests of [`Pass::UhdBesideFullHd`]'s outputs: run by
@@ -42,6 +44,22 @@ pub(super) const TEST_CLIENT_UHD_BESIDE_FULL_HD: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[UHD_BESIDE_FULL_HD_TESTS],
+};
+
+/// What KWin itself holds of the test client's windows (their types,
+/// above all), read through a KWin script: KWin only.
+pub(super) const KWIN_VIEW: Suite = Suite {
+    target: Target {
+        package: KWIN_VIEW_PACKAGE,
+        test: "compositor",
+        backend: Backend::Rust,
+    },
+    grant: None,
+    compositors: KWIN,
+    passes: PLAIN,
+    renders: false,
+    programs: &[],
+    filter: &[],
 };
 
 pub(super) const SCREEN: Suite = Suite {

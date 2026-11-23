@@ -36,7 +36,7 @@ pub(super) struct Caller<'a> {
 /// Lets the owner, or a test in an isolated session, go on; refuses anyone
 /// else with [`DesktopError::NotInteractive`].
 pub(super) fn check() -> Result<(), DesktopError> {
-    let session_dir = env::var_os("DESKRINCH_SESSION_DIR");
+    let session_dir = env::var_os(deskrinch_test_session::SESSION_DIR_VARIABLE);
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR");
     let display = env::var_os("WAYLAND_DISPLAY");
     let caller = Caller {

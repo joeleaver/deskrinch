@@ -19,6 +19,8 @@ wayland-protocols-wlr = { workspace = true, features = ["client"] }
 
 [dev-dependencies]
 deskrinch-test-wait.workspace = true
+# The session's group, by the name the session gives it.
+deskrinch-test-session.workspace = true
 # The stand-in compositor, for what no real one does on cue.
 deskrinch-test-wayland.workspace = true
 deskrinch-test-client.workspace = true

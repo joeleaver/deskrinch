@@ -15,5 +15,11 @@ deskrinch-bus.workspace = true
 deskrinch-test-client.workspace = true
 zbus = { workspace = true, features = ["default-rt"] }
 
+[dev-dependencies]
+# The refusal's wiring tested in a child outside any session, and the
+# session check's reasons named.
+deskrinch-test-dbus.workspace = true
+deskrinch-test-session.workspace = true
+
 [lints]
 workspace = true
