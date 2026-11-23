@@ -5,6 +5,8 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
+use deskrinch_test_session::ci::{Ci, OnARunner};
+
 /// A task could not finish its work. A check that ran and found problems is
 /// not an error: it reports [`crate::Outcome::Failed`].
 #[derive(Debug, thiserror::Error)]
@@ -269,13 +271,17 @@ pub(crate) enum Error {
         /// What the compositor printed.
         log: crate::session::CompositorLog,
     },
-    /// `ci-packages` was run outside a CI job: it installs packages with
-    /// `sudo`, which nothing may do on a developer's machine.
-    #[error(
-        "ci-packages installs system packages and runs only in CI \
-         (GITHUB_ACTIONS=true); install what you need yourself"
-    )]
-    NotInCi,
+    /// A command that may run only on a CI runner was run elsewhere:
+    /// `ci-packages`, which installs packages with `sudo`, and
+    /// `systemd-scope-tests`, which starts a unit in the user's systemd;
+    /// neither may do that on a developer's machine.
+    #[error("{command} {why}")]
+    NotOnCi {
+        /// The command, as a person runs it.
+        command: &'static str,
+        /// What the CI variable held.
+        why: deskrinch_test_session::ci::NotCi,
+    },
     /// A variable GitHub Actions sets in every job was not set.
     #[error("the CI variable `{name}` is not set: ci-packages runs in GitHub Actions only")]
     CiVariable {
@@ -497,4 +503,12 @@ pub(crate) enum Error {
         /// How it exited.
         status: ExitStatus,
     },
+}
+
+/// The proof that this is a CI runner, as `ci` says
+/// ([`Ci::only_on_a_runner`]); refuses `command` with [`Error::NotOnCi`]
+/// anywhere else.
+pub(crate) fn only_on_a_runner(command: &'static str, ci: &Ci) -> Result<OnARunner, Error> {
+    ci.only_on_a_runner()
+        .map_err(|why| Error::NotOnCi { command, why })
 }
