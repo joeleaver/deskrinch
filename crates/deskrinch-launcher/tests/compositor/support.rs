@@ -239,7 +239,16 @@ impl Drop for Launcher {
     fn drop(&mut self) {
         // Killed and reaped; its name goes with it, for the next test.
         drop(self.component.take());
-        assert!(comes_true(|| owner_pid().is_none()));
+        // Dropped while the test is already failing (its own panic, or
+        // `start`'s), the check of the name is not made: a second panic
+        // during the unwind aborts the binary, and the failure would name
+        // no test. The test's own panic says why it failed.
+        if !std::thread::panicking() {
+            assert!(
+                comes_true(|| owner_pid().is_none()),
+                "the launcher's name outlived it"
+            );
+        }
     }
 }
 
