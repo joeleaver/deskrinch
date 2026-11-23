@@ -63,9 +63,11 @@ mod tests {
         assert_eq!(socket_name(42, 3), "/tmp/dbus-deskrinch-42-3");
     }
 
+    /// Every address taken for ours is named in the failure, so that each
+    /// row is seen to catch what it is there for.
     #[test]
     fn the_real_session_bus_and_others_are_not() {
-        for address in [
+        let taken: Vec<&str> = [
             "unix:path=/run/user/1000/bus",
             "unix:abstract=/tmp/dbus-AbCdEf,guid=0",
             "unix:path=/tmp/dbus-deskrinch-1-0",
@@ -81,8 +83,10 @@ mod tests {
             // A guid not of hex digits, and one followed by more.
             "unix:abstract=/tmp/dbus-deskrinch-1-0,guid=xyz",
             "unix:abstract=/tmp/dbus-deskrinch-1-0,guid=9a46;unix:path=/run/user/1000/bus",
-        ] {
-            assert!(!is_private(address), "{address}");
-        }
+        ]
+        .into_iter()
+        .filter(|address| is_private(address))
+        .collect();
+        assert_eq!(taken, Vec::<&str>::new(), "taken for a private bus of ours");
     }
 }
