@@ -4,10 +4,8 @@
 
 use zbus::OwnedVariant;
 
+use crate::names::{EFFECTS, KWIN};
 use crate::{Error, Kwin};
-
-/// KWin's effects object and interface.
-const EFFECTS: (&str, &str) = ("/Effects", "org.kde.kwin.Effects");
 
 impl Kwin {
     /// The effects KWin has active now (its `activeEffects`), by name.
@@ -22,7 +20,7 @@ impl Kwin {
                 .connect()
                 .await?
                 .call_method(
-                    Some("org.kde.KWin"),
+                    Some(KWIN),
                     EFFECTS.0,
                     Some("org.freedesktop.DBus.Properties"),
                     "Get",
@@ -45,7 +43,7 @@ impl Kwin {
                 .connect()
                 .await?
                 .call_method(
-                    Some("org.kde.KWin"),
+                    Some(KWIN),
                     EFFECTS.0,
                     Some(EFFECTS.1),
                     "isEffectLoaded",

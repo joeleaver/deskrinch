@@ -7,12 +7,19 @@
 use deskrinch_test_session::{NotIsolated, bus, root};
 
 use super::*;
+use crate::error::{Act, Refusal};
 
 #[test]
 fn outside_a_session_here_refuses_saying_why() {
     let refusal = Kwin::in_environment(&Environment::default()).unwrap_err();
     assert!(
-        matches!(refusal, Error::NotIsolated(NotIsolated::NoCompositor)),
+        matches!(
+            refusal,
+            Error::Refused {
+                act: Act::Ask,
+                why: Refusal::NotIsolated(NotIsolated::NoCompositor)
+            }
+        ),
         "{refusal:?}"
     );
     assert!(
@@ -34,7 +41,10 @@ fn the_real_session_with_kwin_named_is_refused() {
     };
     assert!(matches!(
         Kwin::in_environment(&real),
-        Err(Error::NotIsolated(NotIsolated::NoSessionDir))
+        Err(Error::Refused {
+            why: Refusal::NotIsolated(NotIsolated::NoSessionDir),
+            ..
+        })
     ));
 }
 
@@ -55,7 +65,11 @@ fn a_session_of_ours_is_kwin_s_only_under_kwin() {
     };
     let refusal = Kwin::in_environment(&session(deskrinch_test_session::SWAY)).unwrap_err();
     assert!(
-        matches!(&refusal, Error::NotKwin { compositor } if compositor == deskrinch_test_session::SWAY),
+        matches!(
+            &refusal,
+            Error::Refused { why: Refusal::NotKwin { compositor }, .. }
+                if compositor == deskrinch_test_session::SWAY
+        ),
         "{refusal:?}"
     );
     let kwin = Kwin::in_environment(&session(KWIN)).unwrap();
@@ -80,7 +94,11 @@ fn on_takes_only_a_private_bus_of_ours() {
     ] {
         let refusal = Kwin::on(address).unwrap_err();
         assert!(
-            matches!(&refusal, Error::NotOurBus { address: refused } if refused == address),
+            matches!(
+                &refusal,
+                Error::Refused { why: Refusal::NotOurBus { address: refused }, .. }
+                    if refused == address
+            ),
             "{address}: {refusal:?}"
         );
     }

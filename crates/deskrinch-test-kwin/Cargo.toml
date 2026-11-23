@@ -1,6 +1,6 @@
 [package]
 name = "deskrinch-test-kwin"
-description = "What KWin says, read-only, for deskrinch's tests: each window as KWin holds it, read through a KWin script on an isolated session's bus."
+description = "What KWin says, and what a test may ask of it, inside an isolated session, for deskrinch's tests: its windows, effects and desktops read, its desktops and shortcuts acted on, on a bus proved ours."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
