@@ -9,7 +9,7 @@ use crate::error::Error;
 /// Which implementation of the Wayland client library a test binary is
 /// built with.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) enum Backend {
+pub(crate) enum Backend {
     /// wayland-backend's own Rust implementation, the default.
     Rust,
     /// libwayland (`wayland-client`'s `system` feature), which every binary
@@ -30,19 +30,19 @@ impl Backend {
 /// A test target of a package, by its `[[test]]` name, built with a
 /// Wayland backend.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct Target {
+pub(crate) struct Target {
     /// The package.
-    pub(super) package: &'static str,
+    pub(crate) package: &'static str,
     /// The `[[test]]` name.
-    pub(super) test: &'static str,
+    pub(crate) test: &'static str,
     /// The Wayland client library's implementation.
-    pub(super) backend: Backend,
+    pub(crate) backend: Backend,
 }
 
 impl Target {
     /// Its name, as the run prints it and `--suite` takes it: the package
     /// and the test, and "on libwayland" when built with it.
-    pub(super) fn name(self) -> String {
+    pub(crate) fn name(self) -> String {
         let on = match self.backend {
             Backend::Rust => "",
             Backend::System => " on libwayland",
@@ -54,14 +54,14 @@ impl Target {
 /// What building a target gave: its test binary, and the binaries of its
 /// package granted with it ([`super::granted`]), by `[[bin]]` name.
 #[derive(Debug, Clone)]
-pub(super) struct Binaries {
-    pub(super) test: PathBuf,
-    pub(super) granted: Vec<(&'static str, PathBuf)>,
+pub(crate) struct Binaries {
+    pub(crate) test: PathBuf,
+    pub(crate) granted: Vec<(&'static str, PathBuf)>,
 }
 
 /// Builds `targets`, one `cargo test --no-run` per backend, and returns
 /// their binaries, in the same order.
-pub(super) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<Binaries>, Error> {
+pub(crate) fn test_binaries(root: &Path, targets: &[Target]) -> Result<Vec<Binaries>, Error> {
     let mut binaries: Vec<Option<Binaries>> = vec![None; targets.len()];
     for backend in [Backend::Rust, Backend::System] {
         let built: Vec<(usize, Target)> = targets

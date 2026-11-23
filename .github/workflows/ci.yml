@@ -18,8 +18,8 @@ env:
   CARGO_TERM_COLOR: always
   # What building rinch needs beyond the runner image: GTK for its native
   # menus (muda) and libxdo for their accelerators. Every job that builds the
-  # whole workspace, or a rinch program, installs these: the compositor tests
-  # build the launcher's binary for its own.
+  # whole workspace, or a rinch program, installs these: the compositor
+  # tests' build job builds the components.
   RINCH_BUILD_PACKAGES: libgtk-3-dev libxdo-dev
 
 # Every job has a time limit, so a hang ends it instead of holding a runner
@@ -133,46 +133,109 @@ jobs:
 
   # The window-management and screen-capture crates against real
   # compositors, nested and headless: the versions deskrinch targets, as
-  # Ubuntu 26.04 packages them. Each job prints the versions it tested.
-  compositor-tests:
-    name: Compositor tests (${{ matrix.compositor }})
+  # Ubuntu 26.04 packages them. One job builds everything the suites run,
+  # once, into a bundle (`cargo xtask bundle build`); shard jobs, each one
+  # compositor's share of the suites (`xtask/src/compositor_tests/shards.rs`,
+  # which this matrix comes from), run it and build nothing.
+  #
+  # The budget, queue time excluded: the build job and the slowest shard
+  # together at or under 20 minutes with a warm build cache and 25 with a
+  # cold one, and each shard job at or under 15 minutes. What the suites
+  # cost is printed at the end of each shard's `compositor-tests`, and the
+  # bundle's size and packing time in the build job.
+  compositor-build:
+    name: Compositor tests' build
     runs-on: ubuntu-26.04
-    # A guard against a hung job, not the job's budget: about one and a half
-    # times the longest run seen with a cold build cache (KWin's, 29.5 min,
-    # after a change to the lock). The budget is 20 minutes with a warm
-    # cache and 25 with a cold one; what the suites cost is printed at the
-    # end of `cargo xtask compositor-tests` in every run.
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          # kwin-common carries KWin's plugins, its screenshot interface
-          # among them (kwin-wayland only recommends it); libgl1-mesa-dri
-          # is Mesa's software driver, which KWin renders with on vgem's
-          # device; kscreen-doctor (libkscreen-bin) sets the outputs' scale,
-          # through Qt's Wayland platform, whose xdg-shell integration is
-          # libqt6wlshellintegration6.
-          - compositor: kwin
-            packages: >-
-              kwin-wayland kwin-common libgl1-mesa-dri dbus-daemon
-              libkscreen-bin libqt6wlshellintegration6
-              valgrind
-            # kscreen-doctor has no --version, and starts Qt even to fail:
-            # its package's version says what was installed.
-            version: kwin_wayland --version && dpkg-query -W -f='${Package} ${Version}\n' libkscreen-bin
-          - compositor: sway
-            packages: sway dbus-daemon valgrind
-            version: sway --version
-          - compositor: labwc
-            packages: labwc dbus-daemon valgrind
-            version: labwc --version
+    # A guard against a hung job, not its budget: about three times a build
+    # with a cold cache (8 to 9 minutes) and its package install.
+    timeout-minutes: 30
+    env:
+      # The bundle keeps line tables, so that a backtrace from a shard keeps
+      # its files and lines, without the rest of the debug information (2.5
+      # of 6.5 GB raw, about 400 MB packed). It is part of the build cache's
+      # key, as every CARGO variable is.
+      CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      CARGO_PROFILE_TEST_DEBUG: line-tables-only
+    outputs:
+      bundle: ${{ steps.bundle.outputs.name }}
+      shards: ${{ steps.shards.outputs.matrix }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
       - uses: ./.github/actions/rust-toolchain
+      # The cache the three compositor jobs that built for themselves shared
+      # keeps its name.
       - uses: ./.github/actions/build-cache
+        with:
+          shared-key: compositor-tests
+      - uses: ./.github/actions/apt-packages
+        with:
+          packages: ${{ env.RINCH_BUILD_PACKAGES }}
+      # Named for the run's attempt: a re-run of this job uploads a bundle
+      # of its own, and the shards take the name from its output, so a
+      # re-run of a shard alone finds the bundle its attempt built.
+      - name: Build the bundle
+        id: bundle
+        run: |
+          name="compositor-bundle-${{ github.run_attempt }}.tar.zst"
+          cargo xtask bundle build "$RUNNER_TEMP/$name"
+          echo "name=$name" >> "$GITHUB_OUTPUT"
+      - name: The shards
+        id: shards
+        run: |
+          matrix=$(cargo xtask compositor-shards)
+          echo "$matrix"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+      # Uploaded as it is, not zipped again (`archive: false`): it is
+      # compressed already, and a zip would lose the binaries' modes.
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          path: ${{ runner.temp }}/${{ steps.bundle.outputs.name }}
+          archive: false
+          retention-days: 1
+          if-no-files-found: error
+
+  compositor-tests:
+    name: Compositor tests (${{ matrix.shard }})
+    needs: compositor-build
+    runs-on: ubuntu-26.04
+    # A guard against a hung job, not its budget (15 minutes): twice that,
+    # which also leaves the package step the whole of its own limit
+    # (`ci-packages`'s budget) after the shard's other steps.
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.compositor-build.outputs.shards) }}
+    env:
+      # Each compositor's packages. kwin-common carries KWin's plugins, its
+      # screenshot interface among them (kwin-wayland only recommends it);
+      # libgl1-mesa-dri is Mesa's software driver, which KWin renders with
+      # on vgem's device; kscreen-doctor (libkscreen-bin) sets the outputs'
+      # scale, through Qt's Wayland platform, whose xdg-shell integration is
+      # libqt6wlshellintegration6. Valgrind is for measure's Callgrind runs.
+      COMPOSITOR_PACKAGES: >-
+        {"kwin": "kwin-wayland kwin-common libgl1-mesa-dri dbus-daemon
+        libkscreen-bin libqt6wlshellintegration6 valgrind",
+        "sway": "sway dbus-daemon valgrind",
+        "labwc": "labwc dbus-daemon valgrind"}
+      # What the bundle's binaries load beyond the runner image and the
+      # compositor's packages: libxdo, for rinch's menu accelerators.
+      # `bundle check` proves it with ldd before anything runs.
+      RINCH_RUN_PACKAGES: libxdo3
+      BUNDLE: ${{ needs.compositor-build.outputs.bundle }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ env.BUNDLE }}
+          path: ${{ runner.temp }}
+      # At the workspace root: the tests run xtask by the path compiled into
+      # them, which `bundle check` holds the bundle to.
+      - name: Unpack the bundle
+        run: tar --use-compress-program=zstd -xf "$RUNNER_TEMP/$BUNDLE"
       # The steps after the compositor tests that run when those failed ask
       # for these two by id: they run on a compositor that was installed (and
       # under KWin given its device), and not after the setup failed, where
@@ -181,9 +244,19 @@ jobs:
       - id: packages
         uses: ./.github/actions/apt-packages
         with:
-          packages: ${{ matrix.packages }} ${{ env.RINCH_BUILD_PACKAGES }}
+          packages: ${{ fromJSON(env.COMPOSITOR_PACKAGES)[matrix.compositor] }} ${{ env.RINCH_RUN_PACKAGES }}
+          xtask: target/debug/xtask
       - name: Show the ${{ matrix.compositor }} version tested
-        run: ${{ matrix.version }}
+        env:
+          COMPOSITOR: ${{ matrix.compositor }}
+        # kscreen-doctor has no --version, and starts Qt even to fail: its
+        # package's version says what was installed.
+        run: |
+          case "$COMPOSITOR" in
+            kwin) kwin_wayland --version
+                  dpkg-query -W -f='${Package} ${Version}\n' libkscreen-bin ;;
+            *) "$COMPOSITOR" --version ;;
+          esac
       # The runner has no GPU, and KWin's virtual backend composites with
       # OpenGL only on a DRM device; without OpenGL, ScreenShot2 captures
       # nothing. vgem is a kernel-side virtual device for exactly this (KWin's
@@ -199,21 +272,24 @@ jobs:
           sudo udevadm settle
           sudo chmod a+rw /dev/dri/card* /dev/dri/renderD*
           ls -l /dev/dri
+      # Built in this checkout, its files in place, every library its
+      # binaries need here; and whether it was built on this runner image.
+      - name: Check the bundle
+        run: target/debug/xtask bundle check
       # The runner's only DRM device is vgem, which is not a GPU.
-      - run: cargo xtask compositor-tests --renderer software ${{ matrix.compositor }}
+      - run: target/debug/xtask compositor-tests --renderer software --prebuilt --shard ${{ matrix.shard }}
       # The real panel, measured once, presenting with rinch's software
       # renderer: a check that measure still reads rinch's frames and
       # renderer lines from a real component. It runs after a failure in the
       # compositor tests too, which must not hide what it would show.
-      # The panel is the one the compositor tests start: built by the one
-      # build of the components, whose path it prints.
+      # The panel is the one the compositor tests start, the bundle's.
       - name: Measure the panel under sway
-        if: ${{ !cancelled() && matrix.compositor == 'sway' && steps.packages.outcome == 'success' }}
+        if: ${{ !cancelled() && matrix.session_tests && matrix.compositor == 'sway' && steps.packages.outcome == 'success' }}
         run: |
-          # On a line of its own, so that a failed build fails the step.
-          panel=$(cargo xtask build-components deskrinch-panel)
+          # On a line of its own, so that a missing panel fails the step.
+          panel=$(target/debug/xtask bundle component deskrinch-panel)
           # A bar per output, in a window of its own: one output, one bar.
-          cargo xtask measure --compositor sway --runs 1 --settle 1 --idle 5 \
+          target/debug/xtask measure --compositor sway --runs 1 --settle 1 --idle 5 \
             --windows 1 --renderer software --expect-renderer software "$panel"
       # Under KWin the panel binds window management, which KWin grants only
       # to an executable a desktop file names: under Callgrind that is
@@ -221,34 +297,22 @@ jobs:
       # measure fails a run whose program logs an error, so if the grant ever
       # stops working, this run says so.
       - name: Measure the panel under KWin, under Callgrind
-        if: matrix.compositor == 'kwin'
+        if: ${{ !cancelled() && matrix.session_tests && matrix.compositor == 'kwin' && steps.drm.outcome == 'success' }}
         run: |
-          # On a line of its own, so that a failed build fails the step.
-          panel=$(cargo xtask build-components deskrinch-panel)
+          # On a line of its own, so that a missing panel fails the step.
+          panel=$(target/debug/xtask bundle component deskrinch-panel)
           # A bar per output, in a window of its own: one output, one bar.
-          cargo xtask measure --compositor kwin --runs 1 --settle 2 --idle 2 \
+          target/debug/xtask measure --compositor kwin --runs 1 --settle 2 --idle 2 \
             --windows 1 --instructions --renderer software \
             --expect-renderer software "$panel"
-      - name: The scheduler's figures measure's quiet window reads, under ${{ matrix.compositor }}
-        # Printed (--nocapture) for each runner: a stand-in's, the
-        # compositor's and the bus's schedstat and thread states, idle and
-        # starved.
-        if: >-
-          ${{ !cancelled() && steps.packages.outcome == 'success'
-          && (matrix.compositor != 'kwin' || steps.drm.outcome == 'success') }}
-        run: cargo test -p xtask --test quiet_figures --locked -- --ignored --nocapture
-        env:
-          DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
         # It runs after a failure in the compositor tests too, which must not
         # hide what it would show; and each binary runs whatever fails before
         # it. Not after the compositor's setup failed (above).
         if: >-
-          ${{ !cancelled() && steps.packages.outcome == 'success'
+          ${{ !cancelled() && matrix.session_tests && steps.packages.outcome == 'success'
           && (matrix.compositor != 'kwin' || steps.drm.outcome == 'success') }}
-        run: cargo test -p xtask --test session --test session_sizes --test measure --test measure_windows --test measure_callgrind --test measure_typing --test measure_prepares --test measure_pointer --test measure_start_ends --test measure_command_steps --test measure_quiet --test measure_busy_compositor --locked --no-fail-fast -- --ignored
-        env:
-          DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
+        run: target/debug/xtask session-tests --prebuilt ${{ matrix.compositor }}
 
   # The desktop-entries launch into a real transient scope. The runner has
   # systemd as PID 1 but no user session; lingering starts the runner

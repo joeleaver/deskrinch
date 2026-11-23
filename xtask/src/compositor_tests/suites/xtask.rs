@@ -15,7 +15,8 @@ pub(in super::super) const INPUT_CLIENT: Target = Target {
 
 /// `cargo xtask desktop`, nested: its window opens in this session, which
 /// the binary closes through window management and types the launcher's
-/// chord into.
+/// chord into. Its programs are every component, which its tests give the
+/// desktop (`--component`) rather than have it build them.
 pub(super) const DESKTOP: Suite = Suite {
     target: Target {
         package: PACKAGE,
@@ -34,7 +35,12 @@ pub(super) const DESKTOP: Suite = Suite {
     compositors: ALL,
     passes: PLAIN,
     renders: false,
-    programs: &[],
+    programs: &[
+        &deskrinch_shell::WALLPAPER,
+        &deskrinch_shell::NOTIFICATIONS,
+        &deskrinch_shell::LAUNCHER,
+        &deskrinch_shell::PANEL,
+    ],
     filter: &[],
 };
 

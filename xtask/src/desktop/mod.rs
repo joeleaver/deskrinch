@@ -61,7 +61,8 @@ none of the real session's display or bus variables. --profile NAME keeps the
 home, configuration, data, cache and state in .work/desktop/NAME/ instead, for
 one desktop at a time.
 
-The components are built first, optimised unless --debug.
+The components are built first, optimised unless --debug; or, given each
+with --component PACKAGE=PATH, run as they are.
 
 It ends, with everything inside, when its windows are closed, on Ctrl+C, or
 when the command after `--` exits (with that command's status).
@@ -112,6 +113,15 @@ pub(crate) struct Args {
     /// Build the components unoptimised.
     #[arg(long)]
     debug: bool,
+    /// Run the component PACKAGE from PATH, built elsewhere, instead of
+    /// building the components: give every one (repeated), or none. The
+    /// compositor tests give the ones they built, or their bundle's.
+    #[arg(
+        long = "component",
+        value_name = "PACKAGE=PATH",
+        conflicts_with = "debug"
+    )]
+    components: Vec<String>,
     /// Keep the session's directory afterwards, with the compositor's log.
     #[arg(long)]
     keep: bool,
@@ -204,21 +214,7 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
         .as_deref()
         .map(|name| Profile::open(root, name))
         .transpose()?;
-    let build = if args.debug {
-        crate::components::Profile::Dev
-    } else {
-        crate::components::Profile::Release
-    };
-    eprintln!(
-        "desktop: building {} ({})",
-        crate::components::packages().join(", "),
-        if args.debug {
-            "unoptimised, as --debug asks"
-        } else {
-            "release; --debug builds them unoptimised"
-        }
-    );
-    let binaries = crate::components::build(root, build)?;
+    let binaries = components_for(root, args)?;
     let id = [LAUNCHER_TOGGLE.package]
         .iter()
         .chain(LAUNCHER_TOGGLE.args)
@@ -289,6 +285,30 @@ pub(crate) fn run(root: &Path, args: &Args) -> Result<Outcome, Error> {
     ended?;
     interrupt::check()?;
     Ok(outcome)
+}
+
+/// The components the desktop runs: those `args` gives, or built from
+/// the workspace at `root`, optimised unless `--debug`.
+fn components_for(root: &Path, args: &Args) -> Result<crate::components::Built, Error> {
+    if !args.components.is_empty() {
+        eprintln!("desktop: running the components given");
+        return Ok(crate::components::Built::given(&args.components)?);
+    }
+    let build = if args.debug {
+        crate::components::Profile::Dev
+    } else {
+        crate::components::Profile::Release
+    };
+    eprintln!(
+        "desktop: building {} ({})",
+        crate::components::packages().join(", "),
+        if args.debug {
+            "unoptimised, as --debug asks"
+        } else {
+            "release; --debug builds them unoptimised"
+        }
+    );
+    Ok(crate::components::build(root, build)?.built)
 }
 
 /// Runs the started desktop of `session`, its shell's `components` running,

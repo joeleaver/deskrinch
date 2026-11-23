@@ -9,7 +9,8 @@ use std::time::SystemTime;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest as _, Sha256};
 
-use super::check::{hex, kind_and_value, verifiable};
+use super::check::{kind_and_value, verifiable};
+use crate::digest::hex;
 use crate::error::Error;
 
 /// A file apt would fetch, as `apt-get install --print-uris` lists it.
