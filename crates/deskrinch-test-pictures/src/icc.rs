@@ -189,3 +189,28 @@ fn fixed(value: f64) -> [u8; 4] {
     let raw = (value * 65_536.0).round() as i32;
     raw.to_be_bytes()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every profile moxcms encodes here carries the fixed creation time,
+    /// read back from its header, not the time it was made.
+    #[test]
+    fn moxcms_profiles_carry_the_fixed_creation_time() {
+        for (name, profile) in [
+            ("srgb", srgb()),
+            ("display p3", display_p3()),
+            ("adobe rgb", adobe_rgb()),
+            ("grey", grey()),
+        ] {
+            let created: Vec<u16> = profile[CREATED_AT]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|field| u16::from_be_bytes(*field))
+                .collect();
+            assert_eq!(created, [2000, 1, 1, 0, 0, 0], "{name}'s creation time");
+        }
+    }
+}
