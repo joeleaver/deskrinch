@@ -107,27 +107,14 @@ pub(crate) const SKIPS: [(&str, Skip); 3] = [
 ];
 
 /// The other properties a record holds as KWin gives them.
-pub(crate) const PROPERTIES: [&str; 8] = [
+pub(crate) const PROPERTIES: [&str; 6] = [
     "caption",
     "resourceClass",
     "resourceName",
     "windowType",
     "layer",
-    "keepAbove",
-    "keepBelow",
     "pid",
 ];
-
-/// The stacking KWin keeps a window to (`keepAbove`, `keepBelow`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Keep {
-    /// Kept above other windows.
-    Above,
-    /// Kept below other windows.
-    Below,
-    /// Neither.
-    Neither,
-}
 
 /// What leaves a window out.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -163,8 +150,6 @@ pub struct Window {
     pub output: Option<String>,
     /// Its frame's geometry: x, y, width and height, in logical pixels.
     pub frame: [f64; 4],
-    /// The stacking it is kept to.
-    pub keep: Keep,
     /// What leaves it out.
     pub skips: BTreeSet<Skip>,
     /// Its client's process id.
@@ -191,12 +176,6 @@ impl Window {
             .into_iter()
             .filter_map(|(name, skip)| fields.flag(name).map(|set| set.then_some(skip)).transpose())
             .collect::<Result<_, _>>()?;
-        let keep = match (fields.flag("keepAbove")?, fields.flag("keepBelow")?) {
-            (true, true) => return Err(fields.refuse("kept both above and below")),
-            (true, false) => Keep::Above,
-            (false, true) => Keep::Below,
-            (false, false) => Keep::Neither,
-        };
         let output = match fields.field("output")? {
             Value::Null => None,
             Value::String(name) => Some(name.clone()),
@@ -215,7 +194,6 @@ impl Window {
             layer: fields.integer("layer")?,
             output,
             frame,
-            keep,
             skips,
             pid,
         })

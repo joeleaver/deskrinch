@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 
 use deskrinch_test_client::{Compositor, ShellLayer, TestClient};
-use deskrinch_test_kwin::{Keep, Skip, Window, WindowType, version, windows};
+use deskrinch_test_kwin::{Skip, Window, WindowType, version, windows};
 
 /// The process's own windows of `size`, among every window KWin has.
 fn of_size(windows: &[Window], pid: u32, size: (u32, u32)) -> Vec<&Window> {
@@ -89,7 +89,6 @@ fn an_ordinary_toplevel_is_a_normal_window() {
         "KWin {kwin}"
     );
     assert_eq!(toplevel.layer, 2, "KWin {kwin}");
-    assert_eq!(toplevel.keep, Keep::Neither, "KWin {kwin}");
     assert!(
         toplevel.skips.is_empty(),
         "KWin {kwin}: {:?}",
@@ -130,18 +129,11 @@ fn a_layer_surface_is_typed_by_its_namespace() {
                     found.len()
                 ));
             };
-            let expected = (
-                kind,
-                BTreeSet::from([kind]),
-                kwin_layer,
-                Keep::Neither,
-                skips_of(kind),
-            );
+            let expected = (kind, BTreeSet::from([kind]), kwin_layer, skips_of(kind));
             let got = (
                 window.window_type,
                 window.flags.clone(),
                 window.layer,
-                window.keep,
                 window.skips.clone(),
             );
             (got != expected).then(|| {
@@ -151,7 +143,7 @@ fn a_layer_surface_is_typed_by_its_namespace() {
         .collect();
     assert!(
         differing.is_empty(),
-        "KWin {kwin} differs from the table read on KWin 6.6.7 (type, flags, layer, keep, skips):\n{}",
+        "KWin {kwin} differs from the table read on KWin 6.6.7 (type, flags, layer, skips):\n{}",
         differing.join("\n")
     );
 }

@@ -46,4 +46,4 @@ mod wiring_tests;
 pub use error::Error;
 pub use read::windows;
 pub use support::version;
-pub use window::{Keep, Skip, Window, WindowType};
+pub use window::{Skip, Window, WindowType};

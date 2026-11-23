@@ -20,7 +20,6 @@ fn a_toplevel_reads_as_normal() {
     assert_eq!(window.layer, 2);
     assert_eq!(window.output.as_deref(), Some("Virtual-0"));
     assert_eq!(window.size(), (320.0, 240.0));
-    assert_eq!(window.keep, Keep::Neither);
     assert!(window.skips.is_empty());
 }
 
