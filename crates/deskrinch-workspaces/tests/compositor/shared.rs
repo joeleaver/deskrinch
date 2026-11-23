@@ -98,7 +98,7 @@ fn a_dropped_manager_stops_while_the_other_hears_on() {
             });
             for _ in 0..SWITCHES {
                 let target = kept.inactive();
-                kwin::set_current(&target.name);
+                kwin().set_current_virtual_desktop(&target.name).unwrap();
                 kept.wait_active(&target.name);
             }
             let wanted = before.discarded + SWITCHES * EVENTS_PER_SWITCH;

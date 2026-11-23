@@ -46,7 +46,6 @@ deskrinch-taskbar = { path = "crates/deskrinch-taskbar" }
 deskrinch-test-client = { path = "crates/deskrinch-test-client" }
 deskrinch-test-component = { path = "crates/deskrinch-test-component" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
-deskrinch-test-desktops = { path = "crates/deskrinch-test-desktops" }
 deskrinch-test-input = { path = "crates/deskrinch-test-input" }
 deskrinch-test-lifetime = { path = "crates/deskrinch-test-lifetime" }
 deskrinch-test-log = { path = "crates/deskrinch-test-log" }

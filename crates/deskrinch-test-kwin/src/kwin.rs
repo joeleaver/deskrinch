@@ -26,6 +26,7 @@ use zbus::Connection;
 use zbus::connection::Builder;
 
 use crate::Error;
+use crate::error::{Act, Refusal};
 
 /// KWin on a bus of ours: the only way to ask it anything.
 #[derive(Debug, Clone)]
@@ -39,8 +40,9 @@ impl Kwin {
     ///
     /// # Errors
     ///
-    /// [`Error::NotIsolated`] outside an isolated session of ours;
-    /// [`Error::NotKwin`] in one whose compositor is not KWin. Nothing is
+    /// [`Error::Refused`] outside an isolated session of ours
+    /// ([`Refusal::NotIsolated`]), or in one whose compositor is not KWin
+    /// ([`Refusal::NotKwin`]). Nothing is
     /// connected to.
     pub fn here() -> Result<Self, Error> {
         Self::in_environment(&Environment::read())
@@ -52,8 +54,11 @@ impl Kwin {
         if isolated.compositor == KWIN {
             Ok(Self { bus })
         } else {
-            Err(Error::NotKwin {
-                compositor: isolated.compositor,
+            Err(Error::Refused {
+                act: Act::Ask,
+                why: Refusal::NotKwin {
+                    compositor: isolated.compositor,
+                },
             })
         }
     }
@@ -62,7 +67,8 @@ impl Kwin {
     ///
     /// # Errors
     ///
-    /// [`Error::NotOurBus`] for any other address. Nothing is connected to.
+    /// [`Error::Refused`] ([`Refusal::NotOurBus`]) for any other address.
+    /// Nothing is connected to.
     pub fn on(address: &str) -> Result<Self, Error> {
         OurBus::at(address).map(|bus| Self { bus }).map_err(refused)
     }
@@ -89,8 +95,14 @@ impl Kwin {
 /// The handle's refusal, for the proof's.
 fn refused(why: NotOurs) -> Error {
     match why {
-        NotOurs::NotIsolated(why) => Error::NotIsolated(why),
-        NotOurs::NotPrivate { address } => Error::NotOurBus { address },
+        NotOurs::NotIsolated(why) => Error::Refused {
+            act: Act::Ask,
+            why: Refusal::NotIsolated(why),
+        },
+        NotOurs::NotPrivate { address } => Error::Refused {
+            act: Act::Ask,
+            why: Refusal::NotOurBus { address },
+        },
     }
 }
 

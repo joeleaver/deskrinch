@@ -44,7 +44,10 @@ fn a_switch_through_the_crate_is_made_by_the_compositor() {
     assert_eq!(active.id, target.id);
     // The compositor's own word for it.
     match compositor {
-        Compositor::Kwin => assert_eq!(kwin::current_name(), target.name),
+        Compositor::Kwin => assert_eq!(
+            kwin().reads().current_virtual_desktop().unwrap().name,
+            target.name
+        ),
         Compositor::Labwc => {
             // Another connection, told by the compositor.
             let other = Watcher::connect();
@@ -112,7 +115,7 @@ fn a_switch_made_by_the_compositor_is_seen() {
     match compositor {
         Compositor::Kwin => {
             let target = watcher.inactive();
-            kwin::set_current(&target.name);
+            kwin().set_current_virtual_desktop(&target.name).unwrap();
             watcher.wait_active(&target.name);
         }
         Compositor::Labwc => {

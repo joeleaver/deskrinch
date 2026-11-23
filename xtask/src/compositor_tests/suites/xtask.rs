@@ -15,7 +15,8 @@ pub(in super::super) const INPUT_CLIENT: Target = Target {
 
 /// `cargo xtask desktop`, nested: its window opens in this session, which
 /// the binary closes through window management and types the launcher's
-/// chord into.
+/// chord into. Its output is shown, for what the edge test found inside
+/// the desktop (the desktop's own KWin's compositing type among it).
 pub(super) const DESKTOP: Suite = Suite {
     target: Target {
         package: PACKAGE,
@@ -36,7 +37,7 @@ pub(super) const DESKTOP: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
-    output: Output::Captured,
+    output: Output::Shown,
 };
 
 /// `cargo xtask input`, measure's input client: its lines reach a window

@@ -13,19 +13,11 @@ use zbus::Connection;
 
 use crate::Error;
 use crate::Kwin;
+use crate::names::{KWIN, SCRIPT, SCRIPTING};
 use crate::window::{FLAGS, PROPERTIES, SKIPS};
 
 /// The interface the script reports to.
 pub(crate) const INTERFACE: &str = "org.deskrinch.TestKwin";
-
-/// KWin's name on the bus.
-const KWIN: &str = "org.kde.KWin";
-
-/// KWin's scripting object and interface.
-const SCRIPTING: (&str, &str) = ("/Scripting", "org.kde.kwin.Scripting");
-
-/// A loaded script's interface (its object is `/Scripting/Script<id>`).
-const SCRIPT: &str = "org.kde.kwin.Script";
 
 /// The script, reporting to the bus name `service`: each window's record
 /// holds the properties [`Window`](crate::Window) reads, by KWin's names.

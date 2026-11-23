@@ -381,9 +381,12 @@ mod tests {
         );
         let whole = Selection::new(&names(&[kwin]), None).unwrap();
         assert_eq!(whole.args(shown).unwrap(), ["--show-output"]);
-        let captured = only_row("xtask desktop");
-        assert_eq!(captured.output, Output::Captured);
-        let named = Selection::new(&names(&["xtask desktop"]), Some("t")).unwrap();
+        // Any row that captures, whose filter takes every test.
+        let captured = SUITES
+            .iter()
+            .find(|suite| suite.output == Output::Captured && suite.filter.is_empty())
+            .expect("a row that captures, with no filter");
+        let named = Selection::new(&[captured.target.name()], Some("t")).unwrap();
         assert_eq!(named.args(captured).unwrap(), ["t", "--exact"]);
     }
 

@@ -9,7 +9,7 @@
 //! only a button's background differs from the bar's) is that workspace's
 //! button. The test's own `deskrinch-workspaces` connection makes a
 //! workspace current from outside the panel and reads what the compositor
-//! did; KWin's own D-Bus interface (`deskrinch-test-desktops`) adds and
+//! did; KWin's own D-Bus interface (`deskrinch-test-kwin`'s actions) adds and
 //! removes desktops, which the protocols do not offer.
 //!
 //! Each change of the current workspace draws once: every switch has a
@@ -19,8 +19,8 @@
 //! (the clock's minute). See [`Pager::sweep`] for the rule and its limit.
 
 use deskrinch_test_client::Compositor;
-use deskrinch_test_desktops as kwin;
 use deskrinch_test_input::{Button, Input};
+use deskrinch_test_kwin::KwinActions;
 use deskrinch_test_screen::{Image, Screen, still_gap};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 use deskrinch_workspaces::{
@@ -33,6 +33,12 @@ use crate::support::{
     write_settings,
 };
 use crate::taskbar::near;
+
+/// KWin in the session this test runs in, for changing its desktops
+/// through its own interface (the compositor's side of the test).
+fn kwin() -> KwinActions {
+    KwinActions::here().unwrap()
+}
 
 /// The panel's height, in logical pixels.
 const HEIGHT: u32 = 40;
@@ -68,7 +74,7 @@ impl Pager {
         let workspaces = match Compositor::current() {
             Compositor::Sway => None,
             Compositor::Kwin => {
-                let _first = kwin::set_up(COUNT);
+                let _first = kwin().set_up_virtual_desktops(COUNT).unwrap();
                 Some(connect(|_| {}).unwrap())
             }
             Compositor::Labwc => Some(connect(|_| {}).unwrap()),
@@ -413,7 +419,7 @@ fn a_desktop_added_or_removed_is_followed() {
     }
     let before = pager.sweep();
     let name = format!("Extra {}", std::process::id());
-    kwin::create(&name);
+    kwin().create_virtual_desktop(&name).unwrap();
     let added = wait_for("the added desktop", || {
         let shown = pager.shown();
         shown.iter().find(|w| w.name == name).cloned().ok_or(shown)
@@ -427,7 +433,7 @@ fn a_desktop_added_or_removed_is_followed() {
         mark.is_some_and(|(first, _)| first > last.1),
         "{mark:?} after {before:?}"
     );
-    kwin::remove(&name);
+    kwin().remove_virtual_desktop(&name).unwrap();
     wait_for("the desktop removed", || {
         let shown = pager.shown();
         if shown.iter().any(|w| w.name == name) {

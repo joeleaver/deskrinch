@@ -2,6 +2,7 @@
 //! Plasma's "Copy support information" shows): its version, and what it
 //! composites with. One fetch; each line has a pure parser of its own.
 
+use crate::names::{KWIN, KWIN_OBJECT};
 use crate::{Error, Kwin};
 
 /// The line of the support information that names KWin's version.
@@ -44,9 +45,9 @@ impl Kwin {
                 .connect()
                 .await?
                 .call_method(
-                    Some("org.kde.KWin"),
-                    "/KWin",
-                    Some("org.kde.KWin"),
+                    Some(KWIN),
+                    KWIN_OBJECT.0,
+                    Some(KWIN_OBJECT.1),
                     "supportInformation",
                     &(),
                 )
