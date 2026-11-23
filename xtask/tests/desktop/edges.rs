@@ -2,15 +2,20 @@
 //! KWin composites with, pushing the pointer into every corner and along
 //! every edge leaves KWin and the shell running. Then, as is true of each:
 //!
-//! - With OpenGL (a machine with a GPU, as the owner's): the Overview opens
-//!   by its shortcut, shows the windows, and closes again; the edges find
-//!   its hot corner (top-left) and nothing else, which opens it.
-//!   The checks wait until KWin has loaded the Overview, which it does
-//!   after it has started: before then its shortcut does nothing, and a
-//!   push into the corner only lights it (KWin's `screenedge` effect).
-//! - With `QPainter` (in software, on a machine without a GPU, as CI's
-//!   runners are): KWin has no Overview. It is not loaded, its shortcut does
-//!   nothing, and no edge or corner does anything.
+//! - With OpenGL (a run allowed the machine's GPU, on a machine with one,
+//!   as the owner's): the Overview opens by its shortcut, shows the
+//!   windows, and closes again; the edges find its hot corner (top-left)
+//!   and nothing else, which opens it. The checks wait until KWin has
+//!   loaded the Overview, which it does after it has started: before then
+//!   its shortcut does nothing, and a push into the corner only lights it
+//!   (KWin's `screenedge` effect). CI never runs this branch.
+//! - With `QPainter` (a run in software alone, `--renderer software`, as
+//!   CI's are, on any machine: the desktop is a KWin in a window, which
+//!   composites with `QPainter` in software): KWin has no Overview. It is
+//!   not loaded, its shortcut does nothing, and no edge or corner does
+//!   anything. CI's KWin job prints, for the desktop's own KWin (PR 180's
+//!   first run, 2026-11-23): `the desktop's KWin 6.6.7 composites with
+//!   QPainter`.
 //!
 //! The pointer has to be the nested KWin's own, so the checks run inside
 //! the desktop: the outer test starts it on a profile of its own that
@@ -311,10 +316,9 @@ fn inside_the_desktop_edges_and_the_overview() {
             None,
         )
         .unwrap();
-    // KWin's Overview needs OpenGL: a KWin compositing with QPainter (in
-    // software, on a machine with no GPU, as CI's runners are) never loads
-    // it, and what is left to check there is that every edge and corner
-    // leaves KWin running.
+    // KWin's Overview needs OpenGL: a KWin compositing with QPainter (a
+    // run in software alone, as CI's are) never loads it, and what is left
+    // to check there is that every edge and corner leaves KWin running.
     let compositing = compositing_type();
     let version = kwin().version().unwrap();
     record.note(&format!(
