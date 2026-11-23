@@ -4,7 +4,7 @@
 //! read the process's own environment is tested in a child
 //! (`wiring_tests`).
 
-use deskrinch_test_session::{NotIsolated, root};
+use deskrinch_test_session::{NotIsolated, bus, root};
 
 use super::*;
 
@@ -59,14 +59,14 @@ fn a_session_of_ours_is_kwin_s_only_under_kwin() {
         "{refusal:?}"
     );
     let kwin = Kwin::in_environment(&session(KWIN)).unwrap();
-    assert_eq!(kwin.address, address);
+    assert_eq!(kwin.bus.address(), address);
 }
 
 /// Every address `on` takes or refuses: only a private bus of ours.
 #[test]
 fn on_takes_only_a_private_bus_of_ours() {
     let ours = bus::listen_address(&bus::socket_name(42, 3));
-    assert_eq!(Kwin::on(&ours).unwrap().address, ours);
+    assert_eq!(Kwin::on(&ours).unwrap().bus.address(), ours);
     for address in [
         // The real session's bus.
         "unix:path=/run/user/1000/bus",

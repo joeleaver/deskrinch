@@ -33,12 +33,15 @@ impl Environment {
     }
 }
 
-/// A process inside an isolated session, and which compositor the session
-/// runs, as the session names it.
+/// A process inside an isolated session: which compositor the session
+/// runs, as the session names it, and the bus the check found a private
+/// one of ours.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Isolated {
     /// The session's compositor's name: `kwin`, `sway` or `labwc`.
     pub compositor: String,
+    /// The session's bus's address, checked ([`bus::is_private`]).
+    pub bus: String,
 }
 
 /// Why a process is not inside an isolated session: the first of the three
@@ -116,6 +119,7 @@ pub fn check(environment: &Environment) -> Result<Isolated, NotIsolated> {
     }
     Ok(Isolated {
         compositor: compositor.to_owned(),
+        bus: address.to_owned(),
     })
 }
 
@@ -138,12 +142,14 @@ mod tests {
     }
 
     #[test]
-    fn inside_a_session_it_says_which_compositor() {
+    fn inside_a_session_it_says_which_compositor_and_bus() {
         let root = made(true);
         assert_eq!(
             check(&inside(root.path())),
             Ok(Isolated {
-                compositor: crate::KWIN.into()
+                compositor: crate::KWIN.into(),
+                bus: "unix:abstract=/tmp/dbus-deskrinch-4103809-0,guid=9a46e0742c0824b06eb9c2446b03c0af"
+                    .into(),
             })
         );
     }

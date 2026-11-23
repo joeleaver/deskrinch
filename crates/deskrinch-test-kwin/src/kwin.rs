@@ -12,13 +12,16 @@
 //!   that holds the address of a session it started itself: xtask asking
 //!   the session it is starting, a test asking the desktop it started.
 //!
-//! Both refuse with a typed error before any connection. The handle's
-//! fields are private, so a question cannot be asked without one, and every
-//! connection it makes is to the address it was proved for.
+//! Both refuse with a typed error before any connection. They are the bus
+//! proof's own two makers ([`deskrinch_test_dbus::OurBus`]), with KWin's
+//! compositor required of the first; the handle holds the proof, so a
+//! question cannot be asked without one, and every connection it makes is
+//! to the address it was proved for.
 
 use std::time::Duration;
 
-use deskrinch_test_session::{Environment, KWIN, bus, check};
+use deskrinch_test_dbus::{NotOurs, OurBus};
+use deskrinch_test_session::{Environment, KWIN};
 use zbus::Connection;
 use zbus::connection::Builder;
 
@@ -27,10 +30,8 @@ use crate::Error;
 /// KWin on a bus of ours: the only way to ask it anything.
 #[derive(Debug, Clone)]
 pub struct Kwin {
-    /// The bus it was proved for.
-    address: String,
-    /// How long one call may take, when the caller limits it.
-    patience: Option<Duration>,
+    /// The bus, proved ours.
+    bus: OurBus,
 }
 
 impl Kwin {
@@ -47,23 +48,14 @@ impl Kwin {
 
     /// [`here`](Self::here), for `environment`.
     fn in_environment(environment: &Environment) -> Result<Self, Error> {
-        let isolated = check(environment).map_err(Error::NotIsolated)?;
-        if isolated.compositor != KWIN {
-            return Err(Error::NotKwin {
+        let (bus, isolated) = OurBus::in_session(environment).map_err(refused)?;
+        if isolated.compositor == KWIN {
+            Ok(Self { bus })
+        } else {
+            Err(Error::NotKwin {
                 compositor: isolated.compositor,
-            });
+            })
         }
-        // The check has read the address and found it a private bus of
-        // ours, so it is there and is text.
-        let address = environment
-            .bus
-            .as_ref()
-            .and_then(|address| address.to_str())
-            .map(str::to_owned)
-            .ok_or(Error::NotIsolated(
-                deskrinch_test_session::NotIsolated::NoBus,
-            ))?;
-        Ok(Self::proved(address))
     }
 
     /// KWin on the bus at `address`, which must be a private bus of ours.
@@ -72,41 +64,33 @@ impl Kwin {
     ///
     /// [`Error::NotOurBus`] for any other address. Nothing is connected to.
     pub fn on(address: &str) -> Result<Self, Error> {
-        if bus::is_private(address) {
-            Ok(Self::proved(address.to_owned()))
-        } else {
-            Err(Error::NotOurBus {
-                address: address.to_owned(),
-            })
-        }
-    }
-
-    fn proved(address: String) -> Self {
-        Self {
-            address,
-            patience: None,
-        }
+        OurBus::at(address).map(|bus| Self { bus }).map_err(refused)
     }
 
     /// The same, each call it makes limited to `patience`.
     #[must_use]
-    pub fn patience(mut self, patience: Duration) -> Self {
-        self.patience = Some(patience);
-        self
+    pub fn patience(self, patience: Duration) -> Self {
+        Self {
+            bus: self.bus.patience(patience),
+        }
     }
 
     /// A connection to its bus, to finish building.
     pub(crate) fn builder(&self) -> Builder<'_> {
-        let builder = Builder::address(self.address.as_str());
-        match self.patience {
-            Some(patience) => builder.method_timeout(patience),
-            None => builder,
-        }
+        self.bus.builder()
     }
 
     /// A connection to its bus.
     pub(crate) async fn connect(&self) -> Result<Connection, Error> {
-        Ok(self.builder().build().await?)
+        Ok(self.bus.connect().await?)
+    }
+}
+
+/// The handle's refusal, for the proof's.
+fn refused(why: NotOurs) -> Error {
+    match why {
+        NotOurs::NotIsolated(why) => Error::NotIsolated(why),
+        NotOurs::NotPrivate { address } => Error::NotOurBus { address },
     }
 }
 
