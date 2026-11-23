@@ -84,8 +84,15 @@ mod measure_callgrind {
         fs::write(&summon, format!("echo show > {}\n", fifo.display())).unwrap();
         let dismiss = dir.path().join("dismiss.sh");
         fs::write(&dismiss, format!("echo hide > {}\n", fifo.display())).unwrap();
+        // It starts quiet, sleeping three seconds before its first
+        // preparation, as a stand-in starved of CPU on a loaded machine
+        // does. A sleep and not a count: only an idle start passes a quiet
+        // window (a count runs, and keeps the settle waiting), and two
+        // windows of idleness against a wait of one summon it before it
+        // prepared every time, not by luck, unless `--prepares` makes the
+        // first show wait for the preparation.
         let script = format!(
-            "echo '[PERF] prepared 1: a' >&2; n=0; p=1; \
+            "sleep 3; echo '[PERF] prepared 1: a' >&2; n=0; p=1; \
              while read asked < {fifo}; do \
              if [ \"$asked\" = show ]; then \
              i=0; while [ $i -lt 2000 ]; do i=$((i+1)); done; \
@@ -102,6 +109,7 @@ mod measure_callgrind {
             .args(["measure", "--compositor", &compositor(), "--runs", "1"])
             .args(["--instructions", "--settle", "1", "--idle", "1"])
             .args(["--summon", &summon, "--dismiss", &dismiss, "--shows", "2"])
+            .arg("--prepares")
             .args(["sh", "-c", &script])
             .stdin(Stdio::null())
             .output()
