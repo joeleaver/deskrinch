@@ -1,4 +1,6 @@
-//! What an isolated test session of deskrinch's is, in one place.
+//! Where a test of deskrinch's may act: inside an isolated session, on a CI
+//! runner, or neither. What an isolated test session is, and whether this
+//! is a CI runner, each in one place.
 //!
 //! `cargo xtask session` and `cargo xtask compositor-tests` run programs in
 //! sessions of their own: a nested compositor, a private D-Bus daemon, and
@@ -18,7 +20,9 @@
 //!   ([`bus`]);
 //! - the check that a process runs inside a session, from those three
 //!   ([`check`]), with values passed in, so that its refusals are tested
-//!   without touching the environment.
+//!   without touching the environment;
+//! - whether this is a CI runner, for what may run only on one, and for
+//!   what must not run on one ([`ci`]).
 //!
 //! It has no dependencies, so that any test crate can take it: a Wayland
 //! test client as much as a bus client.
@@ -29,14 +33,15 @@
 //! refusal broken (its mutant), to show that the test catches that; then
 //! the program does what the refusal kept it from. So the test runs the
 //! program where doing it reaches nothing: a child with no display, an
-//! empty runtime directory and a bus address that leads nowhere (xtask's
-//! tests share one helper for that, `deskrinch_test_dbus::session::outside`). Mutants of a
-//! guard are run only where the guard's failure is harmless. A guard whose
-//! test cannot be made harmless has its mutant run only inside an isolated
-//! session (`cargo xtask session`) or in CI.
+//! empty runtime directory and a bus address that leads nowhere
+//! (`deskrinch_test_dbus::session::outside` makes one, for any crate's
+//! tests). Mutants of a guard are run only where the guard's failure is
+//! harmless. A guard whose test cannot be made harmless has its mutant run
+//! only inside an isolated session (`cargo xtask session`) or in CI.
 
 pub mod bus;
 mod check;
+pub mod ci;
 pub mod root;
 
 pub use check::{Environment, Isolated, NotIsolated, check};

@@ -129,6 +129,8 @@ mod tests {
     use std::os::unix::process::ExitStatusExt as _;
     use std::time::Instant;
 
+    use deskrinch_test_session::ci::Ci;
+
     use super::*;
 
     #[test]
@@ -167,7 +169,8 @@ mod tests {
     /// --workspace`); elsewhere it returns at once.
     #[test]
     fn a_root_command_past_its_limit_is_stopped() {
-        if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true") {
+        if let Err(why) = Ci::read().only_on_a_runner() {
+            eprintln!("skipped: sudo for real {why}");
             return;
         }
         // A duration no other process uses, to find it by.
@@ -221,7 +224,8 @@ mod tests {
 
     #[test]
     fn a_root_command_within_its_limit_reports_its_status() {
-        if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true") {
+        if let Err(why) = Ci::read().only_on_a_runner() {
+            eprintln!("skipped: sudo for real {why}");
             return;
         }
         let (ended, output) = run(

@@ -963,6 +963,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-keyfile",
  "deskrinch-test-dbus",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-timer",
  "deskrinch-watch",

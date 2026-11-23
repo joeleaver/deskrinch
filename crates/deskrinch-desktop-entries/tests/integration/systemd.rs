@@ -1,13 +1,22 @@
 //! A launch into a real transient scope of the real systemd user instance.
 //!
 //! Ignored by default: it needs the user's own systemd and session bus.
-//! `cargo xtask systemd-scope-tests` runs it. It starts only the recorder
-//! script (and a `sleep` the recorder forks), in a transient scope it stops
-//! at the end.
+//! `cargo xtask systemd-scope-tests` runs it, on CI. It starts only the
+//! recorder script (and a `sleep` the recorder forks), in a transient scope
+//! it stops at the end.
+//!
+//! It runs only on a CI runner, and refuses before it touches anything
+//! anywhere else: on a developer's machine it would start a transient
+//! scope unit in their own systemd user instance. The refusal is tested in
+//! the two forms that are harmless when it fails: in-process, and in a
+//! child of this binary outside any session, where no systemd is reachable.
 
 use std::path::Path;
+use std::process::{Command, Stdio};
 
 use deskrinch_desktop_entries::{Environment, LaunchContext, Launched, Placement, launch};
+use deskrinch_test_dbus::session::outside;
+use deskrinch_test_session::ci::{CI_VARIABLE, Ci};
 use deskrinch_test_wait::eventually;
 
 use crate::support::{entry, recorded, recorder};
@@ -20,6 +29,7 @@ fn cgroup(text: &str) -> &str {
 #[test]
 #[ignore = "needs the real systemd user instance; run by `cargo xtask systemd-scope-tests`"]
 fn a_launch_and_its_children_land_in_a_real_transient_scope() {
+    refuse_off_a_runner(&Ci::read());
     let env = Environment::from_process();
     let bus = env.session_bus.clone().expect("a session bus");
     let dir = tempfile::tempdir().unwrap();
@@ -77,4 +87,58 @@ fn stop(bus: &str, unit: &str) {
             .await
     })
     .unwrap();
+}
+
+/// Panics unless `ci` says this is certainly a CI runner: anywhere else the
+/// test would start a unit in the user's own systemd.
+fn refuse_off_a_runner(ci: &Ci) {
+    if let Err(why) = ci.only_on_a_runner() {
+        panic!(
+            "the systemd scope test {why}: anywhere else it would start a unit in \
+             your own systemd user instance"
+        );
+    }
+}
+
+#[test]
+#[should_panic(expected = "the systemd scope test runs only on a CI runner")]
+fn off_a_runner_the_test_refuses() {
+    refuse_off_a_runner(&Ci::from_value(None));
+}
+
+#[test]
+fn on_a_runner_the_test_goes_on() {
+    refuse_off_a_runner(&Ci::from_value(Some("true".as_ref())));
+}
+
+/// The test itself, run in a child of this binary outside any session and
+/// off CI: it refuses before it touches anything. Without the refusal it
+/// would find a session bus address that leads nowhere, and an empty
+/// runtime directory, so no systemd.
+#[test]
+fn run_off_a_runner_the_test_refuses_before_anything() {
+    let mut child = Command::new(std::env::current_exe().unwrap());
+    child
+        .args([
+            "--ignored",
+            "--exact",
+            "systemd::a_launch_and_its_children_land_in_a_real_transient_scope",
+        ])
+        .stdin(Stdio::null());
+    let _root = outside(&mut child).unwrap();
+    child.env_remove(CI_VARIABLE);
+    let output = child.output().unwrap();
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(said.contains("1 failed"), "it did not fail: {said}");
+    assert!(
+        said.contains(
+            "the systemd scope test runs only on a CI runner (GITHUB_ACTIONS=true), and here \
+             GITHUB_ACTIONS is not set"
+        ),
+        "{said}"
+    );
 }
