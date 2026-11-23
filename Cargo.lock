@@ -1389,6 +1389,7 @@ dependencies = [
 name = "deskrinch-untrusted"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "libc",
  "proptest",
  "rustix",
