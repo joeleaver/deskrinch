@@ -17,7 +17,7 @@ mod session {
     use std::path::Path;
     use std::process::{Child, Command, Output, Stdio};
 
-    use deskrinch_test_session::{COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE, root};
+    use deskrinch_test_session::{BUS_VARIABLE, COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE, root};
     use deskrinch_test_wait::wait_for;
     use rustix::process::{Pid, Signal, kill_process, test_kill_process};
 
@@ -203,9 +203,9 @@ mod session {
         assert!(socket.starts_with("wayland-"), "{socket}");
         assert_ne!(socket, "wayland-real");
         assert!(
-            deskrinch_test_session::bus::is_private(env["DBUS_SESSION_BUS_ADDRESS"]),
+            deskrinch_test_session::bus::is_private(env[BUS_VARIABLE]),
             "{}",
-            env["DBUS_SESSION_BUS_ADDRESS"]
+            env[BUS_VARIABLE]
         );
         if compositor() == "sway" {
             assert!(env["SWAYSOCK"].starts_with(&format!("{root}/run/")));

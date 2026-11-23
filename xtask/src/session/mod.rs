@@ -107,7 +107,7 @@ pub(crate) use self::supervisor::{
     SUBCOMMAND as SUPERVISOR, check as check_root, run as supervise, supervised,
 };
 pub(crate) use self::transform::OutputTransform;
-use deskrinch_test_session::root;
+use deskrinch_test_session::{BUS_VARIABLE, root};
 
 use crate::error::Error;
 
@@ -410,7 +410,7 @@ fn compositor_command(options: &Options<'_>, root: &Path, bus: &str) -> Result<C
     if let Some(desktop) = options.current_desktop {
         command.env(CURRENT_DESKTOP, desktop);
     }
-    command.env("DBUS_SESSION_BUS_ADDRESS", bus);
+    command.env(BUS_VARIABLE, bus);
     Ok(command)
 }
 

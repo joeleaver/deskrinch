@@ -29,6 +29,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use deskrinch_test_session::BUS_VARIABLE;
 use rustix::process::{Pid, Signal, kill_process_group};
 
 /// The configuration of a private session bus listening on `listen` (a
@@ -208,7 +209,7 @@ impl PrivateBus {
     pub fn command(&self, program: impl AsRef<OsStr>) -> Command {
         let mut command = Command::new(program);
         session::isolate(&mut command, self.dir.path());
-        command.env("DBUS_SESSION_BUS_ADDRESS", &self.address);
+        command.env(BUS_VARIABLE, &self.address);
         command
     }
 
@@ -233,7 +234,7 @@ impl PrivateBus {
     pub fn session_env(&self) -> Vec<(&'static str, OsString)> {
         session::environment(self.dir.path())
             .into_iter()
-            .chain([("DBUS_SESSION_BUS_ADDRESS", OsString::from(&self.address))])
+            .chain([(BUS_VARIABLE, OsString::from(&self.address))])
             .collect()
     }
 
@@ -313,10 +314,7 @@ mod tests {
         let envs: Vec<_> = command.get_envs().collect();
         let runtime = bus.session_root().join("run");
         assert!(envs.contains(&("XDG_RUNTIME_DIR".as_ref(), Some(runtime.as_os_str()))));
-        assert!(envs.contains(&(
-            "DBUS_SESSION_BUS_ADDRESS".as_ref(),
-            Some(OsStr::new(bus.address()))
-        )));
+        assert!(envs.contains(&(BUS_VARIABLE.as_ref(), Some(OsStr::new(bus.address())))));
         assert!(envs.contains(&("WAYLAND_DISPLAY".as_ref(), None)));
     }
 
