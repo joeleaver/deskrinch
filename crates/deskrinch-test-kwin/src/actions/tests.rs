@@ -15,7 +15,20 @@ use super::*;
 #[test]
 fn on_refuses_the_real_bus_and_takes_ours() {
     let refusal = KwinActions::on("unix:path=/run/user/1000/bus").unwrap_err();
-    assert!(matches!(refusal, Error::NotOurBus { .. }), "{refusal:?}");
+    assert!(
+        matches!(
+            refusal,
+            Error::Refused {
+                act: crate::error::Act::Change,
+                why: crate::error::Refusal::NotOurBus { .. }
+            }
+        ),
+        "{refusal:?}"
+    );
+    assert_eq!(
+        refusal.to_string(),
+        "refusing to change KWin: unix:path=/run/user/1000/bus is not a private bus of ours"
+    );
     let ours = bus::listen_address(&bus::socket_name(7, 1));
     KwinActions::on(&ours).unwrap();
 }
@@ -46,7 +59,7 @@ fn refused_in_a_child(name: &str) -> String {
 fn setting_up_desktops_outside_a_session_is_refused_before_any_bus() {
     let said = refused_in_a_child("actions::tests::inner::sets_up_here");
     assert!(
-        said.contains("refusing to ask KWin: not inside an isolated session"),
+        said.contains("refusing to change KWin: not inside an isolated session"),
         "{said}"
     );
 }
@@ -57,7 +70,10 @@ fn setting_up_desktops_outside_a_session_is_refused_before_any_bus() {
 #[test]
 fn invoking_a_shortcut_on_an_address_not_ours_is_refused_before_any_bus() {
     let said = refused_in_a_child("actions::tests::inner::invokes_on_the_session_s_address");
-    assert!(said.contains("is not a private bus of ours"), "{said}");
+    assert!(
+        said.contains("refusing to change KWin: ") && said.contains("is not a private bus of ours"),
+        "{said}"
+    );
 }
 
 /// The public makers, run only by the outer tests above in their child;

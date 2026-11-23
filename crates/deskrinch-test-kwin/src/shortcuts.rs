@@ -7,6 +7,7 @@
 //! `org.kde.KWin`. A shortcut KWin has not registered yet (an effect's,
 //! before KWin has loaded it) is not listed.
 
+use crate::names::SHORTCUTS;
 use crate::{Error, Kwin};
 
 impl Kwin {
@@ -22,9 +23,9 @@ impl Kwin {
                 .connect()
                 .await?
                 .call_method(
-                    Some("org.kde.kglobalaccel"),
-                    "/component/kwin",
-                    Some("org.kde.kglobalaccel.Component"),
+                    Some(SHORTCUTS.0),
+                    SHORTCUTS.1,
+                    Some(SHORTCUTS.2),
                     "shortcutNames",
                     &(),
                 )

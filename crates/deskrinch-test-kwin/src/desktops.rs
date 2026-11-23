@@ -5,13 +5,8 @@
 
 use zbus::OwnedVariant;
 
+use crate::names::{KWIN, KWIN_OBJECT, MANAGER};
 use crate::{Error, Kwin};
-
-/// KWin's virtual desktop manager's object and interface.
-pub(crate) const MANAGER: (&str, &str) = (
-    "/VirtualDesktopManager",
-    "org.kde.KWin.VirtualDesktopManager",
-);
 
 /// A virtual desktop, as KWin's manager lists it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -60,9 +55,9 @@ impl Kwin {
                 .connect()
                 .await?
                 .call_method(
-                    Some("org.kde.KWin"),
-                    "/KWin",
-                    Some("org.kde.KWin"),
+                    Some(KWIN),
+                    KWIN_OBJECT.0,
+                    Some(KWIN_OBJECT.1),
                     "currentDesktop",
                     &(),
                 )
@@ -78,7 +73,7 @@ impl Kwin {
                 .connect()
                 .await?
                 .call_method(
-                    Some("org.kde.KWin"),
+                    Some(KWIN),
                     MANAGER.0,
                     Some("org.freedesktop.DBus.Properties"),
                     "Get",

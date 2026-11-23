@@ -36,8 +36,8 @@
 //! for, unlike its screenshot interface (checked on KWin 6.6.7: an
 //! ungranted caller loaded, ran and unloaded one). On the owner's own bus
 //! that would run our scripts in the owner's KWin. So the handle's two
-//! makers refuse, with [`Error::NotIsolated`], [`Error::NotKwin`] or
-//! [`Error::NotOurBus`], before any connection, and every connection is to
+//! makers refuse, with [`Error::Refused`] saying why and whether the handle
+//! was to ask or to change, before any connection, and every connection is to
 //! the address the handle was proved for: `cargo xtask session kwin` and
 //! `cargo xtask compositor-tests kwin` give a process such a session, and
 //! xtask and the desktop's tests hold the address of the session they
@@ -58,6 +58,7 @@ mod desktops;
 mod effects;
 mod error;
 mod kwin;
+mod names;
 mod read;
 mod script;
 mod shortcuts;
@@ -68,6 +69,6 @@ mod wiring_tests;
 
 pub use actions::KwinActions;
 pub use desktops::VirtualDesktop;
-pub use error::Error;
+pub use error::{Act, Error, Refusal};
 pub use kwin::Kwin;
 pub use window::{Skip, Window, WindowType};

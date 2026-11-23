@@ -1,28 +1,21 @@
 //! Why KWin's answer could not be had.
 
+use std::fmt;
 use std::time::Duration;
 
 use deskrinch_test_session::NotIsolated;
 
-/// Why a question to KWin could not be answered.
+/// Why a question to KWin, or a change in it, could not be had.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// Not inside an isolated session: nothing was asked, and no bus was
-    /// touched.
-    #[error("refusing to ask KWin: {0}")]
-    NotIsolated(NotIsolated),
-    /// The address is not a private bus of ours: nothing was asked, and no
-    /// bus was touched.
-    #[error("refusing to ask KWin: {address} is not a private bus of ours")]
-    NotOurBus {
-        /// The address refused.
-        address: String,
-    },
-    /// Inside an isolated session, but not KWin's.
-    #[error("refusing to ask KWin: the session's compositor is {compositor}, not KWin")]
-    NotKwin {
-        /// The session's compositor, as it names it.
-        compositor: String,
+    /// A handle was refused before any connection: nothing was asked or
+    /// changed, and no bus was touched.
+    #[error("refusing to {act} KWin: {why}")]
+    Refused {
+        /// What the handle was for.
+        act: Act,
+        /// Why it was refused.
+        why: Refusal,
     },
     /// The session's bus could not be used.
     #[error("the session's bus: {0}")]
@@ -77,6 +70,9 @@ pub enum Error {
         /// What is wrong with it.
         reason: String,
     },
+    /// KWin lists no virtual desktop at all.
+    #[error("KWin lists no virtual desktop")]
+    NoDesktops,
     /// KWin has no virtual desktop of that name.
     #[error("KWin has no virtual desktop named {name}")]
     NoSuchDesktop {
@@ -92,4 +88,65 @@ pub enum Error {
     /// KWin's support information has no version line.
     #[error("KWin's support information names no version")]
     NoVersion,
+}
+
+/// What a refused handle was for: asking ([`Kwin`](crate::Kwin)) or changing
+/// ([`KwinActions`](crate::KwinActions)).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Act {
+    /// Asking KWin.
+    Ask,
+    /// Changing something in KWin.
+    Change,
+}
+
+impl fmt::Display for Act {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Ask => "ask",
+            Self::Change => "change",
+        })
+    }
+}
+
+/// Why a handle was refused.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Refusal {
+    /// The process is not inside an isolated session of ours.
+    NotIsolated(NotIsolated),
+    /// The address is not a private bus of ours.
+    NotOurBus {
+        /// The address refused.
+        address: String,
+    },
+    /// Inside an isolated session, but not KWin's.
+    NotKwin {
+        /// The session's compositor, as it names it.
+        compositor: String,
+    },
+}
+
+impl fmt::Display for Refusal {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotIsolated(why) => why.fmt(f),
+            Self::NotOurBus { address } => write!(f, "{address} is not a private bus of ours"),
+            Self::NotKwin { compositor } => {
+                write!(f, "the session's compositor is {compositor}, not KWin")
+            }
+        }
+    }
+}
+
+impl Error {
+    /// The same error, a refusal made for a change rather than a question.
+    pub(crate) fn for_a_change(self) -> Self {
+        match self {
+            Self::Refused { why, .. } => Self::Refused {
+                act: Act::Change,
+                why,
+            },
+            other => other,
+        }
+    }
 }

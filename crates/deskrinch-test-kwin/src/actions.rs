@@ -10,7 +10,7 @@
 use zbus::Variant;
 use zbus::zvariant::DynamicType;
 
-use crate::desktops::MANAGER;
+use crate::names::{KWIN, MANAGER, SHORTCUTS};
 use crate::{Error, Kwin, VirtualDesktop};
 
 /// KWin on a bus of ours, for changing it.
@@ -25,18 +25,24 @@ impl KwinActions {
     ///
     /// # Errors
     ///
-    /// As [`Kwin::here`]. Nothing is connected to.
+    /// As [`Kwin::here`], the refusal saying it was for a change. Nothing
+    /// is connected to.
     pub fn here() -> Result<Self, Error> {
-        Kwin::here().map(|kwin| Self { kwin })
+        Kwin::here()
+            .map(|kwin| Self { kwin })
+            .map_err(Error::for_a_change)
     }
 
     /// KWin on the bus at `address`, as [`Kwin::on`].
     ///
     /// # Errors
     ///
-    /// As [`Kwin::on`]. Nothing is connected to.
+    /// As [`Kwin::on`], the refusal saying it was for a change. Nothing is
+    /// connected to.
     pub fn on(address: &str) -> Result<Self, Error> {
-        Kwin::on(address).map(|kwin| Self { kwin })
+        Kwin::on(address)
+            .map(|kwin| Self { kwin })
+            .map_err(Error::for_a_change)
     }
 
     /// The same KWin, for reading.
@@ -97,7 +103,7 @@ impl KwinActions {
     ///
     /// # Errors
     ///
-    /// As the actions it takes; [`Error::NoSuchDesktop`] when KWin lists no
+    /// As the actions it takes; [`Error::NoDesktops`] when KWin lists no
     /// desktop.
     pub fn set_up_virtual_desktops(&self, count: usize) -> Result<String, Error> {
         loop {
@@ -114,9 +120,7 @@ impl KwinActions {
             .into_iter()
             .min_by_key(|desktop| desktop.position)
             .map(|desktop| desktop.name)
-            .ok_or_else(|| Error::NoSuchDesktop {
-                name: "(any)".to_owned(),
-            })?;
+            .ok_or(Error::NoDesktops)?;
         self.set_current_virtual_desktop(&first)?;
         Ok(first)
     }
@@ -134,9 +138,9 @@ impl KwinActions {
                 .connect()
                 .await?
                 .call_method(
-                    Some("org.kde.kglobalaccel"),
-                    "/component/kwin",
-                    Some("org.kde.kglobalaccel.Component"),
+                    Some(SHORTCUTS.0),
+                    SHORTCUTS.1,
+                    Some(SHORTCUTS.2),
                     "invokeShortcut",
                     &(name,),
                 )
@@ -176,7 +180,7 @@ impl KwinActions {
             self.kwin
                 .connect()
                 .await?
-                .call_method(Some("org.kde.KWin"), path, Some(interface), method, body)
+                .call_method(Some(KWIN), path, Some(interface), method, body)
                 .await?;
             Ok(())
         })
