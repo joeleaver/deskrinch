@@ -1104,8 +1104,8 @@ dependencies = [
  "deskrinch-taskbar",
  "deskrinch-test-client",
  "deskrinch-test-component",
- "deskrinch-test-desktops",
  "deskrinch-test-input",
+ "deskrinch-test-kwin",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-theme",
@@ -1237,17 +1237,6 @@ dependencies = [
  "rustix",
  "tempfile",
  "thiserror 2.0.21",
- "zbus 6.2.1",
-]
-
-[[package]]
-name = "deskrinch-test-desktops"
-version = "0.1.0"
-dependencies = [
- "deskrinch-bus",
- "deskrinch-test-client",
- "deskrinch-test-dbus",
- "deskrinch-test-session",
  "zbus 6.2.1",
 ]
 
@@ -1465,8 +1454,8 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-client",
- "deskrinch-test-desktops",
  "deskrinch-test-input",
+ "deskrinch-test-kwin",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",

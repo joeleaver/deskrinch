@@ -1,9 +1,14 @@
-//! What KWin says, read-only, for deskrinch's tests.
+//! What KWin says, and what a test may ask of it, inside an isolated
+//! session, for deskrinch's tests: the one home of what we know of KWin's
+//! bus (its names, paths, its spelling of a critical notification, who owns
+//! its shortcut service).
 //!
 //! Our suites read the Wayland protocols and the screen; what KWin itself
 //! thinks of a window (its window type, above all, which KWin gives a layer
 //! surface by its namespace alone, and which decides the effects it gets)
-//! is in neither. This crate asks KWin.
+//! is in neither. This crate asks KWin. What a test changes in KWin (its
+//! virtual desktops, a shortcut invoked) goes through a handle of its own,
+//! [`KwinActions`], so that a function given a [`Kwin`] only reads.
 //!
 //! Every question is asked through a [`Kwin`] handle, made only by
 //! [`Kwin::here`] (this process runs inside an isolated KWin session of
@@ -19,6 +24,11 @@
 //!   information.
 //! - [`Kwin::active_effects`] and [`Kwin::effect_loaded`] ask its effects.
 //! - [`Kwin::kwin_shortcut_names`] asks its shortcut service.
+//! - [`Kwin::virtual_desktops`], [`Kwin::current_virtual_desktop`] and
+//!   [`Kwin::current_desktop`] read its desktops.
+//!
+//! [`KwinActions`], made the same two ways, lays out, switches, adds and
+//! removes virtual desktops and invokes KWin's shortcuts.
 //!
 //! # Only on a bus of ours
 //!
@@ -43,6 +53,8 @@
 //! layer surfaces apart by what it controls: a size unique to each, with
 //! its own process id ([`Window::pid`], [`Window::size`]).
 
+mod actions;
+mod desktops;
 mod effects;
 mod error;
 mod kwin;
@@ -54,6 +66,8 @@ mod window;
 #[cfg(test)]
 mod wiring_tests;
 
+pub use actions::KwinActions;
+pub use desktops::VirtualDesktop;
 pub use error::Error;
 pub use kwin::Kwin;
 pub use window::{Skip, Window, WindowType};

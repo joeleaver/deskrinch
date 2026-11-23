@@ -27,7 +27,7 @@ use std::time::Duration;
 use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_client::{Compositor, Paint, TestClient};
 use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE, Key};
-use deskrinch_test_kwin::Kwin;
+use deskrinch_test_kwin::{Kwin, KwinActions};
 use deskrinch_test_screen::{Image, KWIN_SCREENSHOT_INTERFACE, Pictures, Rgba, Screen};
 use deskrinch_test_session::BUS_VARIABLE;
 use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually, wait_for};
@@ -168,28 +168,19 @@ fn shortcut_registered(name: &str) -> bool {
         .is_ok_and(|names| names.iter().any(|known| known == name))
 }
 
-/// Whether KWin still answers on the session's bus.
+/// Whether KWin still answers: it can say what its current desktop is.
 fn kwin_running() -> bool {
-    call(
-        "org.kde.KWin",
-        "/KWin",
-        "org.kde.KWin",
-        "currentDesktop",
-        "",
-    )
-    .is_ok()
+    kwin().current_desktop().is_ok()
+}
+
+/// KWin in the desktop's session, for invoking its shortcuts.
+fn actions() -> KwinActions {
+    KwinActions::here().unwrap()
 }
 
 /// Invokes KWin's global shortcut `name`, as its keys would.
 fn invoke(name: &str) {
-    call(
-        "org.kde.kglobalaccel",
-        "/component/kwin",
-        "org.kde.kglobalaccel.Component",
-        "invokeShortcut",
-        name,
-    )
-    .unwrap();
+    actions().invoke_kwin_shortcut(name).unwrap();
 }
 
 /// Opens the Overview by its shortcut. For a few seconds after KWin has
@@ -325,7 +316,10 @@ fn inside_the_desktop_edges_and_the_overview() {
     // it, and what is left to check there is that every edge and corner
     // leaves KWin running.
     let compositing = compositing_type();
-    record.note(&format!("compositing: {compositing}"));
+    let version = kwin().version().unwrap();
+    record.note(&format!(
+        "the desktop's KWin {version} composites with {compositing}"
+    ));
     if compositing != "OpenGL" {
         let baseline = wait_effects("the window's opening to end", |now| {
             now.iter().all(|e| e != "scale")
@@ -336,13 +330,7 @@ fn inside_the_desktop_edges_and_the_overview() {
         );
         // Its shortcut does nothing (whether the shortcut daemon knows it or
         // not, which is recorded).
-        let invoked = call(
-            "org.kde.kglobalaccel",
-            "/component/kwin",
-            "org.kde.kglobalaccel.Component",
-            "invokeShortcut",
-            "Overview",
-        );
+        let invoked = actions().invoke_kwin_shortcut("Overview");
         // A window: KWin starts its effects on its own, and nothing ordered
         // follows a shortcut that does nothing.
         std::thread::sleep(SHOWN_WITHIN);

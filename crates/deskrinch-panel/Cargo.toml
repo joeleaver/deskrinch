@@ -63,7 +63,7 @@ deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true
 # KWin's desktops added and removed, the compositor's side of the
 # switcher's tests.
-deskrinch-test-desktops.workspace = true
+deskrinch-test-kwin.workspace = true
 deskrinch-test-input.workspace = true
 deskrinch-test-screen.workspace = true
 deskrinch-test-wait.workspace = true

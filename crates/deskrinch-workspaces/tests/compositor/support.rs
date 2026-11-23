@@ -13,8 +13,13 @@ use deskrinch_workspaces::{
 };
 
 pub(crate) use deskrinch_test_client::Compositor;
-/// KWin's desktops, through its own D-Bus interface on the session's bus.
-pub(crate) use deskrinch_test_desktops as kwin;
+use deskrinch_test_kwin::KwinActions;
+
+/// KWin in the session this test runs in, for changing its desktops
+/// through its own interface (the compositor's side of the KWin tests).
+pub(crate) fn kwin() -> KwinActions {
+    KwinActions::here().unwrap()
+}
 
 /// The workspaces every test has: labwc's sessions configure four, and the
 /// KWin tests make four.
@@ -157,7 +162,7 @@ pub(crate) fn set_up(compositor: Compositor, watcher: &Watcher) {
             // Made current through KWin's own interface: the watcher sees
             // it only once its events say so, and until then would take
             // an earlier test's desktop for the active one.
-            let first = kwin::set_up(COUNT);
+            let first = kwin().set_up_virtual_desktops(COUNT).unwrap();
             watcher.wait_active(&first);
         }
         Compositor::Labwc => {

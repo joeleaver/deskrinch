@@ -77,6 +77,18 @@ pub enum Error {
         /// What is wrong with it.
         reason: String,
     },
+    /// KWin has no virtual desktop of that name.
+    #[error("KWin has no virtual desktop named {name}")]
+    NoSuchDesktop {
+        /// The name asked for.
+        name: String,
+    },
+    /// KWin's current virtual desktop is not among those it lists.
+    #[error("KWin's current virtual desktop {desktop} is not among those it lists")]
+    NotListed {
+        /// Its id.
+        desktop: String,
+    },
     /// KWin's support information has no version line.
     #[error("KWin's support information names no version")]
     NoVersion,

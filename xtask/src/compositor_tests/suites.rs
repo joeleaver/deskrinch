@@ -378,7 +378,8 @@ pub(super) const SUITES: [Suite; 26] = [
     },
     // `cargo xtask desktop`, nested: its window opens in this session, which
     // the binary closes through window management and types the launcher's
-    // chord into.
+    // chord into. Its output is shown, for what the edge test found inside
+    // the desktop (the desktop's own KWin's compositing type among it).
     Suite {
         target: Target {
             package: XTASK,
@@ -398,7 +399,7 @@ pub(super) const SUITES: [Suite; 26] = [
         passes: PLAIN,
         renders: false,
         programs: &[],
-        filter: &[],
+        filter: &["--show-output"],
     },
     // `cargo xtask input`, measure's input client: its lines reach a window
     // of the test's own. Under KWin the client, xtask's own binary, is
