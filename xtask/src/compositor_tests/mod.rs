@@ -124,8 +124,7 @@ fn run_once(root: &Path, args: &Args) -> Result<Outcome, Error> {
     };
     let sessions = sessions(compositors, &args.sizes.sizes, &plan, &selection)?;
     if sessions.is_empty() {
-        let names: Vec<_> = compositors.iter().map(|c| c.name()).collect();
-        return Err(selection.nothing_runs(&names.join(", ")).into());
+        return Err(selection.nothing_runs(compositors).into());
     }
     let built = if args.prebuilt {
         Built::from_bundle(&Bundle::open(root)?, &selection)?

@@ -36,8 +36,35 @@ pub(super) struct Suite {
     /// handed to its tests by path, the only way they start one
     /// ([`deskrinch_test_component::programs`], where the rule is).
     pub(super) programs: &'static [&'static Component],
-    /// The libtest arguments it runs with.
+    /// Which of its tests it runs, as libtest reads its filter: the words
+    /// a test's name contains, and `--skip` before each word a test's name
+    /// must not contain. Nothing else: an option here would be read as a
+    /// name by [`super::selection`], so a test's output shown is
+    /// [`Suite::output`].
     pub(super) filter: &'static [&'static str],
+    /// Whether its tests' output is shown, passing or not.
+    pub(super) output: Output,
+}
+
+/// Whether a suite's tests' output is shown when they pass.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum Output {
+    /// Captured by libtest, shown only for a test that fails.
+    Captured,
+    /// Shown for every test (`--show-output`): for what a test prints that
+    /// a reader of the run wants, such as what KWin composites with.
+    Shown,
+}
+
+impl Output {
+    /// The libtest arguments that make it so, after the suite's filter or
+    /// the test asked for.
+    pub(super) fn args(self) -> &'static [&'static str] {
+        match self {
+            Self::Captured => &[],
+            Self::Shown => &["--show-output"],
+        }
+    }
 }
 
 impl Suite {

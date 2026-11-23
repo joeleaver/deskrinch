@@ -1,7 +1,7 @@
 //! The window list's rows: on the Rust backend, refused where KWin
 //! grants nothing, on libwayland, and the session's end.
 
-use super::{ALL, Grant, KWIN, PLAIN, SESSION_END, Suite};
+use super::{ALL, Grant, KWIN, Output, PLAIN, SESSION_END, Suite};
 use crate::compositor_tests::build::{Backend, Target};
 
 const PACKAGE: &str = "deskrinch-window-management";
@@ -23,6 +23,7 @@ pub(super) const WINDOW_MANAGEMENT: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &["--skip", SESSION_END],
+    output: Output::Captured,
 };
 
 pub(super) const WINDOW_MANAGEMENT_NOT_GRANTED: Suite = Suite {
@@ -37,6 +38,7 @@ pub(super) const WINDOW_MANAGEMENT_NOT_GRANTED: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
+    output: Output::Captured,
 };
 
 pub(super) const WINDOW_MANAGEMENT_ON_LIBWAYLAND: Suite = Suite {
@@ -56,6 +58,7 @@ pub(super) const WINDOW_MANAGEMENT_ON_LIBWAYLAND: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &["--skip", SESSION_END],
+    output: Output::Captured,
 };
 
 /// Last: it ends the session.
@@ -71,4 +74,5 @@ pub(super) const WINDOW_MANAGEMENT_SESSION_END: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[SESSION_END],
+    output: Output::Captured,
 };

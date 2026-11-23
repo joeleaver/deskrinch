@@ -1,6 +1,6 @@
 //! The wallpaper's row.
 
-use super::{ALL, Grant, Pass, Suite};
+use super::{ALL, Grant, Output, Pass, Suite};
 use crate::compositor_tests::build::{Backend, Target};
 
 const PACKAGE: &str = "deskrinch-wallpaper";
@@ -27,4 +27,5 @@ pub(super) const WALLPAPER: Suite = Suite {
     // The wallpaper the tests start, and the panel started over it.
     programs: &[&deskrinch_shell::WALLPAPER, &deskrinch_shell::PANEL],
     filter: &[],
+    output: Output::Captured,
 };

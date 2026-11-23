@@ -80,6 +80,13 @@ it. Only the project manager writes to Pimble.
   command refuses to start outside an interactive terminal, and agents and
   tests run it only inside `cargo xtask session`, where its window opens in
   the headless session.
+- **A guard's test is harmless when the guard fails.** A test of a refusal
+  (a check that something runs only in an isolated session, in a terminal,
+  or on CI) builds its child with nothing to reach: the real session's
+  display and bus variables removed, an empty `XDG_RUNTIME_DIR` and a dead
+  bus address (`deskrinch_test_dbus::session::isolate`). A guard's mutant
+  runs only in that form, inside `cargo xtask session`, or on CI, and a
+  mutant script keeps the child's whole output.
 - **Temporary files are your own.** Agents share scratch directories. Never
   write a fixed file name there (a PR description, a script, a log): make a
   directory with `mktemp -d` and work in it.

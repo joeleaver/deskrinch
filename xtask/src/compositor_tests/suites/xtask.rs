@@ -1,7 +1,7 @@
 //! xtask's own rows: `cargo xtask desktop` nested, measure's input
 //! client, and each shell component's end.
 
-use super::{ALL, Grant, PLAIN, Suite};
+use super::{ALL, Grant, Output, PLAIN, Suite};
 use crate::compositor_tests::build::{Backend, Target};
 
 const PACKAGE: &str = "xtask";
@@ -42,6 +42,7 @@ pub(super) const DESKTOP: Suite = Suite {
         &deskrinch_shell::PANEL,
     ],
     filter: &[],
+    output: Output::Captured,
 };
 
 /// `cargo xtask input`, measure's input client: its lines reach a window
@@ -60,6 +61,7 @@ pub(super) const XTASK_INPUT: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
+    output: Output::Captured,
 };
 
 /// Each shell component's end when its display goes away, in a session
@@ -81,6 +83,7 @@ pub(super) const DISPLAY_LOST: Suite = Suite {
         &deskrinch_shell::PANEL,
     ],
     filter: &[],
+    output: Output::Captured,
 };
 
 /// Each shell component's end when it is asked to stop (`SIGTERM`,
@@ -102,4 +105,5 @@ pub(super) const ASKED_TO_STOP: Suite = Suite {
         &deskrinch_shell::PANEL,
     ],
     filter: &[],
+    output: Output::Captured,
 };
