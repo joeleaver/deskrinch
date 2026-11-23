@@ -10,8 +10,8 @@ use std::time::Instant;
 use deskrinch_test_dbus::session::isolate;
 
 use deskrinch_test_session::{
-    BUS_VARIABLE, COMPOSITOR_PID_VARIABLE, COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE,
-    SESSION_GROUP_VARIABLE,
+    BUS_PID_VARIABLE, BUS_VARIABLE, COMPOSITOR_PID_VARIABLE, COMPOSITOR_VARIABLE,
+    SESSION_DIR_VARIABLE, SESSION_GROUP_VARIABLE,
 };
 
 use super::{CURRENT_DESKTOP, Session, interrupt};
@@ -58,8 +58,9 @@ impl Session {
     /// from the real session; pointed at this compositor
     /// (`WAYLAND_DISPLAY`, and sway's `SWAYSOCK`) and at the session's bus
     /// (`DBUS_SESSION_BUS_ADDRESS`); told the session's directory
-    /// (`DESKRINCH_SESSION_DIR`) and the compositor's process id
-    /// ([`COMPOSITOR_PID_VARIABLE`]), and whether the run uses no GPU
+    /// (`DESKRINCH_SESSION_DIR`), the compositor's and the bus daemon's
+    /// process ids ([`COMPOSITOR_PID_VARIABLE`], [`BUS_PID_VARIABLE`]),
+    /// and whether the run uses no GPU
     /// ([`Gpu`](super::Gpu)); with standard input closed; and in the
     /// session's process group, so that whatever it leaves running ends with
     /// the session.
@@ -88,6 +89,7 @@ impl Session {
                 COMPOSITOR_PID_VARIABLE,
                 self.group.as_raw_nonzero().to_string(),
             )
+            .env(BUS_PID_VARIABLE, self.bus.daemon_pid().to_string())
             // The tests' guard against running in the real session reads
             // these three (`deskrinch_test_session::check`).
             .env(COMPOSITOR_VARIABLE, self.compositor.name())

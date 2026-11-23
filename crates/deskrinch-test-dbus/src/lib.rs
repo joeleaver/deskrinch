@@ -195,6 +195,13 @@ impl PrivateBus {
         &self.address
     }
 
+    /// The bus daemon's process id: a process a client may wait on, which
+    /// a measurement of that client watches too.
+    #[must_use]
+    pub fn daemon_pid(&self) -> u32 {
+        self.daemon.id()
+    }
+
     /// The root of the bus's isolated session (its home and XDG directories
     /// are [`session::SESSION_DIRS`] under it).
     #[must_use]

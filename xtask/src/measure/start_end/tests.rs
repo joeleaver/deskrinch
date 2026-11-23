@@ -174,6 +174,10 @@ fn a_counter_end_is_the_first_frame_of_each_window_that_carries_it() {
         expect,
         end: &end,
         bus,
+        neighbours: crate::measure::quiet::Neighbours {
+            compositor: 0,
+            bus: 0,
+        },
     };
     assert!(start(Expect::Windows(2)).ended(&watch));
     assert!(!start(Expect::Windows(3)).ended(&watch));
