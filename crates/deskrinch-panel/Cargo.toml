@@ -58,6 +58,11 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
+# The bars' windows driven by rinch's harness for the windows a component
+# opens.
+rinch = { workspace = true, features = ["desktop", "testing"] }
+# What the bars said, with its levels, in the harness tests.
+deskrinch-test-log.workspace = true
 deskrinch-shell.workspace = true
 deskrinch-test-client.workspace = true
 deskrinch-test-component.workspace = true

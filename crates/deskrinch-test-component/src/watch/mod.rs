@@ -402,6 +402,18 @@ impl Watch {
         self.lock().lines.clone()
     }
 
+    /// The lines written so far at warn or error level
+    /// ([`log::is_warning_or_error`]), oldest first.
+    #[must_use]
+    pub fn warnings_and_errors(&self) -> Vec<String> {
+        self.lock()
+            .lines
+            .iter()
+            .filter(|line| log::is_warning_or_error(line))
+            .cloned()
+            .collect()
+    }
+
     fn lock(&self) -> std::sync::MutexGuard<'_, Seen> {
         self.seen.0.lock().unwrap_or_else(PoisonError::into_inner)
     }

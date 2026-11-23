@@ -55,6 +55,7 @@ mod client;
 mod compositor;
 mod connect;
 mod converge;
+mod entered;
 mod keyboard;
 mod kscreen;
 mod layer;

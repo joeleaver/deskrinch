@@ -27,6 +27,24 @@ fn counts_frames_and_keeps_the_adapter_and_a_tail() {
 }
 
 #[test]
+fn keeps_the_warnings_and_errors_apart() {
+    let watch = Watch::default();
+    let stderr = "2026-11-13T21:18:32Z  INFO x: started\n\
+                  2026-11-13T21:18:33Z  WARN x: a warning\n\
+                  [PERF] window 1 frame 1: a\n\
+                  2026-11-13T21:18:34Z ERROR x: an error\n\
+                  2026-11-13T21:18:35Z  INFO x: an ERROR in the message\n";
+    watch.follow(stderr.as_bytes()).join().expect("reader");
+    assert_eq!(
+        watch.warnings_and_errors(),
+        [
+            "2026-11-13T21:18:33Z  WARN x: a warning",
+            "2026-11-13T21:18:34Z ERROR x: an error",
+        ]
+    );
+}
+
+#[test]
 fn waits_for_each_window_s_nth_frame() {
     let watch = Watch::default();
     let stderr = "[PERF] window 1 opened: title=\"a\" app_id=\"x\" output=\"V-0\" output_id=1\n\

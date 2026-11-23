@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::process::Command;
 
 use deskrinch_settings::panel::Height;
+use deskrinch_test_client::TestClient;
 use deskrinch_test_component::{Component, Renderer, programs};
 
 /// The least height the panel takes, in logical pixels: its settings'.
@@ -19,13 +20,14 @@ pub(crate) struct Panel {
 
 impl Panel {
     /// Starts the panel along the top, `height` high, and returns once it
-    /// has presented.
+    /// has presented a bar on each output, each a window of its own.
     pub(crate) fn along_the_top(height: u32) -> Self {
         write_settings(height);
         let program = programs::program(deskrinch_shell::PANEL.package).unwrap();
         let renderer = Renderer::of_run();
         let component = Component::start(Command::new(program), renderer).unwrap();
-        if let Err(why) = component.wait_presented_with(renderer) {
+        let outputs = TestClient::connect().unwrap().output_names().len();
+        if let Err(why) = component.wait_presented_in_each(renderer, outputs) {
             panic!("the panel: {why}");
         }
         Self {

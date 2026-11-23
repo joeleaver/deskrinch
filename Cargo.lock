@@ -1116,6 +1116,7 @@ dependencies = [
  "deskrinch-test-component",
  "deskrinch-test-input",
  "deskrinch-test-kwin",
+ "deskrinch-test-log",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-theme",
@@ -1388,6 +1389,7 @@ dependencies = [
 name = "deskrinch-untrusted"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-wait",
  "libc",
  "proptest",
  "rustix",

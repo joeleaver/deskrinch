@@ -37,6 +37,15 @@ pub struct Handover<T: 'static>(Arc<Mutex<Target<T>>>);
 /// component, and shared from there (through the context, say); not in a
 /// widget or a window that may close while the component runs on.
 ///
+/// **The scope that makes it must be on a host thread**: an app's main
+/// thread, or in a test a thread with a `rinch::testing::TestApp` mounted.
+/// rinch sends a write from another thread to the thread that made the
+/// signal only when that thread hosts an app; a signal made on a thread
+/// that hosts nothing has its writes sent to whichever host drains first,
+/// which has no such signal and drops the write with a warning (rinch's
+/// `route_write`). The same holds for every signal a worker writes with
+/// `Signal::send`, a hand-over's or not.
+///
 /// It is used once:
 ///
 /// ```compile_fail,E0382

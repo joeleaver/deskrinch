@@ -19,7 +19,6 @@ use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_seat::WlSeat;
 use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
-use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
 use wayland_protocols::xdg::decoration::zv1::client::zxdg_decoration_manager_v1::ZxdgDecorationManagerV1;
 use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::{
@@ -479,6 +478,5 @@ delegate_noop!(Client: ZwlrLayerShellV1);
 // client-side decorations and draws none either way.
 delegate_noop!(Client: ignore ZxdgToplevelDecorationV1);
 delegate_noop!(Client: WlShmPool);
-delegate_noop!(Client: ignore WlSurface);
 delegate_noop!(Client: ignore WlShm);
 delegate_noop!(Client: ignore WlCallback);
