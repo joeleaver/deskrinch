@@ -13,7 +13,8 @@ publish.workspace = true
 # screen must not change to count as still.
 deskrinch-test-client.workspace = true
 deskrinch-test-wait.workspace = true
-deskrinch-bus.workspace = true
+# The session's bus, proved ours, where KWin's screenshot service is.
+deskrinch-test-dbus.workspace = true
 deskrinch-test-wayland.workspace = true
 rustix = { workspace = true, features = ["event", "fs"] }
 thiserror.workspace = true

@@ -10,6 +10,7 @@ use deskrinch_launcher::{Change, PREPARING};
 use deskrinch_launcher_client::NAME;
 use deskrinch_test_client::Compositor;
 use deskrinch_test_component::{Component, PerfLine, PerfWindow, Renderer, perf, programs};
+use deskrinch_test_dbus::OurBus;
 use deskrinch_test_wait::{Deadline, POLL, comes_true};
 
 /// How long a test watches a launcher for something that must not happen
@@ -274,10 +275,15 @@ pub(crate) fn client(args: &[&str]) -> ExitStatus {
         .unwrap()
 }
 
+/// The session's bus, proved ours, for the launcher's own client.
+pub(crate) fn our_bus() -> Bus {
+    OurBus::here().unwrap().bus()
+}
+
 /// The process that owns the launcher's name on the session bus.
 pub(crate) fn owner_pid() -> Option<u32> {
     zbus::block_on(async {
-        let connection = Bus::Session.connect().await.unwrap();
+        let connection = OurBus::here().unwrap().connect().await.unwrap();
         let reply = connection
             .call_method(
                 Some("org.freedesktop.DBus"),

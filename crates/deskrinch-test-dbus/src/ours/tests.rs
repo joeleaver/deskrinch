@@ -88,6 +88,12 @@ fn at_takes_only_a_private_bus_of_ours() {
     );
 }
 
+#[test]
+fn the_proof_as_a_deskrinch_bus_is_for_its_address() {
+    let ours = OurBus::at(&bus::listen_address(&bus::socket_name(5, 2))).unwrap();
+    assert_eq!(ours.bus(), Bus::Address(ours.address().to_owned()));
+}
+
 /// Set by the outer tests for the inner ones, which do nothing without it.
 const INNER: &str = "DESKRINCH_TEST_DBUS_INNER";
 
