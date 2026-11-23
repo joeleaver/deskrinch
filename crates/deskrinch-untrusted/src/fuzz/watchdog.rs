@@ -76,9 +76,11 @@ pub(crate) enum Input<'a> {
 
 /// Runs `case` with a watchdog that, if `limit` passes first, saves `input`
 /// in `dir`, says so, and aborts the process. The watchdog is a scoped
-/// thread: when the case returns or unwinds, its channel closes, the
-/// watchdog returns, and the scope joins it, so no thread outlives the case
-/// and a panic goes on to proptest as before.
+/// thread: when the case returns or unwinds, its channel closes and the
+/// watchdog returns, and the scope's end waits for that, so the watchdog's
+/// work has ended when this returns and a panic goes on to proptest as
+/// before. Its thread may still be listed by the system for a moment after
+/// (reaping it is the system's), as a test that counts threads must allow.
 pub(crate) fn within<T>(
     property: &str,
     input: &Input<'_>,

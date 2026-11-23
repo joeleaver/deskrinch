@@ -35,9 +35,9 @@ fn a_maximised_window_follows_the_zone_as_it_changes() {
     let scale = scale_of(&screen.outputs()[0]);
     let before = Pictures::still(&mut screen);
     let _panel = Panel::start();
-    let (output, _) = wait_band(&mut screen, &before, Band::of(Edge::Bottom, 40, scale));
+    wait_band(&mut screen, &before, Band::of(Edge::Bottom, 40, scale));
     let client = TestClient::connect().unwrap();
-    let window = maximised(&client, &output, 40);
+    let (window, output) = maximised(&client, 40);
 
     write_settings(&panel_table(Edge::Top, 56));
     let top = Band::of(Edge::Top, 56, scale);
@@ -46,7 +46,7 @@ fn a_maximised_window_follows_the_zone_as_it_changes() {
     wait_window_size(&client, &window, &output, 56);
     drop(window);
     let (_, shown) = wait_band(&mut screen, &before, top);
-    let _window = maximised(&client, &output, 56);
+    let (_window, output) = maximised(&client, 56);
     wait_window_beside(&mut screen, &output, picture(&shown, &output), top);
 }
 
@@ -63,11 +63,21 @@ fn a_rejected_value_leaves_it_where_it_was() {
     let band = Band::of(Edge::Top, 48, scale);
     wait_band(&mut screen, &before, band);
 
+    let rejected = panel.watch().lines().len();
     write_settings("[panel]\nedge = \"top\"\nheight = 0\n");
     panel.wait_rejected("panel.height");
     wait_band(&mut screen, &before, band);
     write_settings("[panel]\nedge = \"left\"\nheight = 80\n");
     panel.wait_rejected("panel.edge");
     wait_band(&mut screen, &before, band);
-    write_settings(&at);
+    // No bar placed for either rejected value: a move would say it is
+    // placed, and the bars' `placed` lines for an edit made now bound what
+    // the panel did for the two before it.
+    let to = panel.bound(Edge::Bottom, 48);
+    let placed: Vec<String> = panel.watch().lines()[rejected..to]
+        .iter()
+        .filter(|line| line.contains(" is placed along the "))
+        .cloned()
+        .collect();
+    assert_eq!(placed, Vec::<String>::new(), "a rejected value moved a bar");
 }

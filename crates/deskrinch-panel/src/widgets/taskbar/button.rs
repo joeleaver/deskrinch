@@ -124,6 +124,11 @@ fn icon_view(
     let path = Memo::new(move || {
         let index = index.get()?;
         let app_id = app_id.get();
+        // Safe to read here: a button is made only once the bar has had its
+        // first layout (the taskbar shows none until that layout gives it a
+        // width), when its window's own facts exist. Read during the bar's
+        // mount, it would get the process's scale and keep it (rinch issue
+        // 2789).
         let scale = icon_scale(scale_factor());
         applications.with(|applications| {
             let icon = applications

@@ -123,7 +123,7 @@ mod tests {
                          linked; start {package} by the path the runner hands the suite, \
                          `deskrinch_test_component::programs::program(\"{package}\")`, with the \
                          suite declaring it in its `programs` (xtask/src/compositor_tests/\
-                         suites.rs)",
+                         suites/)",
                         path.display(),
                         number + 1
                     ));

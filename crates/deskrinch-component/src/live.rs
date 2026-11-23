@@ -64,6 +64,14 @@ impl<T: Settings> LiveSettings<T> {
     /// Hands the table to the UI, in a component on the UI thread: a
     /// signal holding the newest settings, which every later change is
     /// written to. The table is followed until the component is disposed.
+    /// The component's scope is on a host thread, as a hand-over's must be
+    /// ([`Inbox`]).
+    ///
+    /// # Panics
+    ///
+    /// Outside a scope (a component, or a [`Scope`](rinch::reactive::Scope)
+    /// being run): nothing would own the subscription, which would end at
+    /// once, and the signal would never follow the table.
     pub fn into_signal(self) -> Signal<T> {
         let Self {
             initial,
@@ -73,7 +81,12 @@ impl<T: Settings> LiveSettings<T> {
         } = self;
         let signal = inbox.into_signal(initial);
         // In this order: deliveries stop before the watcher can go.
-        rinch::reactive::on_cleanup(move || drop((subscription, shared)));
+        let owned = rinch::reactive::on_cleanup(move || drop((subscription, shared)));
+        assert!(
+            owned,
+            "LiveSettings::into_signal outside a scope: nothing would own the subscription, \
+             and the signal would never follow the settings"
+        );
         signal
     }
 }

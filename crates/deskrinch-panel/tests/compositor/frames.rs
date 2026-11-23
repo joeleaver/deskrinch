@@ -1,7 +1,8 @@
 //! What a step of a test cost the panel, read from rinch's own counters on
-//! its frame lines: the frames presented since a line of its log, told
-//! apart by whether they did reactive work (`signal_notifies`), and the
-//! check that a frame repainted and laid nothing out.
+//! one bar's frame lines (its window's, `[PERF] window N frame`): the
+//! frames it presented since a line of the panel's log, told apart by
+//! whether they did reactive work (`signal_notifies`), and the check that a
+//! frame repainted and laid nothing out.
 
 use deskrinch_test_component::log::strip_ansi;
 use deskrinch_test_component::perf::parse;
@@ -15,25 +16,23 @@ pub(crate) fn step(panel: &Panel) -> usize {
     panel.watch().lines().len()
 }
 
-/// The frame lines among `lines` (the panel's log), as (reactive, not
-/// reactive): a frame that notified a signal did reactive work, and is
-/// kept whatever it painted, since that work is the step's to account for.
+/// The frame lines of the bar `window` among `lines` (the panel's log), as
+/// (reactive, not reactive): a frame that notified a signal did reactive
+/// work, and is kept whatever it painted, since that work is the step's to
+/// account for.
 ///
 /// Of the frames without reactive work, a redraw that rinch served from the
 /// cached pixels, with nothing dirty (`paint_cached_frames` and no
 /// `paint_frames`), drew nothing, and is left out. rinch logs one as a
 /// frame line (seen on rinch b31389bb when the pointer left the panel and
 /// no `:hover` rule had anything to change).
-fn split(lines: &[String]) -> (Vec<String>, Vec<String>) {
+fn split(lines: &[String], window: &PerfWindow) -> (Vec<String>, Vec<String>) {
     let (reactive, frames): (Vec<String>, Vec<String>) = lines
         .iter()
         .filter(|line| {
             matches!(
                 parse(&strip_ansi(line)),
-                Some(PerfLine::Frame {
-                    window: PerfWindow::Main,
-                    ..
-                })
+                Some(PerfLine::Frame { window: drew, .. }) if drew == *window
             )
         })
         .cloned()
@@ -42,15 +41,39 @@ fn split(lines: &[String]) -> (Vec<String>, Vec<String>) {
     (reactive, drawn)
 }
 
-/// Every frame the panel drew since its log line `from`, reactive or not, as
-/// [`split`] keeps them, and the line the read stopped at, where the next
-/// step's window begins: what a step that is no hover (a switch of the
-/// current workspace) drew.
-pub(crate) fn drawn_since(panel: &Panel, from: usize) -> (Vec<String>, usize) {
+/// Every frame the bar `window` drew since the panel's log line `from`,
+/// reactive or not, as [`split`] keeps them, and the line the read stopped
+/// at, where the next step's window begins: what a step that is no hover (a
+/// switch of the current workspace) drew.
+pub(crate) fn drawn_since(panel: &Panel, window: &PerfWindow, from: usize) -> (Vec<String>, usize) {
+    let end = step(panel);
+    (drawn_between(panel, window, from, end), end)
+}
+
+/// The frames the bar `window` drew between the panel's log lines `from`
+/// and `to`, as [`drawn_since`] keeps them.
+pub(crate) fn drawn_between(
+    panel: &Panel,
+    window: &PerfWindow,
+    from: usize,
+    to: usize,
+) -> Vec<String> {
     let lines = panel.watch().lines();
-    let (mut drawn, other) = split(&lines[from..]);
+    let (mut drawn, other) = split(&lines[from..to], window);
     drawn.extend(other);
-    (drawn, lines.len())
+    drawn
+}
+
+/// The frames the bar `window` drew since the panel's log line `from`
+/// without reactive work, as [`split`] keeps them: what something other
+/// than the panel's state (a hover) made it draw.
+pub(crate) fn drawn_without_reactive_work_since(
+    panel: &Panel,
+    window: &PerfWindow,
+    from: usize,
+) -> Vec<String> {
+    let lines = panel.watch().lines();
+    split(&lines[from..], window).1
 }
 
 /// What keeps `frame` from being paint-only, if anything, by rinch's
@@ -97,9 +120,9 @@ pub(crate) fn assert_paint_only(frame: &str, what: &str) {
 /// one frame with something reactive, when no frame without reactive work
 /// is left. A step with no frame that restyled at all fails at once: the
 /// hover drew nothing.
-fn hover_step(panel: &Panel, from: usize, what: &str) -> (Vec<String>, usize) {
+fn hover_step(panel: &Panel, window: &PerfWindow, from: usize, what: &str) -> (Vec<String>, usize) {
     let lines = panel.watch().lines();
-    let (reactive, frames) = split(&lines[from..]);
+    let (reactive, frames) = split(&lines[from..], window);
     match frames.as_slice() {
         [frame] => assert_paint_only(frame, what),
         [] if reactive
@@ -119,7 +142,8 @@ fn hover_step(panel: &Panel, from: usize, what: &str) -> (Vec<String>, usize) {
 /// button) and `off` (off the panel), each given `state` and returning once
 /// the screen shows what it did, until a round after the first is clean in
 /// both its steps, or the patience runs out. `panel` gives `state`'s panel,
-/// whose frame lines are read after each step ([`hover_step`]).
+/// whose bar `window`'s frame lines are read after each step
+/// ([`hover_step`]).
 ///
 /// The steps' windows are contiguous: the first begins where the panel's
 /// log stood before the first round, and each later one where the previous
@@ -149,6 +173,7 @@ fn hover_step(panel: &Panel, from: usize, what: &str) -> (Vec<String>, usize) {
 pub(crate) fn until_clean_round<S>(
     state: &mut S,
     panel: impl Fn(&S) -> &Panel,
+    window: &PerfWindow,
     mut onto: impl FnMut(&mut S),
     mut off: impl FnMut(&mut S),
 ) {
@@ -157,9 +182,9 @@ pub(crate) fn until_clean_round<S>(
     let mut rounds = Vec::new();
     for round in 1_u32.. {
         onto(state);
-        let (onto_frames, after_onto) = hover_step(panel(state), from, "onto the button");
+        let (onto_frames, after_onto) = hover_step(panel(state), window, from, "onto the button");
         off(state);
-        let (off_frames, after_off) = hover_step(panel(state), after_onto, "off the panel");
+        let (off_frames, after_off) = hover_step(panel(state), window, after_onto, "off the panel");
         from = after_off;
         if round > 1 && onto_frames.is_empty() && off_frames.is_empty() {
             return;
