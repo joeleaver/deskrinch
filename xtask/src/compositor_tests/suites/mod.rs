@@ -20,7 +20,7 @@ mod xtask;
 
 pub(super) use self::xtask::INPUT_CLIENT;
 pub(super) use super::passes::Pass;
-pub(super) use super::suite::{Grant, SESSION_END, Suite};
+pub(super) use super::suite::{Grant, Output, SESSION_END, Suite};
 use crate::session::Compositor;
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
@@ -76,6 +76,23 @@ mod tests {
         let last = SUITES.last().unwrap();
         assert_eq!(last.filter, [SESSION_END]);
         assert!(last.compositors == ALL && last.passes == PLAIN);
+    }
+
+    /// A filter is read as test names by `--test`'s selection, so an
+    /// option put there fails here, not a selection: `--skip` is its only
+    /// option, and what a run is told besides has a field of its own
+    /// (`output`).
+    #[test]
+    fn a_filter_holds_names_and_skips_only() {
+        for suite in &SUITES {
+            for word in suite.filter {
+                assert!(
+                    *word == "--skip" || !word.starts_with('-'),
+                    "{:?}: {word} in its filter is not a test's name",
+                    suite.target
+                );
+            }
+        }
     }
 
     #[test]

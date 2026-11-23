@@ -1,7 +1,7 @@
 //! The workspaces' rows: by compositor, as each offers them, and their
 //! shared-connection tests on libwayland.
 
-use super::{Grant, KWIN, LABWC, PLAIN, Suite};
+use super::{Grant, KWIN, LABWC, Output, PLAIN, Suite};
 use crate::compositor_tests::build::{Backend, Target};
 use crate::session::Compositor;
 
@@ -36,6 +36,7 @@ pub(super) const WORKSPACES_KWIN: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &["--skip", UNSUPPORTED],
+    output: Output::Captured,
 };
 
 pub(super) const WORKSPACES_LABWC: Suite = Suite {
@@ -50,6 +51,7 @@ pub(super) const WORKSPACES_LABWC: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &["--skip", UNSUPPORTED, "--skip", KWIN_DESKTOPS],
+    output: Output::Captured,
 };
 
 pub(super) const WORKSPACES_UNSUPPORTED: Suite = Suite {
@@ -64,6 +66,7 @@ pub(super) const WORKSPACES_UNSUPPORTED: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[UNSUPPORTED],
+    output: Output::Captured,
 };
 
 /// The workspaces' shared-connection tests on libwayland too: they share
@@ -85,4 +88,5 @@ pub(super) const WORKSPACES_SHARED_ON_LIBWAYLAND: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[SHARED],
+    output: Output::Captured,
 };

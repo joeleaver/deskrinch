@@ -1,6 +1,6 @@
 //! The shared connection's rows: on the Rust backend and on libwayland.
 
-use super::{ALL, PLAIN, Suite};
+use super::{ALL, Output, PLAIN, Suite};
 use crate::compositor_tests::build::{Backend, Target};
 
 const PACKAGE: &str = "deskrinch-wayland-client";
@@ -19,6 +19,7 @@ pub(super) const WAYLAND_CLIENT: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
+    output: Output::Captured,
 };
 
 /// The two suites that exercise the shared connection, again on
@@ -38,4 +39,5 @@ pub(super) const WAYLAND_CLIENT_ON_LIBWAYLAND: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
+    output: Output::Captured,
 };

@@ -1,6 +1,6 @@
 //! The notification daemon's row.
 
-use super::{ALL, Grant, Pass, Suite};
+use super::{ALL, Grant, Output, Pass, Suite};
 use crate::compositor_tests::build::{Backend, Target};
 
 const PACKAGE: &str = "deskrinch-notifications";
@@ -27,4 +27,5 @@ pub(super) const NOTIFICATIONS: Suite = Suite {
     // The daemon, and the panel the room tests start along the top.
     programs: &[&deskrinch_shell::NOTIFICATIONS, &deskrinch_shell::PANEL],
     filter: &[],
+    output: Output::Captured,
 };

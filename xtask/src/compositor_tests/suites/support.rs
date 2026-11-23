@@ -2,7 +2,7 @@
 //! changes, what KWin holds of its windows, the screen's captures and the
 //! input devices.
 
-use super::{ALL, Grant, KWIN, LABWC, PLAIN, Pass, Suite, WLROOTS};
+use super::{ALL, Grant, KWIN, LABWC, Output, PLAIN, Pass, Suite, WLROOTS};
 use crate::compositor_tests::build::{Backend, Target};
 
 const TEST_CLIENT_PACKAGE: &str = "deskrinch-test-client";
@@ -36,6 +36,7 @@ pub(super) const TEST_CLIENT: Suite = Suite {
         "--skip",
         CLOSE_THEN_OPEN_TESTS,
     ],
+    output: Output::Captured,
 };
 
 /// The same binary's window closed and the next opened at once, under
@@ -56,6 +57,7 @@ pub(super) const TEST_CLIENT_CLOSE_THEN_OPEN: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[CLOSE_THEN_OPEN_TESTS, "--skip", UHD_BESIDE_FULL_HD_TESTS],
+    output: Output::Captured,
 };
 
 /// The same binary's tests of a 3840x2160 output beside a 1920x1080
@@ -72,6 +74,7 @@ pub(super) const TEST_CLIENT_UHD_BESIDE_FULL_HD: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[UHD_BESIDE_FULL_HD_TESTS],
+    output: Output::Captured,
 };
 
 /// What KWin itself holds of the test client's windows (their types,
@@ -88,7 +91,8 @@ pub(super) const KWIN_VIEW: Suite = Suite {
     passes: PLAIN,
     renders: false,
     programs: &[],
-    filter: &["--show-output"],
+    filter: &[],
+    output: Output::Shown,
 };
 
 pub(super) const SCREEN: Suite = Suite {
@@ -108,6 +112,7 @@ pub(super) const SCREEN: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
+    output: Output::Captured,
 };
 
 pub(super) const SCREEN_WLROOTS: Suite = Suite {
@@ -123,6 +128,7 @@ pub(super) const SCREEN_WLROOTS: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
+    output: Output::Captured,
 };
 
 pub(super) const SCREEN_NOT_GRANTED: Suite = Suite {
@@ -137,6 +143,7 @@ pub(super) const SCREEN_NOT_GRANTED: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
+    output: Output::Captured,
 };
 
 /// The input devices, typing into test windows and pointing at them:
@@ -159,4 +166,5 @@ pub(super) const INPUT: Suite = Suite {
     renders: false,
     programs: &[],
     filter: &[],
+    output: Output::Captured,
 };
