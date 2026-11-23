@@ -2,6 +2,8 @@
 //! sway or labwc, with two outputs, started by `cargo xtask
 //! compositor-tests`.
 //!
+//! - [`close_then_open`]: a surface closed and the next opened at once,
+//!   four hundred times, each kind: the client keeps to the protocol.
 //! - [`layer`]: layer surfaces with a chosen namespace, layer and size.
 //! - [`layout`]: every change is put back exactly, the whole layout: each
 //!   output turned off and put back, turned and put back, scaled and put
@@ -11,6 +13,8 @@
 //!   which its own row alone runs.
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
+#[cfg(test)]
+mod close_then_open;
 #[cfg(test)]
 mod layer;
 #[cfg(test)]
