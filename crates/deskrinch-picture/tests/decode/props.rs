@@ -47,6 +47,12 @@ proptest! {
         within(&[signature, &rest].concat())?;
     }
 
+    /// The shared configuration's 10 s limit times each case, in a forked
+    /// child: a copy of a picture of the corpus, damaged, and its decode.
+    /// The corpus is made when deskrinch-test-pictures is built, so no case
+    /// pays for encoding it (the first case did, in each child: 3.6 s idle,
+    /// over 20 s loaded, which load pushed past the limit). Measured at a
+    /// load of 78: the corpus's copy at most 7 ms, the slowest case 22 ms.
     #[test]
     fn damaged_pictures_never_panic_or_pass_the_limits(
         which in any::<prop::sample::Index>(),
