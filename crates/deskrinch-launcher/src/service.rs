@@ -1,20 +1,7 @@
 //! The launcher's interface on the session bus, which summons it, and the
-//! name that makes it one per session. Its name, object and interface
-//! ([`NAME`], [`PATH`], [`INTERFACE`](deskrinch_launcher_client::INTERFACE))
-//! and the caller's side are `deskrinch-launcher-client`'s; what each
-//! method does is said here.
-//!
-//! `org.deskrinch.Launcher` owns `/org/deskrinch/Launcher`, with the
-//! interface `org.deskrinch.Launcher1`:
-//!
-//! - `Toggle() -> b`: shows the launcher if hidden, hides it if shown, and
-//!   answers whether it is now shown;
-//! - `Show()`, `Hide()`: shows or hides it; one already shown or hidden
-//!   stays so;
-//! - `ForgetStarts()`: deletes the record of the applications started,
-//!   and returns once it is deleted;
-//! - the property `Shown` (`b`, read-only): whether it is shown, or about
-//!   to be, read on demand (no `PropertiesChanged` is sent for it).
+//! name that makes it one per session. The interface, its address and what
+//! each method does are `deskrinch-launcher-client`'s to say; this is the
+//! server's side.
 //!
 //! The name is requested without queueing or replacement: a second
 //! launcher finds it taken ([`ServeError::Running`]) and leaves the first
@@ -35,8 +22,9 @@ struct Launcher {
     forget_starts: Box<dyn Fn() + Send + Sync>,
 }
 
-// zbus takes a literal: `INTERFACE`, which callers use, is held equal to it
-// by `tests/bus.rs`, whose every request and property read names `INTERFACE`.
+// zbus takes a literal: the client's `INTERFACE` is held equal to it by
+// `tests/bus.rs`, whose every request and property read goes through the
+// client.
 #[zbus::interface(name = "org.deskrinch.Launcher1")]
 impl Launcher {
     fn toggle(&self) -> bool {

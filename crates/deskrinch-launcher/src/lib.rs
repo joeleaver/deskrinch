@@ -14,11 +14,10 @@
 //!   display, bus or files, and is tested on its own.
 //! - [`Visibility`]: whether the launcher is shown, one value that the bus
 //!   and the launcher's own UI change and its window follows.
-//! - [`Service`]: the launcher's interface on the session bus
-//!   (`org.deskrinch.Launcher`: `Toggle`, `Show`, `Hide`, `ForgetStarts`),
-//!   whose name makes it one per session. Its address and the caller's
-//!   side are `deskrinch-launcher-client`'s, which `deskrinch-launcher
-//!   toggle` uses.
+//! - [`Service`]: the launcher's side of its interface on the session bus,
+//!   whose name makes it one per session. The interface itself is
+//!   described, and called, by `deskrinch-launcher-client`, which the
+//!   launcher's subcommands use.
 //! - [`Preparation`]: when the hidden launcher has rinch prepare its window
 //!   for the next show, so that the show pays only for presenting.
 //!

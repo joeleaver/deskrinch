@@ -8,7 +8,7 @@ mod launcher {
 
     use deskrinch_bus::Bus;
     use deskrinch_launcher::{ServeError, Service, Visibility};
-    use deskrinch_launcher_client::{Answer, INTERFACE, NAME, PATH, Request, send};
+    use deskrinch_launcher_client::{Answer, NAME, Request, Showing, send, shown};
     use deskrinch_test_dbus::PrivateBus;
 
     fn bus() -> (PrivateBus, Bus) {
@@ -44,36 +44,17 @@ mod launcher {
         assert_eq!(send(&bus, Request::Toggle).unwrap(), done(Some(true)));
     }
 
-    /// The launcher's `Shown` property, read on `bus`.
-    fn shown(bus: &Bus) -> bool {
-        zbus::block_on(async {
-            let connection = bus.connect().await.unwrap();
-            let reply = connection
-                .call_method(
-                    Some(NAME),
-                    PATH,
-                    Some("org.freedesktop.DBus.Properties"),
-                    "Get",
-                    &(INTERFACE, "Shown"),
-                )
-                .await
-                .unwrap();
-            let value: zbus::OwnedVariant = reply.body().deserialize().unwrap();
-            bool::try_from(value).unwrap()
-        })
-    }
-
     #[test]
     fn the_shown_property_follows_every_change() {
         let (_private, bus) = bus();
         let visibility = Arc::new(Visibility::new(false).0);
         let _service = Service::start(&bus, Arc::clone(&visibility), || {}).unwrap();
-        assert!(!shown(&bus));
+        assert_eq!(shown(&bus).unwrap(), Showing::Hidden);
         send(&bus, Request::Toggle).unwrap();
-        assert!(shown(&bus));
+        assert_eq!(shown(&bus).unwrap(), Showing::Shown);
         // Hidden by its own UI.
         visibility.hide();
-        assert!(!shown(&bus));
+        assert_eq!(shown(&bus).unwrap(), Showing::Hidden);
     }
 
     /// The shell starts the launcher and waits for it by the name the shell's
@@ -132,6 +113,7 @@ mod launcher {
                 "{request:?}"
             );
         }
+        assert_eq!(shown(&bus).unwrap(), Showing::NotRunning);
     }
 
     #[test]

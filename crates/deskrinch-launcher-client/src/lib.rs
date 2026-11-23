@@ -1,19 +1,29 @@
-//! The launcher's session-bus interface from the caller's side: what
-//! `deskrinch-launcher toggle`, `show`, `hide` and `forget-starts`, a key
-//! binding and a test send to the running launcher.
+//! The launcher's session-bus interface from the caller's side: where it
+//! is, what it offers, and the calls to it.
 //!
-//! The running launcher owns [`NAME`], with the object [`PATH`] and the
-//! interface [`INTERFACE`]; what each method does is the launcher's to say,
-//! and its service describes it (`deskrinch-launcher`'s `service` module).
-//! A caller names one of them with a [`Request`] and [`send`]s it; with no
-//! launcher on the bus the answer is [`Answer::NotRunning`], not an error.
+//! Its callers are the launcher's own subcommands (`deskrinch-launcher
+//! toggle`, `show`, `hide` and `forget-starts`) and the launcher's tests.
 //!
-//! It is a crate of its own, apart from the launcher, so that a caller (a
-//! key binding's command, a test) does not build the launcher's toolkit and
-//! renderers for one call.
+//! # The interface
+//!
+//! The running launcher owns [`NAME`], whose object [`PATH`] has the
+//! interface [`INTERFACE`]:
+//!
+//! - `Toggle() -> b`: shows the launcher if hidden, hides it if shown, and
+//!   answers whether it is now shown;
+//! - `Show()`, `Hide()`: shows or hides it; one already shown or hidden
+//!   stays so;
+//! - `ForgetStarts()`: deletes the record of the applications started,
+//!   and returns once it is deleted;
+//! - the property `Shown` (`b`, read-only): whether it is shown, or about
+//!   to be, read on demand: no `PropertiesChanged` is sent for it.
+//!
+//! A caller [`send`]s a [`Request`] and reads `Shown` with [`shown`]; with
+//! no launcher on the bus, either answers so ([`Answer::NotRunning`],
+//! [`Showing::NotRunning`]) rather than failing.
 
 use deskrinch_bus::Bus;
-use zbus::Connection;
+use zbus::{Connection, OwnedVariant};
 
 /// The launcher's well-known name.
 pub const NAME: &str = "org.deskrinch.Launcher";
@@ -22,17 +32,19 @@ pub const PATH: &str = "/org/deskrinch/Launcher";
 /// Its interface.
 pub const INTERFACE: &str = "org.deskrinch.Launcher1";
 
-/// What to ask the running launcher.
+/// The interface's property saying whether the launcher is shown.
+const SHOWN: &str = "Shown";
+
+/// A method of the interface to call.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Request {
-    /// `Toggle`: show it if hidden, hide it if shown.
+    /// `Toggle`.
     Toggle,
     /// `Show`.
     Show,
     /// `Hide`.
     Hide,
-    /// `ForgetStarts`: delete the record of the applications started, and
-    /// answer once it is deleted.
+    /// `ForgetStarts`.
     ForgetStarts,
 }
 
@@ -60,7 +72,18 @@ pub enum Answer {
     NotRunning,
 }
 
-/// Why a request could not be made.
+/// What the launcher's `Shown` property said.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum Showing {
+    /// It is shown, or about to be.
+    Shown,
+    /// It is hidden.
+    Hidden,
+    /// No launcher is running on the bus.
+    NotRunning,
+}
+
+/// Why a call could not be made.
 #[derive(Debug, thiserror::Error)]
 pub enum ClientError {
     /// The bus could not be reached, or the call failed.
@@ -81,6 +104,39 @@ pub fn send(bus: &Bus, request: Request) -> Result<Answer, ClientError> {
     })
 }
 
+/// Reads the launcher's `Shown` property on `bus`.
+///
+/// # Errors
+///
+/// [`ClientError::Bus`] when the bus cannot be reached, or the read fails
+/// for another reason than there being no launcher.
+pub fn shown(bus: &Bus) -> Result<Showing, ClientError> {
+    zbus::block_on(async {
+        let connection = bus.connect().await.map_err(ClientError::Bus)?;
+        let reply = connection
+            .call_method(
+                Some(NAME),
+                PATH,
+                Some("org.freedesktop.DBus.Properties"),
+                "Get",
+                &(INTERFACE, SHOWN),
+            )
+            .await;
+        let reply = match reply {
+            Ok(reply) => reply,
+            Err(error) if not_running(&error) => return Ok(Showing::NotRunning),
+            Err(error) => return Err(ClientError::Bus(error)),
+        };
+        let value: OwnedVariant = reply.body().deserialize().map_err(ClientError::Bus)?;
+        let shown = bool::try_from(value).map_err(ClientError::Bus)?;
+        Ok(if shown {
+            Showing::Shown
+        } else {
+            Showing::Hidden
+        })
+    })
+}
+
 /// Sends `request` over `connection`.
 async fn call(connection: &Connection, request: Request) -> Result<Answer, ClientError> {
     let reply = connection
@@ -95,14 +151,19 @@ async fn call(connection: &Connection, request: Request) -> Result<Answer, Clien
             Ok(Answer::Done { shown: Some(shown) })
         }
         Ok(_) => Ok(Answer::Done { shown: None }),
-        Err(zbus::Error::FDO(error))
-            if matches!(
-                *error,
-                zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_)
-            ) =>
-        {
-            Ok(Answer::NotRunning)
-        }
+        Err(error) if not_running(&error) => Ok(Answer::NotRunning),
         Err(error) => Err(ClientError::Bus(error)),
     }
+}
+
+/// Whether `error` says no launcher owns [`NAME`].
+fn not_running(error: &zbus::Error) -> bool {
+    matches!(
+        error,
+        zbus::Error::FDO(error)
+            if matches!(
+                **error,
+                zbus::fdo::Error::ServiceUnknown(_) | zbus::fdo::Error::NameHasNoOwner(_)
+            )
+    )
 }
