@@ -11,6 +11,13 @@ pub enum Error {
     /// touched.
     #[error("refusing to ask KWin: {0}")]
     NotIsolated(NotIsolated),
+    /// The address is not a private bus of ours: nothing was asked, and no
+    /// bus was touched.
+    #[error("refusing to ask KWin: {address} is not a private bus of ours")]
+    NotOurBus {
+        /// The address refused.
+        address: String,
+    },
     /// Inside an isolated session, but not KWin's.
     #[error("refusing to ask KWin: the session's compositor is {compositor}, not KWin")]
     NotKwin {
@@ -59,6 +66,14 @@ pub enum Error {
     Record {
         /// The record, as the script wrote it.
         record: String,
+        /// What is wrong with it.
+        reason: String,
+    },
+    /// An answer is not of the shape this crate reads.
+    #[error("KWin's answer is not one this crate reads ({reason}): {answer}")]
+    Answer {
+        /// The answer, as zbus shows it.
+        answer: String,
         /// What is wrong with it.
         reason: String,
     },

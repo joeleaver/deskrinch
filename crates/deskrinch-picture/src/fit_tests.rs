@@ -270,15 +270,19 @@ proptest::proptest! {
             Fit::Cover, Fit::Contain, Fit::Stretch, Fit::Centre, Fit::Tile,
         ]),
     ) {
-        let roomy = Limits {
-            max_working_bytes: 64 << 20,
-            ..limits()
-        };
-        let image = noise(source.0, source.1, opaque);
-        let fitted = fit(&image, target.0, target.1, how, &roomy);
-        proptest::prop_assert!(fitted.is_ok(), "{how:?} {source:?} to {target:?}: {fitted:?}");
-        let fitted = fitted.unwrap();
-        proptest::prop_assert_eq!((fitted.width(), fitted.height()), target);
+        let input = (source, target, opaque, how);
+        deskrinch_untrusted::fuzz::case_debug("every_fit_of_every_size_gives_the_target", &input, || {
+            let roomy = Limits {
+                max_working_bytes: 64 << 20,
+                ..limits()
+            };
+            let image = noise(source.0, source.1, opaque);
+            let fitted = fit(&image, target.0, target.1, how, &roomy);
+            proptest::prop_assert!(fitted.is_ok(), "{how:?} {source:?} to {target:?}: {fitted:?}");
+            let fitted = fitted.unwrap();
+            proptest::prop_assert_eq!((fitted.width(), fitted.height()), target);
+            Ok(())
+        })?;
     }
 }
 

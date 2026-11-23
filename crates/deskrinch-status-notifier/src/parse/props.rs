@@ -3,7 +3,7 @@
 use proptest::prelude::*;
 
 use super::*;
-use deskrinch_untrusted::fuzz::config;
+use deskrinch_untrusted::fuzz::{case_debug, config};
 
 const MAX_SIDE: u32 = 32;
 
@@ -67,20 +67,23 @@ proptest! {
             tool_tip,
             ..Properties::default()
         };
-        let item = item(ItemId::new(":1.1", "/StatusNotifierItem"), properties, &limits);
-        prop_assert!(item.title.len() <= limits.max_text_bytes);
-        prop_assert!(!item.title.chars().any(char::is_control));
-        prop_assert!(item.app_id.len() <= limits.max_text_bytes);
-        icon_within(&item.icon, &limits)?;
-        if let Some(path) = &item.icon_theme_path {
-            prop_assert!(path.is_absolute());
-            prop_assert!(path.as_os_str().len() <= limits.max_reference_bytes);
-        }
-        if let Some(tooltip) = &item.tooltip {
-            icon_within(&tooltip.icon, &limits)?;
-            prop_assert!(tooltip.title.len() <= limits.max_text_bytes);
-            prop_assert!(tooltip.description.len() <= limits.max_description_bytes);
-        }
+        case_debug("any_properties_read_within_bounds", &properties, || {
+            let item = item(ItemId::new(":1.1", "/StatusNotifierItem"), properties.clone(), &limits);
+            prop_assert!(item.title.len() <= limits.max_text_bytes);
+            prop_assert!(!item.title.chars().any(char::is_control));
+            prop_assert!(item.app_id.len() <= limits.max_text_bytes);
+            icon_within(&item.icon, &limits)?;
+            if let Some(path) = &item.icon_theme_path {
+                prop_assert!(path.is_absolute());
+                prop_assert!(path.as_os_str().len() <= limits.max_reference_bytes);
+            }
+            if let Some(tooltip) = &item.tooltip {
+                icon_within(&tooltip.icon, &limits)?;
+                prop_assert!(tooltip.title.len() <= limits.max_text_bytes);
+                prop_assert!(tooltip.description.len() <= limits.max_description_bytes);
+            }
+            Ok(())
+        })?;
     }
 
     /// Any pixmap is refused or decodes to exactly its pixels, channel by
@@ -91,13 +94,16 @@ proptest! {
         height in int(),
         argb in prop::collection::vec(any::<u8>(), 0..5000),
     ) {
-        if let Some(image) = decode(width, height, &argb, MAX_SIDE) {
-            prop_assert_eq!(i64::from(image.width()), i64::from(width));
-            prop_assert_eq!(i64::from(image.height()), i64::from(height));
-            prop_assert_eq!(image.rgba().len(), argb.len());
-            for (out, input) in image.rgba().chunks(4).zip(argb.chunks(4)) {
-                prop_assert_eq!(out, &[input[1], input[2], input[3], input[0]]);
+        case_debug("any_pixmap_decodes_exactly_or_is_refused", &(width, height, &argb), || {
+            if let Some(image) = decode(width, height, &argb, MAX_SIDE) {
+                prop_assert_eq!(i64::from(image.width()), i64::from(width));
+                prop_assert_eq!(i64::from(image.height()), i64::from(height));
+                prop_assert_eq!(image.rgba().len(), argb.len());
+                for (out, input) in image.rgba().chunks(4).zip(argb.chunks(4)) {
+                    prop_assert_eq!(out, &[input[1], input[2], input[3], input[0]]);
+                }
             }
-        }
+            Ok(())
+        })?;
     }
 }

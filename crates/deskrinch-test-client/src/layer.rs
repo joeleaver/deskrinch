@@ -35,6 +35,15 @@
 //! before its first buffer, and it is configured several times more:
 //! [`TestLayer::wait_keyboard`] is what to wait on.
 //!
+//! Dropping it while the client's thread handles a configure is safe, by
+//! the order of the destroys: the layer surface first, then the surface.
+//! The configure is acknowledged through the layer surface itself, so an
+//! acknowledgement sent after its destroy is dropped on the client's side,
+//! and a buffer committed then goes to a surface with no role object,
+//! which a compositor takes as unmapped. (A window is not so: it is
+//! acknowledged through its `xdg_surface`, which outlives its toplevel by
+//! one request, and is ordered by a lock instead, [`crate::TestWindow`].)
+//!
 //! Its own test is in `deskrinch-test-input`'s compositor suite, beside the
 //! windows' keyboard tests: on a headless wlroots compositor the seat has a
 //! keyboard only once that crate has made a virtual one, and it depends on

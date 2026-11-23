@@ -12,7 +12,7 @@ use std::io::Write as _;
 use zbus::Connection;
 
 use crate::Error;
-use crate::guard::InKwinSession;
+use crate::Kwin;
 use crate::window::{FLAGS, PROPERTIES, SKIPS};
 
 /// The interface the script reports to.
@@ -79,14 +79,14 @@ pub(crate) struct Loaded {
 
 impl Loaded {
     /// Writes `source` to a file, loads it into KWin under `plugin`, and
-    /// runs it, in the session `_proof` checked.
+    /// runs it, on `_kwin`'s bus, which `connection` is to.
     ///
     /// # Errors
     ///
     /// [`Error::File`] when the file cannot be written; [`Error::Bus`] when
     /// KWin cannot be asked; [`Error::NotLoaded`] when it will not load it.
     pub(crate) async fn run(
-        _proof: &InKwinSession,
+        _kwin: &Kwin,
         connection: &Connection,
         plugin: &str,
         source: &str,

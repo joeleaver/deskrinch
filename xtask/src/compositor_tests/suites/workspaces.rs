@@ -1,7 +1,7 @@
 //! The workspaces' rows: by compositor, as each offers them, and their
 //! shared-connection tests on libwayland.
 
-use super::{Grant, KWIN, PLAIN, Suite};
+use super::{Grant, KWIN, LABWC, PLAIN, Suite};
 use crate::compositor_tests::build::{Backend, Target};
 use crate::session::Compositor;
 
@@ -45,7 +45,7 @@ pub(super) const WORKSPACES_LABWC: Suite = Suite {
         backend: Backend::Rust,
     },
     grant: None,
-    compositors: &[Compositor::Labwc],
+    compositors: LABWC,
     passes: PLAIN,
     renders: false,
     programs: &[],

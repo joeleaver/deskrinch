@@ -7,9 +7,8 @@ use std::time::{Duration, Instant};
 
 use deskrinch_test_wait::PATIENCE;
 
-use crate::guard::{self, InKwinSession};
 use crate::script::{self, INTERFACE, Loaded};
-use crate::{Error, Window};
+use crate::{Error, Kwin, Window};
 
 /// What the script said.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -39,21 +38,23 @@ impl Reports {
     }
 }
 
-/// Every window KWin has, as KWin holds it, in the order KWin lists them.
-///
-/// # Errors
-///
-/// [`Error::NotIsolated`] or [`Error::NotKwin`] outside an isolated KWin
-/// session, before any connection; [`Error::Bus`] or [`Error::NotLoaded`]
-/// when the script cannot be run; [`Error::NoFinalCall`] when it does not
-/// finish its report within [`PATIENCE`]; [`Error::Miscounted`] or
-/// [`Error::Record`] when its report is not one this crate reads.
-pub fn windows() -> Result<Vec<Window>, Error> {
-    guard::guarded(guard::require_kwin_here(), ask)
+impl Kwin {
+    /// Every window KWin has, as KWin holds it, in the order KWin lists
+    /// them.
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Bus`] or [`Error::NotLoaded`] when the script cannot be
+    /// run; [`Error::NoFinalCall`] when it does not finish its report within
+    /// [`PATIENCE`]; [`Error::Miscounted`] or [`Error::Record`] when its
+    /// report is not one this crate reads.
+    pub fn windows(&self) -> Result<Vec<Window>, Error> {
+        windows(self)
+    }
 }
 
-/// [`windows`], once the session's check has passed.
-fn ask(proof: &InKwinSession) -> Result<Vec<Window>, Error> {
+/// [`Kwin::windows`].
+fn windows(kwin: &Kwin) -> Result<Vec<Window>, Error> {
     static CALLS: AtomicUsize = AtomicUsize::new(0);
     let call = CALLS.fetch_add(1, Ordering::SeqCst);
     let pid = std::process::id();
@@ -61,12 +62,13 @@ fn ask(proof: &InKwinSession) -> Result<Vec<Window>, Error> {
     let plugin = format!("deskrinch-test-kwin-{pid}-{call}");
     let (to, from) = channel();
     let records = zbus::block_on(async {
-        let connection = guard::session_bus(proof)
+        let connection = kwin
+            .builder()
             .name(service.as_str())
             .serve_at("/", Reports { to })
             .build()
             .await?;
-        Loaded::run(proof, &connection, &plugin, &script::source(&service)).await
+        Loaded::run(kwin, &connection, &plugin, &script::source(&service)).await
     })
     .and_then(|loaded| {
         let records = collect(&from, PATIENCE);

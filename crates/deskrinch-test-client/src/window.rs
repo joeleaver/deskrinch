@@ -35,7 +35,8 @@ pub(crate) struct Status {
     /// was drawn for a fullscreen configure.
     pub(crate) drawn: Option<(i32, i32)>,
     drawn_fullscreen: bool,
-    close_requested: bool,
+    /// Whether its toplevel is still there ([`Toplevel`]).
+    toplevel: Toplevel,
     /// Why a buffer could not be made, if one could not.
     failure: Option<ShmError>,
     /// What it heard of the keyboard and the pointer.
@@ -43,6 +44,32 @@ pub(crate) struct Status {
     /// The outputs it is on, by name, in the order it entered them
     /// ([`crate::entered`]).
     pub(crate) outputs: Vec<String>,
+}
+
+/// Whether a window's toplevel is still there. It goes when the test drops
+/// the window or the compositor asks it to close, and its destroy is sent
+/// with `status` locked; the client's thread handles a configure with
+/// `status` locked and, once the toplevel is gone, neither acknowledges nor
+/// draws it. Without that, its acknowledgement or its buffer could reach
+/// the compositor between the toplevel's destroy and the `xdg_surface`'s,
+/// when the `xdg_surface` has no role left. Every compositor configures a
+/// window again just after its map, so that configure is often still being
+/// handled when a test drops a window it has just opened, and all three
+/// end the connection then, each in its own words: labwc "`xdg_surface` has
+/// never been configured" (the buffer) or "wrong configure serial" (the
+/// acknowledgement), sway the first of those, KWin "`xdg_surface` must
+/// have a role". Measured without this order, opening and closing windows
+/// as fast as they map: labwc met it about once in seven hundred windows,
+/// and four thousand failed every run on all three.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+enum Toplevel {
+    /// Still there.
+    #[default]
+    Alive,
+    /// Destroyed because the compositor asked the window to close.
+    Closed,
+    /// Destroyed because the test dropped the window.
+    Dropped,
 }
 
 /// What a window heard of the seat.
@@ -270,7 +297,7 @@ impl TestWindow {
     /// Whether the compositor has asked this window to close.
     #[must_use]
     pub fn close_requested(&self) -> bool {
-        lock(&self.shared.status).close_requested
+        lock(&self.shared.status).toplevel == Toplevel::Closed
     }
 
     /// The size of the buffer it last drew, in surface coordinates (its
@@ -365,6 +392,12 @@ impl TestWindow {
 impl Drop for TestWindow {
     fn drop(&mut self) {
         lock(&self.windows).remove(&self.shared.surface.id());
+        // With `status` locked, so that no configure is handled between the
+        // destroys ([`Toplevel`]).
+        let mut status = lock(&self.shared.status);
+        if status.toplevel == Toplevel::Alive {
+            status.toplevel = Toplevel::Dropped;
+        }
         self.shared.destroy_decoration();
         self.toplevel.destroy();
         self.xdg_surface.destroy();
@@ -425,13 +458,18 @@ impl Dispatch<XdgToplevel, Arc<Shared>> for Client {
                 status.asked_fullscreen = fullscreen && width > 0 && height > 0;
             }
             xdg_toplevel::Event::Close => {
-                lock(&shared.status).close_requested = true;
-                shared.changed.notify_all();
                 // Obey, as an application would: the window goes. (Dropping
                 // the `TestWindow` later destroys the rest; a request to the
-                // destroyed toplevel is ignored.)
-                shared.destroy_decoration();
-                toplevel.destroy();
+                // destroyed toplevel is ignored.) With `status` locked, as
+                // the drop does ([`Toplevel`]).
+                let mut status = lock(&shared.status);
+                if status.toplevel == Toplevel::Alive {
+                    status.toplevel = Toplevel::Closed;
+                    shared.destroy_decoration();
+                    toplevel.destroy();
+                }
+                drop(status);
+                shared.changed.notify_all();
             }
             _ => {}
         }
@@ -450,11 +488,13 @@ impl Dispatch<XdgSurface, Arc<Shared>> for Client {
         let xdg_surface::Event::Configure { serial } = event else {
             return;
         };
-        xdg_surface.ack_configure(serial);
+        // Acknowledged, drawn and committed with `status` locked, and not
+        // at all once the toplevel is gone ([`Toplevel`]).
         let mut status = lock(&shared.status);
-        if status.close_requested {
+        if status.toplevel != Toplevel::Alive {
             return;
         }
+        xdg_surface.ack_configure(serial);
         let size = match status.asked {
             (width, height) if width > 0 && height > 0 => (width, height),
             _ => status.drawn.unwrap_or(DEFAULT_SIZE),

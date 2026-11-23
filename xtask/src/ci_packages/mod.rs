@@ -46,13 +46,15 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::time::{Instant, SystemTime};
 
+use deskrinch_test_session::ci::{Ci, OnARunner};
+
 use self::annotation::annotation;
 use self::bounded::User;
 use self::budget::Limit;
 use self::classify::{Step, Verdict, classify};
 use self::plan::{Plan, downloads, megabytes};
 use crate::Outcome;
-use crate::error::Error;
+use crate::error::{Error, only_on_a_runner};
 
 /// The two steps, each its own command.
 #[derive(Debug, clap::Subcommand)]
@@ -80,31 +82,29 @@ const APT_OPTIONS: [&str; 6] = [
     "Acquire::https::Timeout=20",
 ];
 
-/// The variable GitHub Actions sets to `true` in every job.
-const CI_VARIABLE: &str = "GITHUB_ACTIONS";
-
 /// The plan's file name in `$RUNNER_TEMP`, the job's own directory.
 const PLAN_FILE: &str = "deskrinch-apt-plan.json";
 
 /// Runs `command`, on CI only.
 pub(crate) fn run(command: &Command) -> Result<Outcome, Error> {
-    on_ci(std::env::var(CI_VARIABLE).ok().as_deref())?;
+    let runner = on_ci(&Ci::read())?;
     match command {
-        Command::Update { packages } => update(packages),
-        Command::Install => install(),
+        Command::Update { packages } => update(packages, runner),
+        Command::Install => install(runner),
     }
 }
 
 /// `ci-packages update`.
-fn update(packages: &[String]) -> Result<Outcome, Error> {
+fn update(packages: &[String], runner: OnARunner) -> Result<Outcome, Error> {
     let started = SystemTime::now();
-    cache::prepare()?;
+    cache::prepare(runner)?;
     let Some(updated) = run_step(
         Step::Update,
         packages,
         Path::new(cache::DIRECTORY),
         None,
         started,
+        runner,
     )?
     else {
         return Ok(Outcome::Failed);
@@ -116,6 +116,7 @@ fn update(packages: &[String]) -> Result<Outcome, Error> {
         scratch.path(),
         updated.sign.as_deref(),
         started,
+        runner,
     )?
     else {
         return Ok(Outcome::Failed);
@@ -163,7 +164,7 @@ fn update(packages: &[String]) -> Result<Outcome, Error> {
 }
 
 /// `ci-packages install`.
-fn install() -> Result<Outcome, Error> {
+fn install(runner: OnARunner) -> Result<Outcome, Error> {
     let plan = Plan::load(&plan_path()?)?;
     let directory = Path::new(cache::DIRECTORY);
     let checked = check::check(directory, &plan.downloads)?;
@@ -181,6 +182,7 @@ fn install() -> Result<Outcome, Error> {
         directory,
         plan.update_warning.as_deref(),
         plan.started,
+        runner,
     )?
     .is_none()
     {
@@ -234,6 +236,7 @@ fn run_step(
     dir: &Path,
     update_sign: Option<&str>,
     started: SystemTime,
+    runner: OnARunner,
 ) -> Result<Option<Ran>, Error> {
     let now = SystemTime::now();
     let limit = match budget::limit(step, started, now) {
@@ -257,7 +260,7 @@ fn run_step(
     // The listing fetches nothing and writes only in its own directory: the
     // job's user may run it.
     let user = if step.fetches() {
-        User::Root
+        User::Root(runner)
     } else {
         User::Job
     };
@@ -321,13 +324,13 @@ fn listing_directory(extended_states: &Path) -> Result<tempfile::TempDir, Error>
     Ok(dir)
 }
 
-/// Whether [`CI_VARIABLE`]'s value, `value`, says this is a CI job.
-fn on_ci(value: Option<&str>) -> Result<(), Error> {
-    if value == Some("true") {
-        Ok(())
-    } else {
-        Err(Error::NotInCi)
-    }
+/// Goes on only on a CI runner, as `ci` says: it installs system packages,
+/// which nothing may do on a developer's machine.
+fn on_ci(ci: &Ci) -> Result<OnARunner, Error> {
+    only_on_a_runner(
+        "cargo xtask ci-packages (which installs system packages)",
+        ci,
+    )
 }
 
 /// The value of `name`, a variable GitHub Actions sets in every job.

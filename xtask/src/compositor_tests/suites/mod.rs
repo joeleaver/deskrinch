@@ -25,15 +25,17 @@ use crate::session::Compositor;
 
 const ALL: &[Compositor] = &[Compositor::Kwin, Compositor::Sway, Compositor::Labwc];
 const KWIN: &[Compositor] = &[Compositor::Kwin];
+const LABWC: &[Compositor] = &[Compositor::Labwc];
 const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
 
 const PLAIN: &[Pass] = &[Pass::Plain];
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 27] = [
+pub(super) const SUITES: [Suite; 28] = [
     // First: every change to the session's outputs is put back exactly,
     // which the suites after it rely on.
     support::TEST_CLIENT,
+    support::TEST_CLIENT_CLOSE_THEN_OPEN,
     support::TEST_CLIENT_UHD_BESIDE_FULL_HD,
     window_management::WINDOW_MANAGEMENT,
     window_management::WINDOW_MANAGEMENT_NOT_GRANTED,
