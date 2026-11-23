@@ -24,9 +24,11 @@ impl Kwin {
     }
 
     /// What KWin composites with, as its support information names it
-    /// (`OpenGL`; `QPainter` when its virtual backend found no device to
-    /// render on, in which case it takes no screenshots); `None` when it
-    /// names none (it is not compositing).
+    /// (`OpenGL`); `None` when it names none (it is not compositing). With
+    /// no device to render on, KWin's virtual backend names `QPainter` and
+    /// takes no screenshots: that is KWin's behaviour as the session's own
+    /// check describes it (xtask's `session::compositing`), which refuses
+    /// such a session, not an answer captured here.
     ///
     /// # Errors
     ///

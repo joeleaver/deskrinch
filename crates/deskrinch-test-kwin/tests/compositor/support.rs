@@ -1,7 +1,14 @@
 //! KWin's support information, its effects and its shortcut service, as
-//! the handle reads them. What KWin composites with depends on the machine
-//! (OpenGL on a GPU, `QPainter` on CI's runners), so the test prints it,
-//! with KWin's version, for the record; it asserts what holds of both.
+//! the handle reads them.
+//!
+//! A session's KWin composites with OpenGL, here on a GPU and on CI's
+//! runners too: there the workflow loads vgem, a virtual DRM device, which
+//! KWin's virtual backend renders to with Mesa's software driver
+//! (`libgl1-mesa-dri`). PR 170's run (2026-11-23) printed "KWin 6.6.7
+//! composites with Some("OpenGL")". It can be nothing else inside a
+//! session: the session refuses to start a KWin that composites with
+//! anything but OpenGL (xtask's `check_kwin_compositing`). The test prints
+//! the line, with KWin's version, for the record.
 
 use deskrinch_test_client::Compositor;
 use deskrinch_test_kwin::Kwin;
@@ -26,10 +33,7 @@ fn kwin_says_what_it_composites_with_and_which_effects_it_runs() {
     let Some(compositing) = compositing else {
         panic!("KWin {version} names no compositing type");
     };
-    assert!(
-        ["OpenGL", "QPainter"].contains(&compositing.as_str()),
-        "KWin {version}: {compositing}"
-    );
+    assert_eq!(compositing, "OpenGL", "KWin {version}");
     assert!(
         !kwin.effect_loaded(NO_SUCH_EFFECT).unwrap(),
         "KWin {version}"
