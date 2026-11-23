@@ -15,6 +15,8 @@
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
+mod fifo;
+#[cfg(test)]
 mod report;
 #[cfg(test)]
 mod stand_in;

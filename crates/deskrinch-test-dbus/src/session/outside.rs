@@ -18,8 +18,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use deskrinch_test_session::{
-    BUS_VARIABLE, COMPOSITOR_PID_VARIABLE, COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE,
-    SESSION_GROUP_VARIABLE,
+    BUS_PID_VARIABLE, BUS_VARIABLE, COMPOSITOR_PID_VARIABLE, COMPOSITOR_VARIABLE,
+    SESSION_DIR_VARIABLE, SESSION_GROUP_VARIABLE,
 };
 use tempfile::TempDir;
 
@@ -27,10 +27,11 @@ use super::{create_dirs, isolate};
 
 /// The variables an isolated session of ours names itself with, which a
 /// child outside any session must not have.
-const SESSION_VARIABLES: [&str; 4] = [
+const SESSION_VARIABLES: [&str; 5] = [
     COMPOSITOR_VARIABLE,
     SESSION_DIR_VARIABLE,
     COMPOSITOR_PID_VARIABLE,
+    BUS_PID_VARIABLE,
     SESSION_GROUP_VARIABLE,
 ];
 

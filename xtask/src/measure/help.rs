@@ -48,20 +48,31 @@ again with the summon arguments, hidden again with the dismiss arguments
 after each show. Each show reports CPU time (or with --instructions the
 instructions) from the summon command to the first frame after it, the
 first show cold, each later one after a hide. The summon command's own
-process is not counted. Settled means its threads ran almost nothing and
-rinch prepared no frame for its hidden window over a second; the prepared
+process is not counted. Settled means quiet (below); the prepared
 frames before each show are reported, and with --instructions each hide
 too, from the dismiss command to settled, with its prepared frames. Memory
 is read once, hidden and settled, before the first show (without
 --instructions); the idle window is not measured.
 
-A quiet second does not say the program has started: one starved of CPU
-before its first turn passes it having done nothing, and its first show then
-pays for its start. --prepares, for a program that prepares its hidden
-window (rinch's [PERF] prepared lines), makes the first settle wait for its
-first preparation, and fails the run, recording nothing, if none comes within
---first-frame-timeout. Without it, a run whose show 1 came before any
-prepared frame says so in its notes.
+The settle before the first show, and each show's, hide's, key's and
+step's, is a wait for quiet, within --first-frame-timeout (the settle after
+start-up's end, before the idle window, is --settle seconds of wall time).
+Quiet is a second in which the program, the session's compositor (and
+whatever the compositor started) and the session's bus each ran under 5 ms
+and waited on a run queue under 100 ms, none of their threads was running,
+runnable or blocked on disk at any of the window's polls (every 100 ms),
+and the program prepared no frame. A program starved of CPU is runnable, so
+it is not quiet; nor is one whose compositor is starved. A window whose
+polls the tool itself made late is thrown out, and counted in the notes.
+Each wait's time is a row of its own. Quiet now does not mean nothing is
+scheduled: a program asleep on a timer of its own is quiet until it fires.
+
+--prepares, for a program that prepares its hidden window (rinch's [PERF]
+prepared lines), makes the first settle also wait for its first
+preparation, and fails the run, recording nothing, if none comes within
+--first-frame-timeout: a program waiting on something else (a file, a
+socket) before its first turn can be quiet without having started. Without
+it, a run whose show 1 came before any prepared frame says so in its notes.
 
 --type TEXT, with --summon, types TEXT into the program after each show,
 one key at a time, and measures each key: from the key to settled, CPU time
