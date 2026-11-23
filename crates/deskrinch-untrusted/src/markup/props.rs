@@ -5,7 +5,7 @@ use std::fmt::Write as _;
 use proptest::prelude::*;
 
 use super::*;
-use crate::fuzz::config;
+use crate::fuzz::{case_debug, config};
 
 /// Pieces real and hostile bodies are made of: the subset's tags, broken
 /// tags, references good and bad, control characters and plain text.
@@ -120,19 +120,22 @@ proptest! {
     /// allowed schemes.
     #[test]
     fn parsed_bodies_are_bounded_and_clean(markup in bodies(), options in options()) {
-        let body = parse(&markup, options);
-        prop_assert!(body.plain_text().len() <= options.max_text_bytes);
-        for span in body.spans() {
-            prop_assert!(!span.text.is_empty());
-            prop_assert!(span.text.chars().all(|c| !c.is_control() || c == '\n' || c == '\t'));
-            if let Some(link) = &span.link {
-                prop_assert!(options.hyperlinks);
-                prop_assert_eq!(Link::parse(link.as_str()), Some(link.clone()));
+        case_debug("parsed_bodies_are_bounded_and_clean", &(&markup, options), || {
+            let body = parse(&markup, options);
+            prop_assert!(body.plain_text().len() <= options.max_text_bytes);
+            for span in body.spans() {
+                prop_assert!(!span.text.is_empty());
+                prop_assert!(span.text.chars().all(|c| !c.is_control() || c == '\n' || c == '\t'));
+                if let Some(link) = &span.link {
+                    prop_assert!(options.hyperlinks);
+                    prop_assert_eq!(Link::parse(link.as_str()), Some(link.clone()));
+                }
             }
-        }
-        for pair in body.spans().windows(2) {
-            prop_assert!(pair[0].style != pair[1].style || pair[0].link != pair[1].link);
-        }
+            for pair in body.spans().windows(2) {
+                prop_assert!(pair[0].style != pair[1].style || pair[0].link != pair[1].link);
+            }
+            Ok(())
+        })?;
     }
 
     /// The parsed body is data, not markup: written back out with all of
@@ -141,9 +144,12 @@ proptest! {
     /// in it is interpreted twice.
     #[test]
     fn a_parsed_body_carries_no_markup(markup in bodies(), hyperlinks in any::<bool>()) {
-        let options = Options { hyperlinks, max_markup_bytes: usize::MAX, max_text_bytes: 4096 };
-        let body = parse(&markup, options);
-        let again = parse(&to_markup(&body), Options { max_text_bytes: usize::MAX, ..options });
-        prop_assert_eq!(again, body);
+        case_debug("a_parsed_body_carries_no_markup", &(&markup, hyperlinks), || {
+            let options = Options { hyperlinks, max_markup_bytes: usize::MAX, max_text_bytes: 4096 };
+            let body = parse(&markup, options);
+            let again = parse(&to_markup(&body), Options { max_text_bytes: usize::MAX, ..options });
+            prop_assert_eq!(again, body);
+            Ok(())
+        })?;
     }
 }

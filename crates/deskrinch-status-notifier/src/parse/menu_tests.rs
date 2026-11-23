@@ -10,7 +10,7 @@ use crate::item::ItemId;
 use crate::limits::Limits;
 use crate::menu::*;
 use crate::wire::layout::{RawEntry, RawMenuProperties, RawProperties};
-use deskrinch_untrusted::fuzz::config;
+use deskrinch_untrusted::fuzz::{case_debug, config};
 
 fn limits() -> Limits {
     Limits {
@@ -301,23 +301,26 @@ proptest! {
     /// Whatever an entry sends, it reads within its bounds.
     #[test]
     fn any_entry_reads_within_its_bounds(properties in properties()) {
-        let limits = limits();
-        let entry = one(properties);
-        prop_assert!(entry.label.text.len() <= limits.max_text_bytes);
-        prop_assert!(!entry.label.text.chars().any(char::is_control));
-        if let Some(at) = entry.label.mnemonic {
-            prop_assert!(entry.label.text.is_char_boundary(at) && at < entry.label.text.len());
-        }
-        prop_assert!(entry.shortcuts.len() <= limits.max_shortcuts);
-        for shortcut in &entry.shortcuts {
-            prop_assert!(!shortcut.keys.is_empty() && shortcut.keys.len() <= 5);
-            for key in &shortcut.keys {
-                prop_assert!(!key.is_empty() && key.len() <= limits.max_text_bytes);
+        case_debug("any_entry_reads_within_its_bounds", &properties, || {
+            let limits = limits();
+            let entry = one(properties.clone());
+            prop_assert!(entry.label.text.len() <= limits.max_text_bytes);
+            prop_assert!(!entry.label.text.chars().any(char::is_control));
+            if let Some(at) = entry.label.mnemonic {
+                prop_assert!(entry.label.text.is_char_boundary(at) && at < entry.label.text.len());
             }
-        }
-        prop_assert!(entry.icon.pixmaps.len() <= 1);
-        for p in &entry.icon.pixmaps {
-            prop_assert!(p.width() <= limits.max_image_side && p.height() <= limits.max_image_side);
-        }
+            prop_assert!(entry.shortcuts.len() <= limits.max_shortcuts);
+            for shortcut in &entry.shortcuts {
+                prop_assert!(!shortcut.keys.is_empty() && shortcut.keys.len() <= 5);
+                for key in &shortcut.keys {
+                    prop_assert!(!key.is_empty() && key.len() <= limits.max_text_bytes);
+                }
+            }
+            prop_assert!(entry.icon.pixmaps.len() <= 1);
+            for p in &entry.icon.pixmaps {
+                prop_assert!(p.width() <= limits.max_image_side && p.height() <= limits.max_image_side);
+            }
+            Ok(())
+        })?;
     }
 }
