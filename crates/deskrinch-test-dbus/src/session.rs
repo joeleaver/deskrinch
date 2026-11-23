@@ -27,6 +27,9 @@
 //! its shader cache under `$HOME/.cache`; with `HOME` unset, under the home
 //! of the user's passwd entry, the owner's own. So `HOME` under the
 //! session's root is what keeps KWin's shader cache in the session.
+//!
+//! [`outside`] is the other side: a child of a refusal test pointed at no
+//! session at all, so that it reaches nothing if the refusal fails.
 
 use std::ffi::{OsStr, OsString};
 use std::fs::DirBuilder;
@@ -35,6 +38,10 @@ use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::fs::DirBuilderExt as _;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+mod outside;
+
+pub use outside::{nowhere, outside};
 
 /// Variables of the real session that would lead a program back to it (its
 /// display, X authority, compositor, bus) or describe the real login

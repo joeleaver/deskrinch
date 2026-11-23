@@ -1204,6 +1204,7 @@ dependencies = [
 name = "deskrinch-test-client"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "serde",
@@ -1229,6 +1230,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-lifetime",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "futures-core",
  "rustix",
@@ -1243,6 +1245,8 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-client",
+ "deskrinch-test-dbus",
+ "deskrinch-test-session",
  "zbus 6.2.1",
 ]
 
@@ -1319,6 +1323,13 @@ dependencies = [
  "wayland-protocols",
  "wayland-protocols-wlr",
  "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-test-session"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
 ]
 
 [[package]]
@@ -1420,6 +1431,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-client",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-wayland-client",
@@ -6631,6 +6643,7 @@ dependencies = [
  "deskrinch-test-lifetime",
  "deskrinch-test-notify",
  "deskrinch-test-screen",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-window-management",

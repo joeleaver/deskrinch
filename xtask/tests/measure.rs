@@ -27,6 +27,7 @@ mod measure {
     use std::path::Path;
     use std::process::{Command, Output, Stdio};
 
+    use deskrinch_test_session::SESSION_DIR_VARIABLE;
     use rustix::process::{Pid, test_kill_process};
 
     use crate::report::number_after;
@@ -75,7 +76,7 @@ mod measure {
             String::new()
         };
         format!(
-            "echo $$ > {dir}/pid; echo \"$DESKRINCH_SESSION_DIR\" > {dir}/session; {background}"
+            "echo $$ > {dir}/pid; echo \"${SESSION_DIR_VARIABLE}\" > {dir}/session; {background}"
         )
     }
 

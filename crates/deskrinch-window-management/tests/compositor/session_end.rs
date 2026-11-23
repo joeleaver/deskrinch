@@ -16,9 +16,7 @@ use wayland_client::Connection;
 
 use crate::support::{Compositor, Watcher, unique_app_id};
 use deskrinch_test_client::TestClient;
-
-/// The variable `cargo xtask compositor-tests` names the session's group in.
-const GROUP_VARIABLE: &str = "DESKRINCH_TEST_SESSION_GROUP";
+use deskrinch_test_session::SESSION_GROUP_VARIABLE;
 
 /// The process group named in the environment, if it is safe to end: it is
 /// above 1, is not `own` (the test's group), and is `compositor`'s (the group
@@ -27,21 +25,23 @@ fn checked_group(named: &str, compositor: RawPid, own: RawPid) -> Result<Pid, St
     let group: RawPid = named
         .trim()
         .parse()
-        .map_err(|_| format!("{GROUP_VARIABLE}={named:?} is not a process group id"))?;
+        .map_err(|_| format!("{SESSION_GROUP_VARIABLE}={named:?} is not a process group id"))?;
     if group <= 1 {
         return Err(format!(
-            "{GROUP_VARIABLE}={group} would signal far more than the session"
+            "{SESSION_GROUP_VARIABLE}={group} would signal far more than the session"
         ));
     }
     if group == own {
-        return Err(format!("{GROUP_VARIABLE}={group} is the test's own group"));
+        return Err(format!(
+            "{SESSION_GROUP_VARIABLE}={group} is the test's own group"
+        ));
     }
     if group != compositor {
         return Err(format!(
-            "{GROUP_VARIABLE}={group} is not the compositor's group ({compositor})"
+            "{SESSION_GROUP_VARIABLE}={group} is not the compositor's group ({compositor})"
         ));
     }
-    Pid::from_raw(group).ok_or_else(|| format!("{GROUP_VARIABLE}={group} is not positive"))
+    Pid::from_raw(group).ok_or_else(|| format!("{SESSION_GROUP_VARIABLE}={group} is not positive"))
 }
 
 /// The group of the process at the other end of a Wayland connection to the
@@ -57,8 +57,8 @@ fn compositor_group() -> RawPid {
 
 /// The session's process group, proved to be the compositor's.
 fn session_group() -> Pid {
-    let named = std::env::var(GROUP_VARIABLE)
-        .unwrap_or_else(|_| panic!("cargo xtask compositor-tests sets {GROUP_VARIABLE}"));
+    let named = std::env::var(SESSION_GROUP_VARIABLE)
+        .unwrap_or_else(|_| panic!("cargo xtask compositor-tests sets {SESSION_GROUP_VARIABLE}"));
     let own = getpgrp().as_raw_nonzero().get();
     checked_group(&named, compositor_group(), own)
         .unwrap_or_else(|refusal| panic!("refusing to end the session: {refusal}"))

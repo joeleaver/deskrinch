@@ -1,0 +1,15 @@
+[package]
+name = "deskrinch-test-session"
+description = "What an isolated test session of deskrinch's is, in one place: its variables by name, its root's layout, its private bus's address, and the check that a process runs inside one."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+
+[lints]
+workspace = true
