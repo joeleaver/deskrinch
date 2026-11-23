@@ -128,7 +128,7 @@ mod tests {
     /// session's root.
     fn inside(root: &Path) -> Environment {
         Environment {
-            compositor: Some("kwin".into()),
+            compositor: Some(crate::KWIN.into()),
             session_dir: Some(root.as_os_str().to_owned()),
             bus: Some(
                 "unix:abstract=/tmp/dbus-deskrinch-4103809-0,guid=9a46e0742c0824b06eb9c2446b03c0af"
@@ -143,7 +143,7 @@ mod tests {
         assert_eq!(
             check(&inside(root.path())),
             Ok(Isolated {
-                compositor: "kwin".into()
+                compositor: crate::KWIN.into()
             })
         );
     }

@@ -1265,6 +1265,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-kwin"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-client",
+ "deskrinch-test-dbus",
+ "deskrinch-test-session",
+ "deskrinch-test-wait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zbus 6.2.1",
+]
+
+[[package]]
 name = "deskrinch-test-lifetime"
 version = "0.1.0"
 dependencies = [

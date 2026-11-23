@@ -332,10 +332,10 @@ mod session {
         let outer = tempfile::tempdir().unwrap();
         let root = outer.path().join("deskrinch-session-x");
         fs::create_dir(&root).unwrap();
-        fs::write(root.join(".deskrinch-session"), "").unwrap();
+        root::mark(&root).unwrap();
         let output = supervisor(&root);
         assert!(!output.status.success(), "{output:?}");
-        assert!(root.join(".deskrinch-session").is_file());
+        assert!(root.join(root::MARKER).is_file());
     }
 
     #[test]

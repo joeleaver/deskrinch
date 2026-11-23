@@ -3,6 +3,7 @@
 
 use std::fmt;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 
 /// Where a session's root is made: `/tmp`, not `$TMPDIR`, as the Wayland
@@ -37,6 +38,16 @@ impl fmt::Display for NotARoot {
 }
 
 impl std::error::Error for NotARoot {}
+
+/// Marks `root` as a session's root, writing [`MARKER`] in it: what the
+/// session does before it starts, and what a test that builds a root does.
+///
+/// # Errors
+///
+/// When the marker cannot be written.
+pub fn mark(root: &Path) -> io::Result<()> {
+    fs::write(root.join(MARKER), "")
+}
 
 /// Whether `root` is a session's root: a directory (not a link to one)
 /// directly in [`PARENT`], named with [`PREFIX`], holding [`MARKER`].
@@ -82,7 +93,7 @@ pub(crate) mod tests {
             .tempdir_in(PARENT)
             .unwrap();
         if marked {
-            fs::write(root.path().join(MARKER), "").unwrap();
+            mark(root.path()).unwrap();
         }
         root
     }
@@ -97,12 +108,12 @@ pub(crate) mod tests {
         let why = |path: &Path| check(path).unwrap_err().why;
         assert_eq!(why(made(false).path()), "no session marker in it");
         let plain = tempfile::tempdir_in(PARENT).unwrap();
-        fs::write(plain.path().join(MARKER), "").unwrap();
+        mark(plain.path()).unwrap();
         assert_eq!(why(plain.path()), "not named as a session's");
         let deeper = made(true);
         let inner = deeper.path().join(format!("{PREFIX}inner"));
         fs::create_dir(&inner).unwrap();
-        fs::write(inner.join(MARKER), "").unwrap();
+        mark(&inner).unwrap();
         assert_eq!(why(&inner), "not directly in the temporary directory");
         assert_eq!(why(&deeper.path().join("missing")), "not a directory");
     }

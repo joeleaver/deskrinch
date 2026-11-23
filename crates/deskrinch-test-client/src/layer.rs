@@ -1,7 +1,10 @@
-//! [`TestLayer`]: a small `wlr-layer-shell` surface on the overlay layer
-//! that takes the seat's keyboard exclusively, for a test that takes the
-//! keyboard from a client and gives it back
-//! ([`TestClient::open_overlay`](crate::TestClient::open_overlay)).
+//! [`TestLayer`]: a `wlr-layer-shell` surface. Either a small one on the
+//! overlay layer that takes the seat's keyboard exclusively, for a test
+//! that takes the keyboard from a client and gives it back
+//! ([`TestClient::open_overlay`](crate::TestClient::open_overlay)); or one
+//! with the namespace, layer and size a test chooses, without the keyboard,
+//! for a test of what a compositor makes of a namespace
+//! ([`TestClient::open_layer`](crate::TestClient::open_layer)).
 //!
 //! It is one of the client's surfaces like its windows: the keyboard's
 //! focus reaches it through the same map of surfaces
@@ -54,18 +57,75 @@ use crate::seat::Windows;
 use crate::window::Shared;
 use crate::{Error, Paint, lock};
 
-/// Its size, in surface coordinates: small, and in the middle of whichever
-/// output the compositor puts it on.
+/// The overlay's size, in surface coordinates: small, and in the middle of
+/// whichever output the compositor puts it on.
 const SIZE: (u32, u32) = (64, 64);
 
-/// What it is called in errors, and its layer namespace.
+/// The overlay's layer namespace, and what it is called in errors.
 const NAME: &str = "deskrinch-test-overlay";
+
+/// A layer of `wlr-layer-shell`, bottom to top.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ShellLayer {
+    /// `background`.
+    Background,
+    /// `bottom`.
+    Bottom,
+    /// `top`.
+    Top,
+    /// `overlay`.
+    Overlay,
+}
+
+impl ShellLayer {
+    fn protocol(self) -> Layer {
+        match self {
+            Self::Background => Layer::Background,
+            Self::Bottom => Layer::Bottom,
+            Self::Top => Layer::Top,
+            Self::Overlay => Layer::Overlay,
+        }
+    }
+}
+
+/// What a layer surface is made as.
+#[derive(Debug, Clone)]
+pub(crate) struct LayerSpec {
+    /// Its namespace, which also names it in errors.
+    pub(crate) namespace: String,
+    /// Its layer.
+    pub(crate) layer: ShellLayer,
+    /// Its size, in surface coordinates.
+    pub(crate) size: (u32, u32),
+    /// Whether it takes the keyboard exclusively.
+    pub(crate) keyboard: bool,
+}
+
+impl LayerSpec {
+    /// The overlay [`TestClient::open_overlay`](crate::TestClient::open_overlay) opens.
+    pub(crate) fn overlay() -> Self {
+        Self {
+            namespace: NAME.to_owned(),
+            layer: ShellLayer::Overlay,
+            size: SIZE,
+            keyboard: true,
+        }
+    }
+}
+
+/// What the layer surface's events are told: its window's state and the
+/// size it asked for.
+#[derive(Debug)]
+pub(crate) struct LayerData {
+    shared: Arc<Shared>,
+    size: (u32, u32),
+}
 
 /// What it draws: opaque, so that it is plainly mapped.
 const PAINT: Paint = Paint::Solid(Rgba::opaque(0x20, 0x80, 0xe0));
 
-/// A mapped overlay surface with the keyboard exclusively; dropping it
-/// destroys it, and the keyboard leaves it.
+/// A mapped layer surface; dropping it destroys it, and the keyboard
+/// leaves it if it had it.
 #[derive(Debug)]
 pub struct TestLayer {
     connection: Connection,
@@ -75,27 +135,35 @@ pub struct TestLayer {
 }
 
 impl TestLayer {
-    /// Makes `surface` an overlay surface through `shell` and commits it;
-    /// the client's thread draws it at its first configure.
+    /// Makes `surface` a layer surface as `spec` says through `shell` and
+    /// commits it; the client's thread draws it at its first configure.
     pub(crate) fn open(
         connection: Connection,
         windows: Windows,
         shell: &ZwlrLayerShellV1,
         surface: &WlSurface,
+        spec: &LayerSpec,
         qh: &QueueHandle<Client>,
     ) -> Result<Self, Error> {
-        let shared = Arc::new(Shared::new(NAME, surface.clone(), PAINT));
+        let shared = Arc::new(Shared::new(&spec.namespace, surface.clone(), PAINT));
         lock(&windows).insert(surface.id(), Arc::clone(&shared));
         let layer = shell.get_layer_surface(
             surface,
             None,
-            Layer::Overlay,
-            NAME.to_owned(),
+            spec.layer.protocol(),
+            spec.namespace.clone(),
             qh,
-            Arc::clone(&shared),
+            LayerData {
+                shared: Arc::clone(&shared),
+                size: spec.size,
+            },
         );
-        layer.set_size(SIZE.0, SIZE.1);
-        layer.set_keyboard_interactivity(KeyboardInteractivity::Exclusive);
+        layer.set_size(spec.size.0, spec.size.1);
+        layer.set_keyboard_interactivity(if spec.keyboard {
+            KeyboardInteractivity::Exclusive
+        } else {
+            KeyboardInteractivity::None
+        });
         surface.commit();
         connection.flush().map_err(Error::Send)?;
         Ok(Self {
@@ -104,6 +172,12 @@ impl TestLayer {
             layer,
             shared,
         })
+    }
+
+    /// The size of the buffer it last drew, in surface coordinates.
+    #[must_use]
+    pub fn drawn(&self) -> Option<(i32, i32)> {
+        lock(&self.shared.status).drawn
     }
 
     /// Whether it has the keyboard focus.
@@ -131,12 +205,12 @@ impl Drop for TestLayer {
     }
 }
 
-impl Dispatch<ZwlrLayerSurfaceV1, Arc<Shared>> for Client {
+impl Dispatch<ZwlrLayerSurfaceV1, LayerData> for Client {
     fn event(
         client: &mut Self,
         layer: &ZwlrLayerSurfaceV1,
         event: zwlr_layer_surface_v1::Event,
-        shared: &Arc<Shared>,
+        data: &LayerData,
         _: &Connection,
         qh: &QueueHandle<Self>,
     ) {
@@ -149,7 +223,8 @@ impl Dispatch<ZwlrLayerSurfaceV1, Arc<Shared>> for Client {
                 layer.ack_configure(serial);
                 // Zero is the client's choice: the size it asked for.
                 let pick = |given: u32, asked: u32| if given == 0 { asked } else { given };
-                let size = (pick(width, SIZE.0), pick(height, SIZE.1));
+                let shared = &data.shared;
+                let size = (pick(width, data.size.0), pick(height, data.size.1));
                 let size = (
                     i32::try_from(size.0).unwrap_or(i32::MAX),
                     i32::try_from(size.1).unwrap_or(i32::MAX),
@@ -167,7 +242,7 @@ impl Dispatch<ZwlrLayerSurfaceV1, Arc<Shared>> for Client {
             // surface is ignored.
             zwlr_layer_surface_v1::Event::Closed => {
                 layer.destroy();
-                shared.changed.notify_all();
+                data.shared.changed.notify_all();
             }
             _ => {}
         }
