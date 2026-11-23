@@ -59,7 +59,15 @@ struct GroupEntry {
 #[derive(Debug, Default)]
 pub(crate) struct WorkspaceList {
     next: u64,
+    /// The order as staged: changed at once by additions, removals and
+    /// moves, ahead of the commit that delivers them.
     order: Vec<WorkspaceId>,
+    /// The order as last delivered: [`order`](Self::order) as it was at
+    /// the last commit (a workspace not yet described whole is in it, and
+    /// not listed until it is delivered). What
+    /// [`snapshot`](Self::snapshot) lists, so that a batch's removals and
+    /// moves are listed with the rest of the batch, at its end.
+    delivered_order: Vec<WorkspaceId>,
     entries: HashMap<WorkspaceId, Entry>,
     groups: BTreeMap<GroupId, GroupEntry>,
 }
@@ -196,7 +204,11 @@ impl WorkspaceList {
         self.order.insert(index.min(self.order.len()), id);
     }
 
-    /// The workspaces in order, without those whose removal is staged.
+    /// The order as staged: the workspaces in order, without those whose
+    /// removal is staged, and with those added or moved since the last
+    /// commit where they now are. What a batch is built from (KWin's grid
+    /// of coordinates); what has been delivered is
+    /// [`snapshot`](Self::snapshot)'s.
     pub(crate) fn order(&self) -> &[WorkspaceId] {
         &self.order
     }
@@ -248,6 +260,7 @@ impl WorkspaceList {
                 events.push(Event::GroupRemoved(id));
             }
         }
+        self.delivered_order.clone_from(&self.order);
         events
     }
 
@@ -278,9 +291,11 @@ impl WorkspaceList {
         events
     }
 
-    /// The workspaces as last delivered, in order.
+    /// The workspaces as last delivered, in the order last delivered:
+    /// nothing of a batch is listed before its commit, its removals and
+    /// moves no more than its changes.
     pub(crate) fn snapshot(&self) -> Vec<Workspace> {
-        self.order
+        self.delivered_order
             .iter()
             .filter_map(|id| self.entries.get(id)?.delivered.clone())
             .collect()
@@ -302,6 +317,7 @@ impl WorkspaceList {
     /// Forgets everything.
     pub(crate) fn clear(&mut self) {
         self.order.clear();
+        self.delivered_order.clear();
         self.entries.clear();
         self.groups.clear();
     }

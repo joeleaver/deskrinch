@@ -52,6 +52,59 @@ fn removals_follow_changes_and_unannounced_ones_are_silent() {
     assert_eq!(list.order(), [kept]);
 }
 
+/// KWin removing its current desktop sends, as one batch, `activated` on
+/// the next one, `deactivated` and `removed` on the current one, the
+/// manager's `desktop_removed`, then one `done`: until the `done`, the
+/// listing is the one before, never one with no current workspace.
+#[test]
+fn a_removal_is_listed_with_the_rest_of_its_batch() {
+    let mut list = WorkspaceList::default();
+    let next = list.add().unwrap();
+    let current = list.add().unwrap();
+    list.stage(next, Change::Name("Next".into()));
+    list.stage(current, Change::Name("Current".into()));
+    list.stage(current, Change::State(WorkspaceState::ACTIVE));
+    list.commit();
+    let before = list.snapshot();
+    list.stage(next, Change::State(WorkspaceState::ACTIVE));
+    list.stage(current, Change::State(WorkspaceState::empty()));
+    list.remove(current);
+    assert_eq!(
+        list.snapshot(),
+        before,
+        "nothing of the batch before its end"
+    );
+    list.commit();
+    let after = list.snapshot();
+    assert_eq!(after.len(), 1, "{after:?}");
+    assert_eq!(after[0].id, next);
+    assert_eq!(after[0].state, WorkspaceState::ACTIVE);
+}
+
+/// A workspace moved is listed where it was until the batch's end, and
+/// where it went from then on.
+#[test]
+fn a_move_is_listed_with_the_rest_of_its_batch() {
+    let mut list = WorkspaceList::default();
+    let first = list.add().unwrap();
+    let second = list.add().unwrap();
+    list.stage(first, Change::Name("First".into()));
+    list.stage(second, Change::Name("Second".into()));
+    list.commit();
+    let before = list.snapshot();
+    list.move_to(second, 0);
+    list.stage(second, Change::Coordinates(vec![0]));
+    list.stage(first, Change::Coordinates(vec![1]));
+    assert_eq!(
+        list.snapshot(),
+        before,
+        "nothing of the batch before its end"
+    );
+    list.commit();
+    let order: Vec<_> = list.snapshot().iter().map(|w| w.id).collect();
+    assert_eq!(order, [second, first]);
+}
+
 #[test]
 fn groups_come_first_and_their_removal_last() {
     let mut list = WorkspaceList::default();
