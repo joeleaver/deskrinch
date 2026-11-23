@@ -1,0 +1,39 @@
+[package]
+name = "deskrinch-test-kwin"
+description = "What KWin says, read-only, for deskrinch's tests: each window as KWin holds it, read through a KWin script on an isolated session's bus."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Whether this process runs inside an isolated session, before any bus.
+deskrinch-test-session.workspace = true
+# How long the script's report may take: the tests' one patience.
+deskrinch-test-wait.workspace = true
+# Each window's record, as the script writes it.
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+# The script's file, for KWin to load.
+tempfile.workspace = true
+thiserror.workspace = true
+# KWin's scripting interface, and the object the script reports to, on
+# zbus's own runtime, driven by `zbus::block_on`.
+zbus = { workspace = true, features = ["default-rt", "service"] }
+
+[dev-dependencies]
+# The windows the compositor tests make.
+deskrinch-test-client.workspace = true
+# The refusal's wiring tested in a child outside any session.
+deskrinch-test-dbus.workspace = true
+
+# The compositor tests run inside a nested KWin that `cargo xtask
+# compositor-tests` starts; they are ignored by a plain `cargo test`.
+[[test]]
+name = "compositor"
+path = "tests/compositor/main.rs"
+
+[lints]
+workspace = true
