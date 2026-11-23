@@ -59,6 +59,9 @@ fn download(line: &str) -> Option<Download> {
 pub(super) struct Plan {
     /// When `ci-packages update` started.
     pub(super) started: SystemTime,
+    /// What `update` warned of (a host it could not reach, a cut-off),
+    /// for the install's verdict to say beside its own.
+    pub(super) update_warning: Option<String>,
     /// The packages, sorted, each once.
     pub(super) packages: Vec<String>,
     /// The files, sorted by name.
@@ -88,6 +91,7 @@ impl Plan {
         downloads.sort_by(|a, b| a.file.cmp(&b.file));
         Self {
             started,
+            update_warning: None,
             packages: packages.into_iter().cloned().collect(),
             downloads,
         }

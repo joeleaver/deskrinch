@@ -147,5 +147,14 @@ fn a_component_ended_cleanly_is_not_started_again() {
         "the desktop runs on: {}",
         desktop.said()
     );
+    // Not started again, by more than the desktop's word. The desktop says
+    // its decision and, in the same call with nothing between that waits,
+    // starts any component it starts again (`Components::ended`, a spawn):
+    // after the launcher's answer, a round trip on the bus since that line
+    // was read, a start would have a process. The process is the witness,
+    // not the desktop's lines: it says nothing when it starts a component,
+    // and nothing of one ended with the session at its end.
+    let panels = processes(&desktop.root, "deskrinch-panel");
+    assert_eq!(panels, [], "a panel runs again: {}", desktop.said());
     close(desktop);
 }
