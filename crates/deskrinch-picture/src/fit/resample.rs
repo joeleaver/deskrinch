@@ -15,14 +15,14 @@
 //! - **Alpha premultiplied only where there is alpha:** an opaque picture
 //!   (a photograph) is found so once, and resampled without a premultiplied
 //!   copy.
-//! - **One axis at a time.** `fast_image_resize` 6.1.0, given both axes at
-//!   once, shifts the second pass's bounds by the first output pixel's
-//!   first source pixel (`resizer.rs:433–436`, `464–467`), which is not the
-//!   least of them when that pixel's first weight is exactly zero and is
-//!   skipped (`convolution/mod.rs:147–149`): a 4 × 1 picture covering a
-//!   27 × 26 target underflows there. A pass that changes one axis only
-//!   uses the bounds as they are, so each axis is a pass of its own, with
-//!   the premultiplication done once around both.
+//! - **One axis at a time,** each a pass of its own, with the
+//!   premultiplication done once around both. Measured on
+//!   `fast_image_resize` 6.2.0 against one call over both axes: on the box
+//!   path the bytes are the same; on the Catmull-Rom path one call differs
+//!   by up to 28 levels on noise, fails the scalar reference test
+//!   (`fit_reference_tests`), and costs 12 to 23% more instructions. (6.1.0
+//!   underflowed on one call over both axes, upstream issue 63, fixed in
+//!   6.2.0.)
 
 use std::sync::Arc;
 
