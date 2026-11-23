@@ -136,6 +136,9 @@ fn follow_running(panel: Signal<PanelSettings>) -> (ClockText, Running) {
             Err(error) => report::error("clock", &error),
         }
     });
+    // Said on the main thread when the text changes, before the frame
+    // that draws it: what a test reads to tell the clock's frames apart.
+    Effect::new(move || tracing::debug!("{}", deskrinch_panel::clock_shows(&text.get())));
     let stop = Rc::clone(&running);
     rinch::reactive::on_cleanup(move || drop(stop.borrow_mut().take()));
     (ClockText(text), running)

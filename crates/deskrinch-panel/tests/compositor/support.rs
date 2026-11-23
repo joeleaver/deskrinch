@@ -77,10 +77,14 @@ impl Panel {
 
     /// The command that starts the panel binary, for a test to add to. The
     /// panel logs its own `info` lines too: where it is placed when it
-    /// moves.
+    /// moves; and, at debug for the clock's module alone, each text of the
+    /// clock it applies ([`deskrinch_panel::clock_shows`]).
     pub(crate) fn command() -> Command {
         let mut command = Command::new(panel_binary());
-        command.env("RUST_LOG", "warn,deskrinch_panel=info");
+        command.env(
+            "RUST_LOG",
+            "warn,deskrinch_panel=info,deskrinch_panel::widgets::clock=debug",
+        );
         command
     }
 

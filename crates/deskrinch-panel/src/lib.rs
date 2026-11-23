@@ -25,9 +25,30 @@ pub fn placed(output: &str, edge: Edge, height: Height) -> String {
     )
 }
 
+/// What every [`clock_shows`] line starts with, for a test that looks for
+/// any of them.
+pub const CLOCK_SHOWS: &str = "the clock shows ";
+
+/// The line the panel writes, at debug, each time its main thread applies a
+/// new text of the clock, `text`: before the frame that draws it on every
+/// bar. At debug, since a line a minute for a session's life is nothing a
+/// journal needs; a test that judges a bar's repaints turns it on (for the
+/// clock's module alone) to tell the clock's frames from others by the
+/// panel's own word, not by the time.
+#[must_use]
+pub fn clock_shows(text: &str) -> String {
+    format!("{CLOCK_SHOWS}{text:?}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn says_what_the_clock_shows() {
+        assert_eq!(clock_shows("14:05"), "the clock shows \"14:05\"");
+        assert!(clock_shows("").starts_with(CLOCK_SHOWS));
+    }
 
     #[test]
     fn says_the_bar_the_edge_and_the_height() {

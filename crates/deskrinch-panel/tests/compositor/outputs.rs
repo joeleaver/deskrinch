@@ -8,7 +8,7 @@
 
 use std::collections::BTreeSet;
 use std::io::Write as _;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use deskrinch_test_client::{
     OutputChange, OutputState, TestClient, change_output, outputs, turn_output_off,
@@ -243,26 +243,37 @@ fn keeps_its_bars(
     settled: Settled,
     change: impl Fn(&OutputState, &OutputState) -> OutputChange,
 ) {
-    let panel = start_panel();
-    let started = ever(&panel);
-    let layout = outputs().unwrap();
-    let (name, kept) = (layout[1].name.clone(), layout[0].name.clone());
-    let (window, unchanged) = (panel.window_on(&name), panel.window_on(&kept));
-    let surface = last_surface(&panel.watch().lines(), window).expect("the bar's frame");
-    // The clock redraws every bar on the minute, which the judgment that
-    // the unchanged bar repainted nothing cannot tell from a repaint for
-    // the change. A span the minute turned inside is void: nothing is
-    // judged from it, and it is run again, once; the second cannot meet a
-    // turn unless a span lasts a minute. Each bound moves the bars to the
-    // edge they are not at.
-    for (attempt, edge) in [(1, Edge::Top), (2, Edge::Bottom)] {
-        let minute = whole_seconds(SystemTime::now()) / 60;
+    // A span the clock drew inside is void (`spans::void`): nothing is
+    // judged from it, and it is run again, once, on a panel started anew.
+    // Not on the same panel: the span's bound moves the bars, and its
+    // `placed` lines come before the move is drawn, so a span begun on the
+    // same panel would read the first's move as a repaint (seen on sway,
+    // twice in five runs). Waiting for that move's frame instead would rest
+    // on every compositor sending a configure for a move at the same size,
+    // which not every one is known to do. A second span the clock drew
+    // inside fails: a span would then last as long as a tick.
+    for attempt in 1..=2 {
+        let panel = start_panel();
+        let started = ever(&panel);
+        let layout = outputs().unwrap();
+        let (name, kept) = (layout[1].name.clone(), layout[0].name.clone());
+        let (window, unchanged) = (panel.window_on(&name), panel.window_on(&kept));
+        let surface = last_surface(&panel.watch().lines(), window).expect("the bar's frame");
+        // Begun once the bar has drawn the clock's last text, so that a
+        // text applied at the panel's start is not a frame inside the span.
+        wait_for("the unchanged bar to draw the clock's last text", || {
+            if crate::spans::pending(&panel.watch().lines(), unchanged) {
+                Err(panel.log())
+            } else {
+                Ok(())
+            }
+        });
         let began = Instant::now();
         let from = step(&panel);
         let changed = change_output(&name, change(&layout[0], &layout[1])).unwrap();
         wait_settled(&panel, settled, window, surface, false);
         assert_eq!(open(&panel), started, "{what}: {}", panel.log());
-        let (changing, from) = drawn_since(&panel, &unchanged, from);
+        let (changing, middle) = drawn_since(&panel, &unchanged, from);
         changed.restore().unwrap();
         wait_settled(&panel, settled, window, surface, true);
         // The windows read from the change on are contiguous, so a late
@@ -270,9 +281,8 @@ fn keeps_its_bars(
         // last window ends at the bars' `placed` lines for an edit made
         // now, which bound everything before them. The edit's own move
         // comes after those lines, and is not counted.
-        let to = panel.bound(edge, 40);
-        let putting_back = drawn_between(&panel, &unchanged, from, to);
-        let turned = whole_seconds(SystemTime::now()) / 60 != minute;
+        let to = panel.bound(Edge::Top, 40);
+        let putting_back = drawn_between(&panel, &unchanged, middle, to);
         // Said straight to the standard error, which the test harness does
         // not capture, so that a run's log shows it whether the test passes
         // or fails.
@@ -280,31 +290,32 @@ fn keeps_its_bars(
             "{what}: span {attempt} took {:?}",
             began.elapsed()
         ));
-        if turned && attempt == 1 {
+        if crate::spans::void(&panel.watch().lines(), unchanged, from, to) {
+            assert!(
+                attempt == 1,
+                "{what}: the clock drew inside both spans, on two panels: a span lasted as long \
+                 as a tick"
+            );
             say(&format!(
-                "{what}: the clock's minute turned inside span 1; it is void, and run again"
+                "{what}: the clock drew inside span 1; it is void, and run again on a new panel"
             ));
             continue;
         }
-        assert!(
-            !turned,
-            "{what}: the span judged outran its minute, in which the clock redraws every bar"
-        );
         if let Some(why) = unchanged_repainted(settled, &changing) {
             panic!("{what}: the bar on {kept}, which nothing changed, {why}");
         }
         if let Some(why) = unchanged_repainted(settled, &putting_back) {
             panic!("{what}, put back: the bar on {kept}, which nothing changed, {why}");
         }
-        break;
+        assert_eq!(open(&panel), started, "{what}, put back: {}", panel.log());
+        assert_eq!(
+            ever(&panel),
+            started,
+            "{what}: a window was made or closed: {}",
+            panel.log()
+        );
+        return;
     }
-    assert_eq!(open(&panel), started, "{what}, put back: {}", panel.log());
-    assert_eq!(
-        ever(&panel),
-        started,
-        "{what}: a window was made or closed: {}",
-        panel.log()
-    );
 }
 
 #[test]
@@ -380,13 +391,6 @@ fn every_bar_follows_a_window_opened_and_retitled() {
     wait_each_bar_drew_since(&panel, &mark, "for the title changed");
 }
 
-/// The whole seconds of the system's time at `at`.
-fn whole_seconds(at: SystemTime) -> u64 {
-    at.duration_since(UNIX_EPOCH)
-        .expect("the system's time is after 1970")
-        .as_secs()
-}
-
 /// The clock's one worker paints every bar's face once a tick: with
 /// seconds shown, each bar draws as many frames as there were ticks (the
 /// system time's whole seconds that began) over the same span, within the
@@ -402,11 +406,17 @@ fn the_clock_paints_each_bar_once_a_tick() {
     // The clock restarted at seconds: count from a tick after that.
     let settled = panel.watch().mark();
     wait_each_bar_drew_since(&panel, &settled, "for the clock's first second");
+    // The ticks are the texts the clock applied, as the panel says them
+    // (`deskrinch_panel::clock_shows`), counted from the same moment as the
+    // frames.
     let mark = panel.watch().mark();
-    let from = SystemTime::now();
+    let from = step(&panel);
     let (counts, ticks) = wait_for("five ticks on every bar", || {
         let since = panel.watch().since(&mark);
-        let to = SystemTime::now();
+        let ticks = panel.watch().lines()[from..]
+            .iter()
+            .filter(|line| line.contains(deskrinch_panel::CLOCK_SHOWS))
+            .count();
         let counts: Vec<u64> = open(&panel)
             .iter()
             .map(|window| {
@@ -417,7 +427,7 @@ fn the_clock_paints_each_bar_once_a_tick() {
             })
             .collect();
         if counts.iter().all(|&frames| frames >= 5) {
-            Ok((counts, whole_seconds(to) - whole_seconds(from)))
+            Ok((counts, u64::try_from(ticks).expect("a count of lines")))
         } else {
             Err(counts)
         }

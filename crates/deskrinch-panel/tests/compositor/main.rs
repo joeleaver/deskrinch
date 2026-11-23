@@ -33,6 +33,7 @@ mod live;
 mod outputs;
 #[cfg(test)]
 mod placement;
+mod spans;
 #[cfg(test)]
 mod support;
 #[cfg(test)]
