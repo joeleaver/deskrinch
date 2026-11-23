@@ -1,7 +1,7 @@
 //! The panel's rows: its tests on the ordinary passes, its last output
 //! going and coming back, and a full taskbar on a wide output.
 
-use super::{ALL, Grant, PLAIN, Pass, Suite, WLROOTS};
+use super::{ALL, Grant, Output, PLAIN, Pass, Suite, WLROOTS};
 use crate::compositor_tests::build::{Backend, Target};
 
 const PACKAGE: &str = "deskrinch-panel";
@@ -44,6 +44,7 @@ pub(super) const PANEL: Suite = Suite {
         "--skip",
         PANEL_LAST_OUTPUT_TESTS,
     ],
+    output: Output::Captured,
 };
 
 /// The same binary's test of the last output going and coming back, under
@@ -60,6 +61,7 @@ pub(super) const PANEL_LAST_OUTPUT: Suite = Suite {
     renders: true,
     programs: &[&deskrinch_shell::PANEL],
     filter: &[PANEL_LAST_OUTPUT_TESTS, "--skip", PANEL_WIDE_TESTS],
+    output: Output::Captured,
 };
 
 /// The same binary's full taskbar on a wide output, on those outputs
@@ -76,4 +78,5 @@ pub(super) const PANEL_UHD_BESIDE_FULL_HD: Suite = Suite {
     renders: true,
     programs: &[&deskrinch_shell::PANEL],
     filter: &[PANEL_WIDE_TESTS],
+    output: Output::Captured,
 };

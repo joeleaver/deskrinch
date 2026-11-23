@@ -14,6 +14,7 @@
 use std::collections::BTreeSet;
 
 use super::suites::{SUITES, Suite};
+use crate::session::Compositor;
 
 /// Why a selection cannot run.
 #[derive(Debug, thiserror::Error)]
@@ -31,9 +32,23 @@ pub(crate) enum SelectionError {
         test: String,
         tests: Vec<String>,
     },
-    /// A selection that runs nothing under the compositors asked for.
-    #[error("{what} runs under none of {compositors}")]
-    NothingRuns { what: String, compositors: String },
+    /// A `--test` that every row of the chosen suite leaves out by its
+    /// filter, under whichever compositor.
+    #[error("{suite}'s filter leaves {test} out; its rows' filters are:\n  {}", filters.join("\n  "))]
+    LeftOutByFilter {
+        suite: String,
+        test: String,
+        /// Each row's filter, its words joined by spaces.
+        filters: Vec<String>,
+    },
+    /// A selection whose rows run under none of the compositors asked for.
+    #[error("{what} runs under {theirs}, none of {asked}")]
+    OtherCompositors {
+        what: String,
+        /// The compositors its rows run under.
+        theirs: String,
+        asked: String,
+    },
 }
 
 /// The suites a run runs, by their rows in [`SUITES`], and the one test of
@@ -90,14 +105,17 @@ impl Selection {
     }
 
     /// The libtest arguments `suite`, a chosen row, runs with: its own
-    /// filter, or the test asked for, exactly; `None` when its filter
-    /// leaves that test out, and the row does not run.
+    /// filter, or the test asked for, exactly; then those of its
+    /// [`Output`](super::suites::Output). `None` when its filter leaves
+    /// that test out, and the row does not run.
     pub(super) fn args<'a>(&'a self, suite: &'a Suite) -> Option<Vec<&'a str>> {
-        match &self.test {
-            Some(test) if takes(suite.filter, test) => Some(vec![test.as_str(), "--exact"]),
-            Some(_) => None,
-            None => Some(suite.filter.to_vec()),
-        }
+        let mut args = match &self.test {
+            Some(test) if takes(suite.filter, test) => vec![test.as_str(), "--exact"],
+            Some(_) => return None,
+            None => suite.filter.to_vec(),
+        };
+        args.extend(suite.output.args());
+        Some(args)
     }
 
     /// What it chose, as the run says it.
@@ -113,16 +131,45 @@ impl Selection {
         }
     }
 
-    /// What it chose, for an error that it runs nothing.
-    pub(super) fn nothing_runs(&self, compositors: &str) -> SelectionError {
+    /// Why it runs nothing under the compositors `asked`: every row of
+    /// the chosen suite leaves the asked test out by its filter, or the
+    /// rows that run it run under other compositors.
+    pub(super) fn nothing_runs(&self, asked: &[Compositor]) -> SelectionError {
+        let running: Vec<&Suite> = self
+            .rows
+            .iter()
+            .map(|&row| &SUITES[row])
+            .filter(|suite| self.args(suite).is_some())
+            .collect();
+        let asked = names(asked.iter().copied());
         let what = match &self.test {
+            Some(test) if running.is_empty() => {
+                return SelectionError::LeftOutByFilter {
+                    suite: self.asked.join(", "),
+                    test: test.clone(),
+                    filters: self
+                        .rows
+                        .iter()
+                        .map(|&row| SUITES[row].filter.join(" "))
+                        .collect(),
+                };
+            }
             Some(test) => format!("{test} of {}", self.asked.join(", ")),
-            None if self.asked.is_empty() => "no suite".to_owned(),
+            None if self.asked.is_empty() => "every suite".to_owned(),
             None => self.asked.join(", "),
         };
-        SelectionError::NothingRuns {
+        let theirs = <Compositor as clap::ValueEnum>::value_variants()
+            .iter()
+            .copied()
+            .filter(|compositor| {
+                running
+                    .iter()
+                    .any(|suite| suite.compositors.contains(compositor))
+            });
+        SelectionError::OtherCompositors {
             what,
-            compositors: compositors.to_owned(),
+            theirs: names(theirs),
+            asked,
         }
     }
 
@@ -148,6 +195,14 @@ fn suite_names(table: &[Suite]) -> Vec<String> {
         .map(|suite| suite.target.name())
         .filter(|name| seen.insert(name.clone()))
         .collect()
+}
+
+/// `compositors`' names, joined by commas.
+fn names(compositors: impl Iterator<Item = Compositor>) -> String {
+    compositors
+        .map(Compositor::name)
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Whether a row run with libtest arguments `filter` runs `test`: as
@@ -179,6 +234,7 @@ pub(super) fn listed(output: &str) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::suites::Output;
     use super::*;
 
     fn names(names: &[&str]) -> Vec<String> {
@@ -303,13 +359,67 @@ mod tests {
         assert!(Selection::new(&[], None).unwrap().check_test(&[]).is_ok());
     }
 
+    /// The row of the suite named `name`, which has one row.
+    fn only_row(name: &str) -> &'static Suite {
+        let selection = Selection::new(&names(&[name]), None).unwrap();
+        let [row] = selection.rows() else {
+            panic!("{name} has {} rows", selection.rows().len());
+        };
+        &SUITES[*row]
+    }
+
     #[test]
-    fn nothing_running_says_what_was_asked() {
-        let one = names(&["xtask desktop"]);
-        let message = Selection::new(&one, Some("t"))
+    fn a_row_that_shows_shows_a_named_test_too() {
+        let kwin = "deskrinch-test-kwin compositor";
+        let shown = only_row(kwin);
+        assert_eq!(shown.output, Output::Shown);
+        let test = "support::kwin_says_what_it_composites_with_and_which_effects_it_runs";
+        let named = Selection::new(&names(&[kwin]), Some(test)).unwrap();
+        assert_eq!(
+            named.args(shown).unwrap(),
+            [test, "--exact", "--show-output"]
+        );
+        let whole = Selection::new(&names(&[kwin]), None).unwrap();
+        assert_eq!(whole.args(shown).unwrap(), ["--show-output"]);
+        let captured = only_row("xtask desktop");
+        assert_eq!(captured.output, Output::Captured);
+        let named = Selection::new(&names(&["xtask desktop"]), Some("t")).unwrap();
+        assert_eq!(named.args(captured).unwrap(), ["t", "--exact"]);
+    }
+
+    #[test]
+    fn a_test_every_row_leaves_out_names_their_filters() {
+        let shared = "deskrinch-workspaces compositor on libwayland";
+        let error = Selection::new(&names(&[shared]), Some("desktops::are_four"))
             .unwrap()
-            .nothing_runs("sway")
-            .to_string();
-        assert_eq!(message, "t of xtask desktop runs under none of sway");
+            .nothing_runs(&[Compositor::Kwin]);
+        assert!(
+            matches!(error, SelectionError::LeftOutByFilter { .. }),
+            "{error:?}"
+        );
+        assert_eq!(
+            error.to_string(),
+            format!(
+                "{shared}'s filter leaves desktops::are_four out; its rows' filters are:\n  {}",
+                only_row(shared).filter.join(" ")
+            )
+        );
+    }
+
+    #[test]
+    fn a_selection_under_other_compositors_names_theirs() {
+        let kwin = names(&["deskrinch-test-kwin compositor"]);
+        let named = Selection::new(&kwin, Some("t")).unwrap();
+        assert_eq!(
+            named.nothing_runs(&[Compositor::Sway]).to_string(),
+            "t of deskrinch-test-kwin compositor runs under kwin, none of sway"
+        );
+        let whole = Selection::new(&kwin, None).unwrap();
+        assert_eq!(
+            whole
+                .nothing_runs(&[Compositor::Sway, Compositor::Labwc])
+                .to_string(),
+            "deskrinch-test-kwin compositor runs under kwin, none of sway, labwc"
+        );
     }
 }

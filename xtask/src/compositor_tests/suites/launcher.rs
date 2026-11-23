@@ -1,6 +1,6 @@
 //! The launcher's row.
 
-use super::{ALL, Grant, PLAIN, Suite};
+use super::{ALL, Grant, Output, PLAIN, Suite};
 use crate::compositor_tests::build::{Backend, Target};
 
 const PACKAGE: &str = "deskrinch-launcher";
@@ -25,4 +25,5 @@ pub(super) const LAUNCHER: Suite = Suite {
     // The launcher the tests start, and run again as a client.
     programs: &[&deskrinch_shell::LAUNCHER],
     filter: &[],
+    output: Output::Captured,
 };
