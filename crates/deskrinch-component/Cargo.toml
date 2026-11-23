@@ -34,8 +34,10 @@ tracing.workspace = true
 
 [dev-dependencies]
 deskrinch-test-wait.workspace = true
-# The tests that hand a worker-fed signal to a UI mount one, on a host thread.
-rinch = { workspace = true, features = ["desktop", "testing"] }
+# The tests that hand a worker-fed signal to a UI mount one, on a host thread:
+# rinch's `TestApp`, which wants `testing` beside `desktop`. `desktop` is
+# the crate's own dependency's (above); the tests add only the harness.
+rinch = { workspace = true, features = ["testing"] }
 # The tests define a second table type.
 serde = { workspace = true, features = ["derive"] }
 tempfile.workspace = true

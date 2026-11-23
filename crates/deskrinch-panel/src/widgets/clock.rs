@@ -235,17 +235,6 @@ mod tests {
         running.borrow().as_ref().map(Clock::worker)
     }
 
-    /// The panel's clock is one worker: faces read its text and start none,
-    /// a change of `[panel.clock]` replaces it (a new worker, the old one
-    /// gone), any other change leaves it be, and it stops with the scope
-    /// that started it.
-    ///
-    /// Counted by the clock itself (`deskrinch_clock::running`), exact at
-    /// once both ways, and told apart by its worker's thread id, which Rust
-    /// never gives twice; not by the threads the system lists, which show a
-    /// new worker only once it has named itself and an ended one for a
-    /// moment after its join. The count is the process's, so the tests that
-    /// start a clock take turns ([`one_clock_at_a_time`]).
     /// Held for the whole of a test that starts a clock: the clocks running
     /// are counted for the process (`deskrinch_clock::running`), so one
     /// test's count must not see another's clock.
@@ -306,6 +295,17 @@ mod tests {
         }
     }
 
+    /// The panel's clock is one worker: faces read its text and start none,
+    /// a change of `[panel.clock]` replaces it (a new worker, the old one
+    /// gone), any other change leaves it be, and it stops with the scope
+    /// that started it.
+    ///
+    /// Counted by the clock itself (`deskrinch_clock::running`), exact at
+    /// once both ways, and told apart by its worker's thread id, which Rust
+    /// never gives twice; not by the threads the system lists, which show a
+    /// new worker only once it has named itself and an ended one for a
+    /// moment after its join. The count is the process's, so the tests that
+    /// start a clock take turns ([`one_clock_at_a_time`]).
     #[test]
     fn one_worker_whatever_the_number_of_faces() {
         let _alone = one_clock_at_a_time();
