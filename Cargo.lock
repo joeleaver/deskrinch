@@ -6627,6 +6627,7 @@ dependencies = [
  "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
+ "deskrinch-test-kwin",
  "deskrinch-test-lifetime",
  "deskrinch-test-notify",
  "deskrinch-test-screen",
