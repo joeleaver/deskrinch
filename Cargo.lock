@@ -1429,6 +1429,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-client",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-wayland-client",
