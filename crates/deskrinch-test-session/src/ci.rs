@@ -6,8 +6,9 @@
 //! - a permit (installing system packages, `sudo` in a test, a unit in the
 //!   user's systemd) asks whether this is certainly a runner
 //!   ([`Ci::certainly_a_runner`]): only `GITHUB_ACTIONS=true`, so that an
-//!   unclear value does not open it, and refuses otherwise with
-//!   [`NotCi`] ([`Ci::only_on_a_runner`]);
+//!   unclear value does not open it. [`Ci::only_on_a_runner`] answers it
+//!   with [`OnARunner`], a proof only it makes, which what does the
+//!   privileged thing takes, or refuses with [`NotCi`];
 //! - a refusal (the owner's interactive path of `cargo xtask desktop`,
 //!   which CI must not take) asks whether this may be a runner
 //!   ([`Ci::maybe_a_runner`]): the variable set at all, so that an unclear
@@ -21,6 +22,14 @@ use std::fmt;
 
 /// The variable GitHub Actions sets to `true` in every job.
 pub const CI_VARIABLE: &str = "GITHUB_ACTIONS";
+
+/// Proof that this is certainly a CI runner: only
+/// [`Ci::only_on_a_runner`] makes one, so that what runs only on a runner
+/// takes one, and a caller that forgot to ask does not compile.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OnARunner {
+    _checked: (),
+}
 
 /// What [`CI_VARIABLE`] held.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,14 +79,14 @@ impl Ci {
         !matches!(self, Self::Unset)
     }
 
-    /// A permit's answer: `Ok` only when this is certainly a runner.
+    /// A permit's answer: the proof only when this is certainly a runner.
     ///
     /// # Errors
     ///
     /// [`NotCi`], saying what the variable held.
-    pub fn only_on_a_runner(&self) -> Result<(), NotCi> {
+    pub fn only_on_a_runner(&self) -> Result<OnARunner, NotCi> {
         if self.certainly_a_runner() {
-            Ok(())
+            Ok(OnARunner { _checked: () })
         } else {
             Err(NotCi { held: self.clone() })
         }
@@ -148,7 +157,10 @@ mod tests {
 
     #[test]
     fn a_permit_refuses_saying_what_the_variable_held() {
-        assert_eq!(ci(Some("true")).only_on_a_runner(), Ok(()));
+        assert_eq!(
+            ci(Some("true")).only_on_a_runner(),
+            Ok(OnARunner { _checked: () })
+        );
         let unset = ci(None).only_on_a_runner().unwrap_err();
         assert_eq!(
             unset.to_string(),

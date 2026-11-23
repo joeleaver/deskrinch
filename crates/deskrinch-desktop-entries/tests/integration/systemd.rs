@@ -16,7 +16,7 @@ use std::process::{Command, Stdio};
 
 use deskrinch_desktop_entries::{Environment, LaunchContext, Launched, Placement, launch};
 use deskrinch_test_dbus::session::outside;
-use deskrinch_test_session::ci::{CI_VARIABLE, Ci};
+use deskrinch_test_session::ci::{CI_VARIABLE, Ci, OnARunner};
 use deskrinch_test_wait::eventually;
 
 use crate::support::{entry, recorded, recorder};
@@ -29,7 +29,13 @@ fn cgroup(text: &str) -> &str {
 #[test]
 #[ignore = "needs the real systemd user instance; run by `cargo xtask systemd-scope-tests`"]
 fn a_launch_and_its_children_land_in_a_real_transient_scope() {
-    refuse_off_a_runner(&Ci::read());
+    let runner = refuse_off_a_runner(&Ci::read());
+    launch_into_a_real_scope(runner);
+}
+
+/// The test's body, on a CI runner: everything from its first touch of the
+/// bus.
+fn launch_into_a_real_scope(_runner: OnARunner) {
     let env = Environment::from_process();
     let bus = env.session_bus.clone().expect("a session bus");
     let dir = tempfile::tempdir().unwrap();
@@ -91,24 +97,24 @@ fn stop(bus: &str, unit: &str) {
 
 /// Panics unless `ci` says this is certainly a CI runner: anywhere else the
 /// test would start a unit in the user's own systemd.
-fn refuse_off_a_runner(ci: &Ci) {
-    if let Err(why) = ci.only_on_a_runner() {
+fn refuse_off_a_runner(ci: &Ci) -> OnARunner {
+    ci.only_on_a_runner().unwrap_or_else(|why| {
         panic!(
             "the systemd scope test {why}: anywhere else it would start a unit in \
              your own systemd user instance"
-        );
-    }
+        )
+    })
 }
 
 #[test]
 #[should_panic(expected = "the systemd scope test runs only on a CI runner")]
 fn off_a_runner_the_test_refuses() {
-    refuse_off_a_runner(&Ci::from_value(None));
+    let _runner = refuse_off_a_runner(&Ci::from_value(None));
 }
 
 #[test]
 fn on_a_runner_the_test_goes_on() {
-    refuse_off_a_runner(&Ci::from_value(Some("true".as_ref())));
+    let _runner = refuse_off_a_runner(&Ci::from_value(Some("true".as_ref())));
 }
 
 /// The test itself, run in a child of this binary outside any session and

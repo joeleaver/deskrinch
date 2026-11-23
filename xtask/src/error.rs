@@ -5,7 +5,7 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
-use deskrinch_test_session::ci::Ci;
+use deskrinch_test_session::ci::{Ci, OnARunner};
 
 /// A task could not finish its work. A check that ran and found problems is
 /// not an error: it reports [`crate::Outcome::Failed`].
@@ -505,9 +505,10 @@ pub(crate) enum Error {
     },
 }
 
-/// Goes on only on a CI runner, as `ci` says ([`Ci::only_on_a_runner`]);
-/// refuses `command` with [`Error::NotOnCi`] anywhere else.
-pub(crate) fn only_on_a_runner(command: &'static str, ci: &Ci) -> Result<(), Error> {
+/// The proof that this is a CI runner, as `ci` says
+/// ([`Ci::only_on_a_runner`]); refuses `command` with [`Error::NotOnCi`]
+/// anywhere else.
+pub(crate) fn only_on_a_runner(command: &'static str, ci: &Ci) -> Result<OnARunner, Error> {
     ci.only_on_a_runner()
         .map_err(|why| Error::NotOnCi { command, why })
 }

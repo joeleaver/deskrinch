@@ -11,7 +11,7 @@
 
 use std::path::Path;
 
-use deskrinch_test_session::ci::Ci;
+use deskrinch_test_session::ci::{Ci, OnARunner};
 
 use crate::Outcome;
 use crate::error::{Error, only_on_a_runner};
@@ -22,7 +22,12 @@ const TEST: &str = "systemd::a_launch_and_its_children_land_in_a_real_transient_
 /// Runs the test with `cargo test` in `root`, inheriting this process's
 /// session.
 pub(crate) fn run(root: &Path) -> Result<Outcome, Error> {
-    on_ci(&Ci::read())?;
+    let runner = on_ci(&Ci::read())?;
+    run_on_a_runner(root, runner)
+}
+
+/// [`run`], on a CI runner.
+fn run_on_a_runner(root: &Path, _runner: OnARunner) -> Result<Outcome, Error> {
     let status = crate::cargo::command()
         .current_dir(root)
         .args([
@@ -52,7 +57,7 @@ pub(crate) fn run(root: &Path) -> Result<Outcome, Error> {
 }
 
 /// Goes on only on a CI runner, as `ci` says.
-fn on_ci(ci: &Ci) -> Result<(), Error> {
+fn on_ci(ci: &Ci) -> Result<OnARunner, Error> {
     only_on_a_runner(
         "cargo xtask systemd-scope-tests (which starts a unit in the user's systemd)",
         ci,
