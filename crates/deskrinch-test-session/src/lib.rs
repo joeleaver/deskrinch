@@ -10,8 +10,8 @@
 //!
 //! - the variables a session gives its clients, by name
 //!   ([`COMPOSITOR_VARIABLE`], [`SESSION_DIR_VARIABLE`],
-//!   [`COMPOSITOR_PID_VARIABLE`]): the session sets them by these names and
-//!   every reader reads them by these names;
+//!   [`COMPOSITOR_PID_VARIABLE`], [`SESSION_GROUP_VARIABLE`]): the session
+//!   sets them by these names and every reader reads them by these names;
 //! - a session root's layout and the check that a directory is one
 //!   ([`root`]);
 //! - the private bus's address and the check that an address is one
@@ -40,6 +40,11 @@ pub const SESSION_DIR_VARIABLE: &str = "DESKRINCH_SESSION_DIR";
 /// that ends the compositor under its other clients. The compositor leads
 /// the session's process group, so this is that group's id too.
 pub const COMPOSITOR_PID_VARIABLE: &str = "DESKRINCH_SESSION_COMPOSITOR_PID";
+
+/// The variable naming the session's process group, given by
+/// `cargo xtask compositor-tests` to a test runner that ends the session
+/// by signalling that group (and so runs outside it).
+pub const SESSION_GROUP_VARIABLE: &str = "DESKRINCH_TEST_SESSION_GROUP";
 
 /// The variable naming the session's bus: D-Bus's own.
 pub const BUS_VARIABLE: &str = "DBUS_SESSION_BUS_ADDRESS";

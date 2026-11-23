@@ -18,7 +18,7 @@ use crate::support::{Compositor, Watcher, unique_app_id};
 use deskrinch_test_client::TestClient;
 
 /// The variable `cargo xtask compositor-tests` names the session's group in.
-const GROUP_VARIABLE: &str = "DESKRINCH_TEST_SESSION_GROUP";
+use deskrinch_test_session::SESSION_GROUP_VARIABLE as GROUP_VARIABLE;
 
 /// The process group named in the environment, if it is safe to end: it is
 /// above 1, is not `own` (the test's group), and is `compositor`'s (the group

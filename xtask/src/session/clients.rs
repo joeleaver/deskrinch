@@ -9,7 +9,7 @@ use std::time::Instant;
 
 use deskrinch_test_dbus::session::isolate;
 
-use deskrinch_test_session::{COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE};
+use deskrinch_test_session::{COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE, SESSION_GROUP_VARIABLE};
 
 use super::{COMPOSITOR_PID, CURRENT_DESKTOP, Session, interrupt};
 use crate::error::Error;
@@ -39,7 +39,7 @@ impl Session {
             .args(filter)
             .envs(env.iter().map(|(name, value)| (name, value)))
             .env(
-                "DESKRINCH_TEST_SESSION_GROUP",
+                SESSION_GROUP_VARIABLE,
                 self.group.as_raw_nonzero().to_string(),
             );
         let status =
