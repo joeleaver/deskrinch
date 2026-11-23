@@ -229,6 +229,16 @@ jobs:
           cargo xtask measure --compositor kwin --runs 1 --settle 2 --idle 2 \
             --windows 1 --instructions --renderer software \
             --expect-renderer software "$panel"
+      - name: The scheduler's figures measure's quiet window reads, under ${{ matrix.compositor }}
+        # Printed (--nocapture) for each runner: a stand-in's, the
+        # compositor's and the bus's schedstat and thread states, idle and
+        # starved.
+        if: >-
+          ${{ !cancelled() && steps.packages.outcome == 'success'
+          && (matrix.compositor != 'kwin' || steps.drm.outcome == 'success') }}
+        run: cargo test -p xtask --test quiet_figures --locked -- --ignored --nocapture
+        env:
+          DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
       - name: Test cargo xtask session and measure under ${{ matrix.compositor }}
         # It runs after a failure in the compositor tests too, which must not
         # hide what it would show; and each binary runs whatever fails before
@@ -236,7 +246,7 @@ jobs:
         if: >-
           ${{ !cancelled() && steps.packages.outcome == 'success'
           && (matrix.compositor != 'kwin' || steps.drm.outcome == 'success') }}
-        run: cargo test -p xtask --test session --test session_sizes --test measure --test measure_windows --test measure_callgrind --test measure_typing --test measure_prepares --test measure_pointer --test measure_start_ends --test measure_command_steps --locked --no-fail-fast -- --ignored
+        run: cargo test -p xtask --test session --test session_sizes --test measure --test measure_windows --test measure_callgrind --test measure_typing --test measure_prepares --test measure_pointer --test measure_start_ends --test measure_command_steps --test measure_quiet --test measure_busy_compositor --locked --no-fail-fast -- --ignored
         env:
           DESKRINCH_SESSION_TEST_COMPOSITOR: ${{ matrix.compositor }}
 

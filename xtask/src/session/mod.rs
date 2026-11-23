@@ -298,6 +298,16 @@ impl Session {
         matches!(self.child.try_wait(), Ok(None))
     }
 
+    /// The compositor's process id.
+    pub(crate) fn compositor_pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// The session's bus daemon's process id.
+    pub(crate) fn bus_pid(&self) -> u32 {
+        self.bus.daemon_pid()
+    }
+
     /// The compositor's output so far.
     pub(crate) fn log(&self) -> CompositorLog {
         CompositorLog::new(fs::read_to_string(self.root.join("compositor.log")).unwrap_or_default())

@@ -1,7 +1,8 @@
 //! The hidden subcommands that act on a compositor refuse outside a nested
 //! session, before they start or connect to anything: run there, they
-//! would end the real desktop's compositor (`in-session`), or type into
-//! and point at the real desktop (`input`). `systemd-scope-tests` refuses
+//! would end the real desktop's compositor (`in-session`), type into and
+//! point at the real desktop (`input`), or open and close hundreds of
+//! windows on it (`busy-compositor`). `systemd-scope-tests` refuses
 //! off a CI runner: run there, it would start a unit in the user's own
 //! systemd. Plain `cargo test` runs these, anywhere: what they run only
 //! refuses, and would reach nothing if it did not
@@ -70,6 +71,33 @@ mod refusals {
             "{:?}",
             String::from_utf8_lossy(&ran.stdout)
         );
+    }
+
+    /// Without its refusal it would open windows on whatever display it
+    /// found; [`outside`] leaves it none, so it would fail to connect.
+    #[test]
+    fn busy_compositor_refuses_and_connects_to_nothing() {
+        let dir = tempfile::tempdir().unwrap();
+        let done = dir.path().join("done");
+        let ran = outside_a_session(&[
+            "busy-compositor",
+            "--rounds",
+            "400",
+            "--done",
+            done.to_str().unwrap(),
+            "--within",
+            "60",
+        ]);
+        let said = String::from_utf8_lossy(&ran.stderr);
+        assert!(!ran.status.success(), "it did not fail; it said:\n{said}");
+        assert!(
+            said.contains(
+                "`cargo xtask busy-compositor` runs only in a nested session xtask started, as \
+                 outside one it would load the real desktop: not inside an isolated session"
+            ),
+            "it did not refuse; it said:\n{said}"
+        );
+        assert!(!done.exists(), "it wrote that the compositor was done");
     }
 
     /// Off a CI runner (the CI variable removed, so that this holds on CI
