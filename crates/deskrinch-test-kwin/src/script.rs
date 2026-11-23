@@ -12,10 +12,11 @@ use std::io::Write as _;
 use zbus::Connection;
 
 use crate::Error;
+use crate::guard::InKwinSession;
 use crate::window::{FLAGS, PROPERTIES, SKIPS};
 
 /// The interface the script reports to.
-pub const INTERFACE: &str = "org.deskrinch.TestKwin";
+pub(crate) const INTERFACE: &str = "org.deskrinch.TestKwin";
 
 /// KWin's name on the bus.
 const KWIN: &str = "org.kde.KWin";
@@ -29,7 +30,7 @@ const SCRIPT: &str = "org.kde.kwin.Script";
 /// The script, reporting to the bus name `service`: each window's record
 /// holds the properties [`Window`](crate::Window) reads, by KWin's names.
 #[must_use]
-pub fn source(service: &str) -> String {
+pub(crate) fn source(service: &str) -> String {
     let properties = PROPERTIES
         .into_iter()
         .chain(FLAGS.map(|(name, _)| name))
@@ -69,7 +70,7 @@ report("Done", String(windows.length));
 /// plugin name, unique to the process and the call, keeps it from clashing
 /// with a later load in the same session.
 #[derive(Debug)]
-pub struct Loaded {
+pub(crate) struct Loaded {
     connection: Connection,
     plugin: String,
     /// The script's file, which KWin reads when it loads it.
@@ -78,13 +79,18 @@ pub struct Loaded {
 
 impl Loaded {
     /// Writes `source` to a file, loads it into KWin under `plugin`, and
-    /// runs it.
+    /// runs it, in the session `_proof` checked.
     ///
     /// # Errors
     ///
     /// [`Error::File`] when the file cannot be written; [`Error::Bus`] when
     /// KWin cannot be asked; [`Error::NotLoaded`] when it will not load it.
-    pub async fn run(connection: &Connection, plugin: &str, source: &str) -> Result<Self, Error> {
+    pub(crate) async fn run(
+        _proof: &InKwinSession,
+        connection: &Connection,
+        plugin: &str,
+        source: &str,
+    ) -> Result<Self, Error> {
         let mut file = tempfile::Builder::new()
             .prefix("deskrinch-test-kwin-")
             .suffix(".js")

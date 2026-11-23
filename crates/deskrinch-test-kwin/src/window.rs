@@ -50,28 +50,28 @@ pub enum WindowType {
 }
 
 impl WindowType {
-    /// The type KWin numbers `number` (`NET::WindowType`, which KWin's
-    /// `windowType` property gives).
+    /// The type KWin numbers `number` (its `windowType` property).
+    ///
+    /// Only the numbers a window has shown are named: each read on KWin
+    /// 6.6.7 against the type's own flag, by the compositor tests' table.
+    /// KWin's other types (toolbar, menu, drop-down and pop-up menu, combo
+    /// box, drag-and-drop icon, applet pop-up) are produced by no layer
+    /// surface's namespace, and no header that numbers them is installed
+    /// here, so their numbers are [`Other`](Self::Other) until a window
+    /// shows one; their flags are still read, by name.
     #[must_use]
     pub fn from_kwin(number: i64) -> Self {
         match number {
             0 => Self::Normal,
             1 => Self::Desktop,
             2 => Self::Dock,
-            3 => Self::Toolbar,
-            4 => Self::Menu,
             5 => Self::Dialog,
             8 => Self::Utility,
             9 => Self::Splash,
-            10 => Self::DropdownMenu,
-            11 => Self::PopupMenu,
             12 => Self::Tooltip,
             13 => Self::Notification,
-            14 => Self::ComboBox,
-            15 => Self::DndIcon,
             16 => Self::OnScreenDisplay,
             17 => Self::CriticalNotification,
-            18 => Self::AppletPopup,
             other => Self::Other(other),
         }
     }

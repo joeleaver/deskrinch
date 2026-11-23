@@ -1,7 +1,8 @@
 //! KWin's support information (`supportInformation` on `/KWin`, the text
 //! Plasma's "Copy support information" shows): its version.
 
-use crate::{Error, guard};
+use crate::Error;
+use crate::guard::{self, InKwinSession};
 
 /// The line of the support information that names KWin's version.
 const VERSION_LINE: &str = "KWin version: ";
@@ -18,9 +19,9 @@ pub fn version() -> Result<String, Error> {
 }
 
 /// [`version`], once the session's check has passed.
-fn ask() -> Result<String, Error> {
+fn ask(proof: &InKwinSession) -> Result<String, Error> {
     let information = zbus::block_on(async {
-        let connection = zbus::Connection::session().await?;
+        let connection = guard::session_bus(proof).build().await?;
         let reply = connection
             .call_method(
                 Some("org.kde.KWin"),

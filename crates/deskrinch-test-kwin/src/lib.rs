@@ -10,7 +10,7 @@
 //! every window KWin has, the facts as KWin holds them ([`Window`]). The
 //! script reports through `callDBus`, one call a window and a final call,
 //! to an object this process serves under a name of its own on the same
-//! bus, and is unloaded afterwards ([`script`]).
+//! bus, and is unloaded afterwards.
 //!
 //! # Only inside an isolated session
 //!
@@ -22,7 +22,8 @@
 //! with KWin as its compositor ([`deskrinch_test_session::check`]), and
 //! refuses, with [`Error::NotIsolated`] or [`Error::NotKwin`], before it
 //! makes any connection: `cargo xtask session kwin` and
-//! `cargo xtask compositor-tests kwin` run it.
+//! `cargo xtask compositor-tests kwin` run it. The check is a matter of
+//! types: only it makes the proof that everything touching a bus takes.
 //!
 //! # Telling windows apart
 //!
@@ -37,7 +38,7 @@
 mod error;
 mod guard;
 mod read;
-pub mod script;
+mod script;
 mod support;
 mod window;
 #[cfg(test)]

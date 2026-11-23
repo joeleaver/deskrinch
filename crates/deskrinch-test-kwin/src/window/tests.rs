@@ -54,7 +54,13 @@ fn kwin_s_numbers_name_its_types() {
     ] {
         assert_eq!(WindowType::from_kwin(number), kind, "{number}");
     }
-    assert_eq!(WindowType::from_kwin(6), WindowType::Other(6));
+    // The numbers no window has shown.
+    for unobserved in [3, 4, 6, 7, 10, 11, 14, 15, 18] {
+        assert_eq!(
+            WindowType::from_kwin(unobserved),
+            WindowType::Other(unobserved)
+        );
+    }
     assert_eq!(WindowType::from_kwin(-1), WindowType::Other(-1));
 }
 

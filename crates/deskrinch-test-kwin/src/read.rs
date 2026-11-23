@@ -7,8 +7,9 @@ use std::time::{Duration, Instant};
 
 use deskrinch_test_wait::PATIENCE;
 
+use crate::guard::{self, InKwinSession};
 use crate::script::{self, INTERFACE, Loaded};
-use crate::{Error, Window, guard};
+use crate::{Error, Window};
 
 /// What the script said.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,7 +53,7 @@ pub fn windows() -> Result<Vec<Window>, Error> {
 }
 
 /// [`windows`], once the session's check has passed.
-fn ask() -> Result<Vec<Window>, Error> {
+fn ask(proof: &InKwinSession) -> Result<Vec<Window>, Error> {
     static CALLS: AtomicUsize = AtomicUsize::new(0);
     let call = CALLS.fetch_add(1, Ordering::SeqCst);
     let pid = std::process::id();
@@ -60,12 +61,12 @@ fn ask() -> Result<Vec<Window>, Error> {
     let plugin = format!("deskrinch-test-kwin-{pid}-{call}");
     let (to, from) = channel();
     let records = zbus::block_on(async {
-        let connection = zbus::connection::Builder::session()
+        let connection = guard::session_bus(proof)
             .name(service.as_str())
             .serve_at("/", Reports { to })
             .build()
             .await?;
-        Loaded::run(&connection, &plugin, &script::source(&service)).await
+        Loaded::run(proof, &connection, &plugin, &script::source(&service)).await
     })
     .and_then(|loaded| {
         let records = collect(&from, PATIENCE);
