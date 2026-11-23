@@ -1362,6 +1362,7 @@ dependencies = [
 name = "deskrinch-untrusted"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "libc",
  "proptest",
  "rustix",

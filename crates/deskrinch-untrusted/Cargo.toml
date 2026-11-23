@@ -14,6 +14,12 @@ publish.workspace = true
 proptest = ["dep:proptest"]
 
 [dependencies]
+# `zeroed_pixels` takes its zeroed shared buffer from bytemuck's
+# `zeroed_arc_slice`, which `alloc_uninit` offers. With bytemuck 1.25.2,
+# `alloc_uninit` does not compile without `zeroable_maybe_uninit` (the
+# function needs `Zeroable` for `MaybeUninit`, which that feature gives),
+# so it is named too.
+bytemuck = { workspace = true, features = ["extern_crate_alloc", "alloc_uninit", "zeroable_maybe_uninit"] }
 libc.workspace = true
 proptest = { workspace = true, optional = true }
 thiserror.workspace = true

@@ -28,9 +28,18 @@ pub struct Image {
 /// `Vec` copied into an `Arc`): what [`Image::filled`] and a decoder that
 /// writes into a buffer the size of its result start from. While it is not
 /// yet shared, `Arc::make_mut` lends it out to be written in place.
+///
+/// It is bytemuck's `zeroed_arc_slice` (one `memset` into a fresh
+/// allocation), not `repeat_n(0, len).collect()`: in a release build the
+/// two are the same instructions, but unoptimised the iterator writes byte
+/// by byte, and in a dev build that was 46% of a 5120 × 2880 PNG's decode
+/// (11.72 G instructions with it, 5.00 G without; a 3840 × 2160 one, 6.81 G
+/// and 3.03 G). The standard library's `Arc::new_zeroed_slice` would ask
+/// for pages already zeroed, but needs an `unsafe` `assume_init` here, and
+/// saved 0.7% of a release decode, inside the noise.
 #[must_use]
 pub fn zeroed_pixels(len: usize) -> Arc<[u8]> {
-    std::iter::repeat_n(0, len).collect()
+    bytemuck::allocation::zeroed_arc_slice(len)
 }
 
 /// What a shared buffer of pixels costs besides its bytes: the two
@@ -180,6 +189,24 @@ mod tests {
         let copy = image.clone();
         assert!(std::ptr::eq(copy.rgba().as_ptr(), image.rgba().as_ptr()));
         assert_eq!(Image::filled(0, 1, |_| panic!("not called")), None);
+    }
+
+    /// Zeroed, of the length asked, and owned by one `Arc` alone, so that
+    /// `Arc::make_mut` lends it to be written in place rather than copying
+    /// it.
+    #[test]
+    fn zeroed_pixels_are_zero_and_written_in_place() {
+        for len in [0, 1, 4, 1 << 20] {
+            let mut pixels = zeroed_pixels(len);
+            assert_eq!(pixels.len(), len);
+            assert!(pixels.iter().all(|&b| b == 0), "{len} bytes");
+            let before = pixels.as_ptr();
+            let lent = Arc::make_mut(&mut pixels);
+            assert!(
+                std::ptr::eq(lent.as_ptr(), before),
+                "{len} bytes lent, not copied"
+            );
+        }
     }
 
     #[test]
