@@ -59,7 +59,15 @@ struct GroupEntry {
 #[derive(Debug, Default)]
 pub(crate) struct WorkspaceList {
     next: u64,
+    /// The order as staged: changed at once by additions, removals and
+    /// moves, ahead of the commit that delivers them.
     order: Vec<WorkspaceId>,
+    /// The order as last delivered: [`order`](Self::order) as it was at
+    /// the last commit (a workspace not yet described whole is in it, and
+    /// not listed until it is delivered). What
+    /// [`snapshot`](Self::snapshot) lists, so that a batch's removals and
+    /// moves are listed with the rest of the batch, at its end.
+    delivered_order: Vec<WorkspaceId>,
     entries: HashMap<WorkspaceId, Entry>,
     groups: BTreeMap<GroupId, GroupEntry>,
 }
@@ -196,7 +204,11 @@ impl WorkspaceList {
         self.order.insert(index.min(self.order.len()), id);
     }
 
-    /// The workspaces in order, without those whose removal is staged.
+    /// The order as staged: the workspaces in order, without those whose
+    /// removal is staged, and with those added or moved since the last
+    /// commit where they now are. What a batch is built from (KWin's grid
+    /// of coordinates); what has been delivered is
+    /// [`snapshot`](Self::snapshot)'s.
     pub(crate) fn order(&self) -> &[WorkspaceId] {
         &self.order
     }
@@ -248,6 +260,7 @@ impl WorkspaceList {
                 events.push(Event::GroupRemoved(id));
             }
         }
+        self.delivered_order.clone_from(&self.order);
         events
     }
 
@@ -278,9 +291,11 @@ impl WorkspaceList {
         events
     }
 
-    /// The workspaces as last delivered, in order.
+    /// The workspaces as last delivered, in the order last delivered:
+    /// nothing of a batch is listed before its commit, its removals and
+    /// moves no more than its changes.
     pub(crate) fn snapshot(&self) -> Vec<Workspace> {
-        self.order
+        self.delivered_order
             .iter()
             .filter_map(|id| self.entries.get(id)?.delivered.clone())
             .collect()
@@ -302,179 +317,12 @@ impl WorkspaceList {
     /// Forgets everything.
     pub(crate) fn clear(&mut self) {
         self.order.clear();
+        self.delivered_order.clear();
         self.entries.clear();
         self.groups.clear();
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn names(events: &[Event]) -> Vec<String> {
-        events
-            .iter()
-            .map(|event| match event {
-                Event::Added(workspace) => format!("added {}", workspace.name),
-                Event::Changed(workspace) => format!("changed {}", workspace.name),
-                Event::Removed(id) => format!("removed {}", id.0),
-                Event::GroupChanged(group) => format!("group {}", group.outputs.len()),
-                Event::GroupRemoved(id) => format!("group removed {}", id.0),
-                Event::Ended(_) => "ended".to_owned(),
-            })
-            .collect()
-    }
-
-    #[test]
-    fn a_batch_is_delivered_whole_and_only_once() {
-        let mut list = WorkspaceList::default();
-        let one = list.add().unwrap();
-        let two = list.add().unwrap();
-        list.stage(one, Change::Name("One".into()));
-        list.stage(one, Change::State(WorkspaceState::ACTIVE));
-        list.stage(two, Change::Name("Two".into()));
-        assert!(list.snapshot().is_empty(), "nothing before the commit");
-        assert_eq!(names(&list.commit()), ["added One", "added Two"]);
-        assert!(list.commit().is_empty(), "nothing changed since");
-        list.stage(one, Change::State(WorkspaceState::empty()));
-        list.stage(two, Change::State(WorkspaceState::ACTIVE));
-        assert_eq!(names(&list.commit()), ["changed One", "changed Two"]);
-        assert_eq!(list.get(two).unwrap().state, WorkspaceState::ACTIVE);
-    }
-
-    #[test]
-    fn removals_follow_changes_and_unannounced_ones_are_silent() {
-        let mut list = WorkspaceList::default();
-        let kept = list.add().unwrap();
-        let gone = list.add().unwrap();
-        list.stage(kept, Change::Name("Kept".into()));
-        list.commit();
-        list.remove(gone);
-        list.stage(kept, Change::Name("Renamed".into()));
-        let brief = list.add().unwrap();
-        list.remove(brief);
-        let events = names(&list.commit());
-        assert_eq!(
-            events,
-            ["changed Renamed", format!("removed {}", gone.0).as_str()]
-        );
-        assert_eq!(list.order(), [kept]);
-    }
-
-    #[test]
-    fn groups_come_first_and_their_removal_last() {
-        let mut list = WorkspaceList::default();
-        let group = list.add_group().unwrap();
-        let workspace = list.add().unwrap();
-        list.stage_outputs(group, BTreeSet::from(["HEADLESS-1".to_owned()]));
-        list.stage(workspace, Change::Group(Some(group)));
-        assert_eq!(names(&list.commit()), ["group 1", "added "]);
-        assert_eq!(list.get(workspace).unwrap().group, Some(group));
-        list.remove_group(group);
-        let events = names(&list.commit());
-        assert_eq!(
-            events,
-            ["changed ", format!("group removed {}", group.0).as_str()]
-        );
-        assert_eq!(list.get(workspace).unwrap().group, None);
-        assert_eq!(list.groups(), []);
-    }
-
-    #[test]
-    fn an_outputs_only_delivery_leaves_the_batch_for_its_commit() {
-        let mut list = WorkspaceList::default();
-        let group = list.add_group().unwrap();
-        let workspace = list.add().unwrap();
-        list.stage_outputs(group, BTreeSet::from(["HEADLESS-1".to_owned()]));
-        list.stage(workspace, Change::Name("One".into()));
-        list.stage(workspace, Change::Group(Some(group)));
-        list.commit();
-        // A batch is open: a workspace changes and another appears, and a
-        // new group too, when an output is renamed.
-        list.stage(workspace, Change::Name("Renamed".into()));
-        list.stage(workspace, Change::Group(None));
-        let added = list.add().unwrap();
-        list.stage(added, Change::Name("Two".into()));
-        let new_group = list.add_group().unwrap();
-        list.stage_outputs(group, BTreeSet::from(["HEADLESS-9".to_owned()]));
-        let events = list.commit_groups();
-        assert_eq!(names(&events), ["group 1"], "the group alone");
-        assert!(
-            matches!(&events[0], Event::GroupChanged(changed) if changed.id == group),
-            "{events:?}"
-        );
-        assert_eq!(list.get(workspace).unwrap().name, "One");
-        assert_eq!(list.get(workspace).unwrap().group, Some(group));
-        assert_eq!(list.get(added), None);
-        assert!(list.commit_groups().is_empty(), "delivered once");
-        // The batch's end brings everything it staged.
-        assert_eq!(
-            names(&list.commit()),
-            ["group 0", "changed Renamed", "added Two"]
-        );
-        assert_eq!(list.get(workspace).unwrap().group, None);
-        assert!(list.groups().iter().any(|listed| listed.id == new_group));
-    }
-
-    #[test]
-    fn a_workspace_waits_until_it_is_described_whole() {
-        let mut list = WorkspaceList::default();
-        let id = list.add_unready().unwrap();
-        list.stage(id, Change::State(WorkspaceState::ACTIVE));
-        assert!(list.commit().is_empty(), "not before it is ready");
-        assert_eq!(list.snapshot(), []);
-        list.stage(id, Change::Name("Named".into()));
-        list.ready(id);
-        assert_eq!(names(&list.commit()), ["added Named"]);
-        let gone = list.add_unready().unwrap();
-        list.remove(gone);
-        assert!(list.commit().is_empty(), "never delivered, never removed");
-    }
-
-    #[test]
-    fn a_group_that_is_not_listed_is_not_joined() {
-        let mut list = WorkspaceList::default();
-        let workspace = list.add().unwrap();
-        list.stage(workspace, Change::Group(Some(GroupId(999))));
-        list.commit();
-        assert_eq!(list.get(workspace).unwrap().group, None);
-    }
-
-    #[test]
-    fn what_the_compositor_sends_is_bounded() {
-        let mut list = WorkspaceList::default();
-        let id = list.add().unwrap();
-        let long = "x".repeat(MAX_NAME_BYTES * 4);
-        list.stage(id, Change::Name(format!("a\u{7}b\nc{long}")));
-        list.stage(id, Change::Coordinates(vec![1; MAX_DIMENSIONS + 1]));
-        list.commit();
-        let workspace = list.get(id).unwrap();
-        assert!(workspace.name.starts_with("ab c"));
-        assert!(workspace.name.len() <= MAX_NAME_BYTES);
-        assert_eq!(workspace.coordinates, Vec::<u32>::new());
-        list.stage(id, Change::Coordinates(vec![2, 3]));
-        list.commit();
-        assert_eq!(list.get(id).unwrap().coordinates, [2, 3]);
-
-        for _ in 1..MAX_WORKSPACES {
-            assert!(list.add().is_some());
-        }
-        assert_eq!(list.add(), None, "no more than MAX_WORKSPACES");
-        for _ in 0..MAX_GROUPS {
-            assert!(list.add_group().is_some());
-        }
-        assert_eq!(list.add_group(), None, "no more than MAX_GROUPS");
-    }
-
-    #[test]
-    fn order_moves_are_clamped() {
-        let mut list = WorkspaceList::default();
-        let a = list.add().unwrap();
-        let b = list.add().unwrap();
-        let c = list.add().unwrap();
-        list.move_to(c, 0);
-        assert_eq!(list.order(), [c, a, b]);
-        list.move_to(c, 99);
-        assert_eq!(list.order(), [a, b, c]);
-    }
-}
+#[path = "model_tests.rs"]
+mod tests;
