@@ -13,9 +13,6 @@
 mod in_session;
 
 #[cfg(test)]
-mod outside;
-
-#[cfg(test)]
 mod asked {
     use deskrinch_shell::exit_status::asked_to_stop_line;
     use deskrinch_shell::{NOTIFICATIONS, Ready};

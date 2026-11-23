@@ -1245,6 +1245,8 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-client",
+ "deskrinch-test-dbus",
+ "deskrinch-test-session",
  "zbus 6.2.1",
 ]
 

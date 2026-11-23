@@ -15,10 +15,9 @@ use std::fs;
 use std::process::{Child, Command, ExitStatus, Stdio};
 
 use deskrinch_test_component::programs::program;
+use deskrinch_test_dbus::session::outside;
 use deskrinch_test_session::COMPOSITOR_VARIABLE;
 use deskrinch_test_wait::{Deadline, PATIENCE};
-
-use crate::outside::outside;
 
 /// How the component ended.
 #[derive(Debug)]
@@ -122,7 +121,7 @@ fn every_wait_and_action_is_one_the_subcommand_takes() {
                 .args(["--then", then.argument()])
                 .arg("/bin/true")
                 .stdin(Stdio::null());
-            let _root = outside(&mut in_session);
+            let _root = outside(&mut in_session).unwrap();
             let ran = in_session.output().unwrap();
             let said = String::from_utf8_lossy(&ran.stderr);
             assert!(

@@ -38,11 +38,23 @@ fn require_kwin(nested: Result<Compositor, NotNested>) {
     );
 }
 
+/// The session's bus, once the session's own check says the process runs
+/// in a nested KWin.
 fn connection() -> zbus::Connection {
-    require_kwin(Compositor::in_session());
-    zbus::block_on(Bus::Session.connect()).unwrap_or_else(|error| {
-        panic!("the session bus: {error}");
+    checked(Compositor::in_session(), || {
+        zbus::block_on(Bus::Session.connect()).unwrap_or_else(|error| {
+            panic!("the session bus: {error}");
+        })
     })
+}
+
+/// What `connect` gives, called only once `nested` is a nested KWin
+/// ([`require_kwin`] refuses anything else before it): the check and the
+/// connector are passed in, so that the refusal is tested with a connector
+/// that must not be called and no bus anywhere.
+fn checked<C>(nested: Result<Compositor, NotNested>, connect: impl FnOnce() -> C) -> C {
+    require_kwin(nested);
+    connect()
 }
 
 fn get(property: &str) -> OwnedVariant {
