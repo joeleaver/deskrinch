@@ -176,22 +176,50 @@ multiple_unsafe_ops_per_block = "warn"
 clone_on_ref_ptr = "warn"
 
 # Crates whose work is per-pixel arithmetic are optimised in dev builds, so
-# that tests do not spend their time in unoptimised loops: each one is named
-# here, with what it converts and what that saved when it was added. A crate
-# whose tests compare pictures but whose program is itself under test stays
-# unoptimised, so that the tests run the program as it is built.
+# that tests and dev runs do not spend their time in unoptimised loops. Each
+# is named here with what it does, what the override saved, what it costs to
+# build, and the date.
+#
+# - An override sets `opt-level` and nothing else: debug assertions and
+#   overflow checks stay on in the crate, as in the rest of the dev build.
+#   Shown for fast_image_resize on 2026-11-23: built with
+#   `-C opt-level=3 -C debug-assertions=on` (rustc ties overflow checks to
+#   debug assertions), it still panics with "attempt to subtract with
+#   overflow" at resizer.rs:436 when given both axes of a 4 x 1 picture
+#   covering 27 x 26 at once, as it does unoptimised.
+# - A dependency is named when a profile shows the time is in its own code,
+#   which our crate's level cannot reach: generic code is compiled at the
+#   level of the crate that instantiates it, the dependency's own functions
+#   at the dependency's.
+# - A code fix comes before an override where one removes the cost. So the
+#   decode path has none: deskrinch-untrusted's zeroed buffer was 46% of a
+#   5120 x 2880 PNG decode in a dev build, a byte-by-byte loop; written as
+#   one memset, the decode went from 11.72 G to 5.00 G instructions, and
+#   what is left (png's unfiltering, the widening to RGBA) measured the same
+#   optimised or not, within noise.
 #
 # The screen capture's pixel conversion: a capture went from 21.7 to 9.2 ms
-# under KWin and from 14.7 to 7.6 ms under sway (2026-11-17). KWin's
-# premultiplied pixels are unpremultiplied in deskrinch-test-wayland's
-# `Rgba`, so both crates or neither.
+# under KWin and from 14.7 to 7.6 ms under sway (2026-11-17); the build cost
+# was not measured then. KWin's premultiplied pixels are unpremultiplied in
+# deskrinch-test-wayland's `Rgba`, so both crates or neither.
 [profile.dev.package.deskrinch-test-screen]
 opt-level = 3
 
 [profile.dev.package.deskrinch-test-wayland]
 opt-level = 3
 
-# Measured in #163, not decided: deskrinch-picture's decoding and
-# resampling optimised in dev builds, for the wallpaper's suite.
+# The wallpaper's resampling, deskrinch-picture's `fit` (2026-11-23). One
+# compositor job's 17 fits (the wallpaper suite's, counted) took 20 to 29 s
+# of CPU unoptimised, about 9 s with deskrinch-picture alone at 3, and under
+# 1 s with fast_image_resize too. A 5120 x 2880 fit, profiled unoptimised,
+# was 93% fast_image_resize's own code (its sRGB mapper 42%, its
+# convolution kernels 51%), which deskrinch-picture's level does not reach.
+# The cost, once per build cache, nothing on an exact hit: deskrinch-picture
+# builds in about 60 s of CPU at 3 where it took 3.5 s, fast_image_resize
+# about 7 s more; so a change to deskrinch-picture costs a developer about
+# a minute of CPU to rebuild.
 [profile.dev.package.deskrinch-picture]
+opt-level = 3
+
+[profile.dev.package.fast_image_resize]
 opt-level = 3
