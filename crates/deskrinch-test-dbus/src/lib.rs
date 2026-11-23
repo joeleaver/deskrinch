@@ -15,11 +15,18 @@
 //! own with [`config_with_services`] or [`PrivateBus::start_with_services`].
 //! The services the bus starts are the daemon's children: they run in its
 //! isolated session and its process group, and end with it.
+//!
+//! [`OurBus`] is the proof that a session bus is ours, and the only maker of
+//! a connection to one in test code: a test's own session's
+//! ([`OurBus::here`]), a session it started ([`OurBus::at`]), or a private
+//! bus it runs ([`PrivateBus::ours`]).
 
 mod name;
+mod ours;
 pub mod session;
 
 pub use name::NameError;
+pub use ours::{NotOurs, OurBus};
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead as _, BufReader};
@@ -195,6 +202,13 @@ impl PrivateBus {
         &self.address
     }
 
+    /// The proof that this bus is ours, to connect to it with: it made the
+    /// address.
+    #[must_use]
+    pub fn ours(&self) -> OurBus {
+        OurBus::proved(self.address.clone())
+    }
+
     /// The root of the bus's isolated session (its home and XDG directories
     /// are [`session::SESSION_DIRS`] under it).
     #[must_use]
@@ -305,6 +319,18 @@ mod tests {
             "{}",
             bus.address()
         );
+    }
+
+    /// The bus's own proof is for its address, which `at` would take too,
+    /// and connects to it.
+    #[test]
+    fn a_private_bus_s_own_proof_connects_to_it() {
+        let bus = PrivateBus::start().unwrap();
+        let ours = bus.ours();
+        assert_eq!(ours.address(), bus.address());
+        assert_eq!(OurBus::at(bus.address()), Ok(ours.clone()));
+        let connection = zbus::block_on(ours.connect()).unwrap();
+        assert!(connection.unique_name().is_some());
     }
 
     #[test]

@@ -9,6 +9,8 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+# The proof that a bus is ours, the only maker of a connection to one.
+deskrinch-test-dbus.workspace = true
 # Whether this process runs inside an isolated session, before any bus.
 deskrinch-test-session.workspace = true
 # How long the script's report may take: the tests' one patience.
@@ -26,8 +28,6 @@ zbus = { workspace = true, features = ["default-rt", "service"] }
 [dev-dependencies]
 # The windows the compositor tests make.
 deskrinch-test-client.workspace = true
-# The refusal's wiring tested in a child outside any session.
-deskrinch-test-dbus.workspace = true
 
 # The compositor tests run inside a nested KWin that `cargo xtask
 # compositor-tests` starts; they are ignored by a plain `cargo test`.
