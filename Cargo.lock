@@ -4152,7 +4152,7 @@ dependencies = [
 [[package]]
 name = "rinch"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "base64",
  "bytemuck",
@@ -4201,7 +4201,7 @@ dependencies = [
 [[package]]
 name = "rinch-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "thiserror 1.0.69",
  "tracing",
@@ -4211,7 +4211,7 @@ dependencies = [
 [[package]]
 name = "rinch-debug"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "getrandom 0.3.4",
  "libc",
@@ -4223,7 +4223,7 @@ dependencies = [
 [[package]]
 name = "rinch-dom"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -4268,7 +4268,7 @@ dependencies = [
 [[package]]
 name = "rinch-editable"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "rinch-words",
 ]
@@ -4276,7 +4276,7 @@ dependencies = [
 [[package]]
 name = "rinch-editor-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "regex",
  "rinch-core",
@@ -4287,17 +4287,16 @@ dependencies = [
 [[package]]
 name = "rinch-editor-view"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "rinch-core",
  "rinch-editor-core",
- "web-time",
 ]
 
 [[package]]
 name = "rinch-macros"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4307,7 +4306,7 @@ dependencies = [
 [[package]]
 name = "rinch-platform"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "peniko",
  "vello",
@@ -4317,7 +4316,7 @@ dependencies = [
 [[package]]
 name = "rinch-renderer"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "rinch-core",
  "thiserror 1.0.69",
@@ -4329,12 +4328,12 @@ dependencies = [
 [[package]]
 name = "rinch-theme"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 
 [[package]]
 name = "rinch-words"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "icu_segmenter",
  "regex",
