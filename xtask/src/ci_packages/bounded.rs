@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::{self, JoinHandle};
 use std::time::Duration;
 
+use deskrinch_test_session::ci::OnARunner;
+
 use super::classify::Ended;
 use crate::error::Error;
 
@@ -39,8 +41,8 @@ fn command_line(program: &str, args: &[String], limit: Duration) -> Vec<String> 
 /// Whom a command runs as.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(super) enum User {
-    /// root, through `sudo`.
-    Root,
+    /// root, through `sudo`: only on a CI runner, so only with the proof.
+    Root(OnARunner),
     /// The job's own user.
     Job,
 }
@@ -56,7 +58,7 @@ pub(super) fn run(
 ) -> Result<(Ended, String), Error> {
     let line = command_line(program, args, limit);
     let mut command = match user {
-        User::Root => {
+        User::Root(_) => {
             let mut sudo = Command::new("sudo");
             sudo.args(&line);
             sudo
@@ -74,7 +76,7 @@ pub(super) fn run(
         .spawn()
         .map_err(|source| Error::Spawn {
             program: match user {
-                User::Root => format!("sudo {program}"),
+                User::Root(_) => format!("sudo {program}"),
                 User::Job => format!("timeout {program}"),
             },
             source,
@@ -129,6 +131,8 @@ mod tests {
     use std::os::unix::process::ExitStatusExt as _;
     use std::time::Instant;
 
+    use deskrinch_test_session::ci::Ci;
+
     use super::*;
 
     #[test]
@@ -167,14 +171,18 @@ mod tests {
     /// --workspace`); elsewhere it returns at once.
     #[test]
     fn a_root_command_past_its_limit_is_stopped() {
-        if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true") {
-            return;
-        }
+        let runner = match Ci::read().only_on_a_runner() {
+            Ok(runner) => runner,
+            Err(why) => {
+                eprintln!("skipped: sudo for real {why}");
+                return;
+            }
+        };
         // A duration no other process uses, to find it by.
         let marker = "600.4242";
         let start = Instant::now();
         let (ended, _) = run(
-            User::Root,
+            User::Root(runner),
             "sleep",
             &[marker.to_owned()],
             Duration::from_secs(2),
@@ -221,11 +229,15 @@ mod tests {
 
     #[test]
     fn a_root_command_within_its_limit_reports_its_status() {
-        if std::env::var("GITHUB_ACTIONS").as_deref() != Ok("true") {
-            return;
-        }
+        let runner = match Ci::read().only_on_a_runner() {
+            Ok(runner) => runner,
+            Err(why) => {
+                eprintln!("skipped: sudo for real {why}");
+                return;
+            }
+        };
         let (ended, output) = run(
-            User::Root,
+            User::Root(runner),
             "sh",
             &["-c".to_owned(), "echo hello; exit 3".to_owned()],
             Duration::from_mins(1),

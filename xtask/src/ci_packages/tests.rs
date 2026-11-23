@@ -1,11 +1,21 @@
+use deskrinch_test_session::ci::Ci;
+
 use super::*;
 
 #[test]
 fn refuses_outside_ci() {
     for value in [None, Some(""), Some("false"), Some("1"), Some("TRUE")] {
-        assert!(matches!(on_ci(value), Err(Error::NotInCi)), "{value:?}");
+        let ci = Ci::from_value(value.map(std::ffi::OsStr::new));
+        let refused = on_ci(&ci).unwrap_err().to_string();
+        assert!(
+            refused.starts_with(
+                "cargo xtask ci-packages (which installs system packages) runs only on a CI runner"
+            ),
+            "{value:?}: {refused}"
+        );
+        assert!(refused.ends_with(&ci.to_string()), "{refused}");
     }
-    assert!(on_ci(Some("true")).is_ok());
+    assert!(on_ci(&Ci::from_value(Some("true".as_ref()))).is_ok());
 }
 
 #[test]

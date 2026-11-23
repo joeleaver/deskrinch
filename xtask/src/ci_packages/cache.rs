@@ -17,6 +17,8 @@ use std::time::Duration;
 
 use super::bounded::{self, User};
 use super::classify::Ended;
+use deskrinch_test_session::ci::OnARunner;
+
 use super::plan::megabytes;
 use crate::error::Error;
 
@@ -28,11 +30,11 @@ pub(super) const PREPARE_LIMIT: Duration = Duration::from_secs(10);
 
 /// Makes [`DIRECTORY`], owned by the job's user, mode 755, with `install
 /// -d` as root, and says what it is.
-pub(super) fn prepare() -> Result<(), Error> {
+pub(super) fn prepare(runner: OnARunner) -> Result<(), Error> {
     let uid = rustix::process::getuid().as_raw().to_string();
     let gid = rustix::process::getgid().as_raw().to_string();
     let args = ["-d", "-m", "0755", "-o", &uid, "-g", &gid, DIRECTORY].map(String::from);
-    let (ended, _) = bounded::run(User::Root, "install", &args, PREPARE_LIMIT)?;
+    let (ended, _) = bounded::run(User::Root(runner), "install", &args, PREPARE_LIMIT)?;
     if ended != Ended::Exited(0) {
         return Err(Error::PackageCache {
             ended: ended.to_string(),
