@@ -7,6 +7,8 @@ use std::path::Path;
 use std::process::{Command, Output};
 use std::time::{Duration, Instant};
 
+use deskrinch_test_wait::{PATIENCE, eventually};
+
 use super::{Input, within};
 
 /// A structured input, for the text form.
@@ -20,17 +22,13 @@ struct Tree {
 const DIR: &str = "DESKRINCH_FUZZ_WATCHDOG_DIR";
 
 /// This test binary run again for the ignored inner test `name`, reporting
-/// into `dir`: its output, its process id, and how long it took. With
-/// `captured`, libtest captures what the test prints, as in an ordinary
-/// run: the watchdog's sentence must reach standard error all the same.
-fn child(name: &str, dir: &Path, captured: bool) -> (Output, u32, Duration) {
+/// into `dir`: its output, its process id, and how long it took. libtest
+/// captures what the test prints, as in an ordinary run: the watchdog's
+/// sentence must reach standard error all the same.
+fn child(name: &str, dir: &Path) -> (Output, u32, Duration) {
     let started = Instant::now();
-    let mut args = vec!["--exact", name, "--ignored", "--test-threads", "1"];
-    if !captured {
-        args.push("--nocapture");
-    }
     let child = Command::new(std::env::current_exe().unwrap())
-        .args(args)
+        .args(["--exact", name, "--ignored", "--test-threads", "1"])
         .env(DIR, dir)
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -73,6 +71,12 @@ fn inner_case_that_hangs_on_text() {
     );
 }
 
+/// The limit of the cases in time. A watchdog left behind (one not stood
+/// down when its case returns) acts only at its limit, so it must still be
+/// waiting, and still listed, when the wait for the task list
+/// ([`PATIENCE`]) runs out: the patience and a minute more.
+const IN_TIME_LIMIT: Duration = PATIENCE.saturating_add(Duration::from_secs(60));
+
 #[test]
 #[ignore = "run by cases_in_time_leave_nothing_and_no_watchdog_behind, in a child"]
 fn inner_cases_in_time() {
@@ -86,7 +90,7 @@ fn inner_cases_in_time() {
                 within(
                     "inner::panics",
                     &Input::Bytes(&[1]),
-                    Duration::from_secs(1),
+                    IN_TIME_LIMIT,
                     &dir(),
                     || {
                         panic!("an ordinary failure");
@@ -98,13 +102,20 @@ fn inner_cases_in_time() {
             within(
                 "inner::in_time",
                 &Input::Bytes(&[2]),
-                Duration::from_secs(1),
+                IN_TIME_LIMIT,
                 &dir(),
                 || {},
             );
         }
     }
-    println!("threads before {before}, after {}", threads());
+    // A thread whose closure has returned (the scope's end waits for that)
+    // stays listed until the system has reaped it. Read at once, the count
+    // was higher in 8 runs of 300, in 498 of 500 pinned to one CPU and in 39
+    // of 300 with every CPU busy (2026-11-23); it came back within 3.3 ms
+    // every time. So the list is waited for, not read once.
+    eventually("the task list back to its count before the cases", || {
+        threads() == before
+    });
 }
 
 /// What the abort's outer tests check: the process ended by `SIGABRT`
@@ -141,7 +152,6 @@ fn a_case_past_its_limit_aborts_with_its_bytes_saved() {
     let (output, pid, took) = child(
         "fuzz::watchdog::tests::inner_case_that_hangs_on_bytes",
         dir.path(),
-        true,
     );
     assert_aborted(
         &output,
@@ -165,7 +175,6 @@ fn a_case_past_its_limit_aborts_with_its_text_saved() {
     let (output, pid, took) = child(
         "fuzz::watchdog::tests::inner_case_that_hangs_on_text",
         dir.path(),
-        true,
     );
     assert_aborted(
         &output,
@@ -186,28 +195,13 @@ fn a_case_past_its_limit_aborts_with_its_text_saved() {
 #[test]
 fn cases_in_time_leave_nothing_and_no_watchdog_behind() {
     let dir = tempfile::tempdir().unwrap();
-    let (output, _, _) = child(
-        "fuzz::watchdog::tests::inner_cases_in_time",
-        dir.path(),
-        false,
-    );
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let (output, _, _) = child("fuzz::watchdog::tests::inner_cases_in_time", dir.path());
     assert!(
         output.status.success(),
-        "{stdout}{}",
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    let counts: Vec<usize> = stdout
-        .lines()
-        // libtest may print the line after its own "test … " on one line.
-        .find_map(|l| l.split_once("threads before ").map(|(_, rest)| rest))
-        .map(|rest| {
-            rest.split(", after ")
-                .map(|n| n.trim().parse().unwrap())
-                .collect()
-        })
-        .expect("the inner test's thread count");
-    assert_eq!(counts[0], counts[1], "a watchdog thread outlived its case");
     assert_eq!(
         std::fs::read_dir(dir.path()).unwrap().count(),
         0,
