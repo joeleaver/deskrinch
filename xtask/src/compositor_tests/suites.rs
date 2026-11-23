@@ -28,12 +28,16 @@ pub(super) const INPUT_CLIENT: Target = Target {
     backend: Backend::Rust,
 };
 const WLROOTS: &[Compositor] = &[Compositor::Sway, Compositor::Labwc];
+const LABWC: &[Compositor] = &[Compositor::Labwc];
 
 const PLAIN: &[Pass] = &[Pass::Plain];
 
 /// The test client's tests of [`Pass::UhdBesideFullHd`]'s outputs: run by
 /// that pass's row alone.
 const UHD_BESIDE_FULL_HD_TESTS: &str = "uhd_beside_full_hd::";
+/// The test client's window closed and the next opened at once, four
+/// thousand times: run by its own row, under labwc alone.
+const CLOSE_THEN_OPEN_TESTS: &str = "close_then_open::";
 
 /// The workspace tests that need a compositor with no workspace protocol
 /// (sway), and those that change KWin's desktops by KWin's own interface.
@@ -43,7 +47,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 25] = [
+pub(super) const SUITES: [Suite; 26] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -58,7 +62,31 @@ pub(super) const SUITES: [Suite; 25] = [
         passes: PLAIN,
         renders: false,
         programs: &[],
-        filter: &["--skip", UHD_BESIDE_FULL_HD_TESTS],
+        filter: &[
+            "--skip",
+            UHD_BESIDE_FULL_HD_TESTS,
+            "--skip",
+            CLOSE_THEN_OPEN_TESTS,
+        ],
+    },
+    // The same binary's window closed and the next opened at once, under
+    // labwc alone. The race it guards is the client's own (a configure
+    // handled while the test drops the window), so one compositor's timing
+    // guards it: labwc meets it most often (about one window in seven
+    // hundred without the fix; sway and KWin more rarely), and its job has
+    // the most room for four thousand windows (about 25 s here).
+    Suite {
+        target: Target {
+            package: TEST_CLIENT,
+            test: "compositor",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: LABWC,
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &[CLOSE_THEN_OPEN_TESTS, "--skip", UHD_BESIDE_FULL_HD_TESTS],
     },
     // The same binary's tests of a 3840x2160 output beside a 1920x1080
     // one, on those outputs alone.
