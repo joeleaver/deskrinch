@@ -6623,6 +6623,7 @@ dependencies = [
  "ctrlc",
  "deskrinch-bus",
  "deskrinch-kwin-access",
+ "deskrinch-launcher-client",
  "deskrinch-shell",
  "deskrinch-test-client",
  "deskrinch-test-component",
