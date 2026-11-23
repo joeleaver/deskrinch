@@ -52,6 +52,7 @@ deskrinch-test-log = { path = "crates/deskrinch-test-log" }
 deskrinch-test-notify = { path = "crates/deskrinch-test-notify" }
 deskrinch-test-pictures = { path = "crates/deskrinch-test-pictures" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
+deskrinch-test-kwin = { path = "crates/deskrinch-test-kwin" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
 deskrinch-test-session = { path = "crates/deskrinch-test-session" }
 deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }

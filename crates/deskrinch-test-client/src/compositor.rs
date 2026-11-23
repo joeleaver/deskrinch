@@ -2,7 +2,7 @@
 
 use std::fmt;
 
-use deskrinch_test_session::{Environment, NotIsolated, check};
+use deskrinch_test_session::{Environment, KWIN, LABWC, NotIsolated, SWAY, check};
 
 /// The nested compositor `cargo xtask compositor-tests` started, as it
 /// tells the tests in `DESKRINCH_TEST_COMPOSITOR`.
@@ -62,9 +62,9 @@ impl Compositor {
     fn in_environment(environment: &Environment) -> Result<Self, NotNested> {
         let isolated = check(environment).map_err(NotNested::NotIsolated)?;
         match isolated.compositor.as_str() {
-            "kwin" => Ok(Self::Kwin),
-            "sway" => Ok(Self::Sway),
-            "labwc" => Ok(Self::Labwc),
+            KWIN => Ok(Self::Kwin),
+            SWAY => Ok(Self::Sway),
+            LABWC => Ok(Self::Labwc),
             _ => Err(NotNested::Unknown {
                 compositor: isolated.compositor,
             }),
@@ -108,7 +108,7 @@ mod tests {
     #[test]
     fn the_compositor_s_name_alone_is_not_a_session() {
         let named = Environment {
-            compositor: Some("kwin".into()),
+            compositor: Some(KWIN.into()),
             session_dir: None,
             bus: Some("unix:path=/run/user/1000/bus".into()),
         };

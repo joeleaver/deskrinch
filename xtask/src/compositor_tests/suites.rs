@@ -8,6 +8,7 @@ use crate::session::Compositor;
 
 const WINDOW_MANAGEMENT: &str = "deskrinch-window-management";
 const SCREEN: &str = "deskrinch-test-screen";
+const KWIN_VIEW: &str = "deskrinch-test-kwin";
 const TEST_CLIENT: &str = "deskrinch-test-client";
 const INPUT: &str = "deskrinch-test-input";
 const LAUNCHER: &str = "deskrinch-launcher";
@@ -42,7 +43,7 @@ const KWIN_DESKTOPS: &str = "desktops::";
 const SHARED: &str = "shared::";
 
 /// The binaries, in the order they run.
-pub(super) const SUITES: [Suite; 24] = [
+pub(super) const SUITES: [Suite; 25] = [
     // The test client's output changes, first: that every change to the
     // session's outputs is put back exactly, which the suites after it
     // rely on.
@@ -96,6 +97,21 @@ pub(super) const SUITES: [Suite; 24] = [
         target: Target {
             package: WINDOW_MANAGEMENT,
             test: "kwin_not_granted",
+            backend: Backend::Rust,
+        },
+        grant: None,
+        compositors: KWIN,
+        passes: PLAIN,
+        renders: false,
+        programs: &[],
+        filter: &[],
+    },
+    // What KWin itself holds of the test client's windows (their types,
+    // above all), read through a KWin script: KWin only.
+    Suite {
+        target: Target {
+            package: KWIN_VIEW,
+            test: "compositor",
             backend: Backend::Rust,
         },
         grant: None,
