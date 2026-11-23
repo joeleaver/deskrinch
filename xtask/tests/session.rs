@@ -15,7 +15,7 @@ mod session {
     use std::collections::HashMap;
     use std::fs;
     use std::path::Path;
-    use std::process::{Child, Command, Output, Stdio};
+    use std::process::{Child, Command, ExitStatus, Output, Stdio};
 
     use deskrinch_test_session::{BUS_VARIABLE, COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE, root};
     use deskrinch_test_wait::wait_for;
@@ -68,6 +68,37 @@ mod session {
         ("XDG_SEAT", "seat0"),
         ("XDG_VTNR", "1"),
     ];
+
+    /// A running `xtask session`, ended when dropped by its interrupt path
+    /// (as [`an_interrupt_ends_the_session`] ends one) and waited for, so
+    /// that a test that fails while its session runs does not leave the
+    /// session up.
+    struct Running(Option<Child>);
+
+    impl Running {
+        fn spawn(command: &mut Command) -> Self {
+            Self(Some(command.spawn().unwrap()))
+        }
+
+        /// Waits for the session to end by itself; its status.
+        fn wait(mut self) -> ExitStatus {
+            self.0.take().unwrap().wait().unwrap()
+        }
+    }
+
+    impl Drop for Running {
+        fn drop(&mut self) {
+            let Some(mut xtask) = self.0.take() else {
+                return;
+            };
+            if matches!(xtask.try_wait(), Ok(None)) {
+                // A failure here leaves the wait below to report nothing:
+                // the process has ended by itself in between.
+                kill_process(Pid::from_child(&xtask), Signal::INT).ok();
+            }
+            xtask.wait().ok();
+        }
+    }
 
     /// The environment a command printed with `env`.
     fn environment(stdout: &[u8]) -> HashMap<String, String> {
@@ -137,7 +168,10 @@ mod session {
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn gives_the_command_the_session_and_not_the_real_one() {
         // The command writes what it was given, then waits to be told to end,
-        // so that its session's root can be checked while it is there.
+        // so that its session's root can be checked while it is there. The
+        // root is checked and the command ended before any assertion, and
+        // the session is held by `Running` until then, so that no way out of
+        // the test leaves it up.
         let here = tempfile::tempdir().unwrap();
         let mut command = session(&[
             "sh",
@@ -146,13 +180,20 @@ mod session {
              while [ ! -e \"$0/end\" ]; do sleep 0.1; done",
         ]);
         command.arg(here.path()).current_dir(here.path());
-        let mut child = command.spawn().unwrap();
+        let running = Running::spawn(&mut command);
         let printed = wait_for_file(&here.path().join("env"));
         let env = environment(printed.as_bytes());
         let env: HashMap<&str, &str> = env
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
             .collect();
+        let root = env.get(SESSION_DIR_VARIABLE).copied().unwrap_or_default();
+        // The root is a marked session root, by the tests' own check.
+        let marked = root::check(Path::new(root));
+        fs::write(here.path().join("end"), "").unwrap();
+        let status = running.wait();
+        assert!(status.success(), "{status:?}");
+        assert_eq!(marked, Ok(()), "{root}");
         // The tests' guard against the real session reads it.
         assert_eq!(
             env.get(COMPOSITOR_VARIABLE).copied(),
@@ -175,13 +216,6 @@ mod session {
         }
         assert_eq!(env["XDG_CONFIG_DIRS"], "/etc/xdg");
         assert_eq!(env["XDG_DATA_DIRS"], "/usr/local/share/:/usr/share/");
-        let root = env[SESSION_DIR_VARIABLE];
-        // The root is a marked session root, by the tests' own check.
-        let marked = root::check(Path::new(root));
-        fs::write(here.path().join("end"), "").unwrap();
-        let status = child.wait().unwrap();
-        assert!(status.success(), "{status:?}");
-        assert_eq!(marked, Ok(()), "{root}");
         // cargo and rustup keep the real homes while HOME moves.
         let real = |variable: &str, default: &str| {
             std::env::var(variable)
