@@ -72,11 +72,11 @@ use std::sync::{Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 pub use client::TestClient;
-pub use compositor::Compositor;
+pub use compositor::{Compositor, NotNested};
 pub use kscreen::{
     KSCREEN_DOCTOR, kscreen_add_mode, kscreen_outputs, kscreen_select_mode, kscreen_settings,
 };
-pub use layer::TestLayer;
+pub use layer::{ShellLayer, TestLayer};
 pub use layout::{
     Mode, OutputState, RestoreOutputs, change_output, layout_differences, outputs, turn_output_off,
 };

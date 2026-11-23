@@ -27,7 +27,9 @@ use std::time::Duration;
 use deskrinch_kwin_access::DesktopEntry;
 use deskrinch_test_client::{Compositor, Paint, TestClient};
 use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE, Key};
+use deskrinch_test_kwin::Kwin;
 use deskrinch_test_screen::{Image, KWIN_SCREENSHOT_INTERFACE, Pictures, Rgba, Screen};
+use deskrinch_test_session::BUS_VARIABLE;
 use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually, wait_for};
 
 use crate::push::{push, push_until};
@@ -119,33 +121,20 @@ impl Record {
     }
 }
 
-/// The effects KWin has active, on the session's bus.
+/// KWin in the desktop's session this test runs in.
+fn kwin() -> Kwin {
+    Kwin::here().unwrap()
+}
+
+/// The effects KWin has active.
 fn active_effects() -> Vec<String> {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
-    zbus::block_on(async {
-        let connection = zbus::connection::Builder::address(address.as_str())
-            .build()
-            .await
-            .unwrap();
-        let reply = connection
-            .call_method(
-                Some("org.kde.KWin"),
-                "/Effects",
-                Some("org.freedesktop.DBus.Properties"),
-                "Get",
-                &("org.kde.kwin.Effects", "activeEffects"),
-            )
-            .await
-            .unwrap();
-        let value: zbus::OwnedVariant = reply.body().deserialize().unwrap();
-        <Vec<String>>::try_from(value).unwrap()
-    })
+    kwin().active_effects().unwrap()
 }
 
 /// Calls `method` with no arguments on `path`'s `interface` of `name`, on
 /// the session's bus; its reply's body, or why there is none.
 fn call(name: &str, path: &str, interface: &str, method: &str, args: &str) -> Result<(), String> {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+    let address = std::env::var(BUS_VARIABLE).unwrap();
     zbus::block_on(async {
         let connection = zbus::connection::Builder::address(address.as_str())
             .build()
@@ -168,49 +157,15 @@ fn call(name: &str, path: &str, interface: &str, method: &str, args: &str) -> Re
 /// has started, and an effect not loaded yet neither takes its shortcut
 /// nor opens from its edge.
 fn effect_loaded(name: &str) -> bool {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
-    zbus::block_on(async {
-        let connection = zbus::connection::Builder::address(address.as_str())
-            .build()
-            .await
-            .unwrap();
-        let reply = connection
-            .call_method(
-                Some("org.kde.KWin"),
-                "/Effects",
-                Some("org.kde.kwin.Effects"),
-                "isEffectLoaded",
-                &(name,),
-            )
-            .await
-            .unwrap();
-        reply.body().deserialize::<bool>().unwrap()
-    })
+    kwin().effect_loaded(name).unwrap()
 }
 
-/// Whether KWin's global shortcut `name` is registered with its
-/// shortcut daemon.
+/// Whether KWin's global shortcut `name` is registered with its shortcut
+/// service; not yet when the service cannot be asked.
 fn shortcut_registered(name: &str) -> bool {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
-    zbus::block_on(async {
-        let connection = zbus::connection::Builder::address(address.as_str())
-            .build()
-            .await
-            .unwrap();
-        let reply = connection
-            .call_method(
-                Some("org.kde.kglobalaccel"),
-                "/component/kwin",
-                Some("org.kde.kglobalaccel.Component"),
-                "shortcutNames",
-                &(),
-            )
-            .await;
-        reply
-            .ok()
-            .and_then(|reply| reply.body().deserialize::<Vec<String>>().ok())
-            .is_some_and(|names| names.iter().any(|known| known == name))
-    })
+    kwin()
+        .kwin_shortcut_names()
+        .is_ok_and(|names| names.iter().any(|known| known == name))
 }
 
 /// Whether KWin still answers on the session's bus.
@@ -551,27 +506,8 @@ fn launcher_answers(record: &Record) {
 /// The compositing type KWin's support information names (`OpenGL`,
 /// `QPainter`).
 fn compositing_type() -> String {
-    let address = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
-    let info: String = zbus::block_on(async {
-        let connection = zbus::connection::Builder::address(address.as_str())
-            .build()
-            .await
-            .unwrap();
-        let reply = connection
-            .call_method(
-                Some("org.kde.KWin"),
-                "/KWin",
-                Some("org.kde.KWin"),
-                "supportInformation",
-                &(),
-            )
-            .await
-            .unwrap();
-        reply.body().deserialize().unwrap()
-    });
-    info.lines()
-        .find_map(|line| line.trim().strip_prefix("Compositing Type: "))
-        .unwrap_or("(none)")
-        .trim()
-        .to_owned()
+    kwin()
+        .compositing_type()
+        .unwrap()
+        .unwrap_or_else(|| "(none)".to_owned())
 }

@@ -14,6 +14,8 @@
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
+mod fifo;
+#[cfg(test)]
 mod report;
 
 #[cfg(test)]
@@ -22,6 +24,7 @@ mod measure_typing {
     use std::path::Path;
     use std::process::{Command, Output, Stdio};
 
+    use crate::fifo::fifo;
     use crate::report::number_after;
 
     const KEYBOARD: &str = "the stand-in has the keyboard";
@@ -52,12 +55,14 @@ mod measure_typing {
         query_line: &str,
         options: &[&str],
     ) -> Output {
-        let show = dir.join("show");
-        let hide = dir.join("hide");
+        // It waits blocked on a FIFO, as an idle program does (no polling):
+        // the summon writes `s`, the dismiss `h`; while shown and drawing it
+        // presents a frame every 0.3 s (`read -t`).
+        let asked = fifo(dir, "asked").display().to_string();
         let summon = dir.join("summon.sh");
-        fs::write(&summon, format!("touch {}\n", show.display())).unwrap();
+        fs::write(&summon, format!("printf 's\\n' > {asked}\n")).unwrap();
         let dismiss = dir.join("dismiss.sh");
-        fs::write(&dismiss, format!("touch {}\n", hide.display())).unwrap();
+        fs::write(&dismiss, format!("printf 'h\\n' > {asked}\n")).unwrap();
         let keyboard = if stand_in.says_keyboard {
             format!("echo '{KEYBOARD}' >&2; ")
         } else {
@@ -65,18 +70,28 @@ mod measure_typing {
         };
         let draws = u8::from(stand_in.draws);
         let said = QUERY.replace("{}", &stand_in.length.to_string());
-        let script = format!(
-            "n=0; shown=0; ticks=0; while :; do \
-             if [ -e {show} ]; then rm {show}; shown=1; n=$((n + 1)); \
-             echo \"[PERF] frame $n: paint_frames=1\" >&2; {keyboard}fi; \
-             if [ -e {hide} ]; then rm {hide}; shown=0; echo '{said}' >&2; fi; \
-             ticks=$((ticks + 1)); \
-             if [ $shown = 1 ] && [ {draws} = 1 ] && [ $((ticks % 6)) = 0 ]; then \
-             n=$((n + 1)); echo \"[PERF] frame $n: paint_frames=1\" >&2; fi; \
-             sleep 0.05; done",
-            show = show.display(),
-            hide = hide.display(),
-        );
+        let program = dir.join("stand-in.bash");
+        fs::write(
+            &program,
+            format!(
+                "exec 3<>{asked}; n=0; shown=0\n\
+                 while :; do\n\
+                 if [ $shown = 1 ] && [ {draws} = 1 ]; then\n\
+                 read -t 0.3 -u 3 asked || asked=tick\n\
+                 else\n\
+                 read -u 3 asked\n\
+                 fi\n\
+                 case $asked in\n\
+                 s) shown=1; n=$((n + 1)); echo \"[PERF] frame $n: paint_frames=1\" >&2; \
+                 {keyboard};;\n\
+                 h) shown=0; echo '{said}' >&2 ;;\n\
+                 tick) n=$((n + 1)); echo \"[PERF] frame $n: paint_frames=1\" >&2 ;;\n\
+                 esac\n\
+                 done\n"
+            ),
+        )
+        .unwrap();
+        let script = format!("exec bash {}", program.display());
         Command::new(env!("CARGO_BIN_EXE_xtask"))
             .args(["measure", "--compositor", &compositor(), "--runs", "1"])
             .args(["--summon", &summon.display().to_string()])

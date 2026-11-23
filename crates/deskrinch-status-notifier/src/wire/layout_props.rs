@@ -8,7 +8,7 @@ use zbus::wire::serialized::{Context, Data};
 use zbus::wire::{LE, Structure, StructureBuilder, Variant};
 
 use super::layout::*;
-use deskrinch_untrusted::fuzz::config;
+use deskrinch_untrusted::fuzz::{case_bytes, case_debug, config};
 
 /// A layout to send: an entry, its properties and its children.
 #[derive(Debug, Clone, Default)]
@@ -252,23 +252,28 @@ proptest! {
         entries in 0_usize..64,
         per_level in 0_usize..6,
     ) {
-        let bounds = Bounds { depth: depth_bound, entries, per_level };
-        let within = depth(&root) <= depth_bound + 1
-            && root.count() <= entries
-            && widest(&root) <= per_level;
-        let read = read(&reply(&root), bounds);
-        if within {
-            prop_assert_eq!(read, Ok(root.raw()));
-        } else {
-            prop_assert_eq!(read, Err(Refused::OverBound));
-        }
+        case_debug("any_layout_reads_exactly_or_is_over_its_bounds", &(&root, depth_bound, entries, per_level), || {
+            let bounds = Bounds { depth: depth_bound, entries, per_level };
+            let within = depth(&root) <= depth_bound + 1
+                && root.count() <= entries
+                && widest(&root) <= per_level;
+            let read = read(&reply(&root), bounds);
+            if within {
+                prop_assert_eq!(read, Ok(root.raw()));
+            } else {
+                prop_assert_eq!(read, Err(Refused::OverBound));
+            }
+            Ok(())
+        })?;
     }
 
     /// Arbitrary bytes are refused or read, never a panic.
     #[test]
     fn arbitrary_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
-        let data = Data::new(bytes, Context::new(LE, 0));
-        let _outcome = read(&data, WIDE);
+        case_bytes("arbitrary_bytes_never_panic", &bytes, || {
+            let data = Data::new(bytes.clone(), Context::new(LE, 0));
+            let _outcome = read(&data, WIDE);
+        });
     }
 
     /// A layout cut short or with a byte changed is refused or read within
@@ -284,15 +289,18 @@ proptest! {
         let at = at.index(bytes.len());
         bytes[at] = value;
         bytes.truncate(end.index(bytes.len()) + 1);
-        let bounds = Bounds { depth: 2, entries: 16, per_level: 4 };
-        if let Ok(read) = read(&Data::new(bytes, Context::new(LE, 0)), bounds) {
-            let count = |e: &RawEntry| -> usize {
-                fn count(e: &RawEntry) -> usize {
-                    e.children.iter().map(|c| 1 + count(c)).sum()
-                }
-                count(e)
-            };
-            prop_assert!(count(&read) <= 16);
-        }
+        case_bytes("a_damaged_layout_never_panics_or_passes_its_bounds", &bytes, || {
+            let bounds = Bounds { depth: 2, entries: 16, per_level: 4 };
+            if let Ok(read) = read(&Data::new(bytes.clone(), Context::new(LE, 0)), bounds) {
+                let count = |e: &RawEntry| -> usize {
+                    fn count(e: &RawEntry) -> usize {
+                        e.children.iter().map(|c| 1 + count(c)).sum()
+                    }
+                    count(e)
+                };
+                prop_assert!(count(&read) <= 16);
+            }
+            Ok(())
+        })?;
     }
 }

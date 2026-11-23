@@ -13,6 +13,7 @@ use std::io::{IsTerminal, stderr, stdin};
 use std::os::unix::fs::{FileTypeExt, MetadataExt};
 use std::path::{Path, PathBuf};
 
+use deskrinch_test_session::ci::Ci;
 use rustix::process::getuid;
 
 use super::DesktopError;
@@ -23,7 +24,7 @@ use crate::session;
 pub(super) struct Caller<'a> {
     /// Whether standard input and standard error are both terminals.
     pub(super) interactive: bool,
-    /// Whether `GITHUB_ACTIONS` is set.
+    /// Whether this may be a CI runner ([`Ci::maybe_a_runner`]).
     pub(super) in_ci: bool,
     /// `DESKRINCH_SESSION_DIR`.
     pub(super) session_dir: Option<&'a OsStr>,
@@ -36,12 +37,12 @@ pub(super) struct Caller<'a> {
 /// Lets the owner, or a test in an isolated session, go on; refuses anyone
 /// else with [`DesktopError::NotInteractive`].
 pub(super) fn check() -> Result<(), DesktopError> {
-    let session_dir = env::var_os("DESKRINCH_SESSION_DIR");
+    let session_dir = env::var_os(deskrinch_test_session::SESSION_DIR_VARIABLE);
     let runtime_dir = env::var_os("XDG_RUNTIME_DIR");
     let display = env::var_os("WAYLAND_DISPLAY");
     let caller = Caller {
         interactive: stdin().is_terminal() && stderr().is_terminal(),
-        in_ci: env::var_os("GITHUB_ACTIONS").is_some(),
+        in_ci: Ci::read().maybe_a_runner(),
         session_dir: session_dir.as_deref(),
         runtime_dir: runtime_dir.as_deref(),
         display: display.as_deref(),

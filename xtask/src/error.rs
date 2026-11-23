@@ -5,6 +5,8 @@ use std::io;
 use std::path::PathBuf;
 use std::process::ExitStatus;
 
+use deskrinch_test_session::ci::{Ci, OnARunner};
+
 /// A task could not finish its work. A check that ran and found problems is
 /// not an error: it reports [`crate::Outcome::Failed`].
 #[derive(Debug, thiserror::Error)]
@@ -108,6 +110,9 @@ pub(crate) enum Error {
     /// `cargo xtask input` stopped.
     #[error(transparent)]
     Input(#[from] crate::input::InputError),
+    /// `cargo xtask busy-compositor` failed.
+    #[error(transparent)]
+    Busy(#[from] crate::busy::BusyError),
     /// `cargo xtask session --grant` was not given `PACKAGE=PATH` with one of
     /// the shell's components.
     #[error("--grant {0}: give PACKAGE=PATH, PACKAGE one of the shell's components")]
@@ -196,7 +201,7 @@ pub(crate) enum Error {
         /// What was asked for.
         what: &'static str,
         /// Why asking failed.
-        source: Box<zbus::Error>,
+        source: Box<deskrinch_test_kwin::Error>,
         /// What it printed.
         log: crate::session::CompositorLog,
     },
@@ -269,13 +274,17 @@ pub(crate) enum Error {
         /// What the compositor printed.
         log: crate::session::CompositorLog,
     },
-    /// `ci-packages` was run outside a CI job: it installs packages with
-    /// `sudo`, which nothing may do on a developer's machine.
-    #[error(
-        "ci-packages installs system packages and runs only in CI \
-         (GITHUB_ACTIONS=true); install what you need yourself"
-    )]
-    NotInCi,
+    /// A command that may run only on a CI runner was run elsewhere:
+    /// `ci-packages`, which installs packages with `sudo`, and
+    /// `systemd-scope-tests`, which starts a unit in the user's systemd;
+    /// neither may do that on a developer's machine.
+    #[error("{command} {why}")]
+    NotOnCi {
+        /// The command, as a person runs it.
+        command: &'static str,
+        /// What the CI variable held.
+        why: deskrinch_test_session::ci::NotCi,
+    },
     /// A variable GitHub Actions sets in every job was not set.
     #[error("the CI variable `{name}` is not set: ci-packages runs in GitHub Actions only")]
     CiVariable {
@@ -449,14 +458,19 @@ pub(crate) enum Error {
         /// Its last lines of output.
         output: String,
     },
-    /// With `--summon`, the program did not settle after starting or after
-    /// a show or hide.
-    #[error("{program} did not settle within {} s; its last output:\n{output}", waited.as_secs())]
-    NeverSettled {
+    /// The program, or a session process it may wait on, was not quiet
+    /// within a wait's limit (measure's quiet window).
+    #[error(
+        "{program} was not quiet within {} s: {said}; its last output:\n{output}",
+        waited.as_secs()
+    )]
+    NeverQuiet {
         /// The program.
         program: String,
         /// How long it was given.
         waited: std::time::Duration,
+        /// What was not quiet in the last window, in words.
+        said: String,
         /// Its last lines of output.
         output: String,
     },
@@ -497,4 +511,12 @@ pub(crate) enum Error {
         /// How it exited.
         status: ExitStatus,
     },
+}
+
+/// The proof that this is a CI runner, as `ci` says
+/// ([`Ci::only_on_a_runner`]); refuses `command` with [`Error::NotOnCi`]
+/// anywhere else.
+pub(crate) fn only_on_a_runner(command: &'static str, ci: &Ci) -> Result<OnARunner, Error> {
+    ci.only_on_a_runner()
+        .map_err(|why| Error::NotOnCi { command, why })
 }

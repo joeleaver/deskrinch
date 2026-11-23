@@ -103,6 +103,7 @@ fn measure_child(
     pointer: Option<(&mut InputClient, &super::input::PointerSteps)>,
 ) -> Result<Run, Error> {
     let Measured { watch, program, .. } = *measured;
+    let neighbours = measured.start.neighbours;
     let mut run = Run::default();
     let started = startup(&mut run, child, measured, start, timing.first_frame)?;
     wait(child, watch, program, timing.settle)?;
@@ -122,6 +123,7 @@ fn measure_child(
             watch,
             program,
             timeout: timing.first_frame,
+            neighbours,
         };
         move_pointer(
             &mut run,
@@ -140,6 +142,7 @@ fn measure_child(
             watch,
             program,
             timeout: timing.first_frame,
+            neighbours,
         };
         run_commands(&mut run, &mut running, commands, &mut CpuMeter::new(pid))?;
     }

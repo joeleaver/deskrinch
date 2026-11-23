@@ -7,7 +7,7 @@ use zbus::wire::serialized::{Context, Data};
 use zbus::wire::{LE, Variant};
 
 use super::*;
-use deskrinch_untrusted::fuzz::config;
+use deskrinch_untrusted::fuzz::{case_bytes, case_debug, config};
 
 /// A value an item might send for a property, of one type or another.
 #[derive(Debug, Clone)]
@@ -86,33 +86,38 @@ proptest! {
     fn any_dictionary_decodes_keeping_only_well_typed_properties(
         properties in prop::collection::hash_map(key(), sent(), 0..12),
     ) {
-        let decoded = encode(&properties).deserialize::<Properties>().unwrap().0;
-        let text = |key: &str| match properties.get(key) {
-            Some(Sent::Text(s)) => Some(s.clone()),
-            _ => None,
-        };
-        let pixmaps = |key: &str| match properties.get(key) {
-            Some(Sent::Pixmaps(p)) => Some(p.clone()),
-            _ => None,
-        };
-        prop_assert_eq!(decoded.title, text("Title"));
-        prop_assert_eq!(decoded.icon_name, text("IconName"));
-        prop_assert_eq!(decoded.icon_pixmap, pixmaps("IconPixmap"));
-        prop_assert_eq!(decoded.attention_icon_pixmap, pixmaps("AttentionIconPixmap"));
-        let flag = match properties.get("ItemIsMenu") {
-            Some(Sent::Flag(b)) => Some(*b),
-            _ => None,
-        };
-        prop_assert_eq!(decoded.item_is_menu, flag);
-        // Nothing sent here has the types of these two.
-        prop_assert_eq!(decoded.menu, None);
-        prop_assert_eq!(decoded.tool_tip, None);
+        case_debug("any_dictionary_decodes_keeping_only_well_typed_properties", &properties, || {
+            let decoded = encode(&properties).deserialize::<Properties>().unwrap().0;
+            let text = |key: &str| match properties.get(key) {
+                Some(Sent::Text(s)) => Some(s.clone()),
+                _ => None,
+            };
+            let pixmaps = |key: &str| match properties.get(key) {
+                Some(Sent::Pixmaps(p)) => Some(p.clone()),
+                _ => None,
+            };
+            prop_assert_eq!(decoded.title, text("Title"));
+            prop_assert_eq!(decoded.icon_name, text("IconName"));
+            prop_assert_eq!(decoded.icon_pixmap, pixmaps("IconPixmap"));
+            prop_assert_eq!(decoded.attention_icon_pixmap, pixmaps("AttentionIconPixmap"));
+            let flag = match properties.get("ItemIsMenu") {
+                Some(Sent::Flag(b)) => Some(*b),
+                _ => None,
+            };
+            prop_assert_eq!(decoded.item_is_menu, flag);
+            // Nothing sent here has the types of these two.
+            prop_assert_eq!(decoded.menu, None);
+            prop_assert_eq!(decoded.tool_tip, None);
+            Ok(())
+        })?;
     }
 
     /// Arbitrary bytes are refused or decoded, never a panic.
     #[test]
     fn arbitrary_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..512)) {
-        let data = Data::new(bytes, Context::new(LE, 0));
-        let _outcome = data.deserialize::<Properties>();
+        case_bytes("arbitrary_bytes_never_panic", &bytes, || {
+            let data = Data::new(bytes.clone(), Context::new(LE, 0));
+            let _outcome = data.deserialize::<Properties>();
+        });
     }
 }

@@ -1,16 +1,13 @@
-//! When a summoned program counts as settled: the waits `--summon`
-//! measures between ([`super::show`]).
+//! The waits `--summon` and the steps measure between: each until the
+//! program is quiet ([`super::quiet`]), so a show is never summoned while
+//! a preparation goes on, nor a step taken while the last one's work, or
+//! its compositor's, is still running or waiting to run.
 //!
-//! Settled means a window in which its threads ran almost nothing and rinch
-//! prepared no frame for its hidden window (`[PERF] prepared N:`), so a show
-//! is never summoned while a preparation goes on.
-//!
-//! A quiet window alone does not say the program has started. A program
-//! starved of CPU before its UI's first turn passes one having done
-//! nothing, and its first summon would then pay for its start. A program
-//! that prepares its hidden window (`--prepares`) is therefore waited for
-//! until it has prepared once before its quiet window counts. Measure
-//! cannot ask that of every program: it does not know whether one prepares.
+//! A quiet window alone does not say a program that prepares its hidden
+//! window has prepared it: one that has not yet been given the CPU is
+//! runnable, and so not quiet, but one waiting on something else (a file,
+//! a socket) before its first turn could be. A program that prepares
+//! (`--prepares`) is therefore waited for until it has prepared once.
 
 use std::process::Child;
 use std::time::{Duration, Instant};
@@ -18,7 +15,8 @@ use std::time::{Duration, Instant};
 use deskrinch_test_component::Watch;
 
 use super::probe::nanos;
-use super::procfs::{self, cpu_between};
+use super::quiet::{self, Neighbours, Quieted, Watched};
+use super::report::{Run, Unit};
 use crate::error::Error;
 use crate::session::interrupt;
 
@@ -29,12 +27,20 @@ pub(crate) struct Running<'a> {
     pub(crate) program: &'a str,
     /// How long whatever it is waited for may take.
     pub(crate) timeout: Duration,
+    /// The session's processes it may wait on.
+    pub(crate) neighbours: Neighbours,
 }
 
 impl Running<'_> {
-    /// Waits for it to settle.
-    pub(crate) fn settle(&mut self) -> Result<(), Error> {
-        settle(self.child, self.watch, self.program, self.timeout)
+    /// Waits for it to be quiet; what the wait took.
+    pub(crate) fn settle(&mut self) -> Result<Quieted, Error> {
+        settle(
+            self.child,
+            self.watch,
+            self.program,
+            self.timeout,
+            self.neighbours,
+        )
     }
 
     /// Fails if it has exited.
@@ -43,29 +49,41 @@ impl Running<'_> {
     }
 }
 
-/// A program counts as settled when its threads ran less than this much
-/// CPU time over [`SETTLE_WINDOW`].
-const SETTLED_CPU: Duration = Duration::from_millis(5);
-/// The window [`SETTLED_CPU`] is measured over.
-const SETTLE_WINDOW: Duration = Duration::from_secs(1);
-/// How often a wait looks again.
+/// How often a wait for a preparation looks again.
 const POLL: Duration = Duration::from_millis(100);
 
-/// Waits for the program, just started, to settle, hidden: with `prepares`,
-/// first for its first prepared frame (within `timeout`). A frame before
-/// the first summon means it did not start hidden.
-pub(super) fn settle_hidden(
-    child: &mut Child,
-    watch: &Watch,
-    program: &str,
-    timeout: Duration,
-    prepares: bool,
-) -> Result<(), Error> {
+/// Waits for the program, just started, to be quiet, hidden: with
+/// `prepares`, first for its first prepared frame (within `timeout`). A
+/// frame before the first summon means it did not start hidden.
+pub(super) fn settle_hidden(running: &mut Running<'_>, prepares: bool) -> Result<Quieted, Error> {
     if prepares {
-        first_preparation(child, watch, program, timeout)?;
+        first_preparation(
+            running.child,
+            running.watch,
+            running.program,
+            running.timeout,
+        )?;
     }
-    settle(child, watch, program, timeout)?;
-    shown_before_summon(watch, program)
+    let quieted = running.settle()?;
+    shown_before_summon(running.watch, running.program)?;
+    Ok(quieted)
+}
+
+/// Records a wait that ended quiet as the row `{what}: wall time of the
+/// settle, to quiet`, and notes any window of it thrown out because the
+/// tool's own polls came late.
+pub(crate) fn record(run: &mut Run, what: &str, quieted: Quieted) {
+    run.push(
+        format!("{what}: wall time of the settle, to quiet"),
+        Unit::WallNs,
+        nanos(quieted.took),
+    );
+    if quieted.late_windows > 0 {
+        run.note(
+            format!("{what}: settle windows thrown out because the tool's own polls came late"),
+            quieted.late_windows.to_string(),
+        );
+    }
 }
 
 /// Waits, within `timeout`, for the program's first prepared frame.
@@ -102,50 +120,28 @@ fn shown_before_summon(watch: &Watch, program: &str) -> Result<(), Error> {
     Ok(())
 }
 
-/// Waits until the program's threads run less than [`SETTLED_CPU`] over
-/// [`SETTLE_WINDOW`], with no prepared frame in it.
+/// Waits, within `timeout`, until the program and its neighbours are quiet
+/// ([`quiet::wait`]); fails, saying what was not quiet, if they are not.
 pub(super) fn settle(
     child: &mut Child,
     watch: &Watch,
     program: &str,
     timeout: Duration,
-) -> Result<(), Error> {
-    let pid = child.id();
-    let start = Instant::now();
-    let mut before = procfs::read_threads(pid);
-    let mut prepared = watch.prepared();
-    loop {
-        let window_end = Instant::now() + SETTLE_WINDOW;
-        while Instant::now() < window_end {
-            interrupt::check()?;
-            alive(child, watch, program)?;
-            std::thread::sleep(POLL);
-        }
-        let now = procfs::read_threads(pid);
-        let prepared_now = watch.prepared();
-        if settled(cpu_between(&before, &now), prepared, prepared_now) {
-            return Ok(());
-        }
-        if start.elapsed() >= timeout {
-            return Err(Error::NeverSettled {
-                program: program.to_owned(),
-                waited: timeout,
-                output: watch.tail(),
-            });
-        }
-        before = now;
-        prepared = prepared_now;
+    neighbours: Neighbours,
+) -> Result<Quieted, Error> {
+    let watched = Watched {
+        program: child.id(),
+        neighbours,
+    };
+    match quiet::wait(&watched, child, watch, program, timeout)? {
+        Ok(quieted) => Ok(quieted),
+        Err(unquiet) => Err(Error::NeverQuiet {
+            program: program.to_owned(),
+            waited: unquiet.waited,
+            said: unquiet.said(),
+            output: watch.tail(),
+        }),
     }
-}
-
-/// Whether a settle window was quiet: its threads ran less than
-/// [`SETTLED_CPU`] (`cpu_ns`), and no prepared frame came in it (the main
-/// window's prepared frames went from `prepared_before` to
-/// `prepared_after`). A preparation queued but not yet run shows in
-/// neither until it runs; one that ran shows in the second however little
-/// CPU it took, so a show is never summoned while a preparation goes on.
-fn settled(cpu_ns: u64, prepared_before: u64, prepared_after: u64) -> bool {
-    cpu_ns < nanos(SETTLED_CPU) && prepared_after == prepared_before
 }
 
 /// Fails if the program has exited.
@@ -157,18 +153,5 @@ pub(super) fn alive(child: &mut Child, watch: &Watch, program: &str) -> Result<(
             output: watch.last_words(),
         }),
         _ => Ok(()),
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn settled_wants_quiet_threads_and_no_prepared_frame() {
-        let quiet = nanos(SETTLED_CPU) - 1;
-        assert!(settled(quiet, 2, 2));
-        assert!(!settled(quiet, 2, 3), "a preparation ran in the window");
-        assert!(!settled(nanos(SETTLED_CPU), 2, 2), "the threads ran");
     }
 }

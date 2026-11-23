@@ -16,8 +16,10 @@
 //!   profile, repeated scans).
 //! - [`icc`]: profiles: moxcms's own (sRGB, Display P3, Adobe RGB, grey)
 //!   and lookup-table profiles of any size.
-//! - [`hostile`]: what a stranger might send: headers claiming huge sizes,
-//!   decompression bombs, too many scans.
+//! - [`hostile`]: the corpus: ordinary pictures of every kind (made when the
+//!   crate is built, by `build.rs` from `ordinary.rs`), pictures that are
+//!   mostly metadata, and what a stranger might send: headers claiming huge
+//!   sizes, decompression bombs, too many scans.
 //!
 //! A picture that cannot be made is a broken test: every helper panics then,
 //! as a test's own `unwrap` would.
@@ -27,6 +29,7 @@
     reason = "test fixtures: a fixture that cannot be made fails the test that asked for it"
 )]
 
+mod case;
 pub mod fixtures;
 pub mod gif;
 pub mod hostile;
