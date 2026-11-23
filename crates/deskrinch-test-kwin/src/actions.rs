@@ -99,20 +99,21 @@ impl KwinActions {
     }
 
     /// At least `count` desktops, the first current, in one row; the first
-    /// desktop's name.
+    /// desktop's name. A desktop is created while KWin lists fewer, at most
+    /// `count` times, so a KWin that ignores or caps a creation (it has a
+    /// maximum number of desktops) fails the call instead of holding it.
     ///
     /// # Errors
     ///
-    /// As the actions it takes; [`Error::NoDesktops`] when KWin lists no
-    /// desktop.
+    /// As the actions it takes; [`Error::TooFewDesktops`] when KWin still
+    /// lists fewer than `count` after `count` creations;
+    /// [`Error::NoDesktops`] when KWin lists no desktop.
     pub fn set_up_virtual_desktops(&self, count: usize) -> Result<String, Error> {
-        loop {
-            let listed = self.kwin.virtual_desktops()?.len();
-            if listed >= count {
-                break;
-            }
-            self.create_virtual_desktop(&format!("Desktop {}", listed + 1))?;
-        }
+        grow_to(
+            count,
+            || Ok(self.kwin.virtual_desktops()?.len()),
+            |listed| self.create_virtual_desktop(&format!("Desktop {}", listed + 1)),
+        )?;
         self.set_virtual_desktop_rows(1)?;
         let first = self
             .kwin
@@ -187,5 +188,31 @@ impl KwinActions {
     }
 }
 
+/// Grows the desktops KWin lists (`listed`) to at least `count` by
+/// `create`, which is given how many are listed, creating at most `count`
+/// times.
+fn grow_to(
+    count: usize,
+    mut listed: impl FnMut() -> Result<usize, Error>,
+    mut create: impl FnMut(usize) -> Result<(), Error>,
+) -> Result<(), Error> {
+    for _ in 0..count {
+        let now = listed()?;
+        if now >= count {
+            return Ok(());
+        }
+        create(now)?;
+    }
+    match listed()? {
+        now if now >= count => Ok(()),
+        now => Err(Error::TooFewDesktops {
+            asked: count,
+            listed: now,
+        }),
+    }
+}
+
+#[cfg(test)]
+mod grow_tests;
 #[cfg(test)]
 mod tests;

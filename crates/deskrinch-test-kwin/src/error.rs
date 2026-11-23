@@ -70,6 +70,15 @@ pub enum Error {
         /// What is wrong with it.
         reason: String,
     },
+    /// KWin still lists fewer virtual desktops than asked for after as many
+    /// creations as were asked for: it ignored or capped them.
+    #[error("asked for {asked} virtual desktops; after {asked} creations KWin lists {listed}")]
+    TooFewDesktops {
+        /// How many were asked for.
+        asked: usize,
+        /// How many KWin lists.
+        listed: usize,
+    },
     /// KWin lists no virtual desktop at all.
     #[error("KWin lists no virtual desktop")]
     NoDesktops,
