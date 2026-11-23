@@ -1023,6 +1023,7 @@ dependencies = [
  "deskrinch-desktop-entries",
  "deskrinch-gestures",
  "deskrinch-icons",
+ "deskrinch-launcher-client",
  "deskrinch-settings",
  "deskrinch-shell",
  "deskrinch-start-record",
@@ -1040,6 +1041,15 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
+ "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-launcher-client"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-bus",
+ "thiserror 2.0.21",
  "zbus 6.2.1",
 ]
 
