@@ -190,3 +190,8 @@ opt-level = 3
 
 [profile.dev.package.deskrinch-test-wayland]
 opt-level = 3
+
+# Measured in #163, not decided: deskrinch-picture's decoding and
+# resampling optimised in dev builds, for the wallpaper's suite.
+[profile.dev.package.deskrinch-picture]
+opt-level = 3
