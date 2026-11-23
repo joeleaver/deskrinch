@@ -19,7 +19,6 @@ use wayland_client::protocol::wl_output::WlOutput;
 use wayland_client::protocol::wl_seat::WlSeat;
 use wayland_client::protocol::wl_shm::WlShm;
 use wayland_client::protocol::wl_shm_pool::WlShmPool;
-use wayland_client::protocol::wl_surface::WlSurface;
 use wayland_client::{Connection, Dispatch, EventQueue, Proxy, QueueHandle, delegate_noop};
 use wayland_protocols::xdg::decoration::zv1::client::zxdg_decoration_manager_v1::ZxdgDecorationManagerV1;
 use wayland_protocols::xdg::decoration::zv1::client::zxdg_toplevel_decoration_v1::{
@@ -31,7 +30,7 @@ use wayland_protocols::xdg::xdg_output::zv1::client::zxdg_output_manager_v1::Zxd
 use wayland_protocols_wlr::layer_shell::v1::client::zwlr_layer_shell_v1::ZwlrLayerShellV1;
 
 use crate::keyboard::Keyboard;
-use crate::layer::TestLayer;
+use crate::layer::{LayerSpec, ShellLayer, TestLayer};
 use crate::output_info::OutputInfo;
 use crate::pointer::Pointer;
 use crate::seat::Windows;
@@ -331,15 +330,57 @@ impl TestClient {
             .layer_shell
             .as_ref()
             .map_err(|error| Error::Bind(error.clone()))?;
+        self.open_layer_as(&LayerSpec::overlay(), shell, "mapping the overlay")
+    }
+
+    /// Opens a layer surface named `namespace` on `layer`, `size` in
+    /// surface coordinates and in the middle of whichever output the
+    /// compositor puts it on, without the keyboard, and returns once it is
+    /// mapped, as [`open`](Self::open) does: for a test of what a
+    /// compositor makes of a namespace (KWin gives a layer surface its
+    /// window type by it).
+    ///
+    /// # Errors
+    ///
+    /// [`Error::Bind`] when the compositor does not offer
+    /// `zwlr_layer_shell_v1`; otherwise as [`open`](Self::open).
+    pub fn open_layer(
+        &self,
+        namespace: &str,
+        layer: ShellLayer,
+        size: (u32, u32),
+    ) -> Result<TestLayer, Error> {
+        let shell = self
+            .layer_shell
+            .as_ref()
+            .map_err(|error| Error::Bind(error.clone()))?;
+        let spec = LayerSpec {
+            namespace: namespace.to_owned(),
+            layer,
+            size,
+            keyboard: false,
+        };
+        self.open_layer_as(&spec, shell, "mapping the layer surface")
+    }
+
+    /// Opens a layer surface as `spec` says, through `shell`, and waits
+    /// until it is mapped; `what` names the wait in its error.
+    fn open_layer_as(
+        &self,
+        spec: &LayerSpec,
+        shell: &ZwlrLayerShellV1,
+        what: &'static str,
+    ) -> Result<TestLayer, Error> {
         let surface = self.compositor.create_surface(&self.queue, ());
         let layer = TestLayer::open(
             self.connection.clone(),
             Arc::clone(&self.windows),
             shell,
             &surface,
+            spec,
             &self.queue,
         )?;
-        self.mapped(&layer.shared, "mapping the overlay")?;
+        self.mapped(&layer.shared, what)?;
         Ok(layer)
     }
 
@@ -437,6 +478,5 @@ delegate_noop!(Client: ZwlrLayerShellV1);
 // client-side decorations and draws none either way.
 delegate_noop!(Client: ignore ZxdgToplevelDecorationV1);
 delegate_noop!(Client: WlShmPool);
-delegate_noop!(Client: ignore WlSurface);
 delegate_noop!(Client: ignore WlShm);
 delegate_noop!(Client: ignore WlCallback);

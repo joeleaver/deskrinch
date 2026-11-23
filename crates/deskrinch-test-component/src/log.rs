@@ -120,10 +120,23 @@ pub fn presents_with_software(line: &str) -> bool {
 /// or (after the time) second word.
 #[must_use]
 pub fn is_error(line: &str) -> bool {
+    has_level(line, &["ERROR"])
+}
+
+/// Whether `line` is an event logged at warn or error level, its level
+/// written as [`is_error`] reads it.
+#[must_use]
+pub fn is_warning_or_error(line: &str) -> bool {
+    has_level(line, &["WARN", "ERROR"])
+}
+
+/// Whether `line`'s level, its first or (after the time) second word, is
+/// one of `levels`.
+fn has_level(line: &str, levels: &[&str]) -> bool {
     strip_ansi(line)
         .split_whitespace()
         .take(2)
-        .any(|word| word == "ERROR")
+        .any(|word| levels.contains(&word))
 }
 
 /// `field: "value"` in a `Debug` struct.
@@ -269,6 +282,19 @@ mod tests {
             "2026-11-13T21:18:32Z  WARN x: an ERROR in the message is not the level"
         ));
         assert!(!is_error("[PERF] frame 1: style 0.10ms"));
+    }
+
+    #[test]
+    fn warnings_are_told_by_their_level_too() {
+        assert!(is_warning_or_error("2026-11-13T21:18:32Z  WARN x: y"));
+        assert!(is_warning_or_error(
+            "\u{1b}[2m2026-11-13T21:18:32Z\u{1b}[0m \u{1b}[33m WARN\u{1b}[0m x: y"
+        ));
+        assert!(is_warning_or_error("2026-11-13T21:18:32Z ERROR x: y"));
+        assert!(!is_warning_or_error(
+            "2026-11-13T21:18:32Z  INFO x: a WARN in the message is not the level"
+        ));
+        assert!(!is_warning_or_error("[PERF] frame 1: style 0.10ms"));
     }
 
     #[test]

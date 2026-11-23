@@ -20,7 +20,7 @@ use deskrinch_picture::{
     Fit, FitError, Formats, Ignored, Limits, MAX_PROFILE_BYTES, Profile, decode, fit,
 };
 use deskrinch_test_pictures::hostile::{self, Case};
-use deskrinch_untrusted::Image;
+use deskrinch_untrusted::{Image, fuzz};
 use peak_alloc::PeakAlloc;
 use proptest::prelude::*;
 use proptest::test_runner::TestRunner;
@@ -148,14 +148,12 @@ fn mutated_pictures_stay_within_the_bound() {
         prop::collection::vec((any::<prop::sample::Index>(), any::<u8>()), 1..8),
         any::<prop::sample::Index>(),
     );
-    // The shared configuration's cases, run in this process: its forked
-    // children (for the timeout) re-run a named test of the harness, which
-    // this binary does not have.
+    // The shared configuration, with no file of failures kept: proptest
+    // keeps them beside the source of a `proptest!` test, which a runner
+    // made by hand has none of.
     let config = proptest::test_runner::Config {
-        timeout: 0,
-        fork: false,
         failure_persistence: None,
-        ..deskrinch_untrusted::fuzz::config()
+        ..fuzz::config()
     };
     let mut runner = TestRunner::new(config);
     runner
@@ -166,9 +164,13 @@ fn mutated_pictures_stay_within_the_bound() {
                 bytes[at] = value;
             }
             bytes.truncate(end.index(bytes.len()) + 1);
-            let (result, peak) = measured(&bytes, &tight);
-            prop_assert!(peak <= bound, "{peak} bytes at its peak ({result:?})");
-            Ok(())
+            // The watchdog is armed before the measurement begins, so its
+            // own allocations are not in the peak.
+            fuzz::case_bytes("mutated_pictures_stay_within_the_bound", &bytes, || {
+                let (result, peak) = measured(&bytes, &tight);
+                prop_assert!(peak <= bound, "{peak} bytes at its peak ({result:?})");
+                Ok(())
+            })
         })
         .unwrap_or_else(|failure| panic!("{failure}"));
 }

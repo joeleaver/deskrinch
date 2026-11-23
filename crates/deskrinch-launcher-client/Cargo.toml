@@ -1,0 +1,19 @@
+[package]
+name = "deskrinch-launcher-client"
+description = "The launcher's session-bus interface from the caller's side: its name, object and interface, and the requests a caller sends it."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+deskrinch-bus.workspace = true
+thiserror.workspace = true
+# zbus's own runtime (`default-rt`), driven by `zbus::block_on`, so a caller
+# needs no async runtime.
+zbus = { workspace = true, features = ["default-rt"] }
+
+[lints]
+workspace = true

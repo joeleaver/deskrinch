@@ -15,11 +15,18 @@
 //! own with [`config_with_services`] or [`PrivateBus::start_with_services`].
 //! The services the bus starts are the daemon's children: they run in its
 //! isolated session and its process group, and end with it.
+//!
+//! [`OurBus`] is the proof that a session bus is ours, and the only maker of
+//! a connection to one in test code: a test's own session's
+//! ([`OurBus::here`]), a session it started ([`OurBus::at`]), or a private
+//! bus it runs ([`PrivateBus::ours`]).
 
 mod name;
+mod ours;
 pub mod session;
 
 pub use name::NameError;
+pub use ours::{NotOurs, OurBus};
 
 use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead as _, BufReader};
@@ -29,6 +36,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
+use deskrinch_test_session::BUS_VARIABLE;
 use rustix::process::{Pid, Signal, kill_process_group};
 
 /// The configuration of a private session bus listening on `listen` (a
@@ -141,15 +149,17 @@ impl PrivateBus {
         static BUSES: AtomicUsize = AtomicUsize::new(0);
         let dir = deskrinch_test_lifetime::owned_dir().map_err(Error::Config)?;
         session::create_dirs(dir.path()).map_err(Error::Config)?;
-        let socket = format!(
-            "/tmp/dbus-deskrinch-{}-{}",
+        let socket = deskrinch_test_session::bus::socket_name(
             std::process::id(),
-            BUSES.fetch_add(1, Ordering::SeqCst)
+            BUSES.fetch_add(1, Ordering::SeqCst),
         );
         let path = dir.path().join("bus.conf");
         std::fs::write(
             &path,
-            config_with_services(&format!("unix:abstract={socket}"), service_dirs),
+            config_with_services(
+                &deskrinch_test_session::bus::listen_address(&socket),
+                service_dirs,
+            ),
         )
         .map_err(Error::Config)?;
         let mut command = Command::new("dbus-daemon");
@@ -192,6 +202,20 @@ impl PrivateBus {
         &self.address
     }
 
+    /// The proof that this bus is ours, to connect to it with: it made the
+    /// address.
+    #[must_use]
+    pub fn ours(&self) -> OurBus {
+        OurBus::proved(self.address.clone())
+    }
+
+    /// The bus daemon's process id: a process a client may wait on, which
+    /// a measurement of that client watches too.
+    #[must_use]
+    pub fn daemon_pid(&self) -> u32 {
+        self.daemon.id()
+    }
+
     /// The root of the bus's isolated session (its home and XDG directories
     /// are [`session::SESSION_DIRS`] under it).
     #[must_use]
@@ -206,7 +230,7 @@ impl PrivateBus {
     pub fn command(&self, program: impl AsRef<OsStr>) -> Command {
         let mut command = Command::new(program);
         session::isolate(&mut command, self.dir.path());
-        command.env("DBUS_SESSION_BUS_ADDRESS", &self.address);
+        command.env(BUS_VARIABLE, &self.address);
         command
     }
 
@@ -231,7 +255,7 @@ impl PrivateBus {
     pub fn session_env(&self) -> Vec<(&'static str, OsString)> {
         session::environment(self.dir.path())
             .into_iter()
-            .chain([("DBUS_SESSION_BUS_ADDRESS", OsString::from(&self.address))])
+            .chain([(BUS_VARIABLE, OsString::from(&self.address))])
             .collect()
     }
 
@@ -298,11 +322,22 @@ mod tests {
     fn a_private_bus_reports_an_abstract_address() {
         let bus = PrivateBus::start().unwrap();
         assert!(
-            bus.address()
-                .starts_with("unix:abstract=/tmp/dbus-deskrinch-"),
+            deskrinch_test_session::bus::is_private(bus.address()),
             "{}",
             bus.address()
         );
+    }
+
+    /// The bus's own proof is for its address, which `at` would take too,
+    /// and connects to it.
+    #[test]
+    fn a_private_bus_s_own_proof_connects_to_it() {
+        let bus = PrivateBus::start().unwrap();
+        let ours = bus.ours();
+        assert_eq!(ours.address(), bus.address());
+        assert_eq!(OurBus::at(bus.address()), Ok(ours.clone()));
+        let connection = zbus::block_on(ours.connect()).unwrap();
+        assert!(connection.unique_name().is_some());
     }
 
     #[test]
@@ -312,10 +347,7 @@ mod tests {
         let envs: Vec<_> = command.get_envs().collect();
         let runtime = bus.session_root().join("run");
         assert!(envs.contains(&("XDG_RUNTIME_DIR".as_ref(), Some(runtime.as_os_str()))));
-        assert!(envs.contains(&(
-            "DBUS_SESSION_BUS_ADDRESS".as_ref(),
-            Some(OsStr::new(bus.address()))
-        )));
+        assert!(envs.contains(&(BUS_VARIABLE.as_ref(), Some(OsStr::new(bus.address())))));
         assert!(envs.contains(&("WAYLAND_DISPLAY".as_ref(), None)));
     }
 

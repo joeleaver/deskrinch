@@ -4,6 +4,8 @@
 //! returning [`Outcome`]. Adding a task is a new module, one [`Task`] variant
 //! and one match arm in [`Task::run`]; existing tasks are not touched.
 
+mod busy;
+mod cargo;
 mod cargo_messages;
 mod ci_packages;
 mod components;
@@ -68,7 +70,7 @@ enum Task {
     /// compositors.
     ///
     /// The test binaries are those of the suites table
-    /// (`xtask/src/compositor_tests/suites.rs`), each with the compositors
+    /// (`xtask/src/compositor_tests/suites/`), each with the compositors
     /// and the passes it runs in: a pass is one isolated session per
     /// compositor (the one `cargo xtask session` describes) with its outputs
     /// set up a given way, at scale 1, at scale 2, turned or flipped. Under
@@ -194,6 +196,12 @@ enum Task {
     /// session. Not for running by hand.
     #[command(name = "in-session", hide = true)]
     InSession(in_session::Args),
+    /// Keeps the nested session's compositor busy with a fixed amount of
+    /// Wayland work, and writes when it had all been answered: a helper
+    /// for measure's tests. Refuses outside a nested session. Not for
+    /// running by hand.
+    #[command(name = "busy-compositor", hide = true)]
+    BusyCompositor(busy::Args),
 }
 
 impl Task {
@@ -210,6 +218,7 @@ impl Task {
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
             Self::Input => input::run(),
             Self::InSession(args) => in_session::run(&args),
+            Self::BusyCompositor(args) => busy::run(&args),
             Self::Measure(args) => measure::run(&args.request()?),
             Self::Session {
                 outputs,

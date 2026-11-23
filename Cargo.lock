@@ -963,6 +963,7 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-keyfile",
  "deskrinch-test-dbus",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-timer",
  "deskrinch-watch",
@@ -1022,6 +1023,7 @@ dependencies = [
  "deskrinch-desktop-entries",
  "deskrinch-gestures",
  "deskrinch-icons",
+ "deskrinch-launcher-client",
  "deskrinch-settings",
  "deskrinch-shell",
  "deskrinch-start-record",
@@ -1039,6 +1041,15 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "tracing",
+ "zbus 6.2.1",
+]
+
+[[package]]
+name = "deskrinch-launcher-client"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-bus",
+ "thiserror 2.0.21",
  "zbus 6.2.1",
 ]
 
@@ -1103,8 +1114,9 @@ dependencies = [
  "deskrinch-taskbar",
  "deskrinch-test-client",
  "deskrinch-test-component",
- "deskrinch-test-desktops",
  "deskrinch-test-input",
+ "deskrinch-test-kwin",
+ "deskrinch-test-log",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-theme",
@@ -1204,6 +1216,7 @@ dependencies = [
 name = "deskrinch-test-client"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "serde",
@@ -1229,20 +1242,12 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-bus",
  "deskrinch-test-lifetime",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "futures-core",
  "rustix",
  "tempfile",
  "thiserror 2.0.21",
- "zbus 6.2.1",
-]
-
-[[package]]
-name = "deskrinch-test-desktops"
-version = "0.1.0"
-dependencies = [
- "deskrinch-bus",
- "deskrinch-test-client",
  "zbus 6.2.1",
 ]
 
@@ -1258,6 +1263,21 @@ dependencies = [
  "wayland-protocols-misc",
  "wayland-protocols-plasma",
  "wayland-protocols-wlr",
+]
+
+[[package]]
+name = "deskrinch-test-kwin"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-test-client",
+ "deskrinch-test-dbus",
+ "deskrinch-test-session",
+ "deskrinch-test-wait",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.21",
+ "zbus 6.2.1",
 ]
 
 [[package]]
@@ -1322,6 +1342,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-test-session"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+]
+
+[[package]]
 name = "deskrinch-test-wait"
 version = "0.1.0"
 
@@ -1363,6 +1390,7 @@ name = "deskrinch-untrusted"
 version = "0.1.0"
 dependencies = [
  "bytemuck",
+ "deskrinch-test-wait",
  "libc",
  "proptest",
  "rustix",
@@ -1426,6 +1454,7 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-client",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-wayland-client",
@@ -1443,8 +1472,8 @@ version = "0.1.0"
 dependencies = [
  "bitflags 2.13.2",
  "deskrinch-test-client",
- "deskrinch-test-desktops",
  "deskrinch-test-input",
+ "deskrinch-test-kwin",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
@@ -2580,7 +2609,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
 dependencies = [
  "byteorder-lite",
- "quick-error 2.0.1",
+ "quick-error",
 ]
 
 [[package]]
@@ -3905,8 +3934,6 @@ dependencies = [
  "rand",
  "rand_xorshift",
  "regex-syntax",
- "rusty-fork",
- "tempfile",
  "unarray",
 ]
 
@@ -3915,12 +3942,6 @@ name = "pxfm"
 version = "0.1.30"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
-
-[[package]]
-name = "quick-error"
-version = "1.2.3"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quick-error"
@@ -4137,7 +4158,7 @@ dependencies = [
 [[package]]
 name = "rinch"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "base64",
  "bytemuck",
@@ -4186,7 +4207,7 @@ dependencies = [
 [[package]]
 name = "rinch-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "thiserror 1.0.69",
  "tracing",
@@ -4196,7 +4217,7 @@ dependencies = [
 [[package]]
 name = "rinch-debug"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "getrandom 0.3.4",
  "libc",
@@ -4208,7 +4229,7 @@ dependencies = [
 [[package]]
 name = "rinch-dom"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "app_units",
  "atomic_refcell",
@@ -4253,7 +4274,7 @@ dependencies = [
 [[package]]
 name = "rinch-editable"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "rinch-words",
 ]
@@ -4261,7 +4282,7 @@ dependencies = [
 [[package]]
 name = "rinch-editor-core"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "regex",
  "rinch-core",
@@ -4272,17 +4293,16 @@ dependencies = [
 [[package]]
 name = "rinch-editor-view"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "rinch-core",
  "rinch-editor-core",
- "web-time",
 ]
 
 [[package]]
 name = "rinch-macros"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -4292,7 +4312,7 @@ dependencies = [
 [[package]]
 name = "rinch-platform"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "peniko",
  "vello",
@@ -4302,7 +4322,7 @@ dependencies = [
 [[package]]
 name = "rinch-renderer"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "rinch-core",
  "thiserror 1.0.69",
@@ -4314,12 +4334,12 @@ dependencies = [
 [[package]]
 name = "rinch-theme"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 
 [[package]]
 name = "rinch-words"
 version = "0.1.0"
-source = "git+https://github.com/joeleaver/rinch?branch=main#fb0919d45deb7649ea4eed2bc3062c3d71bb72af"
+source = "git+https://github.com/joeleaver/rinch?branch=main#ba59652da4d08da5b443169ae91818bfa8d4f517"
 dependencies = [
  "icu_segmenter",
  "regex",
@@ -4374,18 +4394,6 @@ name = "rustversion"
 version = "1.0.23"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf54715a573b99ac80df0bc206da022bcd442c974952c7b9720069370852e21f"
-
-[[package]]
-name = "rusty-fork"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc6bf79ff24e648f6da1f8d1f011e9cac26491b619e6b9280f2b47f1774e6ee2"
-dependencies = [
- "fnv",
- "quick-error 1.2.3",
- "tempfile",
- "wait-timeout",
-]
 
 [[package]]
 name = "same-file"
@@ -5614,15 +5622,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6a02e4885ed3bc0f2de90ea6dd45ebcbb66dacffe03547fadbb0eeae2770887d"
 
 [[package]]
-name = "wait-timeout"
-version = "0.2.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "09ac3b126d3914f9849036f826e054cbabdc8519970b8998ddaf3b5bd3c65f11"
-dependencies = [
- "libc",
-]
-
-[[package]]
 name = "walkdir"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -6634,9 +6633,11 @@ dependencies = [
  "deskrinch-test-component",
  "deskrinch-test-dbus",
  "deskrinch-test-input",
+ "deskrinch-test-kwin",
  "deskrinch-test-lifetime",
  "deskrinch-test-notify",
  "deskrinch-test-screen",
+ "deskrinch-test-session",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-window-management",

@@ -14,5 +14,13 @@ image-webp.workspace = true
 moxcms.workspace = true
 png.workspace = true
 
+# The build script makes the ordinary corpus with the library's own
+# encoders (`build.rs`).
+[build-dependencies]
+gif.workspace = true
+image-webp.workspace = true
+moxcms.workspace = true
+png.workspace = true
+
 [lints]
 workspace = true

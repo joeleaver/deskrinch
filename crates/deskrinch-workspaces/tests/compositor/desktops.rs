@@ -19,7 +19,7 @@ fn a_desktop_created_and_removed_by_kwin_comes_and_goes() {
     let watcher = Watcher::connect();
     set_up(compositor, &watcher);
     let name = format!("Extra {}", std::process::id());
-    kwin::create(&name);
+    kwin().create_virtual_desktop(&name).unwrap();
     let added = watcher.wait_until("the new desktop", |workspaces| {
         workspaces
             .iter()
@@ -28,7 +28,7 @@ fn a_desktop_created_and_removed_by_kwin_comes_and_goes() {
     });
     assert!(!added.state.contains(WorkspaceState::ACTIVE));
     assert_eq!(watcher.listed().last().map(|last| &last.name), Some(&name));
-    kwin::remove(&name);
+    kwin().remove_virtual_desktop(&name).unwrap();
     watcher.wait_until("the desktop gone", |workspaces| {
         workspaces
             .iter()
@@ -54,7 +54,7 @@ fn kwins_rows_lay_the_desktops_out() {
     );
     let watcher = Watcher::connect();
     set_up(compositor, &watcher);
-    kwin::set_rows(2);
+    kwin().set_virtual_desktop_rows(2).unwrap();
     watcher.wait_until("two rows", |workspaces| {
         workspaces
             .iter()
@@ -68,5 +68,5 @@ fn kwins_rows_lay_the_desktops_out() {
         .map(|workspace| workspace.coordinates.clone())
         .collect();
     assert_eq!(cells, [[0, 0], [0, 1], [1, 0], [1, 1]]);
-    kwin::set_rows(1);
+    kwin().set_virtual_desktop_rows(1).unwrap();
 }

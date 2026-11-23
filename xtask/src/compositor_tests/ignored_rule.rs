@@ -101,8 +101,8 @@ mod tests {
         assert!(
             orphans.is_empty(),
             "xtask's test files {orphans:?} have tests ignored for needing a compositor, and \
-             nothing runs them: add each to a suite in xtask/src/compositor_tests/suites.rs (a \
-             test cargo xtask compositor-tests runs), or to the `cargo test -p xtask … --test …` \
+             nothing runs them: add each to a suite in xtask/src/compositor_tests/suites/ (a \
+             row cargo xtask compositor-tests runs, named in its `SUITES`), or to the `cargo test -p xtask … --test …` \
              command in .github/workflows/ci.yml"
         );
     }

@@ -101,8 +101,19 @@ mod tests {
                 "{:?} mixes passes with outputs of their own and others",
                 own.target
             );
-            assert!(!own.filter.is_empty(), "{:?} names no tests", own.target);
-            for module in own.filter {
+            // The modules it runs: its filter's entries that select, not
+            // `--skip` nor what follows one.
+            let modules: Vec<&str> = own
+                .filter
+                .iter()
+                .enumerate()
+                .filter(|&(index, entry)| {
+                    *entry != "--skip" && (index == 0 || own.filter[index - 1] != "--skip")
+                })
+                .map(|(_, entry)| *entry)
+                .collect();
+            assert!(!modules.is_empty(), "{:?} names no tests", own.target);
+            for module in modules {
                 for other in SUITES
                     .iter()
                     .filter(|other| other.target == own.target && !std::ptr::eq(*other, own))
@@ -110,7 +121,7 @@ mod tests {
                     let skipped = other
                         .filter
                         .windows(2)
-                        .any(|pair| pair[0] == "--skip" && pair[1] == *module);
+                        .any(|pair| pair[0] == "--skip" && pair[1] == module);
                     assert!(
                         skipped,
                         "{:?}: a row runs {module} on other outputs; skip it there",

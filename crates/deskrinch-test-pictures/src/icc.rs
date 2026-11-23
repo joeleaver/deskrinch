@@ -3,28 +3,46 @@
 
 use moxcms::ColorProfile;
 
+/// The creation time every profile here carries: 2000-01-01 00:00:00, as
+/// the header's six big-endian 16-bit fields (year, month, day, hours,
+/// minutes, seconds).
+const CREATED: [u8; 12] = [0x07, 0xd0, 0, 1, 0, 1, 0, 0, 0, 0, 0, 0];
+
+/// Where a profile header keeps its creation time (ICC.1, 7.2.1).
+const CREATED_AT: std::ops::Range<usize> = 24..36;
+
+/// `profile` encoded, its creation time set to [`CREATED`]. moxcms stamps
+/// the time of the encoding, which made a picture carrying the profile
+/// differ from one run, or one build, to the next. Nothing reads the time,
+/// and moxcms writes no profile ID (which would cover it).
+fn encoded(profile: &ColorProfile) -> Vec<u8> {
+    let mut bytes = profile.encode().unwrap();
+    bytes[CREATED_AT].copy_from_slice(&CREATED);
+    bytes
+}
+
 /// moxcms's sRGB profile, encoded.
 #[must_use]
 pub fn srgb() -> Vec<u8> {
-    ColorProfile::new_srgb().encode().unwrap()
+    encoded(&ColorProfile::new_srgb())
 }
 
 /// moxcms's Display P3 profile, encoded.
 #[must_use]
 pub fn display_p3() -> Vec<u8> {
-    ColorProfile::new_display_p3().encode().unwrap()
+    encoded(&ColorProfile::new_display_p3())
 }
 
 /// moxcms's Adobe RGB (1998) profile, encoded.
 #[must_use]
 pub fn adobe_rgb() -> Vec<u8> {
-    ColorProfile::new_adobe_rgb().encode().unwrap()
+    encoded(&ColorProfile::new_adobe_rgb())
 }
 
 /// moxcms's grey profile with a gamma of 2.2, encoded.
 #[must_use]
 pub fn grey() -> Vec<u8> {
-    ColorProfile::new_gray_with_gamma(2.2).encode().unwrap()
+    encoded(&ColorProfile::new_gray_with_gamma(2.2))
 }
 
 /// The colour space of a [`lut`] profile.
@@ -170,4 +188,29 @@ fn fixed(value: f64) -> [u8; 4] {
     )]
     let raw = (value * 65_536.0).round() as i32;
     raw.to_be_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every profile moxcms encodes here carries the fixed creation time,
+    /// read back from its header, not the time it was made.
+    #[test]
+    fn moxcms_profiles_carry_the_fixed_creation_time() {
+        for (name, profile) in [
+            ("srgb", srgb()),
+            ("display p3", display_p3()),
+            ("adobe rgb", adobe_rgb()),
+            ("grey", grey()),
+        ] {
+            let created: Vec<u16> = profile[CREATED_AT]
+                .as_chunks::<2>()
+                .0
+                .iter()
+                .map(|field| u16::from_be_bytes(*field))
+                .collect();
+            assert_eq!(created, [2000, 1, 1, 0, 0, 0], "{name}'s creation time");
+        }
+    }
 }

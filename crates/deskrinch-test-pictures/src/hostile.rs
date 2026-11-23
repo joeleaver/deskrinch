@@ -3,254 +3,31 @@
 
 use std::sync::LazyLock;
 
+use crate::case::case;
+pub use crate::case::{Case, noise};
 use crate::png::{BitDepth, ColorType};
 use crate::{fixtures, gif, icc, jpeg, png, webp};
 
-/// A named picture of the corpus.
-#[derive(Debug, Clone)]
-pub struct Case {
-    /// What it is.
-    pub name: String,
-    /// Its bytes.
-    pub bytes: Vec<u8>,
+/// The ordinary corpus as the build script made it (`ordinary.rs`): each
+/// picture's name and bytes, in order.
+mod built {
+    include!(concat!(env!("OUT_DIR"), "/ordinary.rs"));
 }
 
-fn case(name: &str, bytes: Vec<u8>) -> Case {
-    Case {
-        name: name.to_owned(),
-        bytes,
-    }
-}
-
-/// Pixels that do not repeat, `n` bytes of them.
-#[must_use]
-pub fn noise(n: usize) -> Vec<u8> {
-    let mut x: u32 = 0x9e37_79b9;
-    (0..n)
-        .map(|_| {
-            x ^= x << 13;
-            x ^= x >> 17;
-            x ^= x << 5;
-            x.to_le_bytes()[0]
-        })
-        .collect()
-}
-
-/// Pictures of every format and layout the decoder takes.
+/// Pictures of every format and layout the decoder takes: small ones, and
+/// ones large enough that what a decoder allocates per pixel, not its fixed
+/// share, decides its peak. They are made when this crate is built
+/// (`ordinary.rs`), so a test pays only for a copy of their bytes, not for
+/// encoding them.
 #[must_use]
 pub fn ordinary() -> &'static [Case] {
     static ORDINARY: LazyLock<Vec<Case>> = LazyLock::new(|| {
-        let mut cases = small();
-        cases.extend(large());
-        cases
+        built::ORDINARY
+            .iter()
+            .map(|&(name, bytes)| case(name, bytes.to_vec()))
+            .collect()
     });
     &ORDINARY
-}
-
-/// Pictures large enough that what a decoder allocates per pixel, not its
-/// fixed share, decides its peak.
-fn large() -> Vec<Case> {
-    let side = 512_u32;
-    let pixels = (side * side) as usize;
-    let rgba = noise(pixels * 4);
-    let rgb = noise(pixels * 3);
-    vec![
-        case(
-            "large png rgb",
-            png::encode(side, side, ColorType::Rgb, BitDepth::Eight, &rgb),
-        ),
-        case(
-            "large png interlaced",
-            png::interlaced(side, side, true, png::distinct),
-        ),
-        case(
-            "large webp lossless rgba",
-            webp::lossless(side, side, &rgba),
-        ),
-        case(
-            "large webp lossless rgb",
-            webp::lossless_rgb(side, side, &rgb),
-        ),
-        case(
-            "large webp lossy alpha",
-            fixtures::LOSSY_ALPHA_NOISE_WEBP.to_vec(),
-        ),
-        case(
-            "jpeg 1024 progressive 4:4:4",
-            fixtures::GRADIENT_PROGRESSIVE_444_JPEG.to_vec(),
-        ),
-        case(
-            "jpeg 1024 progressive 4:2:0",
-            fixtures::GRADIENT_PROGRESSIVE_420_JPEG.to_vec(),
-        ),
-        case(
-            "jpeg 1024 baseline",
-            fixtures::GRADIENT_BASELINE_JPEG.to_vec(),
-        ),
-        case("webp 2048 lossy", fixtures::GRADIENT_LOSSY_WEBP.to_vec()),
-        case(
-            "webp 1024 lossy alpha",
-            fixtures::GRADIENT_LOSSY_ALPHA_WEBP.to_vec(),
-        ),
-        case(
-            "large webp animated",
-            webp::animated(side, side, &[(0, 0, side, side, rgba.clone())]),
-        ),
-        case(
-            "large gif",
-            gif::encode(
-                512,
-                512,
-                &[gif::Placed {
-                    left: 0,
-                    top: 0,
-                    width: 512,
-                    height: 512,
-                    rgba: noise(pixels * 4),
-                }],
-            ),
-        ),
-        case(
-            "large gif, offset frame",
-            gif::encode(
-                512,
-                512,
-                &[gif::Placed {
-                    left: 2,
-                    top: 2,
-                    width: 500,
-                    height: 500,
-                    rgba: noise(500 * 500 * 4),
-                }],
-            ),
-        ),
-    ]
-}
-
-/// Small pictures of every format and layout.
-fn small() -> Vec<Case> {
-    let mut cases = small_jpeg_png();
-    cases.extend(small_gif_webp());
-    cases
-}
-
-/// Small JPEGs and PNGs of every layout.
-fn small_jpeg_png() -> Vec<Case> {
-    let side = 96_u32;
-    let pixels = (side * side) as usize;
-    let rgba = noise(pixels * 4);
-    let rgb = noise(pixels * 3);
-    let p3 = icc::display_p3();
-    let big_rgb_profile = icc::lut(icc::Space::Rgb, 33);
-    vec![
-        case("jpeg baseline", fixtures::BASELINE_JPEG.to_vec()),
-        case("jpeg progressive", fixtures::PROGRESSIVE_JPEG.to_vec()),
-        case("jpeg 4:2:0", fixtures::SUBSAMPLED_JPEG.to_vec()),
-        case("jpeg grey", fixtures::GREY_JPEG.to_vec()),
-        case("jpeg cmyk", fixtures::CMYK_JPEG.to_vec()),
-        case(
-            "jpeg progressive noise",
-            fixtures::PROGRESSIVE_NOISE_JPEG.to_vec(),
-        ),
-        case(
-            "jpeg turned a quarter",
-            jpeg::with_orientation(fixtures::PROGRESSIVE_NOISE_JPEG, 6),
-        ),
-        case(
-            "jpeg display p3",
-            jpeg::with_profile(fixtures::BASELINE_JPEG, &p3),
-        ),
-        case(
-            "jpeg with a 33-point rgb table",
-            jpeg::with_profile(fixtures::PROGRESSIVE_NOISE_JPEG, &big_rgb_profile),
-        ),
-        case(
-            "png rgba",
-            png::encode(side, side, ColorType::Rgba, BitDepth::Eight, &rgba),
-        ),
-        case(
-            "png rgb",
-            png::encode(side, side, ColorType::Rgb, BitDepth::Eight, &rgb),
-        ),
-        case(
-            "png grey",
-            png::encode(
-                side,
-                side,
-                ColorType::Grayscale,
-                BitDepth::Eight,
-                &rgb[..pixels],
-            ),
-        ),
-        case(
-            "png rgba 16-bit",
-            png::encode(side / 2, side, ColorType::Rgba, BitDepth::Sixteen, &rgba),
-        ),
-        case(
-            "png interlaced",
-            png::interlaced(side, side, true, png::distinct),
-        ),
-        case(
-            "png adobe rgb",
-            png::with_profile(
-                side,
-                side,
-                ColorType::Rgb,
-                BitDepth::Eight,
-                &rgb,
-                &icc::adobe_rgb(),
-            ),
-        ),
-        case(
-            "png with a 33-point rgb table",
-            png::with_profile(
-                side,
-                side,
-                ColorType::Rgb,
-                BitDepth::Eight,
-                &rgb,
-                &big_rgb_profile,
-            ),
-        ),
-    ]
-}
-
-/// Small APNG, GIF and WebP pictures of every layout.
-fn small_gif_webp() -> Vec<Case> {
-    let side = 96_u32;
-    let pixels = (side * side) as usize;
-    let rgba = noise(pixels * 4);
-    let rgb = noise(pixels * 3);
-    let frame = |left, top, w: u16, h: u16| gif::Placed {
-        left,
-        top,
-        width: w,
-        height: h,
-        rgba: noise(usize::from(w) * usize::from(h) * 4),
-    };
-    vec![
-        case("apng", png::animated(side, side, &[&rgba, &rgba])),
-        case("gif", gif::encode(64, 64, &[frame(0, 0, 64, 64)])),
-        case(
-            "gif animated, offset frame",
-            gif::encode(96, 64, &[frame(10, 7, 40, 30), frame(0, 0, 96, 64)]),
-        ),
-        case("webp lossless rgba", webp::lossless(side, side, &rgba)),
-        case("webp lossless rgb", webp::lossless_rgb(side, side, &rgb)),
-        case("webp lossy", fixtures::LOSSY_WEBP.to_vec()),
-        case("webp lossy alpha", fixtures::LOSSY_ALPHA_WEBP.to_vec()),
-        case(
-            "webp animated",
-            webp::animated(
-                96,
-                64,
-                &[
-                    (10, 6, 40, 30, noise(40 * 30 * 4)),
-                    (0, 0, 96, 64, noise(96 * 64 * 4)),
-                ],
-            ),
-        ),
-    ]
 }
 
 /// Pictures that are mostly metadata: what each decoder keeps of it must be

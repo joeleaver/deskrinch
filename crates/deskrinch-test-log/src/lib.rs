@@ -21,11 +21,13 @@
 //!
 //! # What is kept
 //!
-//! - Each event's `message`, written out, in order, on the thread that
-//!   emitted it, while that thread captures. An event emitted on another
-//!   thread (a worker the code under test started) goes to that thread's
-//!   buffer, which nothing reads unless that thread captures; it is not in
-//!   the test's lines.
+//! - Each event's level and `message`, written out, in order, on the
+//!   thread that emitted it, while that thread captures: [`Capture::lines`]
+//!   reads the messages, [`Capture::events`] both, and
+//!   [`Capture::warnings_and_errors`] the messages at warn or error. An
+//!   event emitted on another thread (a worker the code under test
+//!   started) goes to that thread's buffer, which nothing reads unless that
+//!   thread captures; it is not in the test's lines.
 //! - One capture at a time on a thread: a second [`capture`] while the
 //!   first is alive panics.
 //! - Code under test that installs a global subscriber of its own fails to
@@ -47,11 +49,20 @@ use std::marker::PhantomData;
 use std::sync::OnceLock;
 
 use tracing::subscriber::Interest;
-use tracing::{Event, Metadata, Subscriber, span};
+use tracing::{Event, Level, Metadata, Subscriber, span};
 
 thread_local! {
-    /// The messages kept on this thread, while it captures.
-    static LINES: RefCell<Option<Vec<String>>> = const { RefCell::new(None) };
+    /// The events kept on this thread, while it captures.
+    static LINES: RefCell<Option<Vec<Logged>>> = const { RefCell::new(None) };
+}
+
+/// One event a thread logged: its level and its message.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Logged {
+    /// Its level.
+    pub level: Level,
+    /// Its `message` field, written out.
+    pub message: String,
 }
 
 /// Captures this thread's events until dropped; not sent to another
@@ -67,7 +78,28 @@ impl Capture {
     /// order.
     #[must_use]
     pub fn lines(&self) -> Vec<String> {
+        self.events()
+            .into_iter()
+            .map(|event| event.message)
+            .collect()
+    }
+
+    /// This thread's events since the capture began, with their levels, in
+    /// order.
+    #[must_use]
+    pub fn events(&self) -> Vec<Logged> {
         LINES.with(|lines| lines.borrow().clone().unwrap_or_default())
+    }
+
+    /// The messages of this thread's events at warn or error level since
+    /// the capture began, in order.
+    #[must_use]
+    pub fn warnings_and_errors(&self) -> Vec<String> {
+        self.events()
+            .into_iter()
+            .filter(|event| event.level <= Level::WARN)
+            .map(|event| event.message)
+            .collect()
     }
 }
 
@@ -130,7 +162,10 @@ impl Subscriber for PerThread {
             if let Some(lines) = lines.borrow_mut().as_mut() {
                 let mut message = Message::default();
                 event.record(&mut message);
-                lines.push(message.0);
+                lines.push(Logged {
+                    level: *event.metadata().level(),
+                    message: message.0,
+                });
             }
         });
     }
@@ -148,5 +183,28 @@ impl tracing::field::Visit for Message {
             // Writing to a `String` cannot fail.
             let _written = write!(self.0, "{value:?}");
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn keeps_each_events_level_beside_its_message() {
+        let capture = capture();
+        tracing::info!("one");
+        tracing::warn!("two");
+        tracing::debug!("three");
+        tracing::error!("four");
+        assert_eq!(capture.lines(), ["one", "two", "three", "four"]);
+        assert_eq!(
+            capture.events()[1],
+            Logged {
+                level: Level::WARN,
+                message: "two".to_owned()
+            }
+        );
+        assert_eq!(capture.warnings_and_errors(), ["two", "four"]);
     }
 }

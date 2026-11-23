@@ -1,17 +1,7 @@
 //! The launcher's interface on the session bus, which summons it, and the
-//! name that makes it one per session.
-//!
-//! `org.deskrinch.Launcher` owns `/org/deskrinch/Launcher`, with the
-//! interface `org.deskrinch.Launcher1`:
-//!
-//! - `Toggle() -> b`: shows the launcher if hidden, hides it if shown, and
-//!   answers whether it is now shown;
-//! - `Show()`, `Hide()`: shows or hides it; one already shown or hidden
-//!   stays so;
-//! - `ForgetStarts()`: deletes the record of the applications started,
-//!   and returns once it is deleted;
-//! - the property `Shown` (`b`, read-only): whether it is shown, or about
-//!   to be, read on demand (no `PropertiesChanged` is sent for it).
+//! name that makes it one per session. The interface, its address and what
+//! each method does are `deskrinch-launcher-client`'s to say; this is the
+//! server's side.
 //!
 //! The name is requested without queueing or replacement: a second
 //! launcher finds it taken ([`ServeError::Running`]) and leaves the first
@@ -20,17 +10,11 @@
 use std::sync::Arc;
 
 use deskrinch_bus::Bus;
+use deskrinch_launcher_client::{NAME, PATH};
 use zbus::Connection;
 use zbus::fdo::{RequestNameFlags, RequestNameReply};
 
 use crate::visibility::Visibility;
-
-/// The launcher's well-known name.
-pub const NAME: &str = "org.deskrinch.Launcher";
-/// Its object.
-pub const PATH: &str = "/org/deskrinch/Launcher";
-/// Its interface.
-pub const INTERFACE: &str = "org.deskrinch.Launcher1";
 
 /// The served object.
 struct Launcher {
@@ -38,6 +22,9 @@ struct Launcher {
     forget_starts: Box<dyn Fn() + Send + Sync>,
 }
 
+// zbus takes a literal: the client's `INTERFACE` is held equal to it by
+// `tests/bus.rs`, whose every request and property read goes through the
+// client.
 #[zbus::interface(name = "org.deskrinch.Launcher1")]
 impl Launcher {
     fn toggle(&self) -> bool {

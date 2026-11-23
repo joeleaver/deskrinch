@@ -118,7 +118,8 @@ pub(crate) fn after_show(
     show: u32,
 ) -> Result<(), Error> {
     wait_keyboard_line(running, typing, mark, show)?;
-    running.settle()?;
+    let settled = running.settle()?;
+    super::super::settle::record(run, &format!("show {show}: before typing"), settled);
     let keys = typing.keys();
     let steps: Vec<Measured<Step>> = typing
         .text

@@ -35,6 +35,7 @@ deskrinch-gestures = { path = "crates/deskrinch-gestures" }
 deskrinch-icons = { path = "crates/deskrinch-icons" }
 deskrinch-keyfile = { path = "crates/deskrinch-keyfile" }
 deskrinch-kwin-access = { path = "crates/deskrinch-kwin-access" }
+deskrinch-launcher-client = { path = "crates/deskrinch-launcher-client" }
 deskrinch-notification-service = { path = "crates/deskrinch-notification-service" }
 deskrinch-picture = { path = "crates/deskrinch-picture" }
 deskrinch-settings = { path = "crates/deskrinch-settings" }
@@ -46,14 +47,15 @@ deskrinch-taskbar = { path = "crates/deskrinch-taskbar" }
 deskrinch-test-client = { path = "crates/deskrinch-test-client" }
 deskrinch-test-component = { path = "crates/deskrinch-test-component" }
 deskrinch-test-dbus = { path = "crates/deskrinch-test-dbus" }
-deskrinch-test-desktops = { path = "crates/deskrinch-test-desktops" }
 deskrinch-test-input = { path = "crates/deskrinch-test-input" }
 deskrinch-test-lifetime = { path = "crates/deskrinch-test-lifetime" }
 deskrinch-test-log = { path = "crates/deskrinch-test-log" }
 deskrinch-test-notify = { path = "crates/deskrinch-test-notify" }
 deskrinch-test-pictures = { path = "crates/deskrinch-test-pictures" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
+deskrinch-test-kwin = { path = "crates/deskrinch-test-kwin" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
+deskrinch-test-session = { path = "crates/deskrinch-test-session" }
 deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }
 deskrinch-test-wait = { path = "crates/deskrinch-test-wait" }
 deskrinch-theme = { path = "crates/deskrinch-theme" }
@@ -100,7 +102,7 @@ peak_alloc = "0.3.0"
 percent-encoding = "2.3.2"
 # The version rinch's image stack already locks; it has no default features.
 png = "0.18.1"
-proptest = { version = "1.12.0", default-features = false, features = ["std", "timeout"] }
+proptest = { version = "1.12.0", default-features = false, features = ["std"] }
 # The GUI framework, from its `main` branch: never a path. Unmerged rinch work
 # is tried through a `[patch]` in `.cargo/config.local.toml`. Its own default
 # features are off; a member names `desktop` (and `gpu`) itself.

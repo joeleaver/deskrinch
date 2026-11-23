@@ -14,7 +14,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Stdio};
+use std::process::{ExitStatus, Stdio};
 
 use deskrinch_shell::{COMPONENTS, LAUNCHER_TOGGLE};
 
@@ -143,8 +143,7 @@ fn cargo_args(profile: Profile) -> Vec<&'static str> {
 /// progress on standard error; returns each package's binary, where Cargo
 /// put it.
 pub(crate) fn build(root: &Path, profile: Profile) -> Result<Built, BuildError> {
-    let cargo = std::env::var_os("CARGO").unwrap_or_else(|| "cargo".into());
-    let output = Command::new(&cargo)
+    let output = crate::cargo::command()
         .current_dir(root)
         .args(cargo_args(profile))
         .stdin(Stdio::null())
