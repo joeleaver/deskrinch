@@ -330,7 +330,7 @@ mod tests {
 
     #[test]
     fn refuses_to_start_anything_outside_a_nested_session() {
-        if std::env::var_os("DESKRINCH_TEST_COMPOSITOR").is_some() {
+        if Compositor::nested().is_some() {
             // Run inside a nested session, where starting is allowed: there
             // is nothing to refuse, and nothing is started.
             eprintln!("in a nested session: the guard lets components start here");

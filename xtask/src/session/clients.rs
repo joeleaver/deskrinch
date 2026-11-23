@@ -9,6 +9,8 @@ use std::time::Instant;
 
 use deskrinch_test_dbus::session::isolate;
 
+use deskrinch_test_session::{COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE};
+
 use super::{COMPOSITOR_PID, CURRENT_DESKTOP, Session, interrupt};
 use crate::error::Error;
 
@@ -78,10 +80,11 @@ impl Session {
         command
             .env("WAYLAND_DISPLAY", &self.socket)
             .env("DBUS_SESSION_BUS_ADDRESS", self.bus.address())
-            .env("DESKRINCH_SESSION_DIR", &self.root)
+            .env(SESSION_DIR_VARIABLE, &self.root)
             .env(COMPOSITOR_PID, self.group.as_raw_nonzero().to_string())
-            // The tests' guard against running in the real session reads it.
-            .env("DESKRINCH_TEST_COMPOSITOR", self.compositor.name())
+            // The tests' guard against running in the real session reads
+            // these three (`deskrinch_test_session::check`).
+            .env(COMPOSITOR_VARIABLE, self.compositor.name())
             .envs(self.compositor.client_env(&self.root.join("run")))
             .stdin(Stdio::null());
         self.gpu.tell(&mut command);

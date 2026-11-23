@@ -19,9 +19,10 @@
 //! the session would have: the group (`SIGTERM`, then `SIGKILL`), every
 //! process that left it ([`super::leftovers`]), and the directory.
 //!
-//! It removes a directory only if it is a session's: directly in
-//! [`super::ROOT_PARENT`], named with [`super::ROOT_PREFIX`], and holding
-//! the marker [`MARKER`] the session writes before starting it. It checks
+//! It removes a directory only if it is a session's: directly in `/tmp`,
+//! named as a session's, and holding the marker [`MARKER`] the session
+//! writes before starting it ([`deskrinch_test_session::root::check`]). It
+//! checks
 //! that when it starts, refusing to run (and the session then refusing to
 //! start) for any other directory, and again before it removes one.
 //!
@@ -43,19 +44,17 @@ use std::fs;
 use std::io::{self, BufRead, BufReader, Write as _};
 use std::os::unix::ffi::OsStrExt as _;
 use std::os::unix::process::CommandExt as _;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 
 use rustix::process::Pid;
 
-use super::{ROOT_PARENT, ROOT_PREFIX};
+use deskrinch_test_session::root::MARKER;
+
 use crate::error::Error;
 
 /// The hidden subcommand that runs a supervisor.
 pub(crate) const SUBCOMMAND: &str = "session-supervisor";
-
-/// The file that marks a directory as a session's root.
-pub(super) const MARKER: &str = ".deskrinch-session";
 
 /// What the supervisor says once it has checked its root.
 const READY: &str = "ready";
@@ -190,33 +189,12 @@ fn supervise(root: &Path, input: impl BufRead) -> Result<(), Error> {
     })
 }
 
-/// Whether `root` is a session's root: a directory (not a link to one)
-/// directly in [`ROOT_PARENT`], named with [`ROOT_PREFIX`], holding
-/// [`MARKER`].
+/// Whether `root` is a session's root ([`deskrinch_test_session::root::check`]).
 pub(crate) fn check(root: &Path) -> Result<(), Error> {
-    let refuse = |why| Error::NotASession {
-        root: root.to_owned(),
-        why,
-    };
-    let is_dir = fs::symlink_metadata(root).is_ok_and(|m| m.file_type().is_dir());
-    if !is_dir {
-        return Err(refuse("not a directory"));
-    }
-    let resolved: PathBuf = fs::canonicalize(root).map_err(|_| refuse("not a directory"))?;
-    if resolved.parent() != Some(Path::new(ROOT_PARENT)) {
-        return Err(refuse("not directly in the temporary directory"));
-    }
-    let named = resolved
-        .file_name()
-        .and_then(|name| name.to_str())
-        .is_some_and(|name| name.starts_with(ROOT_PREFIX));
-    if !named {
-        return Err(refuse("not named as a session's"));
-    }
-    if !resolved.join(MARKER).is_file() {
-        return Err(refuse("no session marker in it"));
-    }
-    Ok(())
+    deskrinch_test_session::root::check(root).map_err(|not| Error::NotASession {
+        root: not.root,
+        why: not.why,
+    })
 }
 
 /// Whether a supervisor of the session under `root` runs: a process of this
@@ -239,6 +217,7 @@ pub(crate) fn supervised(root: &Path) -> bool {
 /// checks one; removed when dropped.
 #[cfg(test)]
 pub(crate) fn fake_root() -> tempfile::TempDir {
+    use deskrinch_test_session::root::{PARENT as ROOT_PARENT, PREFIX as ROOT_PREFIX};
     let root = tempfile::Builder::new()
         .prefix(ROOT_PREFIX)
         .tempdir_in(ROOT_PARENT)
@@ -249,6 +228,8 @@ pub(crate) fn fake_root() -> tempfile::TempDir {
 
 #[cfg(test)]
 mod tests {
+    use deskrinch_test_session::root::{PARENT as ROOT_PARENT, PREFIX as ROOT_PREFIX};
+
     use super::*;
 
     /// A directory in `ROOT_PARENT` named as a session's, removed when

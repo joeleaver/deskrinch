@@ -49,7 +49,7 @@ use crate::Outcome;
 mod bus;
 
 /// The variable `cargo xtask session` names its compositor's process id in.
-const COMPOSITOR_PID: &str = "DESKRINCH_SESSION_COMPOSITOR_PID";
+use deskrinch_test_session::COMPOSITOR_PID_VARIABLE as COMPOSITOR_PID;
 
 /// `cargo xtask in-session`'s arguments.
 #[derive(Debug, clap::Args)]

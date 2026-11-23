@@ -15,6 +15,7 @@ use std::fs;
 use std::process::{Child, Command, ExitStatus, Stdio};
 
 use deskrinch_test_component::programs::program;
+use deskrinch_test_session::COMPOSITOR_VARIABLE;
 use deskrinch_test_wait::{Deadline, PATIENCE};
 
 /// How the component ended.
@@ -116,7 +117,7 @@ fn every_wait_and_action_is_one_the_subcommand_takes() {
                 .args(until.arguments())
                 .args(["--then", then.argument()])
                 .arg("/bin/true")
-                .env_remove("DESKRINCH_TEST_COMPOSITOR")
+                .env_remove(COMPOSITOR_VARIABLE)
                 .stdin(Stdio::null())
                 .output()
                 .unwrap();
@@ -191,8 +192,8 @@ pub(crate) fn run(
 
 /// The run's compositor, as `cargo xtask compositor-tests` names it.
 fn compositor() -> String {
-    std::env::var("DESKRINCH_TEST_COMPOSITOR")
-        .expect("run by cargo xtask compositor-tests (DESKRINCH_TEST_COMPOSITOR)")
+    std::env::var(COMPOSITOR_VARIABLE)
+        .unwrap_or_else(|_| panic!("run by cargo xtask compositor-tests ({COMPOSITOR_VARIABLE})"))
 }
 
 /// The session's status once it has ended: within the patience for the

@@ -23,7 +23,32 @@ mod input {
     fn the_input_client_refuses_outside_a_nested_session() {
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
             .arg("input")
-            .env_remove("DESKRINCH_TEST_COMPOSITOR")
+            .env_remove(deskrinch_test_session::COMPOSITOR_VARIABLE)
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(
+            stderr.contains("types and points only in a nested session"),
+            "{stderr}"
+        );
+        assert!(output.stdout.is_empty(), "it said it was ready");
+    }
+
+    /// The compositor's name alone does not make a session: the client asks
+    /// the session's own check (`deskrinch_test_session::check`), which the
+    /// real session's bus and no session root fail.
+    #[test]
+    fn the_input_client_refuses_the_compositor_s_name_alone() {
+        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            .arg("input")
+            .env(deskrinch_test_session::COMPOSITOR_VARIABLE, "kwin")
+            .env_remove(deskrinch_test_session::SESSION_DIR_VARIABLE)
+            .env(
+                deskrinch_test_session::BUS_VARIABLE,
+                "unix:path=/run/user/1000/bus",
+            )
             .stdin(Stdio::null())
             .output()
             .unwrap();

@@ -13,7 +13,7 @@ mod refusals {
     fn outside_a_session(args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_xtask"))
             .args(args)
-            .env_remove("DESKRINCH_TEST_COMPOSITOR")
+            .env_remove(deskrinch_test_session::COMPOSITOR_VARIABLE)
             .stdin(Stdio::null())
             .output()
             .unwrap()

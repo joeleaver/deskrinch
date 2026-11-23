@@ -129,16 +129,9 @@ const CURRENT_DESKTOP: &str = "XDG_CURRENT_DESKTOP";
 
 /// The variable naming the session's compositor's process id, for a client
 /// that ends the compositor under its other clients (a test of what a
-/// component does when its display goes away). The compositor leads the
-/// session's process group, so this is that group's id too.
-pub(crate) const COMPOSITOR_PID: &str = "DESKRINCH_SESSION_COMPOSITOR_PID";
-
-/// Where a session's root is made: `/tmp`, not `$TMPDIR`, as the Wayland
-/// socket's path must fit a Unix socket address (108 bytes), and `$TMPDIR`
-/// may be long.
-const ROOT_PARENT: &str = "/tmp";
-/// What a session's root is named, before tempfile's random part.
-const ROOT_PREFIX: &str = "deskrinch-session-";
+/// component does when its display goes away).
+pub(crate) use deskrinch_test_session::COMPOSITOR_PID_VARIABLE as COMPOSITOR_PID;
+use deskrinch_test_session::root::{PARENT as ROOT_PARENT, PREFIX as ROOT_PREFIX};
 
 /// The slice of a wait between two looks at whether a process still runs
 /// (and at an interrupt): a wait that also watches a process looks at it

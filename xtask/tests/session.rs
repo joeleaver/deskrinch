@@ -17,6 +17,7 @@ mod session {
     use std::path::Path;
     use std::process::{Child, Command, Output, Stdio};
 
+    use deskrinch_test_session::{COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE};
     use deskrinch_test_wait::wait_for;
     use rustix::process::{Pid, Signal, kill_process, test_kill_process};
 
@@ -148,7 +149,7 @@ mod session {
             .collect();
         // The tests' guard against the real session reads it.
         assert_eq!(
-            env.get("DESKRINCH_TEST_COMPOSITOR").copied(),
+            env.get(COMPOSITOR_VARIABLE).copied(),
             Some(compositor().as_str())
         );
 
@@ -168,7 +169,7 @@ mod session {
         }
         assert_eq!(env["XDG_CONFIG_DIRS"], "/etc/xdg");
         assert_eq!(env["XDG_DATA_DIRS"], "/usr/local/share/:/usr/share/");
-        let root = env["DESKRINCH_SESSION_DIR"];
+        let root = env[SESSION_DIR_VARIABLE];
         assert!(root.starts_with("/tmp/deskrinch-session-"), "{root}");
         // cargo and rustup keep the real homes while HOME moves.
         let real = |variable: &str, default: &str| {
@@ -191,7 +192,7 @@ mod session {
         assert!(socket.starts_with("wayland-"), "{socket}");
         assert_ne!(socket, "wayland-real");
         assert!(
-            env["DBUS_SESSION_BUS_ADDRESS"].starts_with("unix:abstract=/tmp/dbus-deskrinch-"),
+            deskrinch_test_session::bus::is_private(env["DBUS_SESSION_BUS_ADDRESS"]),
             "{}",
             env["DBUS_SESSION_BUS_ADDRESS"]
         );
@@ -373,7 +374,7 @@ mod session {
         let dir = tempfile::tempdir().unwrap();
         let report = dir.path().join("report");
         let script = format!(
-            "echo $$ $DESKRINCH_SESSION_DIR > {}; exec sleep 600",
+            "echo $$ ${SESSION_DIR_VARIABLE} > {}; exec sleep 600",
             report.display()
         );
         let mut command = session(&["sh", "-c", &script]);
