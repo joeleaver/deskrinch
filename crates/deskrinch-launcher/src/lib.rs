@@ -16,8 +16,9 @@
 //!   and the launcher's own UI change and its window follows.
 //! - [`Service`]: the launcher's interface on the session bus
 //!   (`org.deskrinch.Launcher`: `Toggle`, `Show`, `Hide`, `ForgetStarts`),
-//!   whose name makes it one per session.
-//! - [`send`]: the other end, what `deskrinch-launcher toggle` uses.
+//!   whose name makes it one per session. Its address and the caller's
+//!   side are `deskrinch-launcher-client`'s, which `deskrinch-launcher
+//!   toggle` uses.
 //! - [`Preparation`]: when the hidden launcher has rinch prepare its window
 //!   for the next show, so that the show pays only for presenting.
 //!
@@ -92,16 +93,14 @@
 //!   process [`clear`](Model::clear)s the model when it hides, which leaves
 //!   the frequent applications as its results, ready before the next show.
 
-mod client;
 mod model;
 mod prepare;
 mod said;
 mod service;
 mod visibility;
 
-pub use client::{Answer, ClientError, Request, send};
 pub use model::{Action, FREQUENT, Input, Model, ROWS, Row, frequent};
 pub use prepare::{Change, Drawn, PREPARING, Preparation, preparing};
 pub use said::{HAS_KEYBOARD, QUERY_AT_HIDE, query_at_hide};
-pub use service::{INTERFACE, NAME, PATH, ServeError, Service};
+pub use service::{ServeError, Service};
 pub use visibility::Visibility;

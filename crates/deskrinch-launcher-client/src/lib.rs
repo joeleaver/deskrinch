@@ -1,27 +1,43 @@
-//! The other end of the launcher's interface: what `deskrinch-launcher
-//! toggle`, `show`, `hide` and `forget-starts` send to the running
-//! launcher.
+//! The launcher's session-bus interface from the caller's side: what
+//! `deskrinch-launcher toggle`, `show`, `hide` and `forget-starts`, a key
+//! binding and a test send to the running launcher.
+//!
+//! The running launcher owns [`NAME`], with the object [`PATH`] and the
+//! interface [`INTERFACE`]; what each method does is the launcher's to say,
+//! and its service describes it (`deskrinch-launcher`'s `service` module).
+//! A caller names one of them with a [`Request`] and [`send`]s it; with no
+//! launcher on the bus the answer is [`Answer::NotRunning`], not an error.
+//!
+//! It is a crate of its own, apart from the launcher, so that a caller (a
+//! key binding's command, a test) does not build the launcher's toolkit and
+//! renderers for one call.
 
 use deskrinch_bus::Bus;
 use zbus::Connection;
 
-use crate::service::{INTERFACE, NAME, PATH};
+/// The launcher's well-known name.
+pub const NAME: &str = "org.deskrinch.Launcher";
+/// Its object.
+pub const PATH: &str = "/org/deskrinch/Launcher";
+/// Its interface.
+pub const INTERFACE: &str = "org.deskrinch.Launcher1";
 
 /// What to ask the running launcher.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Request {
-    /// Show it if hidden, hide it if shown.
+    /// `Toggle`: show it if hidden, hide it if shown.
     Toggle,
-    /// Show it.
+    /// `Show`.
     Show,
-    /// Hide it.
+    /// `Hide`.
     Hide,
-    /// Delete the record of the applications started, and answer once it
-    /// is deleted.
+    /// `ForgetStarts`: delete the record of the applications started, and
+    /// answer once it is deleted.
     ForgetStarts,
 }
 
 impl Request {
+    /// The method of [`INTERFACE`] it calls.
     fn method(self) -> &'static str {
         match self {
             Self::Toggle => "Toggle",

@@ -7,9 +7,8 @@ mod launcher {
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use deskrinch_bus::Bus;
-    use deskrinch_launcher::{
-        Answer, INTERFACE, NAME, PATH, Request, ServeError, Service, Visibility, send,
-    };
+    use deskrinch_launcher::{ServeError, Service, Visibility};
+    use deskrinch_launcher_client::{Answer, INTERFACE, NAME, PATH, Request, send};
     use deskrinch_test_dbus::PrivateBus;
 
     fn bus() -> (PrivateBus, Bus) {

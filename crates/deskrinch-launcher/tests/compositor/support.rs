@@ -6,7 +6,8 @@ use std::process::{Command, ExitStatus, Stdio};
 use std::time::Duration;
 
 use deskrinch_bus::Bus;
-use deskrinch_launcher::{Change, NAME, PREPARING};
+use deskrinch_launcher::{Change, PREPARING};
+use deskrinch_launcher_client::NAME;
 use deskrinch_test_client::Compositor;
 use deskrinch_test_component::{Component, PerfLine, PerfWindow, Renderer, perf, programs};
 use deskrinch_test_wait::{Deadline, POLL, comes_true};

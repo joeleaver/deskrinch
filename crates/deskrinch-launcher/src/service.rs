@@ -1,5 +1,8 @@
 //! The launcher's interface on the session bus, which summons it, and the
-//! name that makes it one per session.
+//! name that makes it one per session. Its name, object and interface
+//! ([`NAME`], [`PATH`], [`INTERFACE`](deskrinch_launcher_client::INTERFACE))
+//! and the caller's side are `deskrinch-launcher-client`'s; what each
+//! method does is said here.
 //!
 //! `org.deskrinch.Launcher` owns `/org/deskrinch/Launcher`, with the
 //! interface `org.deskrinch.Launcher1`:
@@ -20,17 +23,11 @@
 use std::sync::Arc;
 
 use deskrinch_bus::Bus;
+use deskrinch_launcher_client::{NAME, PATH};
 use zbus::Connection;
 use zbus::fdo::{RequestNameFlags, RequestNameReply};
 
 use crate::visibility::Visibility;
-
-/// The launcher's well-known name.
-pub const NAME: &str = "org.deskrinch.Launcher";
-/// Its object.
-pub const PATH: &str = "/org/deskrinch/Launcher";
-/// Its interface.
-pub const INTERFACE: &str = "org.deskrinch.Launcher1";
 
 /// The served object.
 struct Launcher {
@@ -38,6 +35,8 @@ struct Launcher {
     forget_starts: Box<dyn Fn() + Send + Sync>,
 }
 
+// zbus takes a literal: `INTERFACE`, which callers use, is held equal to it
+// by `tests/bus.rs`, whose every request and property read names `INTERFACE`.
 #[zbus::interface(name = "org.deskrinch.Launcher1")]
 impl Launcher {
     fn toggle(&self) -> bool {
