@@ -73,6 +73,21 @@ fn inner_case_that_hangs_on_text() {
     );
 }
 
+/// The limit of the cases in time: far longer than [`THREADS_BACK`], so that
+/// a watchdog left behind (one not stood down when its case returns) is
+/// still waiting for it, and still listed, when the count is read. A
+/// watchdog left behind acts only at its limit.
+const IN_TIME_LIMIT: Duration = Duration::from_secs(10);
+
+/// How long the task list may take, after the last case, to be back to its
+/// count before them. A thread whose closure has returned (the scope's end
+/// waits for that) is still listed until the system has reaped it: on
+/// 2026-11-24 that took up to 0.8 ms with the test pinned to one CPU and
+/// 3.3 ms with every CPU busy, and the list was back every time; read at
+/// once, the count was higher in 498 runs of 500 pinned. 1 s is about 300
+/// times the longest seen, and a tenth of [`IN_TIME_LIMIT`].
+const THREADS_BACK: Duration = Duration::from_secs(1);
+
 #[test]
 #[ignore = "run by cases_in_time_leave_nothing_and_no_watchdog_behind, in a child"]
 fn inner_cases_in_time() {
@@ -86,7 +101,7 @@ fn inner_cases_in_time() {
                 within(
                     "inner::panics",
                     &Input::Bytes(&[1]),
-                    Duration::from_secs(1),
+                    IN_TIME_LIMIT,
                     &dir(),
                     || {
                         panic!("an ordinary failure");
@@ -98,11 +113,15 @@ fn inner_cases_in_time() {
             within(
                 "inner::in_time",
                 &Input::Bytes(&[2]),
-                Duration::from_secs(1),
+                IN_TIME_LIMIT,
                 &dir(),
                 || {},
             );
         }
+    }
+    let waited = Instant::now();
+    while threads() != before && waited.elapsed() < THREADS_BACK {
+        std::thread::sleep(Duration::from_micros(100));
     }
     println!("threads before {before}, after {}", threads());
 }
