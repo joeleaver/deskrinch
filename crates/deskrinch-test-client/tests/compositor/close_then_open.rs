@@ -1,14 +1,16 @@
-//! A surface closed and the next opened at once, over and over: each is
+//! A window closed and the next opened at once, over and over: each is
 //! mapped, and the client keeps to the protocol whatever events of the
-//! closed one are still on their way (a configure the compositor sends
-//! after the map, while the test is already dropping the surface).
+//! closed one are still on their way (the configure every compositor sends
+//! again after the map, still being handled while the test drops the
+//! window). Layer surfaces have no such window (`layer.rs`'s doc says why),
+//! so they are not run here.
 
 use std::time::{Duration, Instant};
 
-use deskrinch_test_client::{Compositor, Paint, ShellLayer, TestClient};
+use deskrinch_test_client::{Compositor, Paint, TestClient};
 use deskrinch_test_wayland::Rgba;
 
-/// How many surfaces each test opens and closes. The race it guards is
+/// How many windows the test opens and closes. The race it guards is
 /// met about once in seven hundred windows under labwc: without the fix,
 /// 400 rounds failed 2 runs in 5, and 4000 failed 5 in 5.
 const ROUNDS: u32 = 4000;
@@ -18,7 +20,7 @@ const ROUNDS: u32 = 4000;
 const WITHIN: Duration = Duration::from_secs(300);
 
 /// Runs `round` `ROUNDS` times, failing with a sentence if the rounds take
-/// longer than `WITHIN` or the connection fails.
+/// longer than `WITHIN` or the connection fails; `what` names the rounds.
 fn rounds(what: &str, client: &TestClient, mut round: impl FnMut()) {
     let start = Instant::now();
     for done in 0..ROUNDS {
@@ -52,26 +54,4 @@ fn a_window_closed_and_the_next_opened_at_once_keeps_to_the_protocol() {
             .unwrap();
         drop(window);
     });
-}
-
-#[test]
-#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
-fn a_layer_surface_closed_and_the_next_opened_at_once_keeps_to_the_protocol() {
-    Compositor::current();
-    let client = TestClient::connect().unwrap();
-    rounds("layer surfaces", &client, || {
-        drop(
-            client
-                .open_layer("deskrinch-test-close-then-open", ShellLayer::Top, (60, 40))
-                .unwrap(),
-        );
-    });
-}
-
-#[test]
-#[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
-fn an_overlay_closed_and_the_next_opened_at_once_keeps_to_the_protocol() {
-    Compositor::current();
-    let client = TestClient::connect().unwrap();
-    rounds("overlays", &client, || drop(client.open_overlay().unwrap()));
 }

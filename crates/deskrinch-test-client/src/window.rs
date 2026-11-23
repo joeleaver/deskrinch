@@ -49,10 +49,15 @@ pub(crate) struct Status {
 /// `status` locked and, once the toplevel is gone, neither acknowledges nor
 /// draws it. Without that, its acknowledgement or its buffer could reach
 /// the compositor between the toplevel's destroy and the `xdg_surface`'s,
-/// when the `xdg_surface` has no role left: a compositor that configures
-/// again after the map (labwc does) then ends the connection, "wrong
-/// configure serial" for the one and "`xdg_surface` has never been
-/// configured" for the other.
+/// when the `xdg_surface` has no role left. Every compositor configures a
+/// window again just after its map, so that configure is often still being
+/// handled when a test drops a window it has just opened, and all three
+/// end the connection then, each in its own words: labwc "`xdg_surface` has
+/// never been configured" (the buffer) or "wrong configure serial" (the
+/// acknowledgement), sway the first of those, KWin "`xdg_surface` must
+/// have a role". Measured without this order, opening and closing windows
+/// as fast as they map: labwc met it about once in seven hundred windows,
+/// and four thousand failed every run on all three.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 enum Toplevel {
     /// Still there.
