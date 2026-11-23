@@ -154,7 +154,8 @@ pub(crate) fn move_pointer(
     dumps: &str,
 ) -> Result<(), Error> {
     client.step(&steps.place)?;
-    running.settle()?;
+    let settled = running.settle()?;
+    super::super::settle::record(run, &format!("{prefix}the pointer placed"), settled);
     let count = steps.moves.len();
     let measured: Vec<Measured<Step>> = steps
         .moves

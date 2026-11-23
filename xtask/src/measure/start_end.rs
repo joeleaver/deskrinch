@@ -35,6 +35,7 @@ use std::time::Duration;
 use deskrinch_shell::Ready;
 use deskrinch_test_component::{PerfLine, PerfWindow, Watch, perf};
 
+use super::quiet::Neighbours;
 use super::windows::{self, Expect};
 use crate::error::Error;
 
@@ -288,6 +289,9 @@ pub(crate) struct Start<'a> {
     pub(crate) end: &'a End,
     /// The session's bus address.
     pub(crate) bus: &'a str,
+    /// The session's processes the program may wait on, which its settles
+    /// watch too.
+    pub(crate) neighbours: Neighbours,
 }
 
 impl Start<'_> {

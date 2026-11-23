@@ -56,6 +56,7 @@ cpu=$(( $(nproc) - 1 ))
 echo "machine: $(nproc) CPUs, load $(cut -d' ' -f1 /proc/loadavg), kernel $(uname -r)"
 echo "sched_schedstats=$(cat /proc/sys/kernel/sched_schedstats 2>&1) task_delayacct=$(cat /proc/sys/kernel/task_delayacct 2>&1)"
 echo "compositor $comp $(cat /proc/$comp/comm), bus $bus $(cat /proc/$bus/comm 2>/dev/null)"
+echo "compositor's children (task/*/children): $(cat /proc/$comp/task/*/children 2>&1 | tr '\n' ' ')"
 echo "tools: $(command -v taskset) $(command -v chrt)"
 sleep 300 & idle=$!
 echo "phase idle"

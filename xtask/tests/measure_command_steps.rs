@@ -12,6 +12,8 @@
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
+mod fifo;
+#[cfg(test)]
 mod report;
 
 #[cfg(test)]
@@ -20,6 +22,7 @@ mod command_steps {
     use std::path::Path;
     use std::process::{Command, Output, Stdio};
 
+    use crate::fifo::fifo;
     use crate::report::number_after;
 
     /// The compositor to test with.
@@ -42,24 +45,25 @@ mod command_steps {
     }
 
     /// A stand-in that prints `start` (its first frames), then, each time
-    /// `dir/go-N` appears, removes it and prints the Nth of `on_go`.
+    /// `N` is written into the FIFO `dir/go` (made here), prints the Nth of
+    /// `on_go`. It waits blocked on the FIFO, as an idle program does.
     fn stand_in(dir: &Path, start: &str, on_go: &[&str]) -> String {
-        let dir = dir.display();
-        let mut watch = String::new();
+        let go = fifo(dir, "go");
+        let mut cases = String::new();
         for (index, lines) in on_go.iter().enumerate() {
             let n = index + 1;
-            write!(
-                watch,
-                "if [ -e {dir}/go-{n} ]; then rm {dir}/go-{n}; printf '%s\\n' {lines} >&2; fi; "
-            )
-            .unwrap();
+            write!(cases, "{n}) printf '%s\\n' {lines} >&2 ;; ").unwrap();
         }
-        format!("printf '%s\\n' {start} >&2; while :; do {watch}sleep 0.05; done")
+        format!(
+            "printf '%s\\n' {start} >&2; exec 3<>{go}; \
+             while read n <&3; do case $n in {cases}esac; done",
+            go = go.display()
+        )
     }
 
-    /// The step command that makes `dir/go-n`.
+    /// The step command that asks the stand-in in `dir` for its `n`th lines.
     fn go(dir: &Path, n: usize) -> String {
-        format!("touch {}/go-{n}", dir.display())
+        format!("printf '{n}\\n' > {}/go", dir.display())
     }
 
     /// `output`'s report, after asserting the measurement succeeded.
