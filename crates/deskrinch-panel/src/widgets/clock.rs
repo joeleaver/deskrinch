@@ -94,11 +94,21 @@ impl ClockText {
     fn shown(self) -> String {
         self.0.get()
     }
+
+    /// A face's text that `text` alone writes, with no clock: for the
+    /// tests of what holds the faces.
+    #[cfg(test)]
+    pub(crate) fn fixed(text: Signal<String>) -> Self {
+        Self(text)
+    }
 }
 
 /// Starts the panel's one clock, following `panel`'s `[panel.clock]`, and
 /// returns its text, for the context. Called once, at the panel's root; the
-/// clock stops when the scope it was called in ends.
+/// clock stops when the scope it was called in ends. Its worker writes the
+/// text with `Signal::send`, so that scope is on a host thread, as a
+/// hand-over's must be ([`Inbox`](deskrinch_component::Inbox)); outside a
+/// scope the clock runs for the app's life.
 pub(crate) fn follow(panel: Signal<PanelSettings>) -> ClockText {
     follow_running(panel).0
 }
@@ -126,6 +136,9 @@ fn follow_running(panel: Signal<PanelSettings>) -> (ClockText, Running) {
             Err(error) => report::error("clock", &error),
         }
     });
+    // Said on the main thread when the text changes, before the frame
+    // that draws it: what a test reads to tell the clock's frames apart.
+    Effect::new(move || tracing::debug!("{}", deskrinch_panel::clock_shows(&text.get())));
     let stop = Rc::clone(&running);
     rinch::reactive::on_cleanup(move || drop(stop.borrow_mut().take()));
     (ClockText(text), running)
@@ -152,7 +165,9 @@ mod tests {
     use deskrinch_clock::jiff::tz::TimeZone;
     use deskrinch_clock::{Cause, Tick, posix_to_unicode};
     use deskrinch_settings::panel::Edge;
+    use deskrinch_test_wait::wait_for;
     use rinch::reactive::Scope;
+    use rinch::testing::TestApp;
 
     fn tick(at: &str, zone: &str) -> Event {
         let now: Timestamp = at.parse().unwrap();
@@ -220,6 +235,66 @@ mod tests {
         running.borrow().as_ref().map(Clock::worker)
     }
 
+    /// Held for the whole of a test that starts a clock: the clocks running
+    /// are counted for the process (`deskrinch_clock::running`), so one
+    /// test's count must not see another's clock.
+    fn one_clock_at_a_time() -> std::sync::MutexGuard<'static, ()> {
+        static CLOCKS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        CLOCKS
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// The clock followed in a scope of its own, made in a `TestApp`'s
+    /// mount on this thread, which the app hosts: the worker's writes come
+    /// here ([`Inbox`]'s rule).
+    ///
+    /// [`Inbox`]: deskrinch_component::Inbox
+    struct Mounted {
+        app: TestApp,
+        /// The scope the clock was started in.
+        clock: Scope,
+        settings: Signal<PanelSettings>,
+        text: ClockText,
+        running: Running,
+    }
+
+    impl Mounted {
+        fn new() -> Self {
+            type Held = (Scope, Signal<PanelSettings>, ClockText, Running);
+            let held: Rc<RefCell<Option<Held>>> = Rc::default();
+            let out = Rc::clone(&held);
+            let app = TestApp::mount(move |scope: &mut RenderScope| {
+                let settings = Signal::new(PanelSettings::default());
+                let clock = Scope::new();
+                let (text, running) = clock.run(|| follow_running(settings));
+                *out.borrow_mut() = Some((clock, settings, text, running));
+                scope.create_element("div")
+            });
+            let (clock, settings, text, running) =
+                held.borrow_mut().take().expect("made at the mount");
+            Self {
+                app,
+                clock,
+                settings,
+                text,
+                running,
+            }
+        }
+
+        /// Ends the clock's scope, which stops the clock (its worker joined:
+        /// nothing more is sent), then drains on this thread what it had
+        /// sent and was still queued here. Before the app goes, so that no
+        /// write of this clock waits for a thread that will end, whose host
+        /// tag a later test's thread may take and drain the write in, where
+        /// no such signal is. Those last writes find the text freed, which
+        /// rinch says once, on this thread.
+        fn stop(mut self) {
+            self.clock.dispose();
+            self.app.settle();
+        }
+    }
+
     /// The panel's clock is one worker: faces read its text and start none,
     /// a change of `[panel.clock]` replaces it (a new worker, the old one
     /// gone), any other change leaves it be, and it stops with the scope
@@ -229,18 +304,20 @@ mod tests {
     /// once both ways, and told apart by its worker's thread id, which Rust
     /// never gives twice; not by the threads the system lists, which show a
     /// new worker only once it has named itself and an ended one for a
-    /// moment after its join. No other test here starts a clock.
+    /// moment after its join. The count is the process's, so the tests that
+    /// start a clock take turns ([`one_clock_at_a_time`]).
     #[test]
     fn one_worker_whatever_the_number_of_faces() {
-        let scope = Scope::new();
-        let settings = scope.run(|| Signal::new(PanelSettings::default()));
-        let (text, running) = scope.run(|| follow_running(settings));
+        let _alone = one_clock_at_a_time();
+        let mounted = Mounted::new();
+        let (settings, text) = (mounted.settings, mounted.text);
+        let running = Rc::clone(&mounted.running);
         assert_eq!(deskrinch_clock::running(), 1);
         let first = worker(&running);
         assert!(first.is_some());
 
         // Three faces, as three bars would have: each reads the one text.
-        let faces: Vec<String> = (0..3).map(|_| scope.run(|| text.shown())).collect();
+        let faces: Vec<String> = (0..3).map(|_| text.shown()).collect();
         assert_eq!(faces.len(), 3);
         assert_eq!(deskrinch_clock::running(), 1);
         assert_eq!(worker(&running), first);
@@ -249,17 +326,50 @@ mod tests {
             seconds: true,
             date: false,
         };
-        scope.run(|| settings.update(|settings| settings.clock = seconds));
+        settings.update(|settings| settings.clock = seconds);
         assert_eq!(deskrinch_clock::running(), 1);
         let restarted = worker(&running);
         assert!(restarted.is_some());
         assert_ne!(restarted, first, "the clock was not restarted");
 
-        scope.run(|| settings.update(|settings| settings.edge = Edge::Top));
+        settings.update(|settings| settings.edge = Edge::Top);
         assert_eq!(deskrinch_clock::running(), 1);
         assert_eq!(worker(&running), restarted);
 
-        scope.dispose();
+        mounted.stop();
         assert_eq!(deskrinch_clock::running(), 0);
+    }
+
+    /// The clock's writes reach only the thread its text was made on, when
+    /// that thread hosts an app. Its first tick is seen here, so the worker
+    /// has written and the write came here; then a second app, on a thread
+    /// of its own, settles with a capture of what it says, and says nothing.
+    /// Every later tick goes here too, whenever it comes, so nothing rests
+    /// on timing. (A text made on a thread that hosts nothing, as this test
+    /// used to make it, has its writes go to whichever host drains first:
+    /// that second app, which drops them with a warning.)
+    #[test]
+    fn the_clocks_writes_reach_only_its_own_thread() {
+        let _alone = one_clock_at_a_time();
+        let mut mounted = Mounted::new();
+        let text = mounted.text;
+        wait_for("the clock's first tick here", || {
+            mounted.app.settle();
+            if text.shown().is_empty() {
+                Err("no text yet")
+            } else {
+                Ok(())
+            }
+        });
+        let said = std::thread::spawn(|| {
+            let log = deskrinch_test_log::capture();
+            let mut other = TestApp::mount(|scope: &mut RenderScope| scope.create_element("div"));
+            other.settle();
+            log.warnings_and_errors()
+        })
+        .join()
+        .expect("the other app's thread");
+        assert_eq!(said, Vec::<String>::new());
+        mounted.stop();
     }
 }

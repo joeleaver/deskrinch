@@ -5,9 +5,10 @@
 use std::fs;
 use std::path::PathBuf;
 use std::process::Command;
+use std::time::Duration;
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_component::{Component, Renderer, Watch, programs};
+use deskrinch_test_component::{Component, PerfWindow, Renderer, Watch, programs};
 pub(crate) use deskrinch_test_screen::Pictures;
 use deskrinch_test_screen::{Image, Screen};
 use deskrinch_test_wait::{PATIENCE, wait_for};
@@ -76,22 +77,62 @@ impl Panel {
 
     /// The command that starts the panel binary, for a test to add to. The
     /// panel logs its own `info` lines too: where it is placed when it
-    /// moves.
+    /// moves; and, at debug for the clock's module alone, each text of the
+    /// clock it applies ([`deskrinch_panel::clock_shows`]).
     pub(crate) fn command() -> Command {
         let mut command = Command::new(panel_binary());
-        command.env("RUST_LOG", "warn,deskrinch_panel=info");
+        command.env(
+            "RUST_LOG",
+            "warn,deskrinch_panel=info,deskrinch_panel::widgets::clock=debug",
+        );
         command
     }
 
     /// [`start`](Self::start), with `command` (from
-    /// [`command`](Self::command)).
+    /// [`command`](Self::command)): returns once each of the session's
+    /// outputs has a bar whose window has presented its first frame
+    /// (rinch's per-window lines, `[PERF] window N frame`), having checked
+    /// that the run's renderer is what presented.
     pub(crate) fn start_with(command: Command) -> Self {
         let renderer = Renderer::of_run();
         let component = Component::start(command, renderer).unwrap();
-        if let Err(why) = component.wait_presented_with(renderer) {
-            panic!("the panel: {why}");
+        let outputs = TestClient::connect().unwrap().output_names().len();
+        if let Err(why) = component.wait_presented_in_each(renderer, outputs) {
+            panic!("the panel did not present a bar on each of {outputs} outputs: {why}");
         }
         Self { component }
+    }
+
+    /// The bars open now: each window and the output its `opened` line
+    /// names.
+    pub(crate) fn bars(&self) -> Vec<(PerfWindow, String)> {
+        self.component
+            .watch()
+            .windows()
+            .into_iter()
+            .filter(|state| !state.closed)
+            .filter_map(|state| Some((state.window, state.opened?.output?)))
+            .collect()
+    }
+
+    /// Whether the panel is still running.
+    pub(crate) fn running(&mut self) -> bool {
+        matches!(self.component.wait_exit(Duration::ZERO), Ok(None))
+    }
+
+    /// The window of the bar on the output `output`.
+    ///
+    /// # Panics
+    ///
+    /// When no bar is open there.
+    pub(crate) fn window_on(&self, output: &str) -> PerfWindow {
+        self.bars()
+            .into_iter()
+            .find(|(_, on)| on == output)
+            .map_or_else(
+                || panic!("no bar on {output}: {:?}", self.bars()),
+                |(window, _)| window,
+            )
     }
 
     /// The panel's last lines of output, for a failure to show.
@@ -104,27 +145,61 @@ impl Panel {
         self.component.watch()
     }
 
-    /// Waits until the panel has said it is placed along `edge`, `height`
-    /// high ([`deskrinch_panel::placed`], written by its main thread when it
-    /// applies the change); `Err` with its last lines when it does not. Any
-    /// line it has written counts, so a test that asks for a placement it
-    /// has had before is answered by the earlier line.
+    /// Waits until the panel has said, for each bar open now, that it is
+    /// placed along `edge`, `height` high ([`deskrinch_panel::placed`],
+    /// written by its main thread when it applies the change to that bar);
+    /// `Err` with its last lines when it does not. Any line it has written
+    /// counts, so a test that asks for a placement it has had before is
+    /// answered by the earlier line.
     pub(crate) fn wait_placed(&self, edge: Edge, height: u32) -> Result<(), String> {
         let edge = match edge {
             Edge::Top => deskrinch_settings::panel::Edge::Top,
             Edge::Bottom => deskrinch_settings::panel::Edge::Bottom,
         };
         let height = deskrinch_settings::panel::Height::try_from(height).unwrap();
-        let line = deskrinch_panel::placed(edge, height);
         let watch = self.component.watch();
-        if watch.wait_for_line(PATIENCE, |said| said.contains(&line)) {
+        let lines: Vec<String> = self
+            .bars()
+            .into_iter()
+            .map(|(_, output)| deskrinch_panel::placed(&output, edge, height))
+            .collect();
+        let said_all = lines
+            .iter()
+            .all(|line| watch.wait_for_line(PATIENCE, |said| said.contains(line.as_str())));
+        if said_all {
             Ok(())
         } else {
             Err(format!(
-                "it did not say {line:?}; its last lines:\n{}",
+                "it did not say {lines:?}, one per bar; its last lines:\n{}",
                 watch.tail()
             ))
         }
+    }
+
+    /// Bounds what the panel did before now, for a judgment that something
+    /// did not happen (no window made or closed, no repaint, nothing said
+    /// at warn or error), and returns the index in its log of the line that
+    /// bounds it. The panel's main thread handles each event in turn, so
+    /// once every bar has said it is placed for a settings edit made now,
+    /// everything it did for the earlier events is in its log before those
+    /// lines, and a judgment read after them misses nothing that came late.
+    /// The edit moves the bars to `edge` at the height they have, `height`,
+    /// so no bar changes size.
+    ///
+    /// # Panics
+    ///
+    /// When the bars do not say so within [`PATIENCE`].
+    pub(crate) fn bound(&self, edge: Edge, height: u32) -> usize {
+        let from = self.watch().lines().len();
+        write_settings(&panel_table(edge, height));
+        if let Err(why) = self.wait_placed(edge, height) {
+            panic!("the bars did not move for the bound: {why}");
+        }
+        let lines = self.watch().lines();
+        from + lines[from..]
+            .iter()
+            .position(|line| line.contains(" is placed along the "))
+            .expect("a placed line, as the wait found")
     }
 
     /// Waits until the panel has reported a mistake in its settings whose
@@ -197,60 +272,63 @@ fn changed_box(before: &Image, after: &Image) -> Option<(u32, u32, u32, u32)> {
     bounds
 }
 
-/// What is wrong with `now` against `before` for a panel at `band`, if
-/// anything: exactly one output changed, and there the changed pixels'
-/// bounding box is the band exactly (the full width, its first and last
-/// rows). A pixel of the panel may equal what was under it, so not every
+/// What is wrong with `now` against `before` for a bar on every output at
+/// `band`, if anything: every output changed, and on each the changed
+/// pixels' bounding box is the band exactly (the full width, its first and
+/// last rows). A pixel of a bar may equal what was under it, so not every
 /// pixel of the band need have changed.
 fn wrong(before: &Pictures, now: &Pictures, band: Band) -> Option<String> {
-    let mut showing = Vec::new();
-    for ((name, was), (_, is)) in before.0.iter().zip(&now.0) {
-        if let Some(bounds) = changed_box(was, is) {
-            showing.push((name.clone(), bounds, is.width(), is.height()));
-        }
-    }
-    match showing.as_slice() {
-        [] => Some("no output shows the panel".into()),
-        [(name, bounds, width, height)] => {
-            let rows = band.rows_in(*height);
+    let faults: Vec<String> = before
+        .0
+        .iter()
+        .zip(&now.0)
+        .filter_map(|((name, was), (_, is))| {
+            let Some(bounds) = changed_box(was, is) else {
+                return Some(format!("{name} shows no bar"));
+            };
+            let (width, height) = (is.width(), is.height());
+            let rows = band.rows_in(height);
             let wanted = (0, rows.start, width - 1, rows.end - 1);
-            (*bounds != wanted).then(|| {
+            (bounds != wanted).then(|| {
                 format!(
                     "{name} changed in {bounds:?} (left, top, right, bottom), not the band \
                      {wanted:?} of a {width}x{height} output"
                 )
             })
-        }
-        several => Some(format!(
-            "more than one output changed: {:?}",
-            several.iter().map(|(name, ..)| name).collect::<Vec<_>>()
-        )),
-    }
+        })
+        .collect();
+    (!faults.is_empty()).then(|| faults.join("; "))
 }
 
-/// Captures every output until exactly one shows the panel at `band`
-/// against `before`, the others unchanged; returns that output's name and
+/// Captures every output until each shows its bar at `band` against
+/// `before`; returns the first output's name (the first the session made,
+/// by name), one of the bars for a test that looks at one, and the
 /// pictures, taken once the screen is still ([`Pictures::still`]): KWin
-/// fades a panel in, and the band is already the band halfway through, but
-/// not yet the panel's own pixels, which a later check compares with.
+/// fades a bar in, and the band is already the band halfway through, but
+/// not yet the bar's own pixels, which a later check compares with.
+///
+/// The name is only that: one of the bars. It is not where a window will
+/// open, which is the compositor's choice (sway's is the focused output,
+/// wherever an earlier test left the focus); a test that needs the bar
+/// beside a window asks the window which output it is on
+/// (`TestWindow::wait_output`).
 ///
 /// # Panics
 ///
 /// When that is not so within [`PATIENCE`], saying how it is instead.
 pub(crate) fn wait_band(screen: &mut Screen, before: &Pictures, band: Band) -> (String, Pictures) {
-    wait_for(&format!("the panel to be at {band:?}"), || {
+    wait_for(&format!("a bar on every output at {band:?}"), || {
         let now = Pictures::still(screen);
         if let Some(why) = wrong(before, &now, band) {
             return Err(why);
         }
-        let shown = before
+        let first = now
             .0
             .iter()
-            .zip(&now.0)
-            .find(|((_, was), (_, is))| was != is)
-            .map(|((name, _), _)| name.clone())
-            .unwrap();
-        Ok((shown, now))
+            .map(|(name, _)| name.clone())
+            .min()
+            .ok_or_else(|| "the screen lists no output".to_owned())?;
+        Ok((first, now))
     })
 }
 
@@ -294,36 +372,38 @@ mod tests {
         let before = pictures(vec![image(4, 6, &[]), image(4, 6, &[])]);
         let bottom = Band::of(Edge::Bottom, 2, 1);
         // Corners of the band's box changed, a pixel inside not.
-        let at_bottom = pictures(vec![image(4, 6, &[(0, 4), (3, 5)]), image(4, 6, &[])]);
+        let band = [(0, 4), (3, 5)];
+        let at_bottom = pictures(vec![image(4, 6, &band), image(4, 6, &band)]);
         assert_eq!(wrong(&before, &at_bottom, bottom), None);
-        let short = pictures(vec![image(4, 6, &[(0, 5), (3, 5)]), image(4, 6, &[])]);
+        let short = pictures(vec![image(4, 6, &[(0, 5), (3, 5)]), image(4, 6, &band)]);
         assert!(wrong(&before, &short, bottom).is_some());
-        let narrow = pictures(vec![image(4, 6, &[(1, 4), (3, 5)]), image(4, 6, &[])]);
+        let narrow = pictures(vec![image(4, 6, &[(1, 4), (3, 5)]), image(4, 6, &band)]);
         assert!(wrong(&before, &narrow, bottom).is_some());
         let stray = pictures(vec![
             image(4, 6, &[(0, 4), (3, 5), (2, 1)]),
-            image(4, 6, &[]),
+            image(4, 6, &band),
         ]);
         assert!(wrong(&before, &stray, bottom).is_some());
     }
 
     #[test]
-    fn exactly_one_output_shows_it() {
+    fn every_output_shows_its_bar() {
         let before = pictures(vec![image(4, 6, &[]), image(4, 6, &[])]);
         let top = Band::of(Edge::Top, 1, 2);
         assert_eq!(top.rows_in(6), 0..2);
         let neither = pictures(vec![image(4, 6, &[]), image(4, 6, &[])]);
-        assert!(wrong(&before, &neither, top).unwrap().contains("no output"));
-        let both = pictures(vec![
-            image(4, 6, &[(0, 0), (3, 1)]),
-            image(4, 6, &[(0, 0), (3, 1)]),
-        ]);
+        let said = wrong(&before, &neither, top).unwrap();
         assert!(
-            wrong(&before, &both, top)
-                .unwrap()
-                .contains("more than one")
+            said.contains("OUT-0 shows no bar") && said.contains("OUT-1 shows no bar"),
+            "{said}"
         );
-        let second = pictures(vec![image(4, 6, &[]), image(4, 6, &[(0, 0), (3, 1)])]);
-        assert_eq!(wrong(&before, &second, top), None);
+        let band = [(0, 0), (3, 1)];
+        let only_second = pictures(vec![image(4, 6, &[]), image(4, 6, &band)]);
+        assert_eq!(
+            wrong(&before, &only_second, top).as_deref(),
+            Some("OUT-0 shows no bar")
+        );
+        let both = pictures(vec![image(4, 6, &band), image(4, 6, &band)]);
+        assert_eq!(wrong(&before, &both, top), None);
     }
 }

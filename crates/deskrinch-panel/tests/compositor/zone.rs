@@ -7,14 +7,16 @@ use crate::support::{
     Band, Edge, Panel, Pictures, in_nested_session, panel_table, scale_of, wait_band,
     write_settings,
 };
-use deskrinch_test_wait::wait_for;
 
 /// A colour neither the panel nor a compositor's background has.
 pub(crate) const WINDOW: Rgba = Rgba::opaque(13, 200, 77);
 
-/// A maximised window filled with [`WINDOW`], once it has drawn at the
-/// size of `output`'s logical area less `reserved` logical rows.
-pub(crate) fn maximised(client: &TestClient, output: &str, reserved: u32) -> TestWindow {
+/// A maximised window filled with [`WINDOW`], and the output it is on,
+/// once it has drawn at the size of that output's logical area less
+/// `reserved` logical rows. Which output the compositor puts it on is its
+/// own (sway's is the focused one, wherever an earlier test left the
+/// focus): the window says where it is.
+pub(crate) fn maximised(client: &TestClient, reserved: u32) -> (TestWindow, String) {
     let window = client
         .open_painted(
             "Maximised",
@@ -23,9 +25,10 @@ pub(crate) fn maximised(client: &TestClient, output: &str, reserved: u32) -> Tes
             None,
         )
         .unwrap();
+    let output = window.wait_output().unwrap();
     window.set_maximized(true).unwrap();
-    wait_window_size(client, &window, output, reserved);
-    window
+    wait_window_size(client, &window, &output, reserved);
+    (window, output)
 }
 
 /// Waits until `window` has drawn at `output`'s logical size less
@@ -91,16 +94,18 @@ fn wrong(image: &Image, panel: &Image, band: Band, scale: u32) -> Option<String>
     None
 }
 
-/// Captures `output` until it shows a maximised [`WINDOW`] beside the panel
-/// at `band`, whose own rows are `panel`.
+/// Waits until `output` shows a maximised [`WINDOW`] beside the panel at
+/// `band`, whose own rows are `panel`, on a still picture
+/// ([`Pictures::judged`]): that the window stays out of the band is what
+/// stays as it is, which a first capture could pass before a wrong change
+/// reached the screen.
 pub(crate) fn wait_window_beside(screen: &mut Screen, output: &str, panel: &Image, band: Band) {
     let scale = scale_of(output);
-    wait_for(
+    Pictures::judged(
+        screen,
+        output,
         &format!("a maximised window beside the panel on {output}"),
-        || {
-            let image = screen.capture(output).unwrap();
-            wrong(&image, panel, band, scale).map_or(Ok(()), Err)
-        },
+        |image| wrong(image, panel, band, scale).map_or(Ok(()), Err),
     );
 }
 
@@ -124,8 +129,8 @@ fn a_maximised_window_stops_at_the_panel() {
     let _panel = Panel::start();
     let scale = scale_of(&screen.outputs()[0]);
     let band = Band::of(Edge::Bottom, 40, scale);
-    let (output, shown) = wait_band(&mut screen, &before, band);
+    let (_, shown) = wait_band(&mut screen, &before, band);
     let client = TestClient::connect().unwrap();
-    let _window = maximised(&client, &output, 40);
+    let (_window, output) = maximised(&client, 40);
     wait_window_beside(&mut screen, &output, picture(&shown, &output), band);
 }

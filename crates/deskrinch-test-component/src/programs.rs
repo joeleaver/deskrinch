@@ -4,7 +4,7 @@
 //!
 //! **The rule: a compositor test starts a shell component only by the path
 //! the runner hands it, [`program`].** A suite declares the components its
-//! tests start (its `programs`, in `xtask/src/compositor_tests/suites.rs`),
+//! tests start (its `programs`, in `xtask/src/compositor_tests/suites/`),
 //! and `cargo xtask compositor-tests` builds every component as it is built
 //! for use, apart from the tests, keeps each in a directory of the run's
 //! own, grants it what the shell grants it, and hands each declared one's
@@ -107,7 +107,7 @@ impl fmt::Display for UndeclaredProgram {
         write!(
             f,
             "{} is not one of this suite's programs (it declares {declared}): add it to the \
-             suite's `programs` in xtask/src/compositor_tests/suites.rs, which `cargo xtask \
+             suite's `programs` in xtask/src/compositor_tests/suites/, which `cargo xtask \
              compositor-tests` builds and hands to the tests",
             self.package
         )

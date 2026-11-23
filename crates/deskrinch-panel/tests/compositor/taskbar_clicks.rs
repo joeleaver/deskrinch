@@ -41,6 +41,9 @@ fn a_click_activates_the_window_of_the_button() {
     let green_icon = bar.wait_button(GREEN);
     bar.click(green_icon, Button::PRIMARY);
     green.wait_keyboard().unwrap();
+    // Read once, and bounded: red and green are on one connection, where
+    // the seat's keyboard sends red's leave before green's enter, so with
+    // green's enter seen, red's leave is in.
     assert!(!red.has_keyboard(), "one active window");
 }
 
@@ -94,9 +97,25 @@ fn a_button_follows_its_window_title_and_goes_with_it() {
         .set_title("Quite another title, and a longer one")
         .unwrap();
     bar.see("the new title", |_, image| title_of(image, icon) != before);
+    // Exactly the title it is given: put back, the button draws the first
+    // title's very pixels again.
+    magenta.set_title("A short title").unwrap();
+    bar.see("the first title again", |_, image| {
+        title_of(image, icon) == before
+    });
     drop(magenta);
     bar.see("the button gone", |bar, image| {
-        bar.icon(image, MAGENTA).is_none() && bar.icon(image, RED).is_some()
+        bar.icon(image, MAGENTA).is_none()
+    });
+    // Red's button stays. A wrong removal would come with a window list
+    // handed to the bars, as magenta's going did; the bars take the window
+    // list's hand-overs in order, so a window opened now, its button shown,
+    // bounds what they did for magenta's going. Then red's button is judged
+    // on a still picture, which a removal drawn late cannot slip past.
+    let _green = open_active(&bar, GREEN, "Green");
+    bar.wait_button(GREEN);
+    bar.judged("red's button kept", |icon, image| {
+        icon(image, RED).map(drop).ok_or("red's button is gone")
     });
 }
 

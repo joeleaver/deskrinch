@@ -70,7 +70,7 @@ enum Task {
     /// compositors.
     ///
     /// The test binaries are those of the suites table
-    /// (`xtask/src/compositor_tests/suites.rs`), each with the compositors
+    /// (`xtask/src/compositor_tests/suites/`), each with the compositors
     /// and the passes it runs in: a pass is one isolated session per
     /// compositor (the one `cargo xtask session` describes) with its outputs
     /// set up a given way, at scale 1, at scale 2, turned or flipped. Under
