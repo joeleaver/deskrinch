@@ -4,6 +4,7 @@
 //! returning [`Outcome`]. Adding a task is a new module, one [`Task`] variant
 //! and one match arm in [`Task::run`]; existing tasks are not touched.
 
+mod busy;
 mod cargo;
 mod cargo_messages;
 mod ci_packages;
@@ -195,6 +196,12 @@ enum Task {
     /// session. Not for running by hand.
     #[command(name = "in-session", hide = true)]
     InSession(in_session::Args),
+    /// Keeps the nested session's compositor busy with a fixed amount of
+    /// Wayland work, and writes when it had all been answered: a helper
+    /// for measure's tests. Refuses outside a nested session. Not for
+    /// running by hand.
+    #[command(name = "busy-compositor", hide = true)]
+    BusyCompositor(busy::Args),
 }
 
 impl Task {
@@ -211,6 +218,7 @@ impl Task {
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),
             Self::Input => input::run(),
             Self::InSession(args) => in_session::run(&args),
+            Self::BusyCompositor(args) => busy::run(&args),
             Self::Measure(args) => measure::run(&args.request()?),
             Self::Session {
                 outputs,

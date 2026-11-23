@@ -9,9 +9,10 @@
 //! Callgrind counts in that span. The dismiss command hides it again, and
 //! it is left to settle before the next show.
 //!
-//! Settled means a window in which its threads ran almost nothing and rinch
-//! prepared no frame for its hidden window ([`super::settle`]), so a show is
-//! never summoned while a preparation goes on; with `--prepares` the first
+//! Settled means quiet ([`super::quiet`]): a window in which neither its
+//! threads nor its compositor's and bus's ran or waited to run, and rinch
+//! prepared no frame for its hidden window, so a show is never summoned
+//! while a preparation goes on; with `--prepares` the first
 //! settle also waits for the program's first preparation. The report gives
 //! the prepared frames before each show, and a run's notes say when show 1
 //! came before any without `--prepares`. With `--instructions` each hide is
@@ -43,8 +44,9 @@ use super::input::{
 use super::output;
 use super::probe::{self, Timing, nanos};
 use super::procfs::{self, cpu_between};
+use super::quiet::{Neighbours, Quieted};
 use super::report::{Run, Unit};
-use super::settle::{Running, alive, settle_hidden};
+use super::settle::{self, Running, alive, settle_hidden};
 use crate::error::Error;
 use crate::session::interrupt;
 use deskrinch_test_component::Watch;
@@ -128,20 +130,25 @@ pub(crate) fn measure(
     program: &str,
     timing: Timing,
     summons: &Summons,
+    neighbours: Neighbours,
 ) -> Result<Run, Error> {
     // The client first: its devices are made before the program starts.
     let mut client = inputs.map(Inputs::start).transpose()?;
     let pointer = inputs.and_then(|inputs| inputs.pointer);
     let (mut child, watch) = start(command, program)?;
     let result = (|| {
-        settle_hidden(
-            &mut child,
-            &watch,
-            program,
-            timing.first_frame,
+        let hidden = settle_hidden(
+            &mut Running {
+                child: &mut child,
+                watch: &watch,
+                program,
+                timeout: timing.first_frame,
+                neighbours,
+            },
             summons.prepares,
         )?;
         let mut run = Run::default();
+        settle::record(&mut run, "hidden, before the first show", hidden);
         // What it holds hidden, settled, before the first show: with a
         // window it prepared, what preparing costs.
         probe::memory(&mut run, child.id(), program)?;
@@ -161,6 +168,7 @@ pub(crate) fn measure(
                 watch: &watch,
                 program,
                 timeout: timing.first_frame,
+                neighbours,
             };
             let mut meter = CpuMeter::new(pid);
             give_input(
@@ -173,7 +181,8 @@ pub(crate) fn measure(
                 mark,
                 show,
             )?;
-            dismiss(&mut running, ask, summons)?;
+            let hidden = dismiss(&mut running, ask, summons)?;
+            settle::record(&mut run, &format!("hide {show}"), hidden);
             if let Some(typing) = &summons.typing {
                 check_query_line(&mut running, typing, mark, show)?;
             }
@@ -203,6 +212,7 @@ pub(crate) fn measure_instructions(
     out: &Path,
     timing: Timing,
     summons: &Summons,
+    neighbours: Neighbours,
 ) -> Result<Run, Error> {
     let mut client = inputs.map(Inputs::start).transpose()?;
     let pointer = inputs.and_then(|inputs| inputs.pointer);
@@ -210,14 +220,18 @@ pub(crate) fn measure_instructions(
     let result = (|| {
         let id = child.id();
         let pid = id.to_string();
-        settle_hidden(
-            &mut child,
-            &watch,
-            program,
-            timing.first_frame,
+        let hidden = settle_hidden(
+            &mut Running {
+                child: &mut child,
+                watch: &watch,
+                program,
+                timeout: timing.first_frame,
+                neighbours,
+            },
             summons.prepares,
         )?;
         let mut run = Run::default();
+        settle::record(&mut run, "hidden, before the first show", hidden);
         for show in 1..=summons.shows {
             push_prepared(&mut run, show, &watch, summons);
             let mark = watch.lines().len();
@@ -236,6 +250,7 @@ pub(crate) fn measure_instructions(
                 watch: &watch,
                 program,
                 timeout: timing.first_frame,
+                neighbours,
             };
             let mut meter = CallgrindMeter::new(control, id, out);
             give_input(
@@ -252,7 +267,8 @@ pub(crate) fn measure_instructions(
             // a preparation of its hidden window included.
             callgrind::control(control, &["--zero", &pid])?;
             let prepared = watch.prepared();
-            dismiss(&mut running, ask, summons)?;
+            let hidden = dismiss(&mut running, ask, summons)?;
+            settle::record(&mut run, &format!("hide {show}"), hidden);
             let hidden = callgrind::dump(control, &pid, out, &format!("hide-{show}"))?;
             run.push(
                 format!("hide {show}: instructions from the dismiss to settled (Ir)"),
@@ -366,8 +382,8 @@ fn one_show(
     Ok((cpu_between(&before, &seen), wall))
 }
 
-/// Hides the program again, and waits for it to settle.
-fn dismiss(running: &mut Running<'_>, ask: Ask<'_>, summons: &Summons) -> Result<(), Error> {
+/// Hides the program again, and waits for it to settle; what the wait took.
+fn dismiss(running: &mut Running<'_>, ask: Ask<'_>, summons: &Summons) -> Result<Quieted, Error> {
     summon(ask, &summons.dismiss)?;
     running.settle()
 }

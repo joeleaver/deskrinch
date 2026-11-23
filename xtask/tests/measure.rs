@@ -17,6 +17,8 @@
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
+mod fifo;
+#[cfg(test)]
 mod report;
 #[cfg(test)]
 mod stand_in;
@@ -206,9 +208,9 @@ mod measure {
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn waits_for_preparations_and_reports_them_and_the_hidden_memory() {
-        // The stand-in prepares once at start; after each dismiss (a file it
-        // watches) it prepares six times, half a second apart, sleeping in
-        // between, so its threads stay quiet. A settle that waited only for
+        // The stand-in prepares once at start; after each dismiss (an `h` in
+        // the FIFO it reads, blocked) it prepares six times, half a second
+        // apart, sleeping in between, so its threads stay quiet. A settle that waited only for
         // quiet threads would summon the next show after a second, with one
         // or two of the six done; one that also waits for no prepared frame
         // summons it after all six. It starts quiet, sleeping three seconds
@@ -220,19 +222,18 @@ mod measure {
         // `--prepares` makes the first show wait for the preparation.
         let dir = tempfile::tempdir().unwrap();
         let (summon, _) = summons(dir.path());
-        let hide = dir.path().join("hide");
+        let asked = dir.path().join("asked");
         let dismiss = dir.path().join("dismiss.sh");
-        fs::write(&dismiss, format!("touch {}\n", hide.display())).unwrap();
+        fs::write(&dismiss, format!("printf 'h\\n' > {}\n", asked.display())).unwrap();
         let script = format!(
-            "{}sleep 3; echo '[PERF] prepared 1: a' >&2; n=0; p=1; while :; do \
-             if [ -e {show} ]; then rm {show}; n=$((n + 1)); \
-             echo \"[PERF] frame $n: paint_frames=1\" >&2; fi; \
-             if [ -e {hide} ]; then rm {hide}; for k in 1 2 3 4 5 6; do sleep 0.5; \
-             p=$((p + 1)); echo \"[PERF] prepared $p: a\" >&2; done; fi; \
-             sleep 0.05; done",
+            "{}sleep 3; echo '[PERF] prepared 1: a' >&2; exec 3<>{asked}; n=0; p=1; \
+             while read asked <&3; do case $asked in \
+             s) n=$((n + 1)); echo \"[PERF] frame $n: paint_frames=1\" >&2 ;; \
+             h) for k in 1 2 3 4 5 6; do sleep 0.5; \
+             p=$((p + 1)); echo \"[PERF] prepared $p: a\" >&2; done ;; \
+             esac; done",
             record(dir.path(), false),
-            show = dir.path().join("show").display(),
-            hide = hide.display()
+            asked = asked.display(),
         );
         let dismiss = dismiss.display().to_string();
         let output = measure(

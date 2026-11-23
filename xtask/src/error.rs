@@ -110,6 +110,9 @@ pub(crate) enum Error {
     /// `cargo xtask input` stopped.
     #[error(transparent)]
     Input(#[from] crate::input::InputError),
+    /// `cargo xtask busy-compositor` failed.
+    #[error(transparent)]
+    Busy(#[from] crate::busy::BusyError),
     /// `cargo xtask session --grant` was not given `PACKAGE=PATH` with one of
     /// the shell's components.
     #[error("--grant {0}: give PACKAGE=PATH, PACKAGE one of the shell's components")]
@@ -455,14 +458,19 @@ pub(crate) enum Error {
         /// Its last lines of output.
         output: String,
     },
-    /// With `--summon`, the program did not settle after starting or after
-    /// a show or hide.
-    #[error("{program} did not settle within {} s; its last output:\n{output}", waited.as_secs())]
-    NeverSettled {
+    /// The program, or a session process it may wait on, was not quiet
+    /// within a wait's limit (measure's quiet window).
+    #[error(
+        "{program} was not quiet within {} s: {said}; its last output:\n{output}",
+        waited.as_secs()
+    )]
+    NeverQuiet {
         /// The program.
         program: String,
         /// How long it was given.
         waited: std::time::Duration,
+        /// What was not quiet in the last window, in words.
+        said: String,
         /// Its last lines of output.
         output: String,
     },
