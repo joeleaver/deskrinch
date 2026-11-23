@@ -74,6 +74,8 @@ pub(crate) struct Watcher {
     pub(crate) manager: WindowManager,
     events: Receiver<Event>,
     seen: RefCell<BTreeMap<WindowId, Window>>,
+    /// Every window state folded, in order.
+    history: RefCell<Vec<Window>>,
     ended: RefCell<Option<EndReason>>,
 }
 
@@ -105,8 +107,18 @@ impl Watcher {
             manager,
             events,
             seen: RefCell::default(),
+            history: RefCell::default(),
             ended: RefCell::default(),
         }
+    }
+
+    /// Whether any state of the window `app_id` folded so far met
+    /// `accept`.
+    pub(crate) fn ever(&self, app_id: &str, accept: impl Fn(&Window) -> bool) -> bool {
+        self.history
+            .borrow()
+            .iter()
+            .any(|window| window.app_id == app_id && accept(window))
     }
 
     /// Waits until the list the events describe satisfies `check`, folding
@@ -190,10 +202,12 @@ impl Watcher {
         let mut seen = self.seen.borrow_mut();
         match event {
             Event::Added(window) => {
+                self.history.borrow_mut().push(window.clone());
                 let previous = seen.insert(window.id, window);
                 assert!(previous.is_none(), "added twice: {previous:?}");
             }
             Event::Changed(window) => {
+                self.history.borrow_mut().push(window.clone());
                 let previous = seen.insert(window.id, window);
                 assert!(previous.is_some(), "changed before added");
             }

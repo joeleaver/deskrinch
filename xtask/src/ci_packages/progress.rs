@@ -1,16 +1,12 @@
-//! What apt had fetched when a run was cut off: the files it had begun
-//! (its `Get:` lines) and, once the download was done, apt's own report of
-//! it (its `Fetched` line).
+//! What apt had fetched when an install was cut off: the files it had
+//! begun (its `Get:` lines) and, once the download was done, apt's own
+//! report of it (its `Fetched` line).
 
 use std::time::Duration;
 
-use super::classify::Step;
-
-/// What a run cut off by its limit had fetched.
+/// What an install cut off by its limit had fetched.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Progress {
-    /// The command.
-    pub(crate) step: Step,
     /// How long it had run when it was cut off.
     pub(crate) limit: Duration,
     /// The files it had begun to fetch.
@@ -46,14 +42,13 @@ impl Progress {
 
 /// What `output`, a run of `step` cut off after `limit`, shows of what apt
 /// fetched; `None` when it began no file.
-pub(crate) fn progress(step: Step, limit: Duration, output: &str) -> Option<Progress> {
+pub(crate) fn progress(limit: Duration, output: &str) -> Option<Progress> {
     let gets: Vec<&str> = output
         .lines()
         .filter(|line| line.starts_with("Get:"))
         .collect();
     let last = gets.last()?;
     Some(Progress {
-        step,
         limit,
         files: gets.len(),
         kilobytes: gets.iter().filter_map(|line| kilobytes(line)).sum(),
