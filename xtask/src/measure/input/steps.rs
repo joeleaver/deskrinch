@@ -115,9 +115,10 @@ pub(crate) fn measure_steps<A>(
             }
             .into());
         }
-        running.settle()?;
+        let settled = running.settle()?;
         let (cost, seen) = end_step(meter, running.watch, mark, &measured.dump, rows.scope)?;
         let row = format!("{}{}", rows.prefix, measured.row);
+        super::super::settle::record(run, &row, settled);
         if rows.scope == Scope::Every {
             run.note(format!("{row}: windows"), seen.windows());
         }

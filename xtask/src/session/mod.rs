@@ -107,6 +107,8 @@ pub(crate) use self::supervisor::{
     SUBCOMMAND as SUPERVISOR, check as check_root, run as supervise, supervised,
 };
 pub(crate) use self::transform::OutputTransform;
+use deskrinch_test_session::{BUS_VARIABLE, root};
+
 use crate::error::Error;
 
 /// The directory the session under `root` gives `variable` (one of the
@@ -126,19 +128,6 @@ pub(crate) fn session_dir(root: &Path, variable: &str) -> Result<PathBuf, Error>
 /// The variable naming the desktop that runs, which the session leaves
 /// unset unless asked.
 const CURRENT_DESKTOP: &str = "XDG_CURRENT_DESKTOP";
-
-/// The variable naming the session's compositor's process id, for a client
-/// that ends the compositor under its other clients (a test of what a
-/// component does when its display goes away). The compositor leads the
-/// session's process group, so this is that group's id too.
-pub(crate) const COMPOSITOR_PID: &str = "DESKRINCH_SESSION_COMPOSITOR_PID";
-
-/// Where a session's root is made: `/tmp`, not `$TMPDIR`, as the Wayland
-/// socket's path must fit a Unix socket address (108 bytes), and `$TMPDIR`
-/// may be long.
-const ROOT_PARENT: &str = "/tmp";
-/// What a session's root is named, before tempfile's random part.
-const ROOT_PREFIX: &str = "deskrinch-session-";
 
 /// The slice of a wait between two looks at whether a process still runs
 /// (and at an interrupt): a wait that also watches a process looks at it
@@ -212,8 +201,8 @@ impl Session {
         interrupt::install()?;
         interrupt::check()?;
         let dir = tempfile::Builder::new()
-            .prefix(ROOT_PREFIX)
-            .tempdir_in(ROOT_PARENT)
+            .prefix(root::PREFIX)
+            .tempdir_in(root::PARENT)
             .map_err(|source| Error::Io {
                 what: "create the session directory".into(),
                 source,
@@ -307,6 +296,16 @@ impl Session {
     /// Whether the compositor is still running.
     pub(crate) fn compositor_running(&mut self) -> bool {
         matches!(self.child.try_wait(), Ok(None))
+    }
+
+    /// The compositor's process id.
+    pub(crate) fn compositor_pid(&self) -> u32 {
+        self.child.id()
+    }
+
+    /// The session's bus daemon's process id.
+    pub(crate) fn bus_pid(&self) -> u32 {
+        self.bus.daemon_pid()
     }
 
     /// The compositor's output so far.
@@ -421,7 +420,7 @@ fn compositor_command(options: &Options<'_>, root: &Path, bus: &str) -> Result<C
     if let Some(desktop) = options.current_desktop {
         command.env(CURRENT_DESKTOP, desktop);
     }
-    command.env("DBUS_SESSION_BUS_ADDRESS", bus);
+    command.env(BUS_VARIABLE, bus);
     Ok(command)
 }
 

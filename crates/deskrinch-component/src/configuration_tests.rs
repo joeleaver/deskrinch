@@ -11,6 +11,10 @@ use deskrinch_xdg::BaseDirs;
 use serde::{Deserialize, Serialize};
 
 use crate::{Configuration, LiveSettings};
+use rinch::prelude::*;
+use rinch::testing::TestApp;
+use std::cell::Cell;
+use std::rc::Rc;
 
 /// A second table, beside `[panel]`, as `[general]` will be.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,6 +73,10 @@ fn two_tables_follow_one_watcher() {
     assert_eq!(next(&other).accent, "blue");
 }
 
+/// The newest settings handed to the UI: a change before the UI exists is
+/// what its signal starts with, and a change after reaches it. The signal is
+/// made in a `TestApp`'s mount, on this thread, which it hosts, as a
+/// hand-over's must be ([`crate::Inbox`]).
 #[test]
 fn hands_the_newest_settings_to_the_ui() {
     let root = tempfile::tempdir().unwrap();
@@ -76,9 +84,31 @@ fn hands_the_newest_settings_to_the_ui() {
     let panel = Configuration::start(&dirs(root.path())).follow::<PanelSettings>();
     write(root.path(), "[panel]\nheight = 64\n");
     assert_eq!(next(&panel).height.get(), 64);
-    // A change before the UI exists is what its signal starts with.
-    let signal = panel.into_signal();
+    let held: Rc<Cell<Option<Signal<PanelSettings>>>> = Rc::default();
+    let out = Rc::clone(&held);
+    let mut app = TestApp::mount(move |scope: &mut RenderScope| {
+        out.set(Some(panel.into_signal()));
+        scope.create_element("div")
+    });
+    let signal = held.get().expect("made at the mount");
     assert_eq!(signal.get().height.get(), 64);
+    write(root.path(), "[panel]\nheight = 80\n");
+    wait_for("the change after the UI exists", || {
+        app.settle();
+        let height = signal.get().height.get();
+        if height == 80 { Ok(()) } else { Err(height) }
+    });
+}
+
+/// Outside a scope nothing would own the subscription: it would end at
+/// once and the signal never follow, so it is refused.
+#[test]
+#[should_panic(expected = "outside a scope")]
+fn into_signal_outside_a_scope_is_refused() {
+    let root = tempfile::tempdir().unwrap();
+    write(root.path(), "[panel]\nheight = 48\n");
+    let panel = Configuration::start(&dirs(root.path())).follow::<PanelSettings>();
+    let _never_followed = panel.into_signal();
 }
 
 #[test]

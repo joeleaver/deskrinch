@@ -185,6 +185,48 @@ impl Component {
                 self.watch.last_words()
             ));
         }
+        self.said_what_presented()
+    }
+
+    /// Waits as [`wait_presented`](Self::wait_presented) does, and checks
+    /// that `renderer` is what presented.
+    ///
+    /// # Errors
+    ///
+    /// As `wait_presented`, and when another renderer presented.
+    pub fn wait_presented_with(&self, renderer: Renderer) -> Result<(), String> {
+        let presented = self.wait_presented()?;
+        presented_as_asked(renderer, &presented)
+    }
+
+    /// For a component with a window of its own on each of `windows`
+    /// outputs: waits until that many of its windows have each presented a
+    /// frame (rinch's per-window lines, `[PERF] window N frame M`), then
+    /// for its saying which renderer presented, and checks that it is
+    /// `renderer`. As with [`wait_presented`](Self::wait_presented), a
+    /// component that has not presented within [`PATIENCE`] is taken to be
+    /// hung, and one that ends first fails at once.
+    ///
+    /// # Errors
+    ///
+    /// When fewer windows presented, it ended first, or another renderer
+    /// presented; the error names its windows or holds its last lines.
+    pub fn wait_presented_in_each(&self, renderer: Renderer, windows: usize) -> Result<(), String> {
+        if self.watch.wait_first_frames(windows, PATIENCE).is_none() {
+            return Err(format!(
+                "not each of {windows} windows presented a frame; its windows: {:?}\n\
+                 its last lines:\n{}",
+                self.watch.windows(),
+                self.watch.last_words()
+            ));
+        }
+        let presented = self.said_what_presented()?;
+        presented_as_asked(renderer, &presented)
+    }
+
+    /// Once it has presented: waits for its saying with what, and returns
+    /// that.
+    fn said_what_presented(&self) -> Result<Presented, String> {
         // The two streams are read apart: the renderer's line may come after
         // the frame's.
         self.watch.wait_for_line(PATIENCE, |line| {
@@ -197,23 +239,18 @@ impl Component {
             )
         })
     }
+}
 
-    /// Waits as [`wait_presented`](Self::wait_presented) does, and checks
-    /// that `renderer` is what presented.
-    ///
-    /// # Errors
-    ///
-    /// As `wait_presented`, and when another renderer presented.
-    pub fn wait_presented_with(&self, renderer: Renderer) -> Result<(), String> {
-        let presented = self.wait_presented()?;
-        if renderer.presented(&presented) {
-            Ok(())
-        } else {
-            Err(format!(
-                "it was to present with the {} renderer, but {presented:?} presented",
-                renderer.env()
-            ))
-        }
+/// Whether `renderer` is what `presented`, as an error saying what did if
+/// not.
+fn presented_as_asked(renderer: Renderer, presented: &Presented) -> Result<(), String> {
+    if renderer.presented(presented) {
+        Ok(())
+    } else {
+        Err(format!(
+            "it was to present with the {} renderer, but {presented:?} presented",
+            renderer.env()
+        ))
     }
 }
 
@@ -278,6 +315,41 @@ mod tests {
     }
 
     #[test]
+    fn a_window_per_output_is_waited_for_and_its_renderer_checked() {
+        let mut command = Command::new("sh");
+        command.args([
+            "-c",
+            "echo \"[PERF] window 1 frame 1: x\" >&2; \
+             echo \"[PERF] window 2 frame 1: x\" >&2; \
+             echo \"INFO rinch: presenting with the software renderer (chosen)\"; \
+             exec sleep 600",
+        ]);
+        let component = Component::start_unguarded(command, Renderer::Software).unwrap();
+        component
+            .wait_presented_in_each(Renderer::Software, 2)
+            .unwrap();
+        let wrong = component.wait_presented_in_each(Renderer::Gpu, 2);
+        assert!(wrong.unwrap_err().contains("gpu renderer, but Software"));
+    }
+
+    #[test]
+    fn too_few_windows_fail_at_once_when_it_ends() {
+        let mut command = Command::new("sh");
+        command.args(["-c", "echo \"[PERF] window 1 frame 1: x\" >&2; exit 1"]);
+        let component = Component::start_unguarded(command, Renderer::Software).unwrap();
+        let started = Instant::now();
+        let error = component
+            .wait_presented_in_each(Renderer::Software, 2)
+            .unwrap_err();
+        assert!(error.contains("not each of 2 windows"), "{error}");
+        assert!(
+            started.elapsed() < PATIENCE,
+            "it waited {:?} for a program that had ended",
+            started.elapsed()
+        );
+    }
+
+    #[test]
     fn a_program_that_ends_before_presenting_fails_at_once() {
         let mut command = Command::new("sh");
         command.args(["-c", "echo 'cannot start' >&2; exit 1"]);
@@ -330,7 +402,7 @@ mod tests {
 
     #[test]
     fn refuses_to_start_anything_outside_a_nested_session() {
-        if std::env::var_os("DESKRINCH_TEST_COMPOSITOR").is_some() {
+        if Compositor::nested().is_some() {
             // Run inside a nested session, where starting is allowed: there
             // is nothing to refuse, and nothing is started.
             eprintln!("in a nested session: the guard lets components start here");
@@ -343,8 +415,14 @@ mod tests {
             drop(Component::start(command, Renderer::Software));
         });
         let why = refused.expect_err("it started a component outside a nested session");
-        let message = why.downcast_ref::<&str>().copied().unwrap_or_default();
+        // The message carries the check's reason, so it is formatted: a
+        // `String`.
+        let message = why.downcast_ref::<String>().map_or("", String::as_str);
         assert!(message.contains("nested compositor"), "{message:?}");
+        assert!(
+            message.contains("not inside an isolated session"),
+            "{message:?}"
+        );
     }
 
     #[test]

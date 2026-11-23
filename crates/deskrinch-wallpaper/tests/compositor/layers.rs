@@ -63,7 +63,9 @@ fn the_panel_is_above_it() {
     wait_covered(BLUE);
     let renderer = Renderer::of_run();
     let panel = Component::start(Command::new(panel_binary()), renderer).unwrap();
-    if let Err(why) = panel.wait_presented_with(renderer) {
+    // A bar in a window of its own on each output.
+    let outputs = Screen::connect().unwrap().outputs().len();
+    if let Err(why) = panel.wait_presented_in_each(renderer, outputs) {
         panic!("the panel: {why}");
     }
     // On the output the compositor gave it, its bottom row is the panel's,

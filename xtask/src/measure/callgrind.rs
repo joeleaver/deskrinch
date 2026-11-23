@@ -105,6 +105,35 @@ struct Profile<'a> {
     commands: Option<&'a Commands<'a>>,
 }
 
+/// Waits, within `timeout`, for start-up's end as `ends` says; fails if the
+/// program exits first or xtask is interrupted.
+fn wait_for_start(
+    child: &mut Child,
+    watch: &Watch,
+    ends: &Start<'_>,
+    program: &str,
+    timeout: Duration,
+) -> Result<(), Error> {
+    let start = Instant::now();
+    loop {
+        interrupt::check()?;
+        ends.wait(watch, Duration::from_millis(100));
+        if ends.ended(watch) {
+            return Ok(());
+        }
+        if let Ok(Some(status)) = child.try_wait() {
+            return Err(Error::MeasuredExited {
+                program: program.to_owned(),
+                status,
+                output: watch.last_words(),
+            });
+        }
+        if start.elapsed() >= timeout {
+            return Err(ends.not_ended(program, watch, timeout));
+        }
+    }
+}
+
 fn run_child(
     child: &mut Child,
     watch: &Watch,
@@ -122,24 +151,7 @@ fn run_child(
     } = *profile;
     let expect = ends.expect;
     let pid = child.id().to_string();
-    let start = Instant::now();
-    loop {
-        interrupt::check()?;
-        ends.wait(watch, Duration::from_millis(100));
-        if ends.ended(watch) {
-            break;
-        }
-        if let Ok(Some(status)) = child.try_wait() {
-            return Err(Error::MeasuredExited {
-                program: program.to_owned(),
-                status,
-                output: watch.last_words(),
-            });
-        }
-        if start.elapsed() >= timing.first_frame {
-            return Err(ends.not_ended(program, watch, timing.first_frame));
-        }
-    }
+    wait_for_start(child, watch, &ends, program, timing.first_frame)?;
     let load = probe::load_average();
     let first = dump(control, &pid, out, "first-frame")?;
     let started = match expect {
@@ -199,6 +211,7 @@ fn run_child(
         watch,
         program,
         timeout: timing.first_frame,
+        neighbours: ends.neighbours,
     };
     steps_after_idle(&mut run, &mut running, profile, pointer)?;
     window::end(opened, &mut run)?;

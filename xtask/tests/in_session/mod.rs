@@ -15,6 +15,8 @@ use std::fs;
 use std::process::{Child, Command, ExitStatus, Stdio};
 
 use deskrinch_test_component::programs::program;
+use deskrinch_test_dbus::session::outside;
+use deskrinch_test_session::COMPOSITOR_VARIABLE;
 use deskrinch_test_wait::{Deadline, PATIENCE};
 
 /// How the component ended.
@@ -104,22 +106,23 @@ impl Then {
 /// Every wait and action here is one `cargo xtask in-session` takes: run
 /// outside a session with each, it refuses, which it does only after its
 /// arguments have parsed (an argument it does not know is clap's error,
-/// not the refusal). Plain `cargo test` runs it, anywhere.
+/// not the refusal). Plain `cargo test` runs it, anywhere: [`outside`]
+/// any session, it would reach nothing if it did not refuse.
 #[test]
 fn every_wait_and_action_is_one_the_subcommand_takes() {
     let dir = tempfile::tempdir().unwrap();
     for until in Until::ALL {
         for then in Then::ALL {
-            let ran = Command::new(env!("CARGO_BIN_EXE_xtask"))
+            let mut in_session = Command::new(env!("CARGO_BIN_EXE_xtask"));
+            in_session
                 .args(["in-session", "--dir"])
                 .arg(dir.path())
                 .args(until.arguments())
                 .args(["--then", then.argument()])
                 .arg("/bin/true")
-                .env_remove("DESKRINCH_TEST_COMPOSITOR")
-                .stdin(Stdio::null())
-                .output()
-                .unwrap();
+                .stdin(Stdio::null());
+            let _root = outside(&mut in_session).unwrap();
+            let ran = in_session.output().unwrap();
             let said = String::from_utf8_lossy(&ran.stderr);
             assert!(
                 said.contains("runs only inside cargo xtask session"),
@@ -191,8 +194,8 @@ pub(crate) fn run(
 
 /// The run's compositor, as `cargo xtask compositor-tests` names it.
 fn compositor() -> String {
-    std::env::var("DESKRINCH_TEST_COMPOSITOR")
-        .expect("run by cargo xtask compositor-tests (DESKRINCH_TEST_COMPOSITOR)")
+    std::env::var(COMPOSITOR_VARIABLE)
+        .unwrap_or_else(|_| panic!("run by cargo xtask compositor-tests ({COMPOSITOR_VARIABLE})"))
 }
 
 /// The session's status once it has ended: within the patience for the

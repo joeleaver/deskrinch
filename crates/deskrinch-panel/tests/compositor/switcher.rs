@@ -9,7 +9,7 @@
 //! only a button's background differs from the bar's) is that workspace's
 //! button. The test's own `deskrinch-workspaces` connection makes a
 //! workspace current from outside the panel and reads what the compositor
-//! did; KWin's own D-Bus interface (`deskrinch-test-desktops`) adds and
+//! did; KWin's own D-Bus interface (`deskrinch-test-kwin`'s actions) adds and
 //! removes desktops, which the protocols do not offer.
 //!
 //! Each change of the current workspace draws once: every switch has a
@@ -19,8 +19,8 @@
 //! (the clock's minute). See [`Pager::sweep`] for the rule and its limit.
 
 use deskrinch_test_client::Compositor;
-use deskrinch_test_desktops as kwin;
 use deskrinch_test_input::{Button, Input};
+use deskrinch_test_kwin::KwinActions;
 use deskrinch_test_screen::{Image, Screen, still_gap};
 use deskrinch_test_wait::{Deadline, PATIENCE, wait_for};
 use deskrinch_workspaces::{
@@ -33,6 +33,12 @@ use crate::support::{
     write_settings,
 };
 use crate::taskbar::near;
+
+/// KWin in the session this test runs in, for changing its desktops
+/// through its own interface (the compositor's side of the test).
+fn kwin() -> KwinActions {
+    KwinActions::here().unwrap()
+}
 
 /// The panel's height, in logical pixels.
 const HEIGHT: u32 = 40;
@@ -68,7 +74,7 @@ impl Pager {
         let workspaces = match Compositor::current() {
             Compositor::Sway => None,
             Compositor::Kwin => {
-                let _first = kwin::set_up(COUNT);
+                let _first = kwin().set_up_virtual_desktops(COUNT).unwrap();
                 Some(connect(|_| {}).unwrap())
             }
             Compositor::Labwc => Some(connect(|_| {}).unwrap()),
@@ -200,7 +206,10 @@ impl Pager {
         self.input.click(Button::PRIMARY).unwrap();
     }
 
-    /// Under sway: no switcher drawn, and the panel says why.
+    /// Under sway: the panel says why there is no switcher, and once the
+    /// bar's output stands still after that, nothing is drawn at the bar's
+    /// start. The picture judged is a still one, so a capture taken before
+    /// the switcher would have been drawn cannot pass for one without it.
     fn assert_absent(&mut self) {
         assert!(
             self.panel
@@ -209,9 +218,11 @@ impl Pager {
             "the panel did not say {ABSENT:?}; it logged:\n{}",
             self.panel.log()
         );
-        let image = self.screen.capture(&self.output.clone()).unwrap();
+        let output = self.output.clone();
+        let still = Pictures::still_of(&mut self.screen, &output);
+        let image = still.get(&output).expect("the bar's output, captured");
         assert_eq!(
-            self.mark(&image),
+            self.mark(image),
             None,
             "something is drawn at the bar's start"
         );
@@ -261,6 +272,7 @@ impl Pager {
         let mut previous = self.wait_mark("the last workspace's mark", |m| {
             m.is_some() && (current || m != before)
         });
+        let window = self.panel.window_on(&self.output);
         let mut from = frames::step(&self.panel);
         let deadline = Deadline::patience();
         let mut boxes: Vec<Option<Columns>> = vec![None; shown.len()];
@@ -272,7 +284,7 @@ impl Pager {
                 let mark = self.wait_mark(&format!("{}'s mark", workspace.name), |m| {
                     m.is_some() && (m != previous || shown.len() == 1)
                 });
-                let (drawn, end) = frames::drawn_since(&self.panel, from);
+                let (drawn, end) = frames::drawn_since(&self.panel, &window, from);
                 from = end;
                 assert!(
                     !drawn.is_empty(),
@@ -361,9 +373,11 @@ fn the_button_under_the_pointer_is_marked_until_it_leaves() {
     // the left once the pointer is on it.
     let first = boxes[0];
     let last = boxes[boxes.len() - 1];
+    let window = pager.panel.window_on(&pager.output);
     frames::until_clean_round(
         &mut pager,
         |pager| &pager.panel,
+        &window,
         |pager| {
             pager.point_at(first);
             let mark = pager.wait_mark("the first button marked under the pointer", |m| {
@@ -405,7 +419,7 @@ fn a_desktop_added_or_removed_is_followed() {
     }
     let before = pager.sweep();
     let name = format!("Extra {}", std::process::id());
-    kwin::create(&name);
+    kwin().create_virtual_desktop(&name).unwrap();
     let added = wait_for("the added desktop", || {
         let shown = pager.shown();
         shown.iter().find(|w| w.name == name).cloned().ok_or(shown)
@@ -419,7 +433,7 @@ fn a_desktop_added_or_removed_is_followed() {
         mark.is_some_and(|(first, _)| first > last.1),
         "{mark:?} after {before:?}"
     );
-    kwin::remove(&name);
+    kwin().remove_virtual_desktop(&name).unwrap();
     wait_for("the desktop removed", || {
         let shown = pager.shown();
         if shown.iter().any(|w| w.name == name) {

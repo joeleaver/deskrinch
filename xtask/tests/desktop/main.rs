@@ -28,6 +28,7 @@ mod desktop {
 
     use deskrinch_shell::LAUNCHER_CHORD;
     use deskrinch_test_input::{Input, Key};
+    use deskrinch_test_session::BUS_VARIABLE;
     use deskrinch_test_wait::{eventually, wait_for};
     use deskrinch_window_management::{Action, WindowManagement, WindowState};
     use rustix::process::Signal;
@@ -143,10 +144,10 @@ mod desktop {
         let root = desktop.root.display().to_string();
         assert_eq!(env["HOME"], format!("{root}/home"));
         assert_eq!(env["XDG_RUNTIME_DIR"], format!("{root}/run"));
-        assert_eq!(env["DBUS_SESSION_BUS_ADDRESS"], desktop.bus);
+        assert_eq!(env[BUS_VARIABLE], desktop.bus);
         // Not the display or the bus of the session the desktop's window is
         // on: only the nested compositor is given that.
-        let outer_bus = std::env::var("DBUS_SESSION_BUS_ADDRESS").unwrap();
+        let outer_bus = std::env::var(BUS_VARIABLE).unwrap();
         let outer_runtime = std::env::var("XDG_RUNTIME_DIR").unwrap();
         let outer_display = std::env::var("WAYLAND_DISPLAY").unwrap();
         let outer_socket = format!("{outer_runtime}/{outer_display}");

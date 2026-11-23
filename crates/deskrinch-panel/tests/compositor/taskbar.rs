@@ -154,24 +154,22 @@ impl Bar {
     /// the box of its pixels (left, top, right, bottom, inclusive), when
     /// there are enough of them to be a whole icon.
     pub(crate) fn icon(&self, image: &Image, app: App) -> Option<(u32, u32, u32, u32)> {
-        let mut bounds: Option<(u32, u32, u32, u32)> = None;
-        let mut count = 0_u32;
-        for y in self.band.rows_in(image.height()) {
-            for x in 0..image.width() {
-                if image.pixel(x, y).is_some_and(|p| near(p, app.colour)) {
-                    count += 1;
-                    bounds = Some(match bounds {
-                        None => (x, y, x, y),
-                        Some((l, t, r, b)) => (l.min(x), t.min(y), r.max(x), b.max(y)),
-                    });
-                }
-            }
-        }
-        let side = ICON * self.scale;
-        // Its edges may be blended with what is around it.
-        (count >= (side - 2) * (side - 2))
-            .then_some(bounds)
-            .flatten()
+        icon_in(image, self.band, self.scale, app)
+    }
+
+    /// What `judge` takes from the panel's output once it is still
+    /// ([`Pictures::judged`]), handed the way to find an app's icon on it:
+    /// the judgment for what stays as it is, where [`Self::see`]'s first
+    /// passing capture can come before a wrong change reaches the screen.
+    pub(crate) fn judged<T, S: fmt::Debug>(
+        &mut self,
+        what: &str,
+        judge: impl Fn(&dyn Fn(&Image, App) -> Option<(u32, u32, u32, u32)>, &Image) -> Result<T, S>,
+    ) -> T {
+        let (band, scale) = (self.band, self.scale);
+        let icon = move |image: &Image, app: App| icon_in(image, band, scale, app);
+        let output = self.output.clone();
+        Pictures::judged(&mut self.screen, &output, what, |image| judge(&icon, image))
     }
 
     /// How many buttons of `app` `image` shows: icons side by side.
@@ -259,6 +257,11 @@ impl Bar {
         image.pixel(1, u32::midpoint(top, bottom))
     }
 
+    /// The output the bar under test is on.
+    pub(crate) fn output(&self) -> &str {
+        &self.output
+    }
+
     /// The panel, for its log.
     pub(crate) fn panel(&self) -> &Panel {
         &self.panel
@@ -269,6 +272,35 @@ impl Bar {
         let image = self.screen.capture(&self.output.clone()).unwrap();
         image.width() / self.scale
     }
+}
+
+/// Where `app`'s button's icon is drawn at full colour in `band` of
+/// `image`, an output at `scale`: the box of its pixels (left, top, right,
+/// bottom, inclusive), when there are enough of them to be a whole icon.
+pub(crate) fn icon_in(
+    image: &Image,
+    band: Band,
+    scale: u32,
+    app: App,
+) -> Option<(u32, u32, u32, u32)> {
+    let mut bounds: Option<(u32, u32, u32, u32)> = None;
+    let mut count = 0_u32;
+    for y in band.rows_in(image.height()) {
+        for x in 0..image.width() {
+            if image.pixel(x, y).is_some_and(|p| near(p, app.colour)) {
+                count += 1;
+                bounds = Some(match bounds {
+                    None => (x, y, x, y),
+                    Some((l, t, r, b)) => (l.min(x), t.min(y), r.max(x), b.max(y)),
+                });
+            }
+        }
+    }
+    let side = ICON * scale;
+    // Its edges may be blended with what is around it.
+    (count >= (side - 2) * (side - 2))
+        .then_some(bounds)
+        .flatten()
 }
 
 /// The window with `app_id`, once the compositor lists it, and a manager
@@ -331,7 +363,7 @@ fn blend(over: Rgba, under: Rgba, opacity: f32) -> Rgba {
 
 /// Writes the test's applications into the data directory `data`: an
 /// entry each, and its icon, a square of its colour, in `hicolor`.
-fn install(data: &Path) {
+pub(crate) fn install(data: &Path) {
     let applications = data.join("applications");
     let theme = data.join("icons/hicolor");
     let icons = theme.join("scalable/apps");

@@ -16,9 +16,7 @@ use deskrinch_test_dbus::session;
 use crate::Outcome;
 use crate::error::Error;
 use crate::grant::ComponentGrant;
-use crate::session::{
-    COMPOSITOR_PID, Compositor, CompositorRenderer, Gpu, Outputs, Session, interrupt,
-};
+use crate::session::{Compositor, CompositorRenderer, Gpu, Outputs, Session, interrupt};
 
 /// `cargo xtask session --help`: what the session is, exactly. The lists of
 /// variables come from `deskrinch-test-dbus`, which sets them.
@@ -44,7 +42,7 @@ pub(crate) fn long_about() -> String {
         session::AUDIO_PREFIXES.join(", "),
         session::AUDIO_VARIABLES.join(" and ")
     ));
-    let compositor_pid = COMPOSITOR_PID;
+    let compositor_pid = deskrinch_test_session::COMPOSITOR_PID_VARIABLE;
     format!(
         "\
 Run a command in an isolated, nested, headless compositor session.

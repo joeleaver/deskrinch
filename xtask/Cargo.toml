@@ -20,9 +20,13 @@ deskrinch-test-component.workspace = true
 deskrinch-test-dbus.workspace = true
 # The interface its compositor tests are granted under KWin.
 deskrinch-test-input.workspace = true
+# What KWin says (how it composites, its effects), on a bus of ours.
+deskrinch-test-kwin.workspace = true
 # The notification `cargo xtask in-session` sends to the daemon it runs.
 deskrinch-test-notify.workspace = true
 deskrinch-test-screen.workspace = true
+# The isolated session's names, root and bus, set and checked from one home.
+deskrinch-test-session.workspace = true
 deskrinch-test-wayland.workspace = true
 deskrinch-test-wait.workspace = true
 deskrinch-window-management.workspace = true
@@ -36,7 +40,7 @@ tempfile.workspace = true
 thiserror.workspace = true
 # Following the desktop's outputs, which are its windows.
 wayland-client.workspace = true
-# Asking KWin how it composites, on the session's bus, driven by
+# Asking kglobalacceld for a session's bindings, driven by
 # `zbus::block_on`; `proxy`, the bus's own interface, asked whether a name
 # is owned (`cargo xtask in-session`).
 zbus = { workspace = true, features = ["default-rt", "proxy"] }

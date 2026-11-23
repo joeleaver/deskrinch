@@ -14,14 +14,17 @@
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
 #[cfg(test)]
+mod fifo;
+#[cfg(test)]
 mod report;
 
 #[cfg(test)]
 mod measure_callgrind {
     use std::fs;
-    use std::path::{Path, PathBuf};
+    use std::path::Path;
     use std::process::{Command, Stdio};
 
+    use crate::fifo::fifo;
     use crate::report::number_after;
 
     /// The compositor to test with.
@@ -77,15 +80,20 @@ mod measure_callgrind {
         // loop would fork, which under Callgrind costs more than a settled
         // program may. The shell stays, for Callgrind to dump.
         let dir = tempfile::tempdir().unwrap();
-        let fifo = dir.path().join("asked");
-        let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
-        assert!(made.success(), "mkfifo: {made}");
+        let fifo = fifo(dir.path(), "asked");
         let summon = dir.path().join("summon.sh");
         fs::write(&summon, format!("echo show > {}\n", fifo.display())).unwrap();
         let dismiss = dir.path().join("dismiss.sh");
         fs::write(&dismiss, format!("echo hide > {}\n", fifo.display())).unwrap();
+        // It starts quiet, sleeping three seconds before its first
+        // preparation, as a stand-in starved of CPU on a loaded machine
+        // does. A sleep and not a count: only an idle start passes a quiet
+        // window (a count runs, and keeps the settle waiting), and two
+        // windows of idleness against a wait of one summon it before it
+        // prepared every time, not by luck, unless `--prepares` makes the
+        // first show wait for the preparation.
         let script = format!(
-            "echo '[PERF] prepared 1: a' >&2; n=0; p=1; \
+            "sleep 3; echo '[PERF] prepared 1: a' >&2; n=0; p=1; \
              while read asked < {fifo}; do \
              if [ \"$asked\" = show ]; then \
              i=0; while [ $i -lt 2000 ]; do i=$((i+1)); done; \
@@ -102,6 +110,7 @@ mod measure_callgrind {
             .args(["measure", "--compositor", &compositor(), "--runs", "1"])
             .args(["--instructions", "--settle", "1", "--idle", "1"])
             .args(["--summon", &summon, "--dismiss", &dismiss, "--shows", "2"])
+            .arg("--prepares")
             .args(["sh", "-c", &script])
             .stdin(Stdio::null())
             .output()
@@ -194,14 +203,6 @@ mod measure_callgrind {
         )
     }
 
-    /// A FIFO in `dir`, for [`every_half_second`].
-    fn fifo(dir: &Path) -> PathBuf {
-        let fifo = dir.join("asked");
-        let made = Command::new("mkfifo").arg(&fifo).status().unwrap();
-        assert!(made.success(), "mkfifo: {made}");
-        fifo
-    }
-
     #[test]
     #[ignore = "needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn each_pointer_step_reads_its_own_dump_after_the_idle_window() {
@@ -211,7 +212,7 @@ mod measure_callgrind {
         // cannot tell: the stand-in's spans are whole numbers of loop turns,
         // and two of a turn's length count within a few instructions.
         let dir = tempfile::tempdir().unwrap();
-        let fifo = fifo(dir.path());
+        let fifo = fifo(dir.path(), "asked");
         let profiles = dir.path().join("profiles");
         let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
             .args(["measure", "--compositor", &compositor(), "--runs", "1"])
@@ -292,7 +293,7 @@ mod measure_callgrind {
     #[ignore = "needs Valgrind and a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn each_pointer_step_reads_its_own_dump_after_each_show() {
         let dir = tempfile::tempdir().unwrap();
-        let fifo = fifo(dir.path());
+        let fifo = fifo(dir.path(), "asked");
         let summon = dir.path().join("summon.sh");
         fs::write(&summon, format!("printf s > {}\n", fifo.display())).unwrap();
         let dismiss = dir.path().join("dismiss.sh");

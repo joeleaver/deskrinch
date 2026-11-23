@@ -32,9 +32,9 @@ impl Compositor {
     /// Its name, as the tests read it from `DESKRINCH_TEST_COMPOSITOR`.
     pub(crate) fn name(self) -> &'static str {
         match self {
-            Self::Kwin => "kwin",
-            Self::Sway => "sway",
-            Self::Labwc => "labwc",
+            Self::Kwin => deskrinch_test_session::KWIN,
+            Self::Sway => deskrinch_test_session::SWAY,
+            Self::Labwc => deskrinch_test_session::LABWC,
         }
     }
 

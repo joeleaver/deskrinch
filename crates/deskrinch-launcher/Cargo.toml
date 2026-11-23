@@ -31,6 +31,8 @@ deskrinch-gestures.workspace = true
 # The icon theme's index and search path, which the results' icons come
 # from.
 deskrinch-icons.workspace = true
+# The interface's address, and the caller's side the subcommands use.
+deskrinch-launcher-client.workspace = true
 # `[general]`: the terminal applications run in.
 deskrinch-settings.workspace = true
 # The record of the applications started, which an empty query shows the

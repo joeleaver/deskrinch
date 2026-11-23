@@ -36,6 +36,7 @@
 mod args;
 mod callgrind;
 mod environment;
+mod fill;
 mod gpu;
 mod granting;
 mod header;
@@ -44,6 +45,7 @@ mod input;
 mod output;
 mod probe;
 mod procfs;
+mod quiet;
 mod renderer;
 mod report;
 mod seed;
@@ -234,36 +236,7 @@ pub(crate) fn run(request: &Request) -> Result<Outcome, Error> {
         .transpose()?;
     let cache = cache_dir.as_ref().map(tempfile::TempDir::path);
     if let Some(dir) = cache {
-        // The filling start does what a measured run does, its --window
-        // window and its pointer's steps included: the cache is to hold what
-        // the runs draw.
-        eprintln!("measure: filling the shader cache with one unmeasured start");
-        let timing = probe::Timing {
-            first_frame: request.first_frame_timeout,
-            settle: Duration::ZERO,
-            idle: Duration::ZERO,
-        };
-        in_session(request, &grant, client.as_deref(), |session| {
-            with_inputs(request, session, client.as_deref(), |inputs| {
-                let command = program_client(session, request, Some(dir));
-                match &request.summons {
-                    Some(summons) => {
-                        let ask = |args: &[OsString]| asked(session, request, Some(dir), args);
-                        show::measure(command, &ask, inputs, &program, timing, summons).map(drop)
-                    }
-                    None => probe::measure(
-                        command,
-                        &program,
-                        timing,
-                        &Stimulus::of(session, request.window.as_deref()),
-                        start(request, &end, session),
-                        inputs,
-                        None,
-                    )
-                    .map(drop),
-                }
-            })
-        })?;
+        fill::fill_cache(request, &grant, client.as_deref(), dir, &end)?;
     }
     let timing = probe::Timing {
         first_frame: request.first_frame_timeout,
@@ -336,7 +309,15 @@ fn measure_run(
     if !request.instructions {
         let command = program_client(session, request, cache);
         return match &request.summons {
-            Some(summons) => show::measure(command, &ask, inputs, program, timing, summons),
+            Some(summons) => show::measure(
+                command,
+                &ask,
+                inputs,
+                program,
+                timing,
+                summons,
+                neighbours(session),
+            ),
             None => probe::measure(
                 command,
                 program,
@@ -366,7 +347,15 @@ fn measure_run(
     let control = || session.client("callgrind_control".as_ref());
     match &request.summons {
         Some(summons) => show::measure_instructions(
-            command, &control, &ask, inputs, program, &out, timing, summons,
+            command,
+            &control,
+            &ask,
+            inputs,
+            program,
+            &out,
+            timing,
+            summons,
+            neighbours(session),
         ),
         None => callgrind::measure(
             command,
@@ -398,6 +387,16 @@ fn start<'a>(request: &Request, end: &'a End, session: &'a Session) -> Start<'a>
         expect: Expect::of(request.windows),
         end,
         bus: session.bus_address(),
+        neighbours: neighbours(session),
+    }
+}
+
+/// The processes of `session` a program may wait on, which its quiet
+/// windows watch: the compositor (with its descendants) and the bus.
+fn neighbours(session: &Session) -> quiet::Neighbours {
+    quiet::Neighbours {
+        compositor: session.compositor_pid(),
+        bus: session.bus_pid(),
     }
 }
 

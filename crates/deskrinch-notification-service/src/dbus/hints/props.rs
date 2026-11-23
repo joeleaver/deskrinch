@@ -8,7 +8,7 @@ use zbus::wire::serialized::{Context, Data};
 use zbus::wire::{LE, to_bytes};
 
 use super::*;
-use deskrinch_untrusted::fuzz::config;
+use deskrinch_untrusted::fuzz::{case_bytes, case_debug, config};
 
 /// The names the decoder knows, and some it does not.
 const KEYS: &[&str] = &[
@@ -123,32 +123,37 @@ proptest! {
     /// specified type.
     #[test]
     fn any_dictionary_decodes(hints in prop::collection::hash_map(keys(), values(), 0..24)) {
-        let dict: HashMap<&str, Variant<'_>> =
-            hints.iter().map(|(k, v)| (k.as_str(), v.variant())).collect();
-        let data = to_bytes(Context::new(LE, 0), &dict).unwrap();
-        let (decoded, _) = data.deserialize::<Hints<'_>>().unwrap();
-        let typed = |key: &str, ok: fn(&Value) -> bool| hints.get(key).is_some_and(ok);
-        prop_assert_eq!(decoded.category.is_some(), typed("category", |v| matches!(v, Value::Str(_))));
-        prop_assert_eq!(decoded.transient.is_some(), typed("transient", |v| matches!(v, Value::Bool(_))));
-        prop_assert_eq!(decoded.x.is_some(), typed("x", |v| matches!(v, Value::I32(_))));
-        prop_assert_eq!(
-            decoded.image_data.is_some(),
-            typed("image-data", |v| matches!(v, Value::Image(..)))
-        );
-        let level = match hints.get("urgency") {
-            Some(Value::U8(v)) => Some(*v),
-            Some(Value::I32(v)) => u8::try_from(*v).ok(),
-            Some(Value::U32(v)) => u8::try_from(*v).ok(),
-            Some(Value::I64(v)) => u8::try_from(*v).ok(),
-            _ => None,
-        };
-        prop_assert_eq!(decoded.urgency, level);
+        case_debug("any_dictionary_decodes", &hints, || {
+            let dict: HashMap<&str, Variant<'_>> =
+                hints.iter().map(|(k, v)| (k.as_str(), v.variant())).collect();
+            let data = to_bytes(Context::new(LE, 0), &dict).unwrap();
+            let (decoded, _) = data.deserialize::<Hints<'_>>().unwrap();
+            let typed = |key: &str, ok: fn(&Value) -> bool| hints.get(key).is_some_and(ok);
+            prop_assert_eq!(decoded.category.is_some(), typed("category", |v| matches!(v, Value::Str(_))));
+            prop_assert_eq!(decoded.transient.is_some(), typed("transient", |v| matches!(v, Value::Bool(_))));
+            prop_assert_eq!(decoded.x.is_some(), typed("x", |v| matches!(v, Value::I32(_))));
+            prop_assert_eq!(
+                decoded.image_data.is_some(),
+                typed("image-data", |v| matches!(v, Value::Image(..)))
+            );
+            let level = match hints.get("urgency") {
+                Some(Value::U8(v)) => Some(*v),
+                Some(Value::I32(v)) => u8::try_from(*v).ok(),
+                Some(Value::U32(v)) => u8::try_from(*v).ok(),
+                Some(Value::I64(v)) => u8::try_from(*v).ok(),
+                _ => None,
+            };
+            prop_assert_eq!(decoded.urgency, level);
+            Ok(())
+        })?;
     }
 
     /// Bytes that are not a well-formed `a{sv}` are an error, never a panic.
     #[test]
     fn arbitrary_bytes_never_panic(bytes in prop::collection::vec(any::<u8>(), 0..1024)) {
-        let data = Data::new(bytes, Context::new(LE, 0));
-        let _result = data.deserialize::<Hints<'_>>();
+        case_bytes("arbitrary_bytes_never_panic", &bytes, || {
+            let data = Data::new(bytes.clone(), Context::new(LE, 0));
+            let _result = data.deserialize::<Hints<'_>>();
+        });
     }
 }
