@@ -1,9 +1,13 @@
-//! That the public calls pass the session's real check before any
-//! connection, tested in a child: this test binary runs itself for one
-//! ignored inner test, outside any session
-//! (`deskrinch_test_dbus::session::outside`), where a call that was not
-//! refused finds a bus address that leads nowhere. The refusal's logic is
-//! tested in-process in `guard`.
+//! That the handle's public makers read what they say, tested in a child:
+//! this test binary runs itself for one ignored inner test, outside any
+//! session (`deskrinch_test_dbus::session::outside`), where a maker that did
+//! not refuse would hand out a handle to a bus address that leads nowhere.
+//! The makers' logic is tested in-process in `kwin`.
+//!
+//! The address the child gives `Kwin::on` is the one `outside` gives it: a
+//! `unix:path=` address, as the real session's is, under a temporary root
+//! with nothing listening, so that a maker that took it would reach
+//! nothing.
 
 use std::process::{Command, Stdio};
 
@@ -32,30 +36,34 @@ fn refused_in_a_child(name: &str) -> String {
     said
 }
 
-/// What a refusal outside any session says.
-const REFUSED: &str = "refusing to ask KWin: not inside an isolated session";
-
 #[test]
-fn reading_the_windows_outside_a_session_is_refused_before_any_bus() {
-    let said = refused_in_a_child("wiring_tests::inner::reads_the_windows");
-    assert!(said.contains(REFUSED), "{said}");
+fn here_refuses_outside_a_session_before_any_bus() {
+    let said = refused_in_a_child("wiring_tests::inner::asks_here");
+    assert!(
+        said.contains("refusing to ask KWin: not inside an isolated session"),
+        "{said}"
+    );
 }
 
 #[test]
-fn reading_the_version_outside_a_session_is_refused_before_any_bus() {
-    let said = refused_in_a_child("wiring_tests::inner::reads_the_version");
-    assert!(said.contains(REFUSED), "{said}");
+fn on_refuses_an_address_not_ours_before_any_bus() {
+    let said = refused_in_a_child("wiring_tests::inner::asks_on_the_session_s_address");
+    assert!(said.contains("is not a private bus of ours"), "{said}");
 }
 
-/// The public calls, run only by the outer tests above in their child.
+/// The public makers, run only by the outer tests above in their child;
+/// each asks a question with the handle, should it have been made.
 mod inner {
+    use deskrinch_test_session::BUS_VARIABLE;
+
     use super::INNER;
+    use crate::Kwin;
 
     #[test]
     #[ignore = "run by its outer test, in a child outside any session"]
-    fn reads_the_windows() {
+    fn asks_here() {
         if std::env::var_os(INNER).is_some()
-            && let Err(why) = crate::windows()
+            && let Err(why) = Kwin::here().and_then(|kwin| kwin.version())
         {
             panic!("{why}");
         }
@@ -63,11 +71,12 @@ mod inner {
 
     #[test]
     #[ignore = "run by its outer test, in a child outside any session"]
-    fn reads_the_version() {
-        if std::env::var_os(INNER).is_some()
-            && let Err(why) = crate::version()
-        {
-            panic!("{why}");
+    fn asks_on_the_session_s_address() {
+        if std::env::var_os(INNER).is_some() {
+            let address = std::env::var(BUS_VARIABLE).unwrap();
+            if let Err(why) = Kwin::on(&address).and_then(|kwin| kwin.version()) {
+                panic!("{why}");
+            }
         }
     }
 }

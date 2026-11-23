@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 use deskrinch_shell::{Key as ShellKey, Modifier};
 use deskrinch_test_client::Compositor;
 use deskrinch_test_input::Key;
+use deskrinch_test_kwin::Kwin;
 use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually};
 use deskrinch_window_management::WindowManagement;
 use rustix::process::{Pid, Signal, kill_process};
@@ -196,27 +197,9 @@ impl Desktop {
         if Compositor::current() != Compositor::Kwin {
             return "(not KWin)".into();
         }
-        let info: zbus::Result<String> = zbus::block_on(async {
-            let reply = self
-                .connect()
-                .await
-                .call_method(
-                    Some("org.kde.KWin"),
-                    "/KWin",
-                    Some("org.kde.KWin"),
-                    "supportInformation",
-                    &(),
-                )
-                .await?;
-            reply.body().deserialize()
-        });
-        match info {
-            Ok(info) => info
-                .lines()
-                .find(|line| line.trim().starts_with("Compositing Type:"))
-                .unwrap_or("(no compositing type)")
-                .trim()
-                .to_owned(),
+        match Kwin::on(&self.bus).and_then(|kwin| kwin.compositing_type()) {
+            Ok(Some(compositing)) => format!("Compositing Type: {compositing}"),
+            Ok(None) => "(no compositing type)".into(),
             Err(error) => format!("(KWin did not say: {error})"),
         }
     }

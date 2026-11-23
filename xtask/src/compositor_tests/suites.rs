@@ -107,7 +107,8 @@ pub(super) const SUITES: [Suite; 25] = [
         filter: &[],
     },
     // What KWin itself holds of the test client's windows (their types,
-    // above all), read through a KWin script: KWin only.
+    // above all), read through a KWin script, and what it composites with:
+    // KWin only. Its output is shown, for the compositing type it prints.
     Suite {
         target: Target {
             package: KWIN_VIEW,
@@ -119,7 +120,7 @@ pub(super) const SUITES: [Suite; 25] = [
         passes: PLAIN,
         renders: false,
         programs: &[],
-        filter: &[],
+        filter: &["--show-output"],
     },
     Suite {
         target: Target {

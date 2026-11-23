@@ -2,6 +2,8 @@
 //! that `cargo xtask compositor-tests kwin` starts. Ignored by a plain
 //! `cargo test`; KWin only.
 //!
+//! - [`support`]: what KWin composites with, its effects and its shortcut
+//!   service.
 //! - [`types`]: the window type KWin gives a toplevel, and a layer surface
 //!   by its namespace, with the layer and what leaves it out.
 //!
@@ -10,5 +12,7 @@
 //! asserts was read from one (6.6.7), and another version may differ.
 
 // `cfg(test)` marks it as test code, where clippy allows `unwrap`.
+#[cfg(test)]
+mod support;
 #[cfg(test)]
 mod types;

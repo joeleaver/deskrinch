@@ -11,7 +11,7 @@
 use std::collections::BTreeSet;
 
 use deskrinch_test_client::{Compositor, ShellLayer, TestClient};
-use deskrinch_test_kwin::{Skip, Window, WindowType, version, windows};
+use deskrinch_test_kwin::{Kwin, Skip, Window, WindowType};
 
 /// The process's own windows of `size`, among every window KWin has.
 fn of_size(windows: &[Window], pid: u32, size: (u32, u32)) -> Vec<&Window> {
@@ -59,7 +59,8 @@ fn skips_of(kind: WindowType) -> BTreeSet<Skip> {
 #[ignore = "needs a nested KWin: cargo xtask compositor-tests kwin"]
 fn an_ordinary_toplevel_is_a_normal_window() {
     assert_eq!(Compositor::current(), Compositor::Kwin);
-    let kwin = version().unwrap();
+    let handle = Kwin::here().unwrap();
+    let kwin = handle.version().unwrap();
     let client = TestClient::connect().unwrap();
     let _before = client
         .open_layer("dock", ShellLayer::Top, (33, 17))
@@ -70,7 +71,7 @@ fn an_ordinary_toplevel_is_a_normal_window() {
             "org.deskrinch.TestKwin.Toplevel",
         )
         .unwrap();
-    let all = windows().unwrap();
+    let all = handle.windows().unwrap();
     let mine: Vec<&Window> = all
         .iter()
         .filter(|window| window.resource_class == "org.deskrinch.TestKwin.Toplevel")
@@ -103,7 +104,8 @@ fn an_ordinary_toplevel_is_a_normal_window() {
 #[ignore = "needs a nested KWin: cargo xtask compositor-tests kwin"]
 fn a_layer_surface_is_typed_by_its_namespace() {
     assert_eq!(Compositor::current(), Compositor::Kwin);
-    let kwin = version().unwrap();
+    let handle = Kwin::here().unwrap();
+    let kwin = handle.version().unwrap();
     let client = TestClient::connect().unwrap();
     let _first = client
         .open("deskrinch-test-kwin first", "org.deskrinch.TestKwin.First")
@@ -117,7 +119,7 @@ fn a_layer_surface_is_typed_by_its_namespace() {
             rows.push((namespace, layer, size, kind, kwin_layer));
         }
     }
-    let all = windows().unwrap();
+    let all = handle.windows().unwrap();
     let pid = std::process::id();
     let differing: Vec<String> = rows
         .into_iter()

@@ -196,7 +196,7 @@ pub(crate) enum Error {
         /// What was asked for.
         what: &'static str,
         /// Why asking failed.
-        source: Box<zbus::Error>,
+        source: Box<deskrinch_test_kwin::Error>,
         /// What it printed.
         log: crate::session::CompositorLog,
     },
