@@ -13,7 +13,7 @@
 //! A call KWin refuses panics, naming it.
 
 use deskrinch_bus::Bus;
-use deskrinch_test_client::Compositor;
+use deskrinch_test_client::{Compositor, NotNested};
 use zbus::{OwnedVariant, Variant};
 
 const SERVICE: &str = "org.kde.KWin";
@@ -23,12 +23,12 @@ const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 
 /// Panics unless `nested`, the nested compositor the process runs in, is
 /// KWin, saying what a call would have done.
-fn require_kwin(nested: Option<Compositor>) {
+fn require_kwin(nested: Result<Compositor, NotNested>) {
     let found = match nested {
-        Some(Compositor::Kwin) => return,
-        Some(Compositor::Sway) => "a nested sway, which has no KWin",
-        Some(Compositor::Labwc) => "a nested labwc, which has no KWin",
-        None => "no nested session: the session bus is the real one",
+        Ok(Compositor::Kwin) => return,
+        Ok(Compositor::Sway) => "a nested sway, which has no KWin".to_owned(),
+        Ok(Compositor::Labwc) => "a nested labwc, which has no KWin".to_owned(),
+        Err(why) => format!("no nested session ({why})"),
     };
     panic!(
         "KWin's virtual desktops are changed only in a nested KWin session \
@@ -39,7 +39,7 @@ fn require_kwin(nested: Option<Compositor>) {
 }
 
 fn connection() -> zbus::Connection {
-    require_kwin(Compositor::nested());
+    require_kwin(Compositor::in_session());
     zbus::block_on(Bus::Session.connect()).unwrap_or_else(|error| {
         panic!("the session bus: {error}");
     })

@@ -21,6 +21,9 @@
 mod in_session;
 
 #[cfg(test)]
+mod outside;
+
+#[cfg(test)]
 mod lost {
     use deskrinch_shell::exit_status::{DISPLAY_LOST, DISPLAY_LOST_LINE};
     use deskrinch_shell::{NOTIFICATIONS, NOTIFICATIONS_UP_LINE, Ready};

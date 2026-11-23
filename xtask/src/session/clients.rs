@@ -9,9 +9,12 @@ use std::time::Instant;
 
 use deskrinch_test_dbus::session::isolate;
 
-use deskrinch_test_session::{COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE, SESSION_GROUP_VARIABLE};
+use deskrinch_test_session::{
+    BUS_VARIABLE, COMPOSITOR_PID_VARIABLE, COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE,
+    SESSION_GROUP_VARIABLE,
+};
 
-use super::{COMPOSITOR_PID, CURRENT_DESKTOP, Session, interrupt};
+use super::{CURRENT_DESKTOP, Session, interrupt};
 use crate::error::Error;
 
 /// A client [`Session::spawn`] started.
@@ -56,7 +59,7 @@ impl Session {
     /// (`WAYLAND_DISPLAY`, and sway's `SWAYSOCK`) and at the session's bus
     /// (`DBUS_SESSION_BUS_ADDRESS`); told the session's directory
     /// (`DESKRINCH_SESSION_DIR`) and the compositor's process id
-    /// ([`COMPOSITOR_PID`]), and whether the run uses no GPU
+    /// ([`COMPOSITOR_PID_VARIABLE`]), and whether the run uses no GPU
     /// ([`Gpu`](super::Gpu)); with standard input closed; and in the
     /// session's process group, so that whatever it leaves running ends with
     /// the session.
@@ -79,9 +82,12 @@ impl Session {
         isolate(&mut command, &self.root);
         command
             .env("WAYLAND_DISPLAY", &self.socket)
-            .env("DBUS_SESSION_BUS_ADDRESS", self.bus.address())
+            .env(BUS_VARIABLE, self.bus.address())
             .env(SESSION_DIR_VARIABLE, &self.root)
-            .env(COMPOSITOR_PID, self.group.as_raw_nonzero().to_string())
+            .env(
+                COMPOSITOR_PID_VARIABLE,
+                self.group.as_raw_nonzero().to_string(),
+            )
             // The tests' guard against running in the real session reads
             // these three (`deskrinch_test_session::check`).
             .env(COMPOSITOR_VARIABLE, self.compositor.name())

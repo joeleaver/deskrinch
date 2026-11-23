@@ -343,8 +343,14 @@ mod tests {
             drop(Component::start(command, Renderer::Software));
         });
         let why = refused.expect_err("it started a component outside a nested session");
-        let message = why.downcast_ref::<&str>().copied().unwrap_or_default();
+        // The message carries the check's reason, so it is formatted: a
+        // `String`.
+        let message = why.downcast_ref::<String>().map_or("", String::as_str);
         assert!(message.contains("nested compositor"), "{message:?}");
+        assert!(
+            message.contains("not inside an isolated session"),
+            "{message:?}"
+        );
     }
 
     #[test]

@@ -17,7 +17,7 @@ mod session {
     use std::path::Path;
     use std::process::{Child, Command, Output, Stdio};
 
-    use deskrinch_test_session::{COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE};
+    use deskrinch_test_session::{COMPOSITOR_VARIABLE, SESSION_DIR_VARIABLE, root};
     use deskrinch_test_wait::wait_for;
     use rustix::process::{Pid, Signal, kill_process, test_kill_process};
 
@@ -136,13 +136,19 @@ mod session {
     #[test]
     #[ignore = "needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR"]
     fn gives_the_command_the_session_and_not_the_real_one() {
+        // The command writes what it was given, then waits to be told to end,
+        // so that its session's root can be checked while it is there.
         let here = tempfile::tempdir().unwrap();
-        let output = session(&["sh", "-c", "env; echo PWD=$(pwd)"])
-            .current_dir(here.path())
-            .output()
-            .unwrap();
-        assert!(output.status.success(), "{output:?}");
-        let env = environment(&output.stdout);
+        let mut command = session(&[
+            "sh",
+            "-c",
+            "{ env; echo PWD=$(pwd); } > \"$0/env.part\" && mv \"$0/env.part\" \"$0/env\"; \
+             while [ ! -e \"$0/end\" ]; do sleep 0.1; done",
+        ]);
+        command.arg(here.path()).current_dir(here.path());
+        let mut child = command.spawn().unwrap();
+        let printed = wait_for_file(&here.path().join("env"));
+        let env = environment(printed.as_bytes());
         let env: HashMap<&str, &str> = env
             .iter()
             .map(|(name, value)| (name.as_str(), value.as_str()))
@@ -170,7 +176,12 @@ mod session {
         assert_eq!(env["XDG_CONFIG_DIRS"], "/etc/xdg");
         assert_eq!(env["XDG_DATA_DIRS"], "/usr/local/share/:/usr/share/");
         let root = env[SESSION_DIR_VARIABLE];
-        assert!(root.starts_with("/tmp/deskrinch-session-"), "{root}");
+        // The root is a marked session root, by the tests' own check.
+        let marked = root::check(Path::new(root));
+        fs::write(here.path().join("end"), "").unwrap();
+        let status = child.wait().unwrap();
+        assert!(status.success(), "{status:?}");
+        assert_eq!(marked, Ok(()), "{root}");
         // cargo and rustup keep the real homes while HOME moves.
         let real = |variable: &str, default: &str| {
             std::env::var(variable)

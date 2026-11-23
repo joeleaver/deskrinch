@@ -28,7 +28,7 @@ use std::io::{BufRead, Write};
 use std::path::Path;
 
 use deskrinch_kwin_access::DesktopEntry;
-use deskrinch_test_client::Compositor;
+use deskrinch_test_client::{Compositor, NotNested};
 use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE};
 
 use crate::Outcome;
@@ -107,10 +107,10 @@ impl fmt::Display for Step {
 pub(crate) enum InputError {
     /// It was run outside a nested session.
     #[error(
-        "`cargo xtask input` types and points only in a nested session xtask started \
-         (DESKRINCH_TEST_COMPOSITOR is not set): outside one it would reach the real desktop"
+        "`cargo xtask input` types and points only in a nested session xtask started, as \
+         outside one it would reach the real desktop: {0}"
     )]
-    NotNested,
+    NotNested(NotNested),
     /// Its devices could not be made, or a step not taken.
     #[error("the input client's keyboard or pointer")]
     Input(#[from] deskrinch_test_input::Error),
@@ -131,9 +131,7 @@ pub(crate) fn run() -> Result<Outcome, Error> {
 }
 
 fn take_steps(input: impl BufRead, mut output: impl Write) -> Result<(), InputError> {
-    if Compositor::nested().is_none() {
-        return Err(InputError::NotNested);
-    }
+    Compositor::in_session().map_err(InputError::NotNested)?;
     let mut devices = Input::connect()?;
     say(&mut output, READY)?;
     for line in input.lines() {

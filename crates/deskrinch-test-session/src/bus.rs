@@ -23,14 +23,28 @@ pub fn listen_address(socket: &str) -> String {
     format!("unix:abstract={socket}")
 }
 
-/// Whether `address` is a private bus of ours: an abstract socket named as
-/// [`socket_name`] names one. The daemon adds `,guid=…` to the address it
-/// prints, which is allowed.
+/// Whether `address` is a private bus of ours, exactly: an abstract socket
+/// named as [`socket_name`] names one (`<pid>-<n>`, both numbers), then
+/// nothing, or the `,guid=<hex>` the daemon adds to the address it prints,
+/// and nothing after. Nothing else passes: a D-Bus address may be a list,
+/// separated by `;` and tried in order, whose later entry could be the real
+/// bus, and a key other than `guid` could point elsewhere.
 #[must_use]
 pub fn is_private(address: &str) -> bool {
-    address
-        .strip_prefix(ADDRESS_PREFIX)
-        .is_some_and(|rest| !rest.is_empty())
+    let Some(rest) = address.strip_prefix(ADDRESS_PREFIX) else {
+        return false;
+    };
+    let (name, guid) = match rest.split_once(",guid=") {
+        Some((name, guid)) => (name, Some(guid)),
+        None => (rest, None),
+    };
+    let numbers = |text: &str| !text.is_empty() && text.bytes().all(|byte| byte.is_ascii_digit());
+    let named = name
+        .split_once('-')
+        .is_some_and(|(pid, n)| numbers(pid) && numbers(n));
+    let guided = guid
+        .is_none_or(|guid| !guid.is_empty() && guid.bytes().all(|byte| byte.is_ascii_hexdigit()));
+    named && guided
 }
 
 #[cfg(test)]
@@ -57,6 +71,16 @@ mod tests {
             "unix:path=/tmp/dbus-deskrinch-1-0",
             "unix:abstract=/tmp/dbus-deskrinch-",
             "",
+            // A list, whose second entry is the real bus.
+            "unix:abstract=/tmp/dbus-deskrinch-1-0;unix:path=/run/user/1000/bus",
+            // A key other than guid.
+            "unix:abstract=/tmp/dbus-deskrinch-1-0,path=/run/user/1000/bus",
+            // A name not of numbers.
+            "unix:abstract=/tmp/dbus-deskrinch-x-0",
+            "unix:abstract=/tmp/dbus-deskrinch-1-0x",
+            // A guid not of hex digits, and one followed by more.
+            "unix:abstract=/tmp/dbus-deskrinch-1-0,guid=xyz",
+            "unix:abstract=/tmp/dbus-deskrinch-1-0,guid=9a46;unix:path=/run/user/1000/bus",
         ] {
             assert!(!is_private(address), "{address}");
         }

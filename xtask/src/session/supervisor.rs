@@ -22,9 +22,9 @@
 //! It removes a directory only if it is a session's: directly in `/tmp`,
 //! named as a session's, and holding the marker [`MARKER`] the session
 //! writes before starting it ([`deskrinch_test_session::root::check`]). It
-//! checks
-//! that when it starts, refusing to run (and the session then refusing to
-//! start) for any other directory, and again before it removes one.
+//! checks that when it starts, refusing to run (and the session then
+//! refusing to start) for any other directory, and again before it removes
+//! one.
 //!
 //! The session's bus needs no supervision: its daemon is xtask's child,
 //! killed by the kernel when xtask dies (`deskrinch-test-lifetime`).

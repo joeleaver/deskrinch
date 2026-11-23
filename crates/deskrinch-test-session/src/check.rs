@@ -45,7 +45,7 @@ pub struct Isolated {
 /// conditions it fails, named.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NotIsolated {
-    /// [`COMPOSITOR_VARIABLE`] is not set, or not text.
+    /// [`COMPOSITOR_VARIABLE`] is not set, or empty, or not text.
     NoCompositor,
     /// [`SESSION_DIR_VARIABLE`] is not set.
     NoSessionDir,
@@ -65,10 +65,12 @@ impl fmt::Display for NotIsolated {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("not inside an isolated session (run it with `cargo xtask session` or `cargo xtask compositor-tests`): ")?;
         match self {
-            Self::NoCompositor => write!(f, "{COMPOSITOR_VARIABLE} is not set"),
+            Self::NoCompositor => {
+                write!(f, "{COMPOSITOR_VARIABLE} is not set, or empty, or not text")
+            }
             Self::NoSessionDir => write!(f, "{SESSION_DIR_VARIABLE} is not set"),
             Self::NotASessionRoot(not) => write!(f, "{SESSION_DIR_VARIABLE}: {not}"),
-            Self::NoBus => write!(f, "{BUS_VARIABLE} is not set"),
+            Self::NoBus => write!(f, "{BUS_VARIABLE} is not set, or not text"),
             Self::NotAPrivateBus { address } => {
                 write!(
                     f,
@@ -209,7 +211,7 @@ mod tests {
             "{refusal}"
         );
         assert!(
-            refusal.contains("DESKRINCH_TEST_COMPOSITOR is not set"),
+            refusal.contains("DESKRINCH_TEST_COMPOSITOR is not set, or empty, or not text"),
             "{refusal}"
         );
     }

@@ -107,6 +107,8 @@ pub(crate) use self::supervisor::{
     SUBCOMMAND as SUPERVISOR, check as check_root, run as supervise, supervised,
 };
 pub(crate) use self::transform::OutputTransform;
+use deskrinch_test_session::root;
+
 use crate::error::Error;
 
 /// The directory the session under `root` gives `variable` (one of the
@@ -126,12 +128,6 @@ pub(crate) fn session_dir(root: &Path, variable: &str) -> Result<PathBuf, Error>
 /// The variable naming the desktop that runs, which the session leaves
 /// unset unless asked.
 const CURRENT_DESKTOP: &str = "XDG_CURRENT_DESKTOP";
-
-/// The variable naming the session's compositor's process id, for a client
-/// that ends the compositor under its other clients (a test of what a
-/// component does when its display goes away).
-pub(crate) use deskrinch_test_session::COMPOSITOR_PID_VARIABLE as COMPOSITOR_PID;
-use deskrinch_test_session::root::{PARENT as ROOT_PARENT, PREFIX as ROOT_PREFIX};
 
 /// The slice of a wait between two looks at whether a process still runs
 /// (and at an interrupt): a wait that also watches a process looks at it
@@ -205,8 +201,8 @@ impl Session {
         interrupt::install()?;
         interrupt::check()?;
         let dir = tempfile::Builder::new()
-            .prefix(ROOT_PREFIX)
-            .tempdir_in(ROOT_PARENT)
+            .prefix(root::PREFIX)
+            .tempdir_in(root::PARENT)
             .map_err(|source| Error::Io {
                 what: "create the session directory".into(),
                 source,

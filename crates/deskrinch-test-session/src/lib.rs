@@ -22,6 +22,18 @@
 //!
 //! It has no dependencies, so that any test crate can take it: a Wayland
 //! test client as much as a bus client.
+//!
+//! # Testing a refusal
+//!
+//! A test that a program refuses outside a session is also run with the
+//! refusal broken (its mutant), to show that the test catches that; then
+//! the program does what the refusal kept it from. So the test runs the
+//! program where doing it reaches nothing: a child with no display, an
+//! empty runtime directory and a bus address that leads nowhere (xtask's
+//! tests share one helper for that, `xtask/tests/outside`). Mutants of a
+//! guard are run only where the guard's failure is harmless. A guard whose
+//! test cannot be made harmless has its mutant run only inside an isolated
+//! session (`cargo xtask session`) or in CI.
 
 pub mod bus;
 mod check;
