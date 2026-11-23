@@ -6,14 +6,21 @@ use std::process::Stdio;
 use super::*;
 
 /// A `RUSTC_WRAPPER` that lets cargo's own questions to rustc through
-/// (`-vV`, and the target probe named `___`), and at the first real compile
-/// writes where rustc runs and which compiler answers there to the file
-/// `DESKRINCH_WRAPPER_REPORT` names, then fails: nothing is compiled.
+/// (`-vV`, and the target probe named `___`) and fails every compile, so
+/// nothing is compiled. For the first compile that runs in a registry
+/// crate's directory, whichever unit cargo takes first, it writes where
+/// rustc runs and which compiler answers there to the file
+/// `DESKRINCH_WRAPPER_REPORT` names. Cargo runs with `--keep-going` and one
+/// job, so it reaches such a compile, one at a time.
 const WRAPPER: &str = r#"#!/bin/sh
 case " $* " in
   *" -vV "*|*" --crate-name ___ "*) exec "$@" ;;
 esac
-{ echo "dir=$(pwd)"; echo "version=$("$1" --version)"; } > "$DESKRINCH_WRAPPER_REPORT"
+case "$(pwd)" in
+  */registry/src/*)
+    [ -e "$DESKRINCH_WRAPPER_REPORT" ] ||
+      { echo "dir=$(pwd)"; echo "version=$("$1" --version)"; } > "$DESKRINCH_WRAPPER_REPORT" ;;
+esac
 exit 1
 "#;
 
@@ -51,6 +58,7 @@ fn a_registry_crate_is_compiled_by_the_pinned_compiler() {
             "check",
             "--offline",
             "--locked",
+            "--keep-going",
             "--jobs",
             "1",
             "--package",
@@ -68,7 +76,7 @@ fn a_registry_crate_is_compiled_by_the_pinned_compiler() {
         .status()
         .unwrap();
     assert!(!status.success(), "the wrapper let a compile through");
-    let report = fs::read_to_string(&report).unwrap();
+    let report = fs::read_to_string(&report).expect("no compile ran in a registry crate");
     let field = |name: &str| {
         report
             .lines()
