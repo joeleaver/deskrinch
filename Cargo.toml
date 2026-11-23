@@ -53,6 +53,7 @@ deskrinch-test-notify = { path = "crates/deskrinch-test-notify" }
 deskrinch-test-pictures = { path = "crates/deskrinch-test-pictures" }
 deskrinch-test-portal = { path = "crates/deskrinch-test-portal" }
 deskrinch-test-screen = { path = "crates/deskrinch-test-screen" }
+deskrinch-test-session = { path = "crates/deskrinch-test-session" }
 deskrinch-test-wayland = { path = "crates/deskrinch-test-wayland" }
 deskrinch-test-wait = { path = "crates/deskrinch-test-wait" }
 deskrinch-theme = { path = "crates/deskrinch-theme" }

@@ -22,7 +22,11 @@ use crate::support::{
 /// The processes of the nested session at `root` running `package`'s
 /// binary.
 fn processes(root: &Path, package: &str) -> Vec<Pid> {
-    let session = format!("DESKRINCH_SESSION_DIR={}", root.display());
+    let session = format!(
+        "{}={}",
+        deskrinch_test_session::SESSION_DIR_VARIABLE,
+        root.display()
+    );
     let Ok(entries) = fs::read_dir("/proc") else {
         return Vec::new();
     };
