@@ -65,7 +65,7 @@ impl<T: Settings> LiveSettings<T> {
     /// signal holding the newest settings, which every later change is
     /// written to. The table is followed until the component is disposed.
     /// The component's scope is on a host thread, as a hand-over's must be
-    /// ([`Inbox`](crate::Inbox)).
+    /// ([`Inbox`]).
     ///
     /// # Panics
     ///
