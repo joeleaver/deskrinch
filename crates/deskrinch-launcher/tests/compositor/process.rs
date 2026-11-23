@@ -7,7 +7,7 @@
 use std::process::ExitStatus;
 
 use deskrinch_bus::Bus;
-use deskrinch_launcher::{Answer, Request, send};
+use deskrinch_launcher_client::{Answer, Request, send};
 use rustix::process::{Pid, Signal, kill_process};
 
 use crate::support::{Launcher, client, in_nested_session, launcher, owner_pid, run, stays};
