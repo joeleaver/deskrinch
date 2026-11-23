@@ -87,7 +87,7 @@ mod tests {
         let mut command = Command::new("true");
         command
             .env("WAYLAND_DISPLAY", "wayland-0")
-            .env(COMPOSITOR_VARIABLE, "kwin")
+            .env(COMPOSITOR_VARIABLE, deskrinch_test_session::KWIN)
             .env(BUS_VARIABLE, "unix:path=/run/user/1000/bus");
         let root = outside(&mut command).unwrap();
         let envs = envs(&command);

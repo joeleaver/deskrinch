@@ -41,9 +41,18 @@ pub mod root;
 
 pub use check::{Environment, Isolated, NotIsolated, check};
 
-/// The variable naming the session's compositor (`kwin`, `sway` or
-/// `labwc`).
+/// The variable naming the session's compositor: [`KWIN`], [`SWAY`] or
+/// [`LABWC`].
 pub const COMPOSITOR_VARIABLE: &str = "DESKRINCH_TEST_COMPOSITOR";
+
+/// KWin's name in [`COMPOSITOR_VARIABLE`].
+pub const KWIN: &str = "kwin";
+
+/// sway's name in [`COMPOSITOR_VARIABLE`].
+pub const SWAY: &str = "sway";
+
+/// labwc's name in [`COMPOSITOR_VARIABLE`].
+pub const LABWC: &str = "labwc";
 
 /// The variable naming the session's root directory.
 pub const SESSION_DIR_VARIABLE: &str = "DESKRINCH_SESSION_DIR";

@@ -20,7 +20,7 @@
 //! process that left it ([`super::leftovers`]), and the directory.
 //!
 //! It removes a directory only if it is a session's: directly in `/tmp`,
-//! named as a session's, and holding the marker [`MARKER`] the session
+//! named as a session's, and holding the marker [`root::MARKER`] the session
 //! writes before starting it ([`deskrinch_test_session::root::check`]). It
 //! checks that when it starts, refusing to run (and the session then
 //! refusing to start) for any other directory, and again before it removes
@@ -49,7 +49,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 
 use rustix::process::Pid;
 
-use deskrinch_test_session::root::MARKER;
+use deskrinch_test_session::root;
 
 use crate::error::Error;
 
@@ -74,7 +74,7 @@ impl Supervisor {
     /// Marks `root` as a session's, and starts its supervisor; once it has
     /// said it is ready, having checked `root`.
     pub(super) fn start(root: &Path) -> Result<Self, Error> {
-        fs::write(root.join(MARKER), "").map_err(|source| Error::Io {
+        root::mark(root).map_err(|source| Error::Io {
             what: format!("mark {} as a session's", root.display()),
             source,
         })?;
@@ -191,7 +191,7 @@ fn supervise(root: &Path, input: impl BufRead) -> Result<(), Error> {
 
 /// Whether `root` is a session's root ([`deskrinch_test_session::root::check`]).
 pub(crate) fn check(root: &Path) -> Result<(), Error> {
-    deskrinch_test_session::root::check(root).map_err(|not| Error::NotASession {
+    root::check(root).map_err(|not| Error::NotASession {
         root: not.root,
         why: not.why,
     })
@@ -222,7 +222,7 @@ pub(crate) fn fake_root() -> tempfile::TempDir {
         .prefix(ROOT_PREFIX)
         .tempdir_in(ROOT_PARENT)
         .unwrap();
-    fs::write(root.path().join(MARKER), "").unwrap();
+    root::mark(root.path()).unwrap();
     root
 }
 
@@ -251,7 +251,7 @@ mod tests {
                 ..
             })
         ));
-        fs::write(root.path().join(MARKER), "").unwrap();
+        root::mark(root.path()).unwrap();
         check(root.path()).unwrap();
 
         // Marked, but elsewhere: a session's name and marker inside another
@@ -259,7 +259,7 @@ mod tests {
         let outer = tempfile::tempdir_in(ROOT_PARENT).unwrap();
         let inner = outer.path().join(format!("{ROOT_PREFIX}x"));
         fs::create_dir(&inner).unwrap();
-        fs::write(inner.join(MARKER), "").unwrap();
+        root::mark(&inner).unwrap();
         assert!(matches!(
             check(&inner),
             Err(Error::NotASession {
@@ -270,7 +270,7 @@ mod tests {
 
         // Marked, in place, but not named as a session's.
         let other = tempfile::tempdir_in(ROOT_PARENT).unwrap();
-        fs::write(other.path().join(MARKER), "").unwrap();
+        root::mark(other.path()).unwrap();
         assert!(matches!(
             check(other.path()),
             Err(Error::NotASession {
@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn a_marked_root_is_removed_when_the_pipe_closes_and_kept_when_ended() {
         let root = session_like();
-        fs::write(root.path().join(MARKER), "").unwrap();
+        root::mark(root.path()).unwrap();
         supervise(root.path(), "ended\n".as_bytes()).unwrap();
         assert!(root.path().is_dir());
         supervise(root.path(), io::empty()).unwrap();
