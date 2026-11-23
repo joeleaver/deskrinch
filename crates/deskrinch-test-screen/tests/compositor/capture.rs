@@ -1,7 +1,7 @@
 //! Capturing outputs as they are.
 
 use deskrinch_test_client::{Compositor, TestClient};
-use deskrinch_test_screen::{CaptureError, Method, Screen};
+use deskrinch_test_screen::{CaptureError, Method, Pictures, Screen};
 
 use crate::support::{QUADRANTS, capture_showing, fullscreen};
 
@@ -52,9 +52,9 @@ fn a_window_is_captured_pixel_for_pixel_on_its_own_output() {
     let image = capture_showing(&mut screen, shown, &window);
     assert_eq!((image.width(), image.height()), upright);
 
-    // The other output, captured by its own name, shows none of it.
-    let elsewhere = screen.capture(other).unwrap();
-    assert_eq!((elsewhere.width(), elsewhere.height()), upright);
+    // The other output, captured by its own name, shows none of it: judged
+    // on a still picture of it, which a window drawn there a frame later
+    // would be in.
     let painted = [
         (0, 0),
         (upright.0 - 1, 0),
@@ -62,13 +62,19 @@ fn a_window_is_captured_pixel_for_pixel_on_its_own_output() {
         (upright.0 - 1, upright.1 - 1),
     ]
     .map(|corner| QUADRANTS.color_at(corner, upright));
-    assert!(
-        elsewhere
+    Pictures::judged(&mut screen, other, "the other output, still", |elsewhere| {
+        if (elsewhere.width(), elsewhere.height()) != upright {
+            return Err(format!("{}x{}", elsewhere.width(), elsewhere.height()));
+        }
+        if elsewhere
             .pixels()
             .iter()
-            .all(|pixel| !painted.contains(pixel)),
-        "the window shows on {other} too"
-    );
+            .any(|pixel| painted.contains(pixel))
+        {
+            return Err(format!("the window shows on {other} too"));
+        }
+        Ok(())
+    });
 }
 
 #[test]

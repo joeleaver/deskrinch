@@ -47,13 +47,28 @@ pub(super) const RESERVE: Duration = KILL_AFTER.saturating_add(SAVE_ALLOWANCE);
 /// it.
 pub(super) const INSTALL_FLOOR: Duration = Duration::from_mins(2);
 
-/// A run's own cap: `update` fetches about 3.5 MB of indexes, in 2 to 15 s
-/// on every night seen, and is where a server that cannot be reached
-/// shows; the listing reads what `update` fetched and fetches nothing, in
-/// well under a second. `install` has no cap: it takes what is left.
+/// A run's own cap. `install` has none: it takes what is left.
+///
+/// - `update` fetches 4.2 to 5.0 MB of indexes from two hosts (the
+///   region's mirror and `security.ubuntu.com`), and is where a server that
+///   cannot be reached shows. Over the 49 runs of it on the night of
+///   2026-11-19, the slowest that finished took 33 s; one was cut off at
+///   two minutes: the mirror's indexes came in 2 s, then
+///   `security.ubuntu.com` stalled, its `main` index failing twice (apt's
+///   20 s request timeout, at 37 s and 116 s) with its third and last
+///   attempt pending, which would have ended by about 195 s. Four minutes
+///   lets apt's own retries run out on a stalled host, so that apt ends
+///   `update` itself (a warning, the index left as it was) rather than
+///   the cap; it is also what a name that never resolves costs, since apt
+///   has no timeout for that. With `update` taking all of it, the install
+///   is still left about eight minutes: past its floor, and room for what
+///   a cached job fetched that night (13.6 MB, the seven files one runner
+///   image needed more than the other, in 140 to 170 s).
+/// - The listing reads what `update` fetched and fetches nothing, in well
+///   under a second.
 fn cap(step: Step) -> Option<Duration> {
     match step {
-        Step::Update => Some(Duration::from_mins(2)),
+        Step::Update => Some(Duration::from_mins(4)),
         Step::List => Some(Duration::from_secs(20)),
         Step::Install => None,
     }
@@ -119,7 +134,7 @@ mod tests {
     fn update_and_the_listing_have_their_caps() {
         assert_eq!(
             limit(Step::Update, START, at(0)),
-            Limit::Run(Duration::from_mins(2))
+            Limit::Run(Duration::from_mins(4))
         );
         assert_eq!(
             limit(Step::List, START, at(20)),
@@ -129,14 +144,14 @@ mod tests {
 
     /// The install takes what is left: a miss known in seconds, after a
     /// quick update, leaves it twelve and a half minutes; after every
-    /// earlier run at its cap with its grace, ten.
+    /// earlier run at its cap with its grace, eight.
     #[test]
     fn the_install_is_given_what_is_left_less_the_reserve() {
         assert_eq!(
             limit(Step::Install, START, at(25)),
             Limit::Run(Duration::from_secs(13 * 60 + 42 - 25 - 40))
         );
-        let earlier = 10 + 10 + 120 + 10 + 20 + 10;
+        let earlier = 10 + 10 + 240 + 10 + 20 + 10;
         assert_eq!(
             limit(Step::Install, START, at(earlier)),
             Limit::Run(Duration::from_secs(13 * 60 + 42 - earlier - 40))
@@ -187,7 +202,7 @@ mod tests {
     fn a_clock_before_the_start_uses_no_time() {
         assert_eq!(
             limit(Step::Update, at(100), at(0)),
-            Limit::Run(Duration::from_mins(2))
+            Limit::Run(Duration::from_mins(4))
         );
     }
 }

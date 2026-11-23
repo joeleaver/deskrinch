@@ -103,6 +103,8 @@ mod desktop {
                 Err(desktop.state(&windows))
             }
         });
+        // Hidden before the chord, so that the chord is what shows it.
+        assert!(!desktop.launcher_shown(), "the launcher is shown already");
         let modifiers: Vec<Key> = LAUNCHER_CHORD
             .modifiers
             .iter()

@@ -23,6 +23,14 @@ fn fresh() -> Vec<OutputState> {
     layout
 }
 
+/// Fails unless the output `name` is off: so that putting the layout back
+/// is a change, not what was so already.
+fn assert_off(name: &str) {
+    let now = outputs().unwrap();
+    let this = now.iter().find(|output| output.name == name).unwrap();
+    assert!(!this.enabled, "{name} is not off: {now:?}");
+}
+
 /// Fails unless the session's layout is `before`.
 fn assert_as(before: &[OutputState], after_what: &str) {
     if let Some(differences) = layout_differences(before, &outputs().unwrap()) {
@@ -112,7 +120,9 @@ fn an_output_moved_onto_the_other_and_put_back_leaves_the_layout_as_it_was() {
 fn a_guard_dropped_puts_the_layout_back() {
     let before = fresh();
     let first = &before[0].name;
-    drop(turn_output_off(first).unwrap());
+    let restore = turn_output_off(first).unwrap();
+    assert_off(first);
+    drop(restore);
     assert_as(&before, "a guard dropped");
 }
 
@@ -123,8 +133,15 @@ fn a_guard_dropped_by_a_panic_puts_the_layout_back() {
     let first = before[0].name.clone();
     let failed = panic::catch_unwind(AssertUnwindSafe(|| {
         let _restore = turn_output_off(&first).unwrap();
+        assert_off(&first);
         panic!("a test failing with an output off");
     }));
+    // The panic is the one with the output off, not the check before it.
+    let message = failed
+        .as_ref()
+        .err()
+        .and_then(|payload| payload.downcast_ref::<&str>().copied());
+    assert_eq!(message, Some("a test failing with an output off"));
     assert!(failed.is_err());
     assert_as(&before, "a guard dropped by a panic");
 }
