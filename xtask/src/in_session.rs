@@ -39,17 +39,15 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Stdio};
 
 use clap::ValueEnum;
-use deskrinch_test_client::Compositor;
+use deskrinch_test_client::{Compositor, NotNested};
 use deskrinch_test_component::perf::{PerfLine, parse};
+use deskrinch_test_session::COMPOSITOR_PID_VARIABLE;
 use deskrinch_test_wait::{Deadline, PATIENCE, POLL};
 use rustix::process::{Pid, Signal, kill_process};
 
 use crate::Outcome;
 
 mod bus;
-
-/// The variable `cargo xtask session` names its compositor's process id in.
-const COMPOSITOR_PID: &str = "DESKRINCH_SESSION_COMPOSITOR_PID";
 
 /// `cargo xtask in-session`'s arguments.
 #[derive(Debug, clap::Args)]
@@ -140,8 +138,8 @@ pub(crate) enum Then {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum InSessionError {
     /// It was run outside a nested session.
-    #[error("cargo xtask in-session runs only inside cargo xtask session")]
-    NotNested,
+    #[error("cargo xtask in-session runs only inside cargo xtask session: {0}")]
+    NotNested(NotNested),
     /// The component could not be started.
     #[error("could not start {}", component.display())]
     Start {
@@ -188,7 +186,7 @@ pub(crate) enum InSessionError {
     #[error("the session's bus")]
     Bus(#[source] zbus::Error),
     /// The session gave no compositor process id.
-    #[error("{COMPOSITOR_PID} is not a process id")]
+    #[error("{COMPOSITOR_PID_VARIABLE} is not a process id")]
     NoCompositor,
     /// The component's process id does not fit a `pid_t`.
     #[error("the component's process id is not a process id")]
@@ -220,9 +218,7 @@ pub(crate) enum InSessionError {
 
 /// Runs the component as `args` say (see the module's doc).
 pub(crate) fn run(args: &Args) -> Result<Outcome, crate::error::Error> {
-    if Compositor::nested().is_none() {
-        return Err(InSessionError::NotNested.into());
-    }
+    Compositor::in_session().map_err(InSessionError::NotNested)?;
     Ok(step(args).map(|()| Outcome::Passed)?)
 }
 
@@ -377,7 +373,7 @@ fn wait_frame(component: &mut Child, until: Until, log: &Path) -> Result<(), InS
 fn act(then: Then, component: &Child) -> Result<(), InSessionError> {
     let (pid, signal) = match then {
         Then::KillCompositor => {
-            let pid = std::env::var(COMPOSITOR_PID)
+            let pid = std::env::var(COMPOSITOR_PID_VARIABLE)
                 .ok()
                 .and_then(|pid| pid.parse().ok())
                 .and_then(Pid::from_raw)

@@ -23,6 +23,8 @@ deskrinch-test-input.workspace = true
 # The notification `cargo xtask in-session` sends to the daemon it runs.
 deskrinch-test-notify.workspace = true
 deskrinch-test-screen.workspace = true
+# The isolated session's names, root and bus, set and checked from one home.
+deskrinch-test-session.workspace = true
 deskrinch-test-wayland.workspace = true
 deskrinch-test-wait.workspace = true
 deskrinch-window-management.workspace = true

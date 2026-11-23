@@ -2,21 +2,22 @@
 //! session, before they start or connect to anything: run there, they
 //! would end the real desktop's compositor (`in-session`), or type into
 //! and point at the real desktop (`input`). Plain `cargo test` runs these,
-//! anywhere: what they run only refuses.
+//! anywhere: what they run only refuses, and would reach nothing if it
+//! did not (`deskrinch_test_dbus::session::outside`).
 
 #[cfg(test)]
 mod refusals {
     use std::process::{Command, Output, Stdio};
 
-    /// `cargo xtask` with `args`, outside any nested session (the
-    /// variable that names one removed), its standard input closed.
+    use deskrinch_test_dbus::session::outside;
+
+    /// `cargo xtask` with `args`, [`outside`] any session, its standard
+    /// input closed.
     fn outside_a_session(args: &[&str]) -> Output {
-        Command::new(env!("CARGO_BIN_EXE_xtask"))
-            .args(args)
-            .env_remove("DESKRINCH_TEST_COMPOSITOR")
-            .stdin(Stdio::null())
-            .output()
-            .unwrap()
+        let mut xtask = Command::new(env!("CARGO_BIN_EXE_xtask"));
+        xtask.args(args).stdin(Stdio::null());
+        let _root = outside(&mut xtask).unwrap();
+        xtask.output().unwrap()
     }
 
     #[test]

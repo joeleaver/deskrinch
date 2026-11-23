@@ -8,6 +8,8 @@
 mod input {
     use std::process::{Command, Output, Stdio};
 
+    use deskrinch_test_dbus::session::outside;
+
     /// `xtask measure` with `args`, of a program it never gets to start.
     fn measure(args: &[&str]) -> Output {
         Command::new(env!("CARGO_BIN_EXE_xtask"))
@@ -19,18 +21,42 @@ mod input {
             .unwrap()
     }
 
+    /// Run [`outside`] any session, so that it would find nothing to type
+    /// into if it did not refuse.
     #[test]
     fn the_input_client_refuses_outside_a_nested_session() {
-        let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
-            .arg("input")
-            .env_remove("DESKRINCH_TEST_COMPOSITOR")
-            .stdin(Stdio::null())
-            .output()
-            .unwrap();
+        let mut input = Command::new(env!("CARGO_BIN_EXE_xtask"));
+        input.arg("input").stdin(Stdio::null());
+        let _root = outside(&mut input).unwrap();
+        let output = input.output().unwrap();
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert_eq!(output.status.code(), Some(1), "{stderr}");
         assert!(
             stderr.contains("types and points only in a nested session"),
+            "{stderr}"
+        );
+        assert!(output.stdout.is_empty(), "it said it was ready");
+    }
+
+    /// The compositor's name alone does not make a session: the client asks
+    /// the session's own check (`deskrinch_test_session::check`), and says
+    /// its reason, here that there is no session root. Run [`outside`] any
+    /// session but for the name.
+    #[test]
+    fn the_input_client_refuses_the_compositor_s_name_alone() {
+        let mut input = Command::new(env!("CARGO_BIN_EXE_xtask"));
+        input.arg("input").stdin(Stdio::null());
+        let _root = outside(&mut input).unwrap();
+        input.env(deskrinch_test_session::COMPOSITOR_VARIABLE, "kwin");
+        let output = input.output().unwrap();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert_eq!(output.status.code(), Some(1), "{stderr}");
+        assert!(
+            stderr.contains("types and points only in a nested session"),
+            "{stderr}"
+        );
+        assert!(
+            stderr.contains("DESKRINCH_SESSION_DIR is not set"),
             "{stderr}"
         );
         assert!(output.stdout.is_empty(), "it said it was ready");
