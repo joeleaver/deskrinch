@@ -6,7 +6,6 @@
 //! own recorder script, in a transient scope that it stops again.
 
 use std::path::Path;
-use std::process::Command;
 
 use crate::Outcome;
 use crate::error::Error;
@@ -17,7 +16,7 @@ const TEST: &str = "systemd::a_launch_and_its_children_land_in_a_real_transient_
 /// Runs the test with `cargo test` in `root`, inheriting this process's
 /// session.
 pub(crate) fn run(root: &Path) -> Result<Outcome, Error> {
-    let status = Command::new(env!("CARGO"))
+    let status = crate::cargo::command()
         .current_dir(root)
         .args([
             "test",
