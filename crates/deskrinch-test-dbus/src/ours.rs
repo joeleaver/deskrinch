@@ -45,23 +45,17 @@ impl OurBus {
         Self::in_session(&Environment::read()).map(|(bus, _)| bus)
     }
 
-    /// The bus of the isolated session `environment` describes, and what the
-    /// session's check found (its compositor), for a caller that asks more
-    /// of the session.
+    /// The bus of the isolated session `environment` describes, as the
+    /// session's check found it, and what else it found (the compositor),
+    /// for a caller that asks more of the session. The environment is read
+    /// once, by the check.
     ///
     /// # Errors
     ///
     /// [`NotOurs::NotIsolated`] when it is not an isolated session of ours.
     pub fn in_session(environment: &Environment) -> Result<(Self, Isolated), NotOurs> {
         let isolated = check(environment).map_err(NotOurs::NotIsolated)?;
-        // The check has read the address and found it a private bus of
-        // ours, so it is there and is text.
-        let address = environment
-            .bus
-            .as_ref()
-            .and_then(|address| address.to_str())
-            .ok_or(NotOurs::NotIsolated(NotIsolated::NoBus))?;
-        Ok((Self::proved(address.to_owned()), isolated))
+        Ok((Self::proved(isolated.bus.clone()), isolated))
     }
 
     /// The bus at `address`, which must be a private bus of ours.
