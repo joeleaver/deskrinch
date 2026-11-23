@@ -110,7 +110,7 @@ fn inner_cases_in_time() {
     }
     // A thread whose closure has returned (the scope's end waits for that)
     // stays listed until the system has reaped it. Read at once, the count
-    // was higher in 7 runs of 500, in 498 of 500 pinned to one CPU and in 39
+    // was higher in 8 runs of 300, in 498 of 500 pinned to one CPU and in 39
     // of 300 with every CPU busy (2026-11-23); it came back within 3.3 ms
     // every time. So the list is waited for, not read once.
     eventually("the task list back to its count before the cases", || {
