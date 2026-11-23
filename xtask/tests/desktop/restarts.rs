@@ -10,14 +10,13 @@
 use std::fs;
 use std::path::Path;
 
+use deskrinch_launcher_client::{Showing, shown};
 use deskrinch_shell::exit_status::stops_in_order_line;
 use deskrinch_test_wait::wait_for;
 use deskrinch_window_management::{Action, WindowManagement};
 use rustix::process::{Pid, Signal, kill_process};
 
-use crate::support::{
-    Desktop, LAUNCHER, LAUNCHER_INTERFACE, LAUNCHER_PATH, outer_windows, start, start_logging,
-};
+use crate::support::{Desktop, outer_windows, start, start_logging};
 
 /// The processes of the nested session at `root` running `package`'s
 /// binary.
@@ -58,21 +57,12 @@ fn the_process(desktop: &Desktop, package: &str) -> Pid {
 /// Whether the launcher answers on the desktop's bus: owns its name and
 /// says whether it is shown.
 fn launcher_answers(desktop: &Desktop) -> Result<bool, String> {
-    zbus::block_on(async {
-        let connection = desktop.connect().await;
-        let reply = connection
-            .call_method(
-                Some(LAUNCHER),
-                LAUNCHER_PATH,
-                Some("org.freedesktop.DBus.Properties"),
-                "Get",
-                &(LAUNCHER_INTERFACE, "Shown"),
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-        let value: zbus::OwnedVariant = reply.body().deserialize().map_err(|e| e.to_string())?;
-        bool::try_from(value).map_err(|error| error.to_string())
-    })
+    match shown(&desktop.launcher_bus()) {
+        Ok(Showing::Shown) => Ok(true),
+        Ok(Showing::Hidden) => Ok(false),
+        Ok(Showing::NotRunning) => Err("no launcher owns its name".to_owned()),
+        Err(error) => Err(error.to_string()),
+    }
 }
 
 /// Waits until the desktop has said `line`.

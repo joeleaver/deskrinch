@@ -46,8 +46,8 @@ wayland-client.workspace = true
 zbus = { workspace = true, features = ["default-rt", "proxy"] }
 
 [dev-dependencies]
-# The launcher's interface from the caller's side: the desktop's edge
-# test toggles the launcher with it.
+# The launcher's interface from the caller's side: the desktop tests
+# toggle the launcher and read whether it is shown.
 deskrinch-launcher-client.workspace = true
 # The session tests' xtask bound to the test, and whether a process runs.
 deskrinch-test-lifetime.workspace = true

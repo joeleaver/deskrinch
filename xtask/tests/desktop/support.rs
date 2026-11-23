@@ -11,8 +11,11 @@ use std::sync::mpsc::{self, Receiver};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use deskrinch_bus::Bus;
+use deskrinch_launcher_client::{Answer, Request, Showing, send, shown};
 use deskrinch_shell::{Key as ShellKey, Modifier};
 use deskrinch_test_client::Compositor;
+use deskrinch_test_dbus::OurBus;
 use deskrinch_test_input::Key;
 use deskrinch_test_kwin::Kwin;
 use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually};
@@ -21,10 +24,6 @@ use rustix::process::{Pid, Signal, kill_process};
 
 /// How long a desktop has to be ready: the first builds its components.
 pub(crate) const READY: Duration = Duration::from_mins(15);
-/// The launcher's name, object and interface on the desktop's bus.
-pub(crate) const LAUNCHER: &str = "org.deskrinch.Launcher";
-pub(crate) const LAUNCHER_PATH: &str = "/org/deskrinch/Launcher";
-pub(crate) const LAUNCHER_INTERFACE: &str = "org.deskrinch.Launcher1";
 
 /// A running `cargo xtask desktop`, as its lines on standard output
 /// describe it once ready.
@@ -204,50 +203,27 @@ impl Desktop {
         }
     }
 
-    /// A connection to the desktop's bus.
-    pub(crate) async fn connect(&self) -> zbus::Connection {
-        zbus::connection::Builder::address(self.bus.as_str())
-            .build()
-            .await
-            .unwrap()
+    /// The desktop's bus, proved ours, for the launcher's client.
+    pub(crate) fn launcher_bus(&self) -> Bus {
+        OurBus::at(&self.bus).unwrap().bus()
     }
 
     /// Toggles the launcher through the desktop's bus; whether it is now
     /// shown.
     pub(crate) fn toggle_launcher(&self) -> bool {
-        zbus::block_on(async {
-            let connection = self.connect().await;
-            let reply = connection
-                .call_method(
-                    Some(LAUNCHER),
-                    LAUNCHER_PATH,
-                    Some(LAUNCHER_INTERFACE),
-                    "Toggle",
-                    &(),
-                )
-                .await
-                .unwrap();
-            reply.body().deserialize::<bool>().unwrap()
-        })
+        match send(&self.launcher_bus(), Request::Toggle).unwrap() {
+            Answer::Done { shown: Some(shown) } => shown,
+            other => panic!("the launcher's toggle answered {other:?}"),
+        }
     }
 
-    /// The launcher's `Shown` property.
+    /// Whether the launcher is shown.
     pub(crate) fn launcher_shown(&self) -> bool {
-        zbus::block_on(async {
-            let connection = self.connect().await;
-            let reply = connection
-                .call_method(
-                    Some(LAUNCHER),
-                    LAUNCHER_PATH,
-                    Some("org.freedesktop.DBus.Properties"),
-                    "Get",
-                    &(LAUNCHER_INTERFACE, "Shown"),
-                )
-                .await
-                .unwrap();
-            let value: zbus::OwnedVariant = reply.body().deserialize().unwrap();
-            bool::try_from(value).unwrap()
-        })
+        match shown(&self.launcher_bus()).unwrap() {
+            Showing::Shown => true,
+            Showing::Hidden => false,
+            Showing::NotRunning => panic!("no launcher on the desktop's bus"),
+        }
     }
 }
 
