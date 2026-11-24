@@ -136,6 +136,21 @@ fn typing_and_backspace_reach_on_query() {
 }
 
 #[test]
+fn the_query_field_is_not_spellchecked() {
+    let (app, _calls, _model) = mounted_view();
+    // A text field, which rinch checks unless `spellcheck` is "false" on it
+    // or an ancestor (#2862); the launcher's content sets it on the field.
+    assert_eq!(
+        app.attribute(".launcher-query", "type").as_deref(),
+        Some("text")
+    );
+    assert_eq!(
+        app.attribute(".launcher-query", "spellcheck").as_deref(),
+        Some("false")
+    );
+}
+
+#[test]
 fn the_four_keys_reach_on_key_and_a_letter_reaches_the_field() {
     let (mut app, calls, _model) = mounted_view();
     app.focus(".launcher-query");
