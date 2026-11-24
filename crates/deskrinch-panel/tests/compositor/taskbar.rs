@@ -57,7 +57,25 @@ pub(crate) const MAGENTA: App = App {
     id: "org.deskrinch.taskbar.Magenta",
     colour: Rgba::opaque(200, 40, 200),
 };
-const APPS: [App; 3] = [RED, GREEN, MAGENTA];
+/// sway's window opened on a workspace not shown ([`crate::sway_unplaced`]):
+/// an application of its own, since sway keeps its `for_window` rule for
+/// the session.
+pub(crate) const HIDDEN: App = App {
+    id: "org.deskrinch.taskbar.Hidden",
+    colour: Rgba::opaque(30, 150, 220),
+};
+/// sway's second window opened on a workspace not shown, just after the
+/// first ([`crate::sway_unplaced`]).
+pub(crate) const HIDDEN_TOO: App = App {
+    id: "org.deskrinch.taskbar.HiddenToo",
+    colour: Rgba::opaque(140, 90, 30),
+};
+/// sway's window opened fullscreen ([`crate::sway_unplaced`]).
+pub(crate) const FULLSCREEN: App = App {
+    id: "org.deskrinch.taskbar.Fullscreen",
+    colour: Rgba::opaque(230, 190, 20),
+};
+const APPS: [App; 6] = [RED, GREEN, MAGENTA, HIDDEN, HIDDEN_TOO, FULLSCREEN];
 
 /// A panel with the test's applications, the screen it is on, the pointer
 /// to click it with, and a client to open windows with.
@@ -87,7 +105,10 @@ impl Bar {
         Self::start_with(&format!("[general]\ncolor-scheme = \"{scheme}\"\n"))
     }
 
-    /// [`start`](Self::start), with `more` settings beside the panel's.
+    /// [`start`](Self::start), with `more` settings beside the panel's. The
+    /// pointer is left on the bar's output, where the compositors open the
+    /// test's windows ([`crate::open_on`]): each bar shows the windows on
+    /// its own output.
     fn start_with(more: &str) -> Self {
         in_nested_session();
         let input = Input::connect().unwrap();
@@ -103,7 +124,7 @@ impl Bar {
         let scale = scale_of(&screen.outputs()[0]);
         let band = Band::of(Edge::Bottom, HEIGHT, scale);
         let (output, _) = wait_band(&mut screen, &before, band);
-        Self {
+        let mut bar = Self {
             _dirs: dirs,
             input,
             screen,
@@ -112,7 +133,9 @@ impl Bar {
             output,
             scale,
             band,
-        }
+        };
+        bar.point_off();
+        bar
     }
 
     /// Captures the panel's output until `accept` takes the picture;

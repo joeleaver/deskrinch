@@ -30,6 +30,8 @@ mod last_output;
 #[cfg(test)]
 mod live;
 #[cfg(test)]
+mod open_on;
+#[cfg(test)]
 mod outputs;
 #[cfg(test)]
 mod placement;
@@ -38,6 +40,8 @@ mod spans;
 #[cfg(test)]
 mod support;
 #[cfg(test)]
+mod sway_unplaced;
+#[cfg(test)]
 mod switcher;
 #[cfg(test)]
 mod taskbar;
@@ -45,6 +49,8 @@ mod taskbar;
 mod taskbar_clicks;
 #[cfg(test)]
 mod taskbar_hover;
+#[cfg(test)]
+mod taskbar_outputs;
 #[cfg(test)]
 mod uhd_beside_full_hd;
 #[cfg(test)]
