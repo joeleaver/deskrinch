@@ -95,6 +95,9 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     let empty = Pictures::still(&mut screen);
     let client = TestClient::connect().unwrap();
     let outputs = screen.outputs();
+    let t0 = std::time::Instant::now();
+    let diag = std::sync::Mutex::new(String::new());
+    let note = |what: String| { use std::fmt::Write as _; let _ = writeln!(diag.lock().unwrap(), "{:8.3} wall {} {what}", t0.elapsed().as_secs_f64(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() % 1_000_000); };
     let named = |i: usize| (format!("Window {i}"), format!("org.deskrinch.wide.App{i}"));
     let mut windows = Vec::new();
     for output in &outputs {
@@ -111,6 +114,7 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
         for i in 1..windows_for(width) {
             let (title, app_id) = named(i);
             windows.push(client.open(&title, &app_id).unwrap());
+            note(format!("opened {i} on {output}"));
         }
     }
     let band = Band::of(Edge::Bottom, 40, 1);
@@ -129,11 +133,31 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
             Err(faults.join("; "))
         }
     };
+    note("waiting".into());
+    let waited = std::time::Instant::now();
+    let dumped = std::cell::Cell::new(false);
     wait_for("every bar's taskbar to be drawn full", || {
-        read(&Pictures::take(&mut screen, None).unwrap()).map(drop)
+        let r = read(&Pictures::take(&mut screen, None).unwrap()).map(drop);
+        if r.is_err() && waited.elapsed().as_secs() > 100 && !dumped.replace(true) {
+            let lines = panel.watch().lines();
+            let mut out = diag.lock().unwrap().clone();
+            for key in ["DIAG fit", "DIAG apply", "DIAG arm", "DIAG fired", "[PERF] window 1 frame", "[PERF] window 2 frame"] {
+                let hits: Vec<_> = lines.iter().filter(|l| l.contains(key)).collect();
+                out.push_str(&format!("== {key}: {} lines, the last 40:\n", hits.len()));
+                for l in hits.iter().rev().take(40).rev() { out.push_str(&l.chars().take(300).collect::<String>()); out.push('\n'); }
+            }
+            eprintln!("DIAGDUMP\n{out}");
+        }
+        r
     });
+    note("full".into());
     let full = Pictures::still(&mut screen);
     let taskbars = read(&full).unwrap_or_else(|why| panic!("{why}"));
+    for ((name, was), taskbar) in empty.0.iter().zip(&taskbars) {
+        let runs: Vec<_> = (0..taskbar.clock_left).filter(|&x| band.rows_in(was.height()).any(|y| was.pixel(x, y) != full.0.iter().find(|(n, _)| n == name).unwrap().1.pixel(x, y))).collect();
+        let tail: Vec<_> = runs.iter().rev().take(60).rev().collect();
+        note(format!("{name}: {taskbar:?} changed tail {tail:?}"));
+    }
     // One more window left out on each output: each bar's count changes,
     // and nothing among its buttons. The buttons are alike but for the
     // active one's mark, which stays on the last button of its output's bar

@@ -90,7 +90,11 @@ pub(crate) fn TaskbarWidget() -> NodeHandle {
             gap: SIZES.gap,
             count_width: SIZES.count_width,
         };
-        fit(&buttons.get(), room)
+        let b = buttons.get();
+        let w = room.width;
+        let f = fit(&b, room);
+        tracing::info!("DIAG fit {:?}: {} on {:?} width {} shown {} left_out {}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() % 1_000_000, b.len(), untracked(|| output.get()), w, f.shown.len(), f.left_out);
+        f
     });
     let shown = Memo::new(move || fitted.get().shown);
     let left_out = Memo::new(move || fitted.get().left_out);

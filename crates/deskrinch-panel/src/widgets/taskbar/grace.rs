@@ -48,7 +48,8 @@ pub(crate) fn follow(buttons: Signal<Buttons>) -> GraceClock {
             // Rounded up; a wake that comes early is no harm, since the
             // clock goes to the end it woke for.
             let millis = u32::try_from(after.as_micros().div_ceil(1000)).unwrap_or(u32::MAX);
-            let handle = set_timeout(millis, move || clock.set(clock_on_wake(at, Instant::now())));
+            tracing::info!("DIAG arm {millis} ms");
+            let handle = set_timeout(millis, move || { tracing::info!("DIAG fired"); clock.set(clock_on_wake(at, Instant::now())) });
             armed.set(Some((at, handle)));
         }
     });

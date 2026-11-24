@@ -130,6 +130,8 @@ pub(crate) fn apply(
     }
     let after = model.buttons();
     if after != before {
+        let unplaced = after.iter().filter(|b| b.placement.grace_ends().is_some()).count();
+        tracing::info!("DIAG apply {:?}: {} buttons, {unplaced} unplaced", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis() % 1_000_000, after.len());
         buttons.deliver(Arc::new(after));
     }
 }
