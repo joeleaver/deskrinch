@@ -346,3 +346,33 @@ impl Globals for State {
         self.forget_global(name);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capabilities::{Actions, Protocol};
+    use crate::workspace::WorkspaceState;
+
+    /// Every action on an id the connection never issued
+    /// ([`WorkspaceId::from_raw`]) is refused as for a workspace that has
+    /// gone: nothing is sent.
+    #[test]
+    fn an_action_on_an_id_never_issued_is_refused_as_for_a_workspace_gone() {
+        let capabilities = Capabilities {
+            protocol: Protocol::ExtWorkspace,
+            states: WorkspaceState::empty(),
+            outputs: true,
+            layout: false,
+            actions: Actions::all(),
+        };
+        let inner = Inner::default();
+        let id = WorkspaceId::from_raw(u64::MAX);
+        for action in Action::ALL {
+            let refused = inner.request(capabilities, id, action);
+            assert!(
+                matches!(refused, Err(ActionError::UnknownWorkspace(unknown)) if unknown == id),
+                "{action}: {refused:?}"
+            );
+        }
+    }
+}

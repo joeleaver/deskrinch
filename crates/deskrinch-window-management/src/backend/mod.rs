@@ -381,3 +381,33 @@ impl Dispatch<WlSeat, ()> for State {
     ) {
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::capabilities::{Actions, Protocol};
+    use crate::window::WindowState;
+
+    /// Every action on an id the connection never issued
+    /// ([`WindowId::from_raw`]) is refused as for a window that has gone:
+    /// nothing is sent.
+    #[test]
+    fn an_action_on_an_id_never_issued_is_refused_as_for_a_window_gone() {
+        let capabilities = Capabilities {
+            protocol: Protocol::WlrForeignToplevel,
+            states: WindowState::empty(),
+            outputs: true,
+            parent: false,
+            actions: Actions::all(),
+        };
+        let inner = Inner::default();
+        let id = WindowId::from_raw(u64::MAX);
+        for action in Action::ALL {
+            let refused = inner.request(capabilities, id, action);
+            assert!(
+                matches!(refused, Err(ActionError::UnknownWindow(unknown)) if unknown == id),
+                "{action}: {refused:?}"
+            );
+        }
+    }
+}

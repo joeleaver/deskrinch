@@ -25,6 +25,22 @@ impl WindowId {
     pub fn get(self) -> u64 {
         self.0
     }
+
+    /// An id made from a number, for tests and for a model's own ids.
+    ///
+    /// It is not an id a connection issued: this crate numbers the windows
+    /// it reports from 1, process-wide, so a number one of them already has
+    /// is that window's id, and any other names no window. A test that also
+    /// connects keeps its numbers out of the way of the connection's. An
+    /// action asked for with an id the connection does not hold is refused
+    /// as for a window that has just gone,
+    /// [`ActionError::UnknownWindow`](crate::ActionError::UnknownWindow),
+    /// which every caller handles anyway, since a window can go between its
+    /// last event and the action.
+    #[must_use]
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
 }
 
 impl fmt::Display for WindowId {
