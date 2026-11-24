@@ -1,7 +1,12 @@
 //! [`Taskbar`]: the windows followed, and what an [`Input`] does to them.
 
+use std::collections::BTreeSet;
+use std::time::Instant;
+
 use deskrinch_gestures::Click;
 use deskrinch_window_management::{Action, Actions, EndReason, WindowState};
+
+use crate::on_bar::Placement;
 
 /// What the taskbar uses of a window, as the compositor last reported it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -16,6 +21,10 @@ pub struct TaskWindow<Id> {
     pub state: WindowState,
     /// The window it belongs to, such as a dialog's main window.
     pub parent: Option<Id>,
+    /// The outputs it is on, by name, as this report gives them; none when
+    /// the compositor reports none (not yet, for an instant, or not at
+    /// all). The model keeps its [`Placement`] ([`crate::on_bar`](mod@crate::on_bar)).
+    pub outputs: BTreeSet<String>,
 }
 
 /// A change to the window list.
@@ -44,8 +53,9 @@ pub enum PointerButton {
 /// What the taskbar hears.
 #[derive(Debug, Clone)]
 pub enum Input<Id> {
-    /// The window list changed.
-    Change(Change<Id>),
+    /// The window list changed, heard at this time: a new window's grace
+    /// counts from it ([`crate::on_bar`](mod@crate::on_bar)).
+    Change(Change<Id>, Instant),
     /// A pointer button went down on the button of the window with this id,
     /// or (`None`) on the taskbar but on no button.
     Press(Option<Id>, PointerButton),
@@ -79,6 +89,9 @@ pub struct Button<Id> {
     pub minimized: bool,
     /// The window or one of its dialogs asks for attention.
     pub attention: bool,
+    /// Where the window is, as far as the taskbar knows: which bars show
+    /// the button ([`crate::on_bar`](mod@crate::on_bar)).
+    pub placement: Placement,
 }
 
 /// Whether the taskbar is following a window list.
@@ -89,12 +102,19 @@ enum Status {
     Over,
 }
 
-/// The taskbar: the windows in the order they were added, the actions the
-/// connection can request, and the press held. The rules are the crate's
-/// documentation.
+/// A window followed, and where it is as far as the taskbar knows.
+#[derive(Debug, Clone)]
+struct Followed<Id> {
+    window: TaskWindow<Id>,
+    placement: Placement,
+}
+
+/// The taskbar: the windows in the order they were added, each with its
+/// placement, the actions the connection can request, and the press held.
+/// The rules are the crate's documentation.
 #[derive(Debug, Clone)]
 pub struct Taskbar<Id> {
-    windows: Vec<TaskWindow<Id>>,
+    windows: Vec<Followed<Id>>,
     actions: Actions,
     status: Status,
     click: Click<Id, PointerButton>,
@@ -134,7 +154,7 @@ impl<Id: Copy + Eq> Taskbar<Id> {
             return Answer::Stay;
         }
         match input {
-            Input::Change(change) => self.change(change),
+            Input::Change(change, at) => self.change(change, at),
             Input::Press(on, button) => {
                 self.click.press(on, button);
                 Answer::Stay
@@ -146,20 +166,27 @@ impl<Id: Copy + Eq> Taskbar<Id> {
         }
     }
 
-    fn change(&mut self, change: Change<Id>) -> Answer<Id> {
+    fn change(&mut self, change: Change<Id>, at: Instant) -> Answer<Id> {
         match change {
             Change::Added(window) => {
-                self.windows.retain(|known| known.id != window.id);
-                self.windows.push(window);
+                let followed = self.followed(window, at);
+                self.windows
+                    .retain(|known| known.window.id != followed.window.id);
+                self.windows.push(followed);
             }
             Change::Changed(window) => {
-                if let Some(known) = self.windows.iter_mut().find(|known| known.id == window.id) {
-                    *known = window;
+                let followed = self.followed(window, at);
+                if let Some(known) = self
+                    .windows
+                    .iter_mut()
+                    .find(|known| known.window.id == followed.window.id)
+                {
+                    *known = followed;
                 } else {
-                    self.windows.push(window);
+                    self.windows.push(followed);
                 }
             }
-            Change::Removed(id) => self.windows.retain(|known| known.id != id),
+            Change::Removed(id) => self.windows.retain(|known| known.window.id != id),
             Change::Ended(reason) => {
                 self.windows.clear();
                 self.status = Status::Over;
@@ -167,6 +194,18 @@ impl<Id: Copy + Eq> Taskbar<Id> {
             }
         }
         Answer::Stay
+    }
+
+    /// `window` as reported at `at`, with where it is once it reports what
+    /// it does ([`Placement::after`]).
+    fn followed(&self, window: TaskWindow<Id>, at: Instant) -> Followed<Id> {
+        let before = self
+            .windows
+            .iter()
+            .find(|known| known.window.id == window.id)
+            .map(|known| &known.placement);
+        let placement = Placement::after(before, window.outputs.clone(), at);
+        Followed { window, placement }
     }
 
     /// What a click of `button` on `id`'s button asks for.
@@ -200,14 +239,15 @@ impl<Id: Copy + Eq> Taskbar<Id> {
     pub fn buttons(&self) -> Vec<Button<Id>> {
         self.windows
             .iter()
-            .filter(|window| self.has_button(window))
-            .map(|window| Button {
+            .filter(|followed| self.has_button(&followed.window))
+            .map(|Followed { window, placement }| Button {
                 id: window.id,
                 title: window.title.clone(),
                 app_id: window.app_id.clone(),
                 active: self.any_of(window.id, WindowState::ACTIVE),
                 minimized: window.state.contains(WindowState::MINIMIZED),
                 attention: self.any_of(window.id, WindowState::DEMANDS_ATTENTION),
+                placement: placement.clone(),
             })
             .collect()
     }
@@ -222,7 +262,10 @@ impl<Id: Copy + Eq> Taskbar<Id> {
     }
 
     fn window(&self, id: Id) -> Option<&TaskWindow<Id>> {
-        self.windows.iter().find(|window| window.id == id)
+        self.windows
+            .iter()
+            .map(|followed| &followed.window)
+            .find(|window| window.id == id)
     }
 
     /// Whether the window `id` or one of the windows below it (by parent,
@@ -242,6 +285,7 @@ impl<Id: Copy + Eq> Taskbar<Id> {
             below.extend(
                 self.windows
                     .iter()
+                    .map(|followed| &followed.window)
                     .filter(|w| w.parent == Some(next))
                     .map(|w| w.id),
             );

@@ -138,6 +138,7 @@ mod tests {
                 active: Some(id) == active,
                 minimized: false,
                 attention: false,
+                placement: crate::Placement::Placed(std::collections::BTreeSet::new()),
             })
             .collect()
     }

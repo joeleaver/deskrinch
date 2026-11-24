@@ -1216,8 +1216,11 @@ version = "0.1.0"
 name = "deskrinch-taskbar"
 version = "0.1.0"
 dependencies = [
+ "deskrinch-bars",
  "deskrinch-gestures",
+ "deskrinch-untrusted",
  "deskrinch-window-management",
+ "proptest",
 ]
 
 [[package]]
