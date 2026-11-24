@@ -1,17 +1,17 @@
 //! The button under the pointer is marked, on [`crate::taskbar`]'s fixture:
 //! the pointer moved onto a button that is not the active one marks it in
-//! the theme's hovered-option colour; moved off the panel, the mark goes.
+//! the theme's hovered-option colour; moved off the buttons, the mark goes.
 //!
 //! The mark is seen in the button's padding, left of its icon: the bar's own
 //! colour (sampled in the bar's padding at its left end) before, and after
-//! the pointer has left the panel. Under the pointer it differs from the
+//! the pointer has left the button. Under the pointer it differs from the
 //! bar, and from the active window's button, whose mark is the theme's
 //! selected-option colour, in both schemes.
 //!
 //! What each change costs is read from rinch's own counters on the panel's
 //! frame lines, round by round ([`frames::until_clean_round`]):
 //!
-//! - A step (the pointer onto the button, or off the panel) with any frame
+//! - A step (the pointer onto the button, or off the buttons) with any frame
 //!   without reactive work (no `signal_notifies`) has exactly one, and it
 //!   repaints and lays nothing out: what a `:hover` change costs.
 //! - A step with reactive frames is crowded: drawn for something else the
@@ -65,19 +65,18 @@ struct Colours {
 }
 
 /// Red's window, then green's, active; the pointer onto red's button, then
-/// off the panel, round after round until one after the first is clean.
+/// off the buttons, round after round until one after the first is clean.
 fn hover(scheme: &str) {
     let mut bar = Bar::start_in(scheme);
     let _red = open_active(&bar, RED, "red");
     let _green = open_active(&bar, GREEN, "green");
     let red = bar.wait_button(RED);
     let green = bar.wait_button(GREEN);
-    // The active window's mark is read while green is active, before the
-    // pointer goes to the bar's output: the windows are where the compositor
-    // opened them, which may be another output, and sway gives the keyboard
-    // to the workspace of an output the pointer enters (an empty one, then:
-    // no window is active after `point_off` there). Waited for on a still
-    // picture: red's mark going and green's coming are reported in turn.
+    // The active window's mark, with green active. The pointer has been off
+    // the buttons, on the bar's padding, since the start: no pointer move
+    // here or after hands sway's focus to another window. Waited for on a
+    // still picture: red's mark going and green's coming are reported in
+    // turn.
     let active = bar.judged("green's button marked as the active one", |_, image| {
         let plain = sample(Bar::bar(image, green));
         let active = sample(Bar::beside(image, green));
@@ -89,7 +88,6 @@ fn hover(scheme: &str) {
             Ok(active)
         }
     });
-    bar.point_off();
     // Red's button has the bar's colour before the pointer: a change that
     // comes about, which a compositor may report a while after green has
     // the keyboard (sway, on a pass, later than the still gap). It is waited
@@ -153,12 +151,12 @@ fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) {
     );
 }
 
-/// The pointer off the panel: returns once red's mark has gone and the
+/// The pointer off the buttons: returns once red's mark has gone and the
 /// screen keeps still.
 fn point_off(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) {
     bar.point_off();
     bar.see(
-        "red's mark gone with the pointer off the panel",
+        "red's mark gone with the pointer off the buttons",
         |_, image| Bar::beside(image, red).is_some_and(|p| near(p, colours.plain)),
     );
     let _ = bar.settled(|image| Bar::beside(image, red));

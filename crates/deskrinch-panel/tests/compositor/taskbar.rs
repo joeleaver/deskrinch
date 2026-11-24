@@ -106,9 +106,10 @@ impl Bar {
     }
 
     /// [`start`](Self::start), with `more` settings beside the panel's. The
-    /// pointer is left on the bar's output, where the compositors open the
-    /// test's windows ([`crate::open_on`]): each bar shows the windows on
-    /// its own output.
+    /// bar's output is made the one the test's windows open on
+    /// ([`Self::point_to_output`]), since each bar shows the windows on its
+    /// own output, and the pointer is left off the buttons
+    /// ([`Self::point_off`]).
     fn start_with(more: &str) -> Self {
         in_nested_session();
         let input = Input::connect().unwrap();
@@ -134,8 +135,22 @@ impl Bar {
             scale,
             band,
         };
+        bar.point_to_output();
         bar.point_off();
         bar
+    }
+
+    /// Makes the bar's output the one the test's windows open on: the
+    /// pointer moved to its middle, before any window of the test's is
+    /// there. sway opens a window on the focused output, and focuses an
+    /// output's empty workspace when the pointer enters it from another;
+    /// KWin's active screen and labwc's placement follow the pointer.
+    fn point_to_output(&mut self) {
+        let image = self.screen.capture(&self.output.clone()).unwrap();
+        let scale = f64::from(self.scale);
+        let x = f64::from(image.width()) / 2.0 / scale;
+        let y = f64::from(image.height()) / 2.0 / scale;
+        self.input.move_pointer(&self.output, x, y).unwrap();
     }
 
     /// Captures the panel's output until `accept` takes the picture;
@@ -256,12 +271,18 @@ impl Bar {
         self.input.move_pointer(&self.output, x, y).unwrap();
     }
 
-    /// Moves the pointer off the panel, to the middle of its output.
+    /// Moves the pointer off the buttons, onto the bar's own padding at its
+    /// left end, on the bar's output: where no button reaches on any output
+    /// however narrow ([`Self::bar`]). It stays over the panel's surface, so
+    /// sway's focus, which follows the pointer onto a window or another
+    /// output's empty workspace, stays where it is: the window the test made
+    /// active stays so, and the next window opens on this output.
     pub(crate) fn point_off(&mut self) {
         let image = self.screen.capture(&self.output.clone()).unwrap();
+        let rows = self.band.rows_in(image.height());
         let scale = f64::from(self.scale);
-        let x = f64::from(image.width()) / 2.0 / scale;
-        let y = f64::from(image.height()) / 2.0 / scale;
+        let x = 1.0;
+        let y = f64::from(u32::midpoint(rows.start, rows.end)) / scale;
         self.input.move_pointer(&self.output, x, y).unwrap();
     }
 

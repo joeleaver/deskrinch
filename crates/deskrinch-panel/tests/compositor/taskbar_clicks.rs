@@ -18,11 +18,22 @@ use deskrinch_window_management::{Action, WindowManagement};
 
 use crate::taskbar::{App, Bar, GREEN, MAGENTA, RED, window_of};
 
-/// Opens a window of `app` and makes it the active one, through a
-/// window-management connection of the test's own: which window a
-/// compositor activates on opening is its own policy.
+/// Opens a window of `app` on the bar's output and makes it the active one,
+/// through a window-management connection of the test's own: which window
+/// a compositor activates on opening is its own policy.
+///
+/// # Panics
+///
+/// When the window opens on another output, whose bar the test does not
+/// read, naming it.
 pub(crate) fn open_active(bar: &Bar, app: App, title: &str) -> TestWindow {
     let window = bar.client.open(title, app.id).unwrap();
+    let on = window.wait_output().unwrap();
+    assert_eq!(
+        on,
+        bar.output(),
+        "{title} opened on {on}, not on the bar's output"
+    );
     let (manager, id) = window_of(app.id);
     manager.perform(id, Action::Activate).unwrap();
     window.wait_keyboard().unwrap();
