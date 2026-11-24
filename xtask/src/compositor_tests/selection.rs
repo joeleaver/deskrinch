@@ -13,6 +13,7 @@
 
 use std::collections::BTreeSet;
 
+use super::shards::Shard;
 use super::suites::{SUITES, Suite};
 use crate::session::Compositor;
 
@@ -91,6 +92,15 @@ impl Selection {
             asked: names.to_vec(),
             test: test.map(str::to_owned),
         })
+    }
+
+    /// The rows of `shard`, every test of each.
+    pub(super) fn of_shard(shard: &Shard) -> Self {
+        Self {
+            rows: shard.rows(),
+            asked: vec![format!("those of the shard {}", shard.name)],
+            test: None,
+        }
     }
 
     /// The rows of [`SUITES`] with the names chosen, in its order: the
@@ -366,6 +376,18 @@ mod tests {
             panic!("{name} has {} rows", selection.rows().len());
         };
         &SUITES[*row]
+    }
+
+    #[test]
+    fn a_shard_chooses_its_rows() {
+        let shard = Shard::named("kwin-notifications").unwrap();
+        let chosen = Selection::of_shard(shard);
+        assert_eq!(chosen.rows(), shard.rows());
+        assert_eq!(
+            chosen.said(),
+            "suites: those of the shard kwin-notifications"
+        );
+        assert_eq!(chosen.test(), None);
     }
 
     #[test]

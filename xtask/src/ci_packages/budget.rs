@@ -17,9 +17,11 @@ use super::bounded::KILL_AFTER;
 use super::classify::Step;
 
 /// What the tightest jobs leave the package step before GitHub ends them:
-/// the Tests job and sway's compositor job, a 30 and a 45 minute limit less
-/// their other steps at their longest over CI's runs of 2026-11-15 to 18
-/// (cold caches included).
+/// the Tests job's 30 minute limit less its other steps at their longest
+/// over CI's runs of 2026-11-15 to 18 (cold caches included). The
+/// compositor tests' build job and shard jobs, 30 minutes each since
+/// 2026-11-23, leave more: a cold build of 8 to 9 minutes, a shard's run of
+/// at most about 11.
 const TIGHTEST_JOB_REMAINDER: Duration = Duration::from_secs(14 * 60 + 42);
 
 /// The time before `update` starts: building xtask, which runs it. At most

@@ -11,6 +11,7 @@ mod ci_packages;
 mod components;
 mod compositor_tests;
 mod desktop;
+mod digest;
 mod error;
 mod file_length;
 mod git;
@@ -20,6 +21,7 @@ mod input;
 mod measure;
 mod run_in_session;
 mod session;
+mod session_tests;
 mod systemd_scope_tests;
 
 use std::error::Error as _;
@@ -79,6 +81,20 @@ enum Task {
     /// `kwin_wayland` (with `kscreen-doctor`), `sway` and `labwc` for those
     /// compositors.
     CompositorTests(compositor_tests::Args),
+    /// Print CI's matrix of compositor-test shards, as JSON: each shard's
+    /// name, its compositor, and whether it runs the session tests.
+    CompositorShards,
+    /// Build the compositor tests' bundle for CI's shards, check it once
+    /// unpacked, or name a component in it.
+    Bundle {
+        /// The step.
+        #[command(subcommand)]
+        command: compositor_tests::bundle::Command,
+    },
+    /// Run xtask's tests of `cargo xtask session` and `measure` against a
+    /// compositor: the ignored tests of each binary that starts sessions,
+    /// every one whatever fails before it.
+    SessionTests(session_tests::Args),
     /// Run a command in an isolated, nested, headless compositor session.
     #[command(long_about = run_in_session::long_about())]
     Session {
@@ -213,6 +229,9 @@ impl Task {
             }
             Self::CiPackages { command } => ci_packages::run(&command),
             Self::CompositorTests(args) => compositor_tests::run(root, &args),
+            Self::CompositorShards => Ok(compositor_tests::shards::run()),
+            Self::Bundle { command } => compositor_tests::bundle::run(root, &command),
+            Self::SessionTests(args) => session_tests::run(root, &args),
             Self::SystemdScopeTests => systemd_scope_tests::run(root),
             Self::Desktop(args) => desktop::run(root, &args),
             Self::SessionSupervisor { root } => session::supervise(&root).map(|()| Outcome::Passed),

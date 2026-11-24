@@ -5,6 +5,16 @@ description: >-
   `cargo clean`, so that what `main` saves is this lock's build alone. Runs
   after the toolchain is installed.
 
+inputs:
+  shared-key:
+    description: >-
+      The cache's name in place of the job's id (rust-cache's `shared-key`):
+      a job that took over another's build keeps its cache's name. The
+      key's other parts (the runner, the toolchain and the `CARGO*` and
+      `RUST*` variables, the lock and manifests) are rust-cache's as ever.
+    required: false
+    default: ""
+
 runs:
   using: composite
   steps:
@@ -12,6 +22,7 @@ runs:
       uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
       with:
         save-if: ${{ github.ref == 'refs/heads/main' }}
+        shared-key: ${{ inputs.shared-key }}
     # rust-cache cleans `target/` by crate name alone before it saves, so a
     # cache restored by its prefix after the lock changed carries every
     # older version's artifacts on into the next save: chains of 3.2 and
