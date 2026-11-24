@@ -141,6 +141,12 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
         if r.is_err() && waited.elapsed().as_secs() > 100 && !dumped.replace(true) {
             let lines = panel.watch().lines();
             let mut out = diag.lock().unwrap().clone();
+            for output in &outputs {
+                let key = format!("on Some(\"{output}\")");
+                let hits: Vec<_> = lines.iter().filter(|l| l.contains("DIAG fit") && l.contains(&key)).collect();
+                out.push_str(&format!("== fits on {output}: {} lines, the last 60:\n", hits.len()));
+                for l in hits.iter().rev().take(60).rev() { out.push_str(&l.chars().take(300).collect::<String>()); out.push('\n'); }
+            }
             for key in ["DIAG fit", "DIAG apply", "DIAG arm", "DIAG fired", "[PERF] window 1 frame", "[PERF] window 2 frame"] {
                 let hits: Vec<_> = lines.iter().filter(|l| l.contains(key)).collect();
                 out.push_str(&format!("== {key}: {} lines, the last 40:\n", hits.len()));
