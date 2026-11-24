@@ -10,6 +10,17 @@
 //!   of the settings repaints every output; a picture is fitted as `fit`
 //!   says; a picture that cannot be shown leaves the colour and is
 //!   reported with its path.
+//! - [`exact`]: a picture larger than its output, covered or contained, is
+//!   drawn one device pixel per pixel, as `deskrinch-picture` fitted it at
+//!   the output's device size, in every pass.
+//! - [`file`]: the picture's file replaced whole or rewritten in place is
+//!   shown; replaced by one that cannot be shown, the last good picture
+//!   stays and is said; taken away, the colour; over the wallpaper's
+//!   limits (a side, the decoded size, the file's size), the colour and
+//!   which limit; a picture stored turned is shown upright, and one with a
+//!   colour profile converted.
+//! - [`handover`]: each window draws its picture in every frame while a
+//!   hand-over replaces its image (the file replaced, the fit changed).
 //! - [`first_frame`]: each window's first frame is drawn at its output's
 //!   scale.
 //! - [`layers`]: a window is above the wallpaper, and so is the panel.
@@ -23,6 +34,11 @@
 //!   the wallpaper of only one, the wallpaper follows four settings edits
 //!   in turn on the output shown, and both outputs show the last once
 //!   apart (rinch issue 2669).
+//! - [`uhd_beside_full_hd`], run only on the pass with outputs of its own
+//!   (a 3840x2160 output beside a 1920x1080 one): a picture larger than
+//!   both is drawn one pixel per pixel on each at its own size; one the
+//!   size of the larger is the picture itself on both, the smaller scaled
+//!   at paint.
 //!
 //! An output unplugged and one plugged in are tested as an output turned
 //! off and on. To a client both are the same: a `wl_output` global removed,
@@ -57,7 +73,13 @@
 #[cfg(test)]
 mod cover;
 #[cfg(test)]
+mod exact;
+#[cfg(test)]
+mod file;
+#[cfg(test)]
 mod first_frame;
+#[cfg(test)]
+mod handover;
 #[cfg(test)]
 mod layers;
 #[cfg(test)]
@@ -68,3 +90,5 @@ mod reconfigured;
 mod support;
 #[cfg(test)]
 mod together;
+#[cfg(test)]
+mod uhd_beside_full_hd;

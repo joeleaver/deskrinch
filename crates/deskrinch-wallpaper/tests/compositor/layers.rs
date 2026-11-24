@@ -5,12 +5,12 @@ use std::process::Command;
 
 use deskrinch_test_client::{Paint, TestClient};
 use deskrinch_test_component::{Component, Renderer, programs};
-use deskrinch_test_screen::Screen;
+use deskrinch_test_screen::{Pictures, Screen};
 use deskrinch_test_wait::eventually;
 
 use crate::support::{
     BLUE, ORANGE, Wallpaper, about, first_other, first_other_within, in_nested_session,
-    wait_covered, wait_output, write_settings, written,
+    stays_output, wait_covered, wait_output, write_settings, written,
 };
 
 #[test]
@@ -40,7 +40,8 @@ fn a_window_is_above_it() {
         first_other_within(image, ORANGE, scale)
             .map(|at| format!("the window is not over all of it: {at:?}"))
     });
-    wait_output(bare, |image| {
+    // That the other output stays the wallpaper's, judged once it is still.
+    stays_output(bare, |image| {
         first_other(image, BLUE).map(|at| format!("the wallpaper is not all of it: {at:?}"))
     });
 }
@@ -68,11 +69,11 @@ fn the_panel_is_above_it() {
         panic!("the panel: {why}");
     }
     // On the output the compositor gave it, its bottom row is the panel's,
-    // and the middle of the output still the wallpaper's.
+    // and the middle of the output still the wallpaper's: judged on the
+    // screen once it is still, not on a frame of the panel opening.
     eventually("an output to show the panel over the wallpaper", || {
         let mut screen = Screen::connect().unwrap();
-        screen.outputs().into_iter().any(|name| {
-            let image = screen.capture(&name).unwrap();
+        Pictures::still(&mut screen).0.iter().any(|(_, image)| {
             let bottom = image.row(image.height() - 2).unwrap();
             let middle = image.row(image.height() / 2).unwrap();
             !bottom.iter().all(|&pixel| about(pixel, BLUE))

@@ -79,8 +79,8 @@
 //! # Fitting
 //!
 //! [`fit`] fits a decoded picture to a target size, as the wallpaper fits
-//! one to an output ([`Fit`]: cover, contain, stretch, centre, tile), under
-//! the same kind of limits.
+//! one to an output ([`Fit`]: cover, contain, stretch, centre, tile), and
+//! [`crop`] takes a part of one as it is, under the same kind of limits.
 //!
 //! # Example
 //!
@@ -115,6 +115,6 @@ mod webp;
 pub use colour::{Ignored, MAX_CURVE_ENTRIES, MAX_GRID_POINTS, MAX_PROFILE_BYTES, Profile};
 pub use decode::{Decoded, decode, decode_file};
 pub use error::DecodeError;
-pub use fit::{Fit, FitError, fit};
+pub use fit::{Fit, FitError, crop, fit};
 pub use jpeg::MAX_SCANS;
 pub use limits::{Format, Formats, Limits};

@@ -12,8 +12,8 @@ use deskrinch_test_wait::{eventually, wait_for};
 use deskrinch_test_wayland::Transform;
 
 use crate::support::{
-    BLUE, Wallpaper, first_other, in_nested_session, wait_covered, wait_output, write_settings,
-    written,
+    BLUE, Wallpaper, first_other, in_nested_session, stays_covered, stays_output, wait_covered,
+    write_settings, written,
 };
 
 /// A colour unlike [`BLUE`] and no compositor's own background: the
@@ -83,7 +83,9 @@ fn an_output_turned_while_it_runs_is_covered_at_its_new_shape() {
             Err(size)
         }
     });
-    wait_covered(BLUE);
+    // Covered at its new shape once the screen is still: a frame of the
+    // turn itself, or of the old buffer turned, is not the judgment.
+    stays_covered(BLUE);
     restore.restore().unwrap();
 }
 
@@ -152,7 +154,7 @@ fn an_output_turned_off_and_on_loses_it_and_gets_it_again() {
     );
     wait_listed(&name, false);
     assert!(wallpaper.running(), "the wallpaper ended with an output");
-    wait_output(&other, |image| {
+    stays_output(&other, |image| {
         first_other(image, BLUE).map(|at| format!("not all wallpaper: {at:?}"))
     });
 

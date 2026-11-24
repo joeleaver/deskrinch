@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use deskrinch_test_client::Compositor;
 use deskrinch_test_component::{Component, Mark, Renderer, Watch, log, programs};
-use deskrinch_test_screen::{Image, Rgba, Screen};
+use deskrinch_test_screen::{Image, Pictures, Rgba, Screen};
 use deskrinch_test_wait::{PATIENCE, wait_for};
 
 /// The wallpaper binary the run built for this suite
@@ -184,10 +184,36 @@ pub(crate) fn wait_covered(color: Rgba) {
 
 /// Waits until `check` finds nothing wrong with the output `name`'s
 /// picture, captured afresh; panics with what it last found.
+///
+/// For a picture that comes about: the first capture that passes is the
+/// change shown. A judgment that something stays as it is is
+/// [`stays_output`]'s.
 pub(crate) fn wait_output(name: &str, check: impl Fn(&Image) -> Option<String>) {
     wait_for(&format!("{name} to pass its check"), || {
         let mut screen = Screen::connect().unwrap();
         let image = screen.capture(name).unwrap();
         check(&image).map_or(Ok(()), Err)
     });
+}
+
+/// Waits until `check` finds nothing wrong with the output `name`'s
+/// picture once it is still ([`Pictures::judged`]); panics with what it
+/// last found. For a judgment that the picture stays as it is after
+/// something that could change it.
+pub(crate) fn stays_output(name: &str, check: impl Fn(&Image) -> Option<String>) {
+    let mut screen = Screen::connect().unwrap();
+    let what = format!("{name}, still, to pass its check");
+    Pictures::judged(&mut screen, name, &what, |image| {
+        check(image).map_or(Ok(()), Err)
+    });
+}
+
+/// [`stays_output`] for every output of the session: each still, and all
+/// `color` from edge to edge.
+pub(crate) fn stays_covered(color: Rgba) {
+    for name in Screen::connect().unwrap().outputs() {
+        stays_output(&name, |image| {
+            first_other(image, color).map(|at| format!("not all {color:?}: {at:?}"))
+        });
+    }
 }

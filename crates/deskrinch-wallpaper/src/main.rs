@@ -9,8 +9,11 @@
 //!   window, one disconnected loses it, one resized, rescaled or turned
 //!   keeps it at its new size.
 //! - What it draws is [`style`]'s CSS: the colour, and the picture fitted
-//!   over it; rinch decodes the picture once ([`picture`]) and scales it
-//!   to each output when it paints.
+//!   over it. The wallpaper decodes the picture itself, under its limits
+//!   ([`limits`]), colour-converted and upright, on a worker thread
+//!   ([`worker`]), and hands each output the fewest pixels that show it
+//!   there, never more in all than the picture itself ([`plan`]), which
+//!   rinch keeps without a copy of its own ([`picture`]).
 //! - It costs nothing while nothing changes: after each output's first
 //!   frame it draws again only when the settings, the look or the picture
 //!   change, or an output does.
@@ -64,11 +67,14 @@
 //! lavapipe). The user overrides that with rinch's `RINCH_RENDERER`
 //! environment variable (`gpu`, `software` or `cpu`, `auto`).
 
+mod limits;
 mod picture;
+mod plan;
 mod role;
 mod style;
 mod surface;
 mod wallpaper;
+mod worker;
 
 use std::process::ExitCode;
 
@@ -92,7 +98,6 @@ fn main() -> ExitCode {
         deskrinch_component::app::windowless(move |scope| {
             wallpaper::wallpaper(scope, live, theme, home)
         })
-        .image_scheme(picture::SCHEME, picture::load)
         .theme(first_theme),
     );
     if role::refused() {

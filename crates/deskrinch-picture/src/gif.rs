@@ -15,6 +15,9 @@
 
 use std::io::Cursor;
 use std::num::NonZeroU64;
+use std::sync::Arc;
+
+use deskrinch_untrusted::{held, zeroed_pixels};
 
 use ::gif::{ColorOutput, DecodeOptions, DecodingError, MemoryLimit};
 use image::metadata::Orientation;
@@ -77,20 +80,23 @@ pub(crate) fn decode(bytes: &[u8], limits: &Limits) -> Result<Raw, DecodeError> 
         .unwrap_or(usize::MAX)
         .saturating_mul(usize::try_from(size.1).unwrap_or(usize::MAX));
     limits.working(
-        result_bytes
+        held(result_bytes)
             .checked_add(frame_bytes)
             .and_then(|n| n.checked_add(indices))
             .and_then(|n| n.checked_add(metadata))
             .and_then(|n| n.checked_add(FIXED_BYTES)),
     )?;
 
-    let mut rgba = vec![0; result_bytes];
+    // The result's own shared buffer, written in place: handed on without
+    // a copy.
+    let mut rgba = zeroed_pixels(result_bytes);
+    let buffer = Arc::make_mut(&mut rgba);
     if fills {
-        decoder.read_into_buffer(&mut rgba).map_err(malformed)?;
+        decoder.read_into_buffer(buffer).map_err(malformed)?;
     } else {
         let mut pixels = vec![0; frame_bytes];
         decoder.read_into_buffer(&mut pixels).map_err(malformed)?;
-        draw(&mut rgba, width, height, &pixels, at, size);
+        draw(buffer, width, height, &pixels, at, size);
     }
     Ok(Raw {
         width,

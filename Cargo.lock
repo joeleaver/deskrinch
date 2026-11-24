@@ -1389,6 +1389,7 @@ dependencies = [
 name = "deskrinch-untrusted"
 version = "0.1.0"
 dependencies = [
+ "bytemuck",
  "deskrinch-test-wait",
  "libc",
  "proptest",
@@ -1403,17 +1404,22 @@ version = "0.1.0"
 dependencies = [
  "deskrinch-appearance",
  "deskrinch-component",
+ "deskrinch-picture",
  "deskrinch-settings",
  "deskrinch-shell",
  "deskrinch-test-client",
  "deskrinch-test-component",
+ "deskrinch-test-log",
+ "deskrinch-test-pictures",
  "deskrinch-test-screen",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "deskrinch-theme",
+ "deskrinch-untrusted",
  "deskrinch-watch",
  "deskrinch-xdg",
  "image",
+ "proptest",
  "rinch",
  "tempfile",
  "tracing",
