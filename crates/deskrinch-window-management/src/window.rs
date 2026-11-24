@@ -8,8 +8,11 @@ use crate::error::EndReason;
 
 /// Identifies one window for as long as the compositor reports it.
 ///
-/// Ids are assigned by this crate, never reused within a process, and mean
-/// nothing to the compositor or to another process.
+/// The ids of the windows a connection reports are assigned by this crate,
+/// never reused within a process, and mean nothing to the compositor or to
+/// another process. [`WindowId::from_raw`] makes one from a number, for
+/// tests and models; it names a reported window only when that window was
+/// given the number.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WindowId(u64);
 
