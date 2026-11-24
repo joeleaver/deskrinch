@@ -12,8 +12,9 @@
 //! frame lines, round by round ([`frames::until_clean_round`]):
 //!
 //! - A step (the pointer onto the button, or off the panel) with any frame
-//!   without reactive work (no `signal_notifies`) has exactly one, and it
-//!   repaints and lays nothing out: what a `:hover` change costs.
+//!   without reactive work (no `signal_notifies` or `effect_runs`) has
+//!   exactly one, and it repaints and lays nothing out: what a `:hover`
+//!   change costs.
 //! - A step with reactive frames is crowded: drawn for something else the
 //!   panel follows (the clock's minute, a window's title, an icon index
 //!   landing late on a loaded machine), or the hover's restyle batched into

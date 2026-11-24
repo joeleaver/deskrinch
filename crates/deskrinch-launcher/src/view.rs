@@ -40,6 +40,9 @@ pub(crate) fn view(
         input {
             class: "launcher-query",
             r#type: "text",
+            // A query is an application's name, not prose: no misspelling
+            // marks under it (rinch checks a text field by default, #2862).
+            spellcheck: "false",
             placeholder: "Type to search applications",
             style: "width: 100%; box-sizing: border-box; \
                     padding: var(--rinch-spacing-sm) var(--rinch-spacing-md); \
