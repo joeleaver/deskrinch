@@ -10,6 +10,7 @@ use deskrinch_launcher::{Change, PREPARING};
 use deskrinch_launcher_client::NAME;
 use deskrinch_test_client::Compositor;
 use deskrinch_test_component::{Component, PerfLine, PerfWindow, Renderer, perf, programs};
+use deskrinch_test_dbus::OurBus;
 use deskrinch_test_wait::{Deadline, POLL, comes_true};
 
 /// How long a test watches a launcher for something that must not happen
@@ -238,7 +239,16 @@ impl Drop for Launcher {
     fn drop(&mut self) {
         // Killed and reaped; its name goes with it, for the next test.
         drop(self.component.take());
-        assert!(comes_true(|| owner_pid().is_none()));
+        // Dropped while the test is already failing (its own panic, or
+        // `start`'s), the check of the name is not made: a second panic
+        // during the unwind aborts the binary, and the failure would name
+        // no test. The test's own panic says why it failed.
+        if !std::thread::panicking() {
+            assert!(
+                comes_true(|| owner_pid().is_none()),
+                "the launcher's name outlived it"
+            );
+        }
     }
 }
 
@@ -274,10 +284,15 @@ pub(crate) fn client(args: &[&str]) -> ExitStatus {
         .unwrap()
 }
 
+/// The session's bus, proved ours, for the launcher's own client.
+pub(crate) fn our_bus() -> Bus {
+    OurBus::here().unwrap().bus()
+}
+
 /// The process that owns the launcher's name on the session bus.
 pub(crate) fn owner_pid() -> Option<u32> {
     zbus::block_on(async {
-        let connection = Bus::Session.connect().await.unwrap();
+        let connection = OurBus::here().unwrap().connect().await.unwrap();
         let reply = connection
             .call_method(
                 Some("org.freedesktop.DBus"),

@@ -21,6 +21,7 @@
 use std::fmt;
 use std::time::Duration;
 
+use deskrinch_bus::Bus;
 use deskrinch_test_session::{Environment, Isolated, NotIsolated, bus, check};
 use zbus::Connection;
 use zbus::connection::Builder;
@@ -112,6 +113,21 @@ impl OurBus {
     /// When the bus cannot be reached.
     pub async fn connect(&self) -> zbus::Result<Connection> {
         self.builder().build().await
+    }
+
+    /// Its address as a [`Bus`], for a client of ours that takes one (the
+    /// launcher's `send`, say).
+    ///
+    /// What it promises: the `Bus` names the proved address and no other,
+    /// so the client connects only to a bus of ours. An `OurBus` naming
+    /// another address cannot be had: its fields are private, and its only
+    /// makers are [`here`](Self::here), [`in_session`](Self::in_session),
+    /// [`at`](Self::at) and `PrivateBus::ours`, each of which proves the
+    /// address it holds. A limit set with [`patience`](Self::patience) is
+    /// the proof's connections', not the client's.
+    #[must_use]
+    pub fn bus(&self) -> Bus {
+        Bus::Address(self.address.clone())
     }
 }
 

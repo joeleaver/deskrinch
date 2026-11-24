@@ -8,13 +8,15 @@
 //! answers only callers it has granted the interface to; see the
 //! `deskrinch-kwin-access` crate.
 
+#[cfg(test)]
+mod refusal_tests;
 mod sink;
 
 use std::collections::HashMap;
 use std::io;
 use std::time::Duration;
 
-use deskrinch_bus::Bus;
+use deskrinch_test_dbus::OurBus;
 use deskrinch_test_wait::Deadline;
 use zbus::{Connection, Fd, OwnedVariant, Variant};
 
@@ -41,10 +43,10 @@ impl ScreenShot2 {
     /// No call on the connection waits longer than `patience`.
     pub(crate) fn connect(patience: Duration) -> Result<Option<Self>, ConnectError> {
         zbus::block_on(async {
-            let connection = Bus::Session
-                .builder()
-                .method_timeout(patience)
-                .build()
+            let connection = OurBus::here()
+                .map_err(ConnectError::NotOurs)?
+                .patience(patience)
+                .connect()
                 .await
                 .map_err(ConnectError::Bus)?;
             let reply = connection

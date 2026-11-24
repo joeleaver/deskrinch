@@ -30,11 +30,12 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use deskrinch_kwin_access::DesktopEntry;
+use deskrinch_launcher_client::Request;
 use deskrinch_test_client::{Compositor, Paint, TestClient};
+use deskrinch_test_dbus::OurBus;
 use deskrinch_test_input::{Input, KWIN_FAKE_INPUT_INTERFACE, Key};
 use deskrinch_test_kwin::{Kwin, KwinActions};
 use deskrinch_test_screen::{Image, KWIN_SCREENSHOT_INTERFACE, Pictures, Rgba, Screen};
-use deskrinch_test_session::BUS_VARIABLE;
 use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually, wait_for};
 
 use crate::push::{push, push_until};
@@ -134,28 +135,6 @@ fn kwin() -> Kwin {
 /// The effects KWin has active.
 fn active_effects() -> Vec<String> {
     kwin().active_effects().unwrap()
-}
-
-/// Calls `method` with no arguments on `path`'s `interface` of `name`, on
-/// the session's bus; its reply's body, or why there is none.
-fn call(name: &str, path: &str, interface: &str, method: &str, args: &str) -> Result<(), String> {
-    let address = std::env::var(BUS_VARIABLE).unwrap();
-    zbus::block_on(async {
-        let connection = zbus::connection::Builder::address(address.as_str())
-            .build()
-            .await
-            .map_err(|error| error.to_string())?;
-        let reply = if args.is_empty() {
-            connection
-                .call_method(Some(name), path, Some(interface), method, &())
-                .await
-        } else {
-            connection
-                .call_method(Some(name), path, Some(interface), method, &(args,))
-                .await
-        };
-        reply.map(drop).map_err(|error| error.to_string())
-    })
 }
 
 /// Whether KWin has loaded the effect `name`: it loads its effects after it
@@ -482,15 +461,9 @@ fn sweep(
 
 /// Checks that the shell still answers: the launcher toggles, both ways.
 fn launcher_answers(record: &Record) {
+    let bus = OurBus::here().unwrap().bus();
     for _ in 0..2 {
-        call(
-            "org.deskrinch.Launcher",
-            "/org/deskrinch/Launcher",
-            "org.deskrinch.Launcher1",
-            "Toggle",
-            "",
-        )
-        .unwrap();
+        deskrinch_launcher_client::send(&bus, Request::Toggle).unwrap();
     }
     record.note("the launcher still answers");
 }

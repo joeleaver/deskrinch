@@ -6,11 +6,12 @@
 
 use std::process::ExitStatus;
 
-use deskrinch_bus::Bus;
 use deskrinch_launcher_client::{Answer, Request, send};
 use rustix::process::{Pid, Signal, kill_process};
 
-use crate::support::{Launcher, client, in_nested_session, launcher, owner_pid, run, stays};
+use crate::support::{
+    Launcher, client, in_nested_session, launcher, our_bus, owner_pid, run, stays,
+};
 use deskrinch_test_wait::{PATIENCE, comes_true};
 
 #[test]
@@ -34,7 +35,7 @@ fn toggle_shows_it_and_toggles_it_back() {
     // The next toggle hides it: the bus's own toggle then shows it again.
     assert!(client(&["toggle"]).success());
     assert_eq!(
-        send(&Bus::Session, Request::Toggle).unwrap(),
+        send(&our_bus(), Request::Toggle).unwrap(),
         Answer::Done { shown: Some(true) }
     );
 }
@@ -49,13 +50,13 @@ fn show_and_hide_set_it() {
     assert!(client(&["show"]).success());
     // Shown twice is shown: a toggle now hides it.
     assert_eq!(
-        send(&Bus::Session, Request::Toggle).unwrap(),
+        send(&our_bus(), Request::Toggle).unwrap(),
         Answer::Done { shown: Some(false) }
     );
     assert!(client(&["show"]).success());
     assert!(client(&["hide"]).success());
     assert_eq!(
-        send(&Bus::Session, Request::Toggle).unwrap(),
+        send(&our_bus(), Request::Toggle).unwrap(),
         Answer::Done { shown: Some(true) }
     );
 }
