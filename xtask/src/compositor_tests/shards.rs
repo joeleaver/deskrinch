@@ -41,7 +41,7 @@ pub(crate) struct Shard {
 /// suites (about 550 s, the wallpaper's four rows about 110 s of it) in a
 /// shard of their own; sway's and labwc's suites and tests fit one shard
 /// each (about 11 minutes). The wallpaper's rows stay with the rest: the
-/// two KWin jobs took 9.5 and 9.4 minutes on CI (run 45311180710), and
+/// two KWin jobs took 9.6 and 9.4 minutes on CI (run 45311180710), and
 /// beside the notifications the rows would leave them about 220 s apart.
 pub(crate) const SHARDS: &[Shard] = &[
     Shard {
