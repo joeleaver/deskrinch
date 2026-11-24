@@ -1,8 +1,8 @@
 //! What a step of a test cost the panel, read from rinch's own counters on
 //! one bar's frame lines (its window's, `[PERF] window N frame`): the
 //! frames it presented since a line of the panel's log, told apart by
-//! whether they did reactive work (`signal_notifies`), and the check that a
-//! frame repainted and laid nothing out.
+//! whether they did reactive work (`signal_notifies` or `effect_runs`), and
+//! the check that a frame repainted and laid nothing out.
 
 use deskrinch_test_component::log::strip_ansi;
 use deskrinch_test_component::perf::parse;
@@ -17,9 +17,17 @@ pub(crate) fn step(panel: &Panel) -> usize {
 }
 
 /// The frame lines of the bar `window` among `lines` (the panel's log), as
-/// (reactive, not reactive): a frame that notified a signal did reactive
-/// work, and is kept whatever it painted, since that work is the step's to
-/// account for.
+/// (reactive, not reactive): a frame that notified a signal or ran an
+/// effect did reactive work, and is kept whatever it painted, since that
+/// work is the step's to account for.
+///
+/// Both counters are needed. Since rinch 2798 a window's frame line carries
+/// its own document's reactive work, and a signal write is counted for the
+/// document current where it is written: a write from outside every
+/// document (a bus reply or a timer handed to the UI thread) is no
+/// window's, while the effects it wakes are the bar's. Such a frame carries
+/// `effect_runs` and no `signal_notifies` (seen on rinch 6396a85b3 under
+/// KWin: the clock's minute, `effect_runs=1` and a relaid text).
 ///
 /// Of the frames without reactive work, a redraw that rinch served from the
 /// cached pixels, with nothing dirty (`paint_cached_frames` and no
@@ -36,7 +44,9 @@ fn split(lines: &[String], window: &PerfWindow) -> (Vec<String>, Vec<String>) {
             )
         })
         .cloned()
-        .partition(|line| counter(line, "signal_notifies").is_some());
+        .partition(|line| {
+            counter(line, "signal_notifies").is_some() || counter(line, "effect_runs").is_some()
+        });
     let drawn = frames.into_iter().filter(|line| drew(line)).collect();
     (reactive, drawn)
 }
