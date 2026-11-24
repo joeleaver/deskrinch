@@ -12,12 +12,11 @@
 //! from the cache is then exactly what the index names.
 
 use std::collections::BTreeMap;
-use std::fmt::{self, Write as _};
-use std::fs::{self, File};
-use std::io::Read as _;
+use std::fmt;
+use std::fs;
 use std::path::Path;
 
-use sha2::{Digest, Sha256, Sha512};
+use sha2::{Sha256, Sha512};
 
 use super::plan::Download;
 use crate::error::Error;
@@ -160,8 +159,8 @@ fn fits(path: &Path, size: u64, download: &Download) -> Result<Option<Unfit>, Er
     }
     let (kind, wanted) = kind_and_value(&download.checksum);
     let found = match Kind::of(kind) {
-        Some(Kind::Sha256) => digest::<Sha256>(path)?,
-        Some(Kind::Sha512) => digest::<Sha512>(path)?,
+        Some(Kind::Sha256) => crate::digest::of_file::<Sha256>(path)?,
+        Some(Kind::Sha512) => crate::digest::of_file::<Sha512>(path)?,
         None => {
             return Ok(Some(Unfit::Unverified {
                 kind: kind.to_owned(),
@@ -175,36 +174,12 @@ fn fits(path: &Path, size: u64, download: &Download) -> Result<Option<Unfit>, Er
     )
 }
 
-/// The hex digest `D` of the file at `path`.
-fn digest<D: Digest>(path: &Path) -> Result<String, Error> {
-    let io = |source| Error::Read {
-        path: path.to_owned(),
-        source,
-    };
-    let mut file = File::open(path).map_err(io)?;
-    let mut hasher = D::new();
-    let mut buffer = vec![0; 1 << 16];
-    loop {
-        let read = file.read(&mut buffer).map_err(io)?;
-        if read == 0 {
-            break;
-        }
-        hasher.update(&buffer[..read]);
-    }
-    Ok(hex(&hasher.finalize()))
-}
-
-/// `bytes` in lower-case hex.
-pub(super) fn hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut hex, byte| {
-        let _infallible = write!(hex, "{byte:02x}");
-        hex
-    })
-}
-
 #[cfg(test)]
 mod tests {
+    use sha2::Digest as _;
+
     use super::*;
+    use crate::digest::hex;
 
     /// A package's bytes, as the index describes them with `kind`.
     fn package(file: &str, bytes: &[u8], kind: &str) -> Download {

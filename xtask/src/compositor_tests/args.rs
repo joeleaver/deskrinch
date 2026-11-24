@@ -56,6 +56,15 @@ pub(crate) struct Args {
     #[arg(long, value_name = "SECONDS", default_value_t = 3600, requires = "repeat",
           value_parser = clap::value_parser!(u64).range(1..))]
     pub(crate) run_timeout: u64,
+    /// Run one CI shard's share of the suites (`cargo xtask
+    /// compositor-shards` lists the shards), under its compositor.
+    #[arg(long, value_name = "NAME", conflicts_with_all = ["compositors", "suites", "test"])]
+    pub(crate) shard: Option<String>,
+    /// Run the binaries of the bundle CI built (`target/compositor-bundle`,
+    /// unpacked at the workspace root from `cargo xtask bundle build`'s
+    /// archive) instead of building them.
+    #[arg(long)]
+    pub(crate) prebuilt: bool,
     #[command(flatten)]
     pub(crate) sizes: SizeArgs,
 }
@@ -71,6 +80,12 @@ impl Args {
         }
         if let Some(test) = &self.test {
             line.extend(["--test".into(), test.into()]);
+        }
+        if let Some(shard) = &self.shard {
+            line.extend(["--shard".into(), shard.into()]);
+        }
+        if self.prebuilt {
+            line.push("--prebuilt".into());
         }
         for size in &self.sizes.sizes {
             line.extend(["--output-size".into(), size.to_string().into()]);
@@ -157,6 +172,33 @@ mod tests {
             .map(|arg| arg.to_string_lossy().into_owned())
             .collect();
         assert_eq!(strings, ["--renderer", "all"]);
+    }
+
+    #[test]
+    fn a_shard_is_repeated_as_asked_and_chooses_its_own_suites() {
+        let asked = parse(&[
+            "--shard",
+            "kwin-others",
+            "--prebuilt",
+            "--repeat",
+            "2",
+            "--into",
+            "/tmp/runs",
+        ])
+        .unwrap();
+        let once = asked.once();
+        let strings: Vec<&str> = once[1..].iter().map(|arg| arg.to_str().unwrap()).collect();
+        assert_eq!(
+            strings,
+            ["--renderer", "all", "--shard", "kwin-others", "--prebuilt"]
+        );
+        let again = parse(&strings).unwrap();
+        assert_eq!(again.shard.as_deref(), Some("kwin-others"));
+        assert!(again.prebuilt);
+        for other in [&["kwin"][..], &["--suite", "xtask desktop"]] {
+            let line = [&["--shard", "sway"][..], other].concat();
+            assert!(parse(&line).is_err(), "{line:?}");
+        }
     }
 
     #[test]

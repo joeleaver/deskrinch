@@ -1,9 +1,8 @@
 //! The rule that every xtask test file whose tests are ignored for needing a
 //! compositor is run somewhere, kept by a check rather than by memory: by a
-//! suite of `SUITES` (`cargo xtask compositor-tests`), or by a
-//! `cargo test -p xtask … --test NAME … -- --ignored` command in CI's
-//! workflow (`.github/workflows/ci.yml`). A test file left out of both runs
-//! only when someone remembers to.
+//! suite of `SUITES` (`cargo xtask compositor-tests`), or as one of the
+//! session tests (`cargo xtask session-tests`, [`crate::session_tests`]).
+//! A test file left out of both runs only when someone remembers to.
 //!
 //! A test file is `xtask/tests/NAME.rs`, or `xtask/tests/NAME/main.rs` with
 //! the files beside it. It needs a compositor when a test in it is ignored
@@ -18,6 +17,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     use super::super::suites::SUITES;
+    use crate::session_tests::SESSION_TESTS;
 
     /// The workspace's root, above xtask's manifest.
     fn root() -> PathBuf {
@@ -61,27 +61,12 @@ mod tests {
         })
     }
 
-    /// The tests a `cargo test -p xtask … --test NAME …` command in
-    /// `workflow` runs.
-    fn run_by_workflow(workflow: &str) -> BTreeSet<String> {
-        workflow
-            .lines()
-            .filter(|line| line.contains("cargo test -p xtask"))
-            .flat_map(|line| {
-                let words: Vec<&str> = line.split_whitespace().collect();
-                words
-                    .windows(2)
-                    .filter(|pair| pair[0] == "--test")
-                    .map(|pair| pair[1].to_owned())
-                    .collect::<Vec<_>>()
-            })
-            .collect()
-    }
-
     #[test]
-    fn every_test_file_that_needs_a_compositor_is_run_by_a_suite_or_by_ci() {
-        let workflow = fs::read_to_string(root().join(".github/workflows/ci.yml")).unwrap();
-        let mut run: BTreeSet<String> = run_by_workflow(&workflow);
+    fn every_test_file_that_needs_a_compositor_is_run_by_a_suite_or_as_a_session_test() {
+        let mut run: BTreeSet<String> = SESSION_TESTS
+            .iter()
+            .map(|test| test.name.to_owned())
+            .collect();
         run.extend(
             SUITES
                 .iter()
@@ -102,13 +87,13 @@ mod tests {
             orphans.is_empty(),
             "xtask's test files {orphans:?} have tests ignored for needing a compositor, and \
              nothing runs them: add each to a suite in xtask/src/compositor_tests/suites/ (a \
-             row cargo xtask compositor-tests runs, named in its `SUITES`), or to the `cargo test -p xtask … --test …` \
-             command in .github/workflows/ci.yml"
+             row cargo xtask compositor-tests runs, named in its `SUITES`), or to `SESSION_TESTS` \
+             in xtask/src/session_tests.rs"
         );
     }
 
     #[test]
-    fn the_rule_reads_the_reasons_and_the_workflow_as_they_are_written() {
+    fn the_rule_reads_the_reasons_as_they_are_written() {
         assert!(needs_a_compositor(
             "    #[ignore = \"needs a compositor: set DESKRINCH_SESSION_TEST_COMPOSITOR\"]"
         ));
@@ -122,11 +107,5 @@ mod tests {
             "#[ignore = \"the stand-in measured by this file's tests\"]"
         ));
         assert!(!needs_a_compositor("//! None of it needs a compositor."));
-        let workflow = "      - run: cargo test -p xtask --test session --test measure --locked -- --ignored\n\
-                        \x20     - run: cargo test -p other --test unrelated\n";
-        assert_eq!(
-            run_by_workflow(workflow),
-            ["measure".to_owned(), "session".to_owned()].into()
-        );
     }
 }

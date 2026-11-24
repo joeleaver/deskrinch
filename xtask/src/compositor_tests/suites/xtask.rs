@@ -15,8 +15,10 @@ pub(in super::super) const INPUT_CLIENT: Target = Target {
 
 /// `cargo xtask desktop`, nested: its window opens in this session, which
 /// the binary closes through window management and types the launcher's
-/// chord into. Its output is shown, for what the edge test found inside
-/// the desktop (the desktop's own KWin's compositing type among it).
+/// chord into. Its programs are every component, which its tests give the
+/// desktop (`--component`) rather than have it build them. Its output is
+/// shown, for what the edge test found inside the desktop (the desktop's
+/// own KWin's compositing type among it).
 pub(super) const DESKTOP: Suite = Suite {
     target: Target {
         package: PACKAGE,
@@ -35,7 +37,12 @@ pub(super) const DESKTOP: Suite = Suite {
     compositors: ALL,
     passes: PLAIN,
     renders: false,
-    programs: &[],
+    programs: &[
+        &deskrinch_shell::WALLPAPER,
+        &deskrinch_shell::NOTIFICATIONS,
+        &deskrinch_shell::LAUNCHER,
+        &deskrinch_shell::PANEL,
+    ],
     filter: &[],
     output: Output::Shown,
 };
