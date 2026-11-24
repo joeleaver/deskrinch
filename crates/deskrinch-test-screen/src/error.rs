@@ -9,6 +9,10 @@ use crate::image::Image;
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum ConnectError {
+    /// The session's bus is not proved ours: KWin's screenshot service is
+    /// asked only inside an isolated session of ours.
+    #[error("refusing to ask for KWin's screenshot service: {0}")]
+    NotOurs(#[source] deskrinch_test_dbus::NotOurs),
     /// There is no compositor to connect to, or the connection failed.
     #[error("could not connect to the compositor")]
     Wayland(#[source] wayland_client::ConnectError),

@@ -1329,8 +1329,8 @@ dependencies = [
 name = "deskrinch-test-screen"
 version = "0.1.0"
 dependencies = [
- "deskrinch-bus",
  "deskrinch-test-client",
+ "deskrinch-test-dbus",
  "deskrinch-test-wait",
  "deskrinch-test-wayland",
  "rustix",
@@ -6628,6 +6628,7 @@ dependencies = [
  "ctrlc",
  "deskrinch-bus",
  "deskrinch-kwin-access",
+ "deskrinch-launcher-client",
  "deskrinch-shell",
  "deskrinch-test-client",
  "deskrinch-test-component",

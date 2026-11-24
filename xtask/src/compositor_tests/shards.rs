@@ -38,11 +38,11 @@ pub(crate) struct Shard {
 
 /// Every shard. KWin's notification suite (about 340 s on CI) goes beside
 /// the session and measure tests (about 180 s), and the rest of KWin's
-/// suites (about 600 s, the wallpaper's rows about 180 s of it) in a shard
-/// of their own; sway's and labwc's suites and tests fit one shard each
-/// (about 12 minutes). The wallpaper's rows stay with the rest: beside the
-/// notifications they would leave that shard about 300 s longer than the
-/// other.
+/// suites (about 550 s, the wallpaper's four rows about 110 s of it) in a
+/// shard of their own; sway's and labwc's suites and tests fit one shard
+/// each (about 11 minutes). The wallpaper's rows stay with the rest: the
+/// two KWin jobs took 9.6 and 9.4 minutes on CI (run 45311180710), and
+/// beside the notifications the rows would leave them about 220 s apart.
 pub(crate) const SHARDS: &[Shard] = &[
     Shard {
         name: "kwin-notifications",

@@ -11,6 +11,7 @@ use std::process::Command;
 use deskrinch_notification_service::NAME;
 use deskrinch_test_client::TestClient;
 use deskrinch_test_component::{Component, Renderer, programs};
+use deskrinch_test_dbus::OurBus;
 use deskrinch_test_input::Input;
 use deskrinch_test_notify::{Client, Signal};
 use deskrinch_test_screen::{Pictures, Rgba, Screen};
@@ -47,7 +48,7 @@ impl Notifications {
         // Its fit lines (`showing N, M waiting`) are at info level.
         command.env("RUST_LOG", "warn,deskrinch_notifications=info");
         let daemon = Component::start(command, Renderer::of_run()).unwrap();
-        let connection = zbus::block_on(zbus::Connection::session()).unwrap();
+        let connection = zbus::block_on(OurBus::here().unwrap().connect()).unwrap();
         let bus = zbus::block_on(DBusProxy::new(&connection)).unwrap();
         let owned = comes_true(|| {
             zbus::block_on(bus.get_connection_unix_process_id(NAME.try_into().unwrap()))

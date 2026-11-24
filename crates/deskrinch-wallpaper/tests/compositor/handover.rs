@@ -3,14 +3,12 @@
 //! each a new image under a new name in rinch's registry while the old is
 //! let go.
 //!
-//! It fails today. rinch loads a source a document has not shown before on
-//! a background thread, so the frame in which a window's style moves to the
-//! new name paints before the picture has come, and draws the colour alone:
-//! one such frame per hand-over, failing all 54 passes of three runs over
-//! KWin, sway and labwc (scale 1, scale 2, turned) with both renderers.
-//! rinch issue 2857: a registered `rinch-image:` source resolved in the
-//! frame that names it, with no thread hop. Against that change's branch
-//! the same 54 passes all pass.
+//! It holds rinch to resolving a registered `rinch-image:` source in the
+//! frame that names it (rinch issue 2857). Before rinch did, a source a
+//! document had not shown was loaded on a background thread, so the frame
+//! in which a window's style moved to the new name drew the colour alone:
+//! one such frame per hand-over, in all 54 passes of three runs over KWin,
+//! sway and labwc (scale 1, scale 2, turned) with both renderers.
 
 use std::fs;
 use std::path::Path;

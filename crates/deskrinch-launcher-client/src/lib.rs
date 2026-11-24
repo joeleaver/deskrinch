@@ -2,7 +2,9 @@
 //! is, what it offers, and the calls to it.
 //!
 //! Its callers are the launcher's own subcommands (`deskrinch-launcher
-//! toggle`, `show`, `hide` and `forget-starts`) and the launcher's tests.
+//! toggle`, `show`, `hide` and `forget-starts`), the launcher's tests, and
+//! xtask's desktop tests, which toggle the launcher and read whether it is
+//! shown without building it.
 //!
 //! # The interface
 //!
