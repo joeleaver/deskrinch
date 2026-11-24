@@ -182,9 +182,37 @@ pub const LAUNCHER_TOGGLE: Action = Action {
     args: &["toggle"],
 };
 
+/// The packages whose binaries the shell runs: each of [`COMPONENTS`], and
+/// what the key bindings run ([`LAUNCHER_TOGGLE`]), each once, in that
+/// order. What a build of the shell builds, and what a desktop runs.
+#[must_use]
+pub fn packages() -> Vec<&'static str> {
+    let mut packages: Vec<&'static str> = COMPONENTS.iter().map(|c| c.package).collect();
+    if !packages.contains(&LAUNCHER_TOGGLE.package) {
+        packages.push(LAUNCHER_TOGGLE.package);
+    }
+    packages
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_packages_are_the_components_and_the_bindings_each_once() {
+        let packages = packages();
+        for component in COMPONENTS {
+            assert_eq!(
+                packages.iter().filter(|p| **p == component.package).count(),
+                1,
+                "{}",
+                component.package
+            );
+        }
+        assert!(packages.contains(&LAUNCHER_TOGGLE.package));
+        let components: Vec<_> = COMPONENTS.iter().map(|c| c.package).collect();
+        assert_eq!(packages[..COMPONENTS.len()], components);
+    }
 
     #[test]
     fn every_component_is_a_distinct_package() {

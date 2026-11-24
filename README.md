@@ -87,6 +87,23 @@ cargo xtask compositor-tests --renderer software --suite "xtask desktop" \
     --repeat 20 --into "$(mktemp -d)" kwin
 ```
 
+CI builds once and runs in shards. Its build job runs `cargo xtask bundle
+build ARCHIVE`, which builds everything the suites and the session tests run
+(with line tables for debug information) and packs it into one tar.zst.
+Each shard job unpacks that archive at the workspace root, checks it
+(`target/debug/xtask bundle check`: built in this checkout, its files in
+place, every library its binaries load present), and runs one
+compositor's share of the suites from it, building nothing:
+
+```sh
+target/debug/xtask compositor-tests --renderer software --prebuilt --shard kwin-others
+```
+
+`cargo xtask compositor-shards` prints the shards (CI's matrix), and
+`--shard NAME` takes one of them. To run a CI failure's shard as CI does,
+build and unpack the bundle first. `--prebuilt` without the archive
+unpacked is an error that says so.
+
 `--renderer software` is CI's configuration on any machine: the run uses no
 GPU, and its sessions tell their clients so (`DESKRINCH_SESSION_GPU`, below).
 So the desktop tests' nested KWin composites in software (`QPainter`), as on
@@ -334,9 +351,12 @@ pins the same toolchain as deskrinch, so this works there; elsewhere, add
 `+<channel>` with the channel deskrinch's `rust-toolchain.toml` names.
 
 Its own tests start only isolated sessions; they need a compositor, so they
-are ignored by `cargo test`:
+are ignored by `cargo test`. `cargo xtask session-tests` runs them, with
+measure's, under one compositor, every binary whatever fails before it, as
+CI does; one binary alone:
 
 ```sh
+cargo xtask session-tests sway
 DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test session -- --ignored
 ```
 
@@ -572,7 +592,8 @@ Its end-to-end tests measure stand-in scripts in isolated sessions, and are
 ignored by `cargo test` like the session's (`measure_callgrind` needs
 Valgrind; `measure_typing` and `measure_pointer` drive a stand-in with the
 real input client; that the client's lines reach a window is
-`input_client`'s, run by `cargo xtask compositor-tests`):
+`input_client`'s, run by `cargo xtask compositor-tests`). `cargo xtask
+session-tests` runs all of them; some alone:
 
 ```sh
 DESKRINCH_SESSION_TEST_COMPOSITOR=sway cargo test -p xtask --test measure --test measure_start_ends --test measure_typing --test measure_pointer -- --ignored

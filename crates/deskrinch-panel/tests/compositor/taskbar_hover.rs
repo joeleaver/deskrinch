@@ -6,9 +6,7 @@
 //! colour (sampled in the bar's padding at its left end) before, and after
 //! the pointer has left the panel. Under the pointer it differs from the
 //! bar, and from the active window's button, whose mark is the theme's
-//! selected-option colour. In the light scheme rinch's theme gives the two
-//! the same colour (rinch issue 2727), so there the test asserts only that
-//! the mark comes and goes.
+//! selected-option colour, in both schemes.
 //!
 //! What each change costs is read from rinch's own counters on the panel's
 //! frame lines, round by round ([`frames::until_clean_round`]):
@@ -38,26 +36,24 @@ use crate::taskbar_clicks::open_active;
 /// How far apart, in some channel, two of the theme's flat colours must be
 /// on the screen to count as different: more than a compositor's rounding.
 /// Not the icons' [`near`] tolerance: the theme's hovered and selected
-/// options are neighbouring shades (in the dark scheme, 7 apart per
-/// channel), which that tolerance, made for telling icons apart, would
-/// call the same.
+/// options may be neighbouring shades, which that tolerance, made for
+/// telling icons apart, would call the same.
 const ROUNDING: u8 = 2;
 
-/// The hover in the dark scheme, where the hovered and the selected option
-/// differ: the mark differs from the bar and from the active mark.
+/// The hover in the dark scheme: the mark differs from the bar and from the
+/// active mark.
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_button_under_the_pointer_is_marked_until_it_leaves_dark() {
-    hover("dark", true);
+    hover("dark");
 }
 
-/// The hover in the light scheme: the mark comes and goes. That it differs
-/// from the active mark is left out: rinch's theme gives the hovered and
-/// the selected option the same colour there (rinch issue 2727).
+/// The hover in the light scheme: the mark differs from the bar and from
+/// the active mark.
 #[test]
 #[ignore = "needs a nested compositor: cargo xtask compositor-tests"]
 fn the_button_under_the_pointer_is_marked_until_it_leaves_light() {
-    hover("light", false);
+    hover("light");
 }
 
 /// The colours a step compares the button's against.
@@ -66,34 +62,45 @@ struct Colours {
     plain: Rgba,
     /// The active window's button's.
     active: Rgba,
-    /// Whether the hovered and the selected option differ in the scheme.
-    apart: bool,
 }
 
 /// Red's window, then green's, active; the pointer onto red's button, then
 /// off the panel, round after round until one after the first is clean.
-/// `apart` is whether the hovered and the selected option are different
-/// colours in `scheme`.
-fn hover(scheme: &str, apart: bool) {
+fn hover(scheme: &str) {
     let mut bar = Bar::start_in(scheme);
     let _red = open_active(&bar, RED, "red");
     let _green = open_active(&bar, GREEN, "green");
     let red = bar.wait_button(RED);
     let green = bar.wait_button(GREEN);
+    // The active window's mark is read while green is active, before the
+    // pointer goes to the bar's output: the windows are where the compositor
+    // opened them, which may be another output, and sway gives the keyboard
+    // to the workspace of an output the pointer enters (an empty one, then:
+    // no window is active after `point_off` there). Waited for on a still
+    // picture: red's mark going and green's coming are reported in turn.
+    let active = bar.judged("green's button marked as the active one", |_, image| {
+        let plain = sample(Bar::bar(image, green));
+        let active = sample(Bar::beside(image, green));
+        if near(active, plain) {
+            Err(format!(
+                "green's button is not marked: {active:?} against the bar's {plain:?}"
+            ))
+        } else {
+            Ok(active)
+        }
+    });
     bar.point_off();
-    // Green made active, red's button loses the active window's mark: a
-    // change that comes about, which a compositor may report a while after
-    // green has the keyboard (sway, on a pass, later than the still gap).
-    // It is waited for on a still picture, whose colours are then the ones
-    // compared with.
-    let (plain, active) = bar.judged(
-        "red's button the bar's colour, green's marked, before the pointer",
+    // Red's button has the bar's colour before the pointer: a change that
+    // comes about, which a compositor may report a while after green has
+    // the keyboard (sway, on a pass, later than the still gap). It is waited
+    // for on a still picture, whose bar colour is then the one compared with.
+    let plain = bar.judged(
+        "red's button the bar's colour before the pointer",
         |_, image| {
             let plain = sample(Bar::bar(image, red));
             let before = sample(Bar::beside(image, red));
-            let active = sample(Bar::beside(image, green));
             if near(before, plain) {
-                Ok((plain, active))
+                Ok(plain)
             } else {
                 Err(format!(
                     "red's button is not the bar's colour before the pointer: {before:?} against \
@@ -102,11 +109,7 @@ fn hover(scheme: &str, apart: bool) {
             }
         },
     );
-    let colours = Colours {
-        plain,
-        active,
-        apart,
-    };
+    let colours = Colours { plain, active };
     let window = bar.panel().window_on(bar.output());
     let from = frames::step(bar.panel());
     frames::until_clean_round(
@@ -143,13 +146,11 @@ fn point_onto(bar: &mut Bar, red: (u32, u32, u32, u32), colours: &Colours) {
         "the mark is the bar's colour: {hovered:?} against {:?}",
         colours.plain
     );
-    if colours.apart {
-        assert!(
-            apart_from(hovered, colours.active),
-            "the mark is the active button's colour: {hovered:?} against {:?}",
-            colours.active
-        );
-    }
+    assert!(
+        apart_from(hovered, colours.active),
+        "the mark is the active button's colour: {hovered:?} against {:?}",
+        colours.active
+    );
 }
 
 /// The pointer off the panel: returns once red's mark has gone and the

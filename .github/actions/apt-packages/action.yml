@@ -11,6 +11,13 @@ inputs:
   packages:
     description: Space-separated Ubuntu package names.
     required: true
+  xtask:
+    description: >-
+      How to run xtask: `cargo xtask` (built here), or the path of a built
+      xtask binary in a job that builds nothing, such as a compositor-test
+      shard's, from its bundle.
+    required: false
+    default: cargo xtask
 
 # The cache holds the `.deb` files apt would fetch for the packages on this
 # runner image, under a key `ci-packages update` names after those files
@@ -30,9 +37,11 @@ runs:
       shell: bash
       env:
         PACKAGES: ${{ inputs.packages }}
-      # Word splitting of the list into package names is intended.
+        XTASK: ${{ inputs.xtask }}
+      # Word splitting of the command and of the list into package names is
+      # intended.
       # shellcheck disable=SC2086
-      run: cargo xtask ci-packages update $PACKAGES
+      run: $XTASK ci-packages update $PACKAGES
     - name: Restore the packages
       id: restore
       if: steps.plan.outputs.files != '0'
@@ -50,7 +59,10 @@ runs:
         restore-keys: ${{ steps.plan.outputs.restore-key }}
     - name: Install the packages
       shell: bash
-      run: cargo xtask ci-packages install
+      env:
+        XTASK: ${{ inputs.xtask }}
+      # shellcheck disable=SC2086
+      run: $XTASK ci-packages install
     - name: Save the packages
       if: >-
         github.ref == 'refs/heads/main' && steps.plan.outputs.files != '0'

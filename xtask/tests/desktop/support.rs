@@ -15,6 +15,7 @@ use deskrinch_bus::Bus;
 use deskrinch_launcher_client::{Answer, Request, Showing, send, shown};
 use deskrinch_shell::{Key as ShellKey, Modifier};
 use deskrinch_test_client::Compositor;
+use deskrinch_test_component::programs;
 use deskrinch_test_dbus::OurBus;
 use deskrinch_test_input::Key;
 use deskrinch_test_kwin::Kwin;
@@ -22,7 +23,8 @@ use deskrinch_test_wait::{Deadline, PATIENCE, POLL, eventually};
 use deskrinch_window_management::WindowManagement;
 use rustix::process::{Pid, Signal, kill_process};
 
-/// How long a desktop has to be ready: the first builds its components.
+/// How long a desktop has to be ready: far beyond a start's own length on
+/// a slow runner.
 pub(crate) const READY: Duration = Duration::from_mins(15);
 
 /// A running `cargo xtask desktop`, as its lines on standard output
@@ -38,16 +40,23 @@ pub(crate) struct Desktop {
     _dir: tempfile::TempDir,
 }
 
-/// `cargo xtask desktop` under the session's compositor, its
-/// components unoptimised and drawing in software, with `options`, and
-/// `command` after `--` when there is one.
+/// `cargo xtask desktop` under the session's compositor, running the
+/// components the run handed this suite ([`programs::program`]) and
+/// drawing in software, with `options`, and `command` after `--` when
+/// there is one.
 pub(crate) fn desktop_command(options: &[&str], command: &[&str], stderr: &Path) -> Command {
     let compositor = Compositor::current();
     let mut xtask = Command::new(env!("CARGO_BIN_EXE_xtask"));
     xtask
         .args(["desktop", compositor_name(compositor)])
-        .args(["--debug", "--renderer", "software"])
-        .args(options);
+        .args(["--renderer", "software"]);
+    for package in deskrinch_shell::packages() {
+        let path = programs::program(package).unwrap_or_else(|error| panic!("{error}"));
+        xtask
+            .arg("--component")
+            .arg(format!("{package}={}", path.display()));
+    }
+    xtask.args(options);
     if !command.is_empty() {
         xtask.arg("--").args(command);
     }

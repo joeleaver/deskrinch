@@ -76,6 +76,12 @@ pub(crate) enum Error {
     /// The compositor tests' suites or test asked for cannot run.
     #[error(transparent)]
     Selection(#[from] crate::compositor_tests::selection::SelectionError),
+
+    #[error(transparent)]
+    Shard(#[from] crate::compositor_tests::shards::ShardError),
+
+    #[error(transparent)]
+    Bundle(#[from] crate::compositor_tests::bundle::BundleError),
     /// A repeat's directory already holds something.
     #[error(
         "{} is not empty: each repeat writes its runs' output to a directory of its own",
