@@ -902,6 +902,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "deskrinch-bars"
+version = "0.1.0"
+dependencies = [
+ "deskrinch-untrusted",
+ "proptest",
+]
+
+[[package]]
 name = "deskrinch-bus"
 version = "0.1.0"
 dependencies = [

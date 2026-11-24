@@ -1,0 +1,17 @@
+[package]
+name = "deskrinch-bars"
+description = "A bar on each output, without a UI: the bars there are, and which bars show something on a set of named outputs."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dev-dependencies]
+# The property tests' configuration, shared with the other crates.
+deskrinch-untrusted = { workspace = true, features = ["proptest"] }
+proptest.workspace = true
+
+[lints]
+workspace = true
