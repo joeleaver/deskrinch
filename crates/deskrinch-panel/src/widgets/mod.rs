@@ -10,6 +10,8 @@ mod taskbar;
 pub(crate) use clock::ClockText;
 pub(crate) use clock::{ClockWidget, follow as follow_clock};
 pub(crate) use switcher::{Following as FollowedWorkspaces, Runs, SwitcherWidget};
+#[cfg(test)]
+pub(crate) use taskbar::apply_window_change;
 pub(crate) use taskbar::{
     AppIcons, BarOutput, BarOutputs, Buttons, Following as FollowedWindows, TaskbarWidget,
     follow_graces,

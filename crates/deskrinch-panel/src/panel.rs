@@ -234,3 +234,7 @@ fn output_bar(
 #[cfg(test)]
 #[path = "bars_tests.rs"]
 mod bars_tests;
+
+#[cfg(test)]
+#[path = "bars_taskbar_tests.rs"]
+mod bars_taskbar_tests;

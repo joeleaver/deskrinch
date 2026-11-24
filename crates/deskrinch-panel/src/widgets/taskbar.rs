@@ -30,6 +30,8 @@ mod follow;
 mod grace;
 
 pub(crate) use button::AppIcons;
+#[cfg(test)]
+pub(crate) use follow::apply as apply_window_change;
 pub(crate) use follow::{Buttons, Following};
 pub(crate) use grace::{GraceClock, follow as follow_graces};
 
