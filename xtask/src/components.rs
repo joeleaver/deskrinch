@@ -1,9 +1,10 @@
 //! The shell's components, built for use: every one of
-//! `deskrinch_shell::COMPONENTS` and what the key bindings run, in one
-//! `cargo build` of their own, with the profile as the only choice. One
-//! home for that build, which `cargo xtask desktop`, `cargo xtask
-//! compositor-tests` and `cargo xtask build-components` (CI's measure steps)
-//! all use.
+//! [`deskrinch_shell::packages`], in one `cargo build` of their own, with
+//! the profile as the only choice. One home for that build, which `cargo
+//! xtask desktop`, `cargo xtask compositor-tests`, the compositor tests'
+//! bundle for CI (`cargo xtask bundle build`) and `cargo xtask
+//! build-components` all use. A desktop can also be given them, built
+//! elsewhere ([`Built::given`]).
 //!
 //! One invocation for all of them, always the same one: features unify over
 //! the packages one invocation builds, so a build of some of them could give
@@ -15,8 +16,6 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-
-use deskrinch_shell::{COMPONENTS, LAUNCHER_TOGGLE};
 
 use crate::cargo_messages::{self, Kind};
 
@@ -48,6 +47,21 @@ pub(crate) enum BuildError {
         /// The package.
         package: &'static str,
     },
+    /// A `--component` that is not `PACKAGE=PATH`.
+    #[error("--component {0}: give PACKAGE=PATH, PACKAGE one of the shell's components")]
+    NotUnderstood(String),
+    /// A component given twice.
+    #[error("{package} is given twice")]
+    GivenTwice {
+        /// The package.
+        package: &'static str,
+    },
+    /// A component not given, when the others are.
+    #[error("{package} is not given: give every component, or none to build them")]
+    NotGiven {
+        /// The package.
+        package: &'static str,
+    },
     /// A binary was asked for that is not one of the components'.
     #[error("{package} is none of the shell's components ({packages})")]
     Unknown {
@@ -58,12 +72,21 @@ pub(crate) enum BuildError {
     },
 }
 
-/// What [`build`] built: every one of [`packages`]' binaries, and the target
-/// directory Cargo put them in.
+/// What [`build`] built: every one of [`packages`]' binaries, and the
+/// target directory Cargo put them in.
+#[derive(Debug, Clone)]
+pub(crate) struct Build {
+    /// The binaries.
+    pub(crate) built: Built,
+    /// The target directory (they are in its `<profile>/`).
+    pub(crate) target: PathBuf,
+}
+
+/// Every one of [`packages`]' binaries: built ([`build`]), or given
+/// ([`Built::given`]).
 #[derive(Debug, Clone)]
 pub(crate) struct Built {
     binaries: BTreeMap<&'static str, PathBuf>,
-    target: PathBuf,
 }
 
 impl Built {
@@ -86,10 +109,36 @@ impl Built {
             .map(|(&package, binary)| (package, binary.as_path()))
     }
 
-    /// The target directory Cargo put the binaries in (they are in its
-    /// `<profile>/`).
-    pub(crate) fn target_dir(&self) -> &Path {
-        &self.target
+    /// The binaries `asked` gives, each `PACKAGE=PATH`: every one of
+    /// [`packages`], each once, built elsewhere (`cargo xtask desktop
+    /// --component`).
+    ///
+    /// # Errors
+    ///
+    /// When one is not `PACKAGE=PATH`, names none of [`packages`], is given
+    /// twice, or one of [`packages`] is not given.
+    pub(crate) fn given(asked: &[String]) -> Result<Self, BuildError> {
+        let mut binaries = BTreeMap::new();
+        for text in asked {
+            let (package, path) = text
+                .split_once('=')
+                .filter(|(package, path)| !package.is_empty() && !path.is_empty())
+                .ok_or_else(|| BuildError::NotUnderstood(text.clone()))?;
+            let package = packages()
+                .into_iter()
+                .find(|known| *known == package)
+                .ok_or_else(|| unknown(package))?;
+            if binaries.insert(package, PathBuf::from(path)).is_some() {
+                return Err(BuildError::GivenTwice { package });
+            }
+        }
+        if let Some(package) = packages()
+            .into_iter()
+            .find(|package| !binaries.contains_key(package))
+        {
+            return Err(BuildError::NotGiven { package });
+        }
+        Ok(Self { binaries })
     }
 
     /// Every package's binary as if built under `target`'s `debug`, for
@@ -100,10 +149,7 @@ impl Built {
             .into_iter()
             .map(|package| (package, target.join("debug").join(package)))
             .collect();
-        Self {
-            binaries,
-            target: target.to_owned(),
-        }
+        Self { binaries }
     }
 }
 
@@ -115,14 +161,9 @@ fn unknown(package: &str) -> BuildError {
     }
 }
 
-/// The packages whose binaries the shell runs: the components, and what the
-/// key bindings run, each once, in that order.
+/// The packages whose binaries the shell runs ([`deskrinch_shell::packages`]).
 pub(crate) fn packages() -> Vec<&'static str> {
-    let mut packages: Vec<&'static str> = COMPONENTS.iter().map(|c| c.package).collect();
-    if !packages.contains(&LAUNCHER_TOGGLE.package) {
-        packages.push(LAUNCHER_TOGGLE.package);
-    }
-    packages
+    deskrinch_shell::packages()
 }
 
 /// The arguments of the `cargo` invocation that builds [`packages`] with
@@ -142,7 +183,7 @@ fn cargo_args(profile: Profile) -> Vec<&'static str> {
 /// Builds [`packages`] with `profile` in the workspace at `root`, Cargo's
 /// progress on standard error; returns each package's binary, where Cargo
 /// put it.
-pub(crate) fn build(root: &Path, profile: Profile) -> Result<Built, BuildError> {
+pub(crate) fn build(root: &Path, profile: Profile) -> Result<Build, BuildError> {
     let output = crate::cargo::command()
         .current_dir(root)
         .args(cargo_args(profile))
@@ -171,7 +212,10 @@ pub(crate) fn build(root: &Path, profile: Profile) -> Result<Built, BuildError> 
             .clone_into(&mut target);
         binaries.insert(package, binary);
     }
-    Ok(Built { binaries, target })
+    Ok(Build {
+        built: Built { binaries },
+        target,
+    })
 }
 
 /// `cargo xtask build-components`: builds them all, and prints `package`'s
@@ -193,7 +237,7 @@ pub(crate) fn run(
     } else {
         Profile::Dev
     };
-    let built = build(root, profile)?;
+    let built = build(root, profile)?.built;
     match package {
         Some(package) => println!("{}", built.binary(package)?.display()),
         None => {
@@ -210,17 +254,37 @@ mod tests {
     use super::*;
 
     #[test]
-    fn builds_every_component_and_what_the_bindings_run_once() {
-        let packages = packages();
-        for component in COMPONENTS {
-            assert_eq!(
-                packages.iter().filter(|p| **p == component.package).count(),
-                1,
-                "{}",
-                component.package
+    fn components_given_are_every_one_each_once() {
+        let every: Vec<String> = packages()
+            .iter()
+            .map(|package| format!("{package}=/b/{package}"))
+            .collect();
+        let given = Built::given(&every).unwrap();
+        assert_eq!(
+            given.binary("deskrinch-panel").unwrap(),
+            Path::new("/b/deskrinch-panel")
+        );
+        assert!(matches!(
+            Built::given(&every[1..]),
+            Err(BuildError::NotGiven { .. })
+        ));
+        let twice = [every.clone(), vec![every[0].clone()]].concat();
+        assert!(matches!(
+            Built::given(&twice),
+            Err(BuildError::GivenTwice { .. })
+        ));
+        for wrong in ["deskrinch-panel", "=/b/x", "deskrinch-panel="] {
+            let asked = [vec![wrong.to_owned()], every.clone()].concat();
+            assert!(
+                matches!(Built::given(&asked), Err(BuildError::NotUnderstood(_))),
+                "{wrong}"
             );
         }
-        assert!(packages.contains(&LAUNCHER_TOGGLE.package));
+        let unknown = [vec!["deskrinch-nothing=/b/x".to_owned()], every].concat();
+        assert!(matches!(
+            Built::given(&unknown),
+            Err(BuildError::Unknown { .. })
+        ));
     }
 
     #[test]

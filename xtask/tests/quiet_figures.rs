@@ -11,6 +11,15 @@
 //! the starved process at idle priority with `chrt --idle 0`; the spinner
 //! is killed at the end, so nothing waits on luck.
 //!
+//! The idle stand-in is sampled only once it has finished starting: once
+//! it is `sleep` and asleep (`S`). Sampled at once, a forked child can be
+//! part-way through its exec, still running or in `D`. The wait gives up
+//! after about 5 s, printing why, and the test fails. The starved stand-in
+//! is sampled at once: every step of its start (`taskset`, `chrt`, the
+//! starved `sh`) is as runnable as the loop, and at idle priority beside
+//! the spinner its exec alone can take seconds, after which it may not run
+//! again within the phase to show that it has waited.
+//!
 //! Ignored by a plain `cargo test`; name the compositor:
 //!
 //! ```sh
@@ -27,8 +36,11 @@ mod quiet_figures {
             .expect("set DESKRINCH_SESSION_TEST_COMPOSITOR to kwin, sway or labwc")
     }
 
-    /// Run in the session: prints, every 100 ms, `LABEL TID STATE RUN WAIT`
-    /// for each thread of each process given as `LABEL=PID`.
+    /// Run in the session: `sample` prints, every 100 ms,
+    /// `LABEL TID STATE RUN WAIT` for each thread of each process given as
+    /// `LABEL=PID`; `settle` waits for a process just started to run the
+    /// program it was started for, in the state asked, or exits with the
+    /// reason.
     const SAMPLE: &str = r#"
 sample() { # polls, then LABEL=PID...
     local polls=$1; shift
@@ -43,6 +55,19 @@ sample() { # polls, then LABEL=PID...
         done
         sleep 0.1
     done
+}
+settle() { # PID COMM [STATE]: waits, at most 5 s, until PID runs COMM (in STATE)
+    local pid=$1 comm=$2 want=${3:-} now state
+    for i in $(seq 1 50); do
+        now=$(cat /proc/"$pid"/comm 2>/dev/null)
+        state=$(sed 's/.*) //' /proc/"$pid"/stat 2>/dev/null | cut -d' ' -f1)
+        if [ "$now" = "$comm" ] && { [ -z "$want" ] || [ "$state" = "$want" ]; }; then
+            return 0
+        fi
+        sleep 0.1
+    done
+    echo "unsettled: $pid is '$now' in state '$state' after 5 s, not '$comm'${want:+ in state $want}"
+    exit 1
 }
 "#;
 
@@ -59,6 +84,7 @@ echo "compositor $comp $(cat /proc/$comp/comm), bus $bus $(cat /proc/$bus/comm 2
 echo "compositor's children (task/*/children): $(cat /proc/$comp/task/*/children 2>&1 | tr '\n' ' ')"
 echo "tools: $(command -v taskset) $(command -v chrt)"
 sleep 300 & idle=$!
+settle $idle sleep S
 echo "phase idle"
 sample 10 stand-in=$idle compositor=$comp bus=$bus
 taskset -c $cpu sh -c 'while :; do :; done' & spin=$!
