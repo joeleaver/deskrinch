@@ -10,7 +10,7 @@ use super::bundle::Bundle;
 use super::granted;
 use super::run_dir::RunDir;
 use super::selection::Selection;
-use super::suites::SUITES;
+use super::suites::{Grant, SUITES};
 use crate::components::{self, Profile};
 use crate::error::Error;
 
@@ -25,6 +25,18 @@ pub(super) struct Built {
     pub(super) granted: BTreeMap<usize, Vec<(&'static str, PathBuf)>>,
     pub(super) programs: BTreeMap<&'static str, PathBuf>,
     _kept: Option<RunDir>,
+}
+
+/// What KWin grants the binary of `row`'s suite: its own grant, or, for a
+/// binary run by more than one row, the one row that declares it
+/// (`suites::tests::each_binary_is_granted_at_most_once`), so that a run
+/// that chooses only another of its rows grants it too.
+fn grant_of(row: usize) -> Option<&'static Grant> {
+    let target = &SUITES[row].target;
+    SUITES
+        .iter()
+        .filter(|suite| suite.target == *target)
+        .find_map(|suite| suite.grant.as_ref())
 }
 
 /// Whether the suites of `rows` declare a program, and so whether the run
@@ -110,15 +122,20 @@ impl Built {
         })
     }
 
-    /// Installs, for each chosen suite KWin grants something, the one
-    /// desktop file that grants its binary all of it; and for each program
-    /// they declare, what the shell grants that component
-    /// ([`crate::grant`]).
+    /// Installs, for each chosen suite whose binary KWin grants something
+    /// ([`grant_of`]), the one desktop file that grants it all of it, once
+    /// per binary; and for each program they declare, what the shell grants
+    /// that component ([`crate::grant`]).
     pub(super) fn grant_all(&self, data_home: &Path) -> Result<(), Error> {
+        let mut granted_targets = Vec::new();
         for (&row, binary) in &self.tests {
-            let Some(grant) = &SUITES[row].grant else {
+            let Some(grant) = grant_of(row) else {
                 continue;
             };
+            if granted_targets.contains(&&SUITES[row].target) {
+                continue;
+            }
+            granted_targets.push(&SUITES[row].target);
             let entry =
                 crate::grant::client(grant.id, grant.name, binary, grant.wayland, grant.dbus)?;
             crate::grant::install_entry(&entry, data_home)?;
@@ -147,6 +164,28 @@ mod tests {
             .iter()
             .position(|suite| suite.target.name() == name)
             .unwrap_or_else(|| panic!("no suite named {name}"))
+    }
+
+    /// Every row of a binary is granted what its one declaring row grants:
+    /// the wallpaper's row on the pass with outputs of its own declares no
+    /// grant, and a run of that row alone still grants the binary.
+    #[test]
+    fn every_row_of_a_granted_binary_is_granted() {
+        let rows: Vec<usize> = SUITES
+            .iter()
+            .enumerate()
+            .filter(|(_, suite)| suite.target.name() == "deskrinch-wallpaper compositor")
+            .map(|(row, _)| row)
+            .collect();
+        assert_eq!(rows.len(), 2, "control: the wallpaper has two rows");
+        assert!(
+            rows.iter().any(|&row| SUITES[row].grant.is_none()),
+            "control"
+        );
+        for row in rows {
+            let grant = grant_of(row).expect("granted");
+            assert_eq!(grant.id, "org.deskrinch.WallpaperTests");
+        }
     }
 
     #[test]

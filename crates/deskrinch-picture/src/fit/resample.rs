@@ -15,20 +15,23 @@
 //! - **Alpha premultiplied only where there is alpha:** an opaque picture
 //!   (a photograph) is found so once, and resampled without a premultiplied
 //!   copy.
-//! - **One axis at a time.** `fast_image_resize` 6.1.0, given both axes at
-//!   once, shifts the second pass's bounds by the first output pixel's
-//!   first source pixel (`resizer.rs:433–436`, `464–467`), which is not the
-//!   least of them when that pixel's first weight is exactly zero and is
-//!   skipped (`convolution/mod.rs:147–149`): a 4 × 1 picture covering a
-//!   27 × 26 target underflows there. A pass that changes one axis only
-//!   uses the bounds as they are, so each axis is a pass of its own, with
-//!   the premultiplication done once around both.
+//! - **One axis at a time,** each a pass of its own, with the
+//!   premultiplication done once around both. Measured on
+//!   `fast_image_resize` 6.2.0 against one call over both axes: on the box
+//!   path the bytes are the same; on the Catmull-Rom path one call differs
+//!   by up to 28 levels on noise, fails the scalar reference test
+//!   (`fit_reference_tests`), and costs 12 to 23% more instructions. (6.1.0
+//!   underflowed on one call over both axes, upstream issue 63, fixed in
+//!   6.2.0.)
 
-use deskrinch_untrusted::Image;
-use fast_image_resize::images::{Image as Pixels, ImageRef};
+use std::sync::Arc;
+
+use deskrinch_untrusted::{Image, SHARED_HEADER_BYTES, zeroed_pixels};
+use fast_image_resize::images::{Image as Pixels, ImageRef, TypedImage, TypedImageRef};
+use fast_image_resize::pixels::{U8x4, U16x4};
 use fast_image_resize::{
-    CropBox, FilterType, IntoImageView, MulDiv, PixelType, ResizeAlg, ResizeOptions, Resizer,
-    SrcCropping, create_srgb_mapper,
+    CropBox, FilterType, ImageView, ImageViewMut, MulDiv, PixelTrait, PixelType, ResizeAlg,
+    ResizeOptions, Resizer, SrcCropping, create_srgb_mapper,
 };
 
 use super::{FitError, working};
@@ -56,7 +59,7 @@ pub(super) fn resample(
     size: (u32, u32),
     beside: usize,
     limits: &Limits,
-) -> Result<Vec<u8>, FitError> {
+) -> Result<Arc<[u8]>, FitError> {
     let opaque = image
         .rgba()
         .as_chunks::<4>()
@@ -95,7 +98,7 @@ pub(super) fn smaller_in_bands(
     opaque: bool,
     beside: usize,
     limits: &Limits,
-) -> Result<Vec<u8>, FitError> {
+) -> Result<Arc<[u8]>, FitError> {
     let (dw, dh) = (size.0 as usize, size.1 as usize);
     let sw = image.width() as usize;
     let per_row = crop.height / f64::from(size.1);
@@ -113,6 +116,7 @@ pub(super) fn smaller_in_bands(
     let needed = dw
         .checked_mul(dh)
         .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_add(SHARED_HEADER_BYTES))
         .and_then(|n| n.checked_add(beside))
         .and_then(|n| n.checked_add(sw.checked_mul(band_source)?.checked_mul(8)?))
         .and_then(|n| n.checked_add(dw.checked_mul(band_source)?.checked_mul(8)?))
@@ -122,7 +126,9 @@ pub(super) fn smaller_in_bands(
 
     let mapper = create_srgb_mapper();
     let mut resizer = Resizer::new();
-    let mut target = vec![0; dw * dh * 4];
+    // The result's own shared buffer, written in place.
+    let mut result = zeroed_pixels(dw * dh * 4);
+    let target = Arc::make_mut(&mut result);
     let source_height = f64::from(image.height());
     let mut r0 = 0;
     while r0 < size.1 {
@@ -147,7 +153,7 @@ pub(super) fn smaller_in_bands(
         mapper.forward_map(&band, &mut linear).map_err(refused)?;
         if !opaque {
             MulDiv::default()
-                .multiply_alpha_inplace(&mut linear)
+                .multiply_alpha_inplace_typed(&mut typed_mut::<U16x4>(&mut linear)?)
                 .map_err(refused)?;
         }
         let band_top = top - f64::from(b0);
@@ -158,27 +164,29 @@ pub(super) fn smaller_in_bands(
             height: (bottom - top).min(f64::from(b1 - b0) - band_top),
         };
         let mut out = Pixels::new(size.0, r1 - r0, PixelType::U16x4);
-        two_passes(
-            &mut resizer,
-            &linear,
-            band_crop,
-            &mut out,
-            PixelType::U16x4,
-            FilterType::Box,
-        )?;
-        drop(linear);
-        if !opaque {
-            MulDiv::default()
-                .divide_alpha_inplace(&mut out)
-                .map_err(refused)?;
+        {
+            let mut typed_out = typed_mut::<U16x4>(&mut out)?;
+            two_passes(
+                &mut resizer,
+                &typed::<U16x4>(&linear)?,
+                band_crop,
+                &mut typed_out,
+                FilterType::Box,
+            )?;
+            if !opaque {
+                MulDiv::default()
+                    .divide_alpha_inplace_typed(&mut typed_out)
+                    .map_err(refused)?;
+            }
         }
+        drop(linear);
         let rows_out = &mut target[r0 as usize * dw * 4..r1 as usize * dw * 4];
         let mut rows_out =
             Pixels::from_slice_u8(size.0, r1 - r0, rows_out, PixelType::U8x4).map_err(refused)?;
         mapper.backward_map(&out, &mut rows_out).map_err(refused)?;
         r0 = r1;
     }
-    Ok(target)
+    Ok(result)
 }
 
 /// The larger path.
@@ -189,7 +197,7 @@ fn larger(
     opaque: bool,
     beside: usize,
     limits: &Limits,
-) -> Result<Vec<u8>, FitError> {
+) -> Result<Arc<[u8]>, FitError> {
     let (dw, dh) = (size.0 as usize, size.1 as usize);
     let source = image.width() as usize * image.height() as usize;
     // The target; a premultiplied copy of the source where it has alpha;
@@ -197,15 +205,19 @@ fn larger(
     let needed = dw
         .checked_mul(dh)
         .and_then(|n| n.checked_mul(4))
+        .and_then(|n| n.checked_add(SHARED_HEADER_BYTES))
         .and_then(|n| n.checked_add(beside))
         .and_then(|n| n.checked_add(if opaque { 0 } else { source.checked_mul(4)? }))
         .and_then(|n| n.checked_add(dw.checked_mul(image.height() as usize)?.checked_mul(4)?))
         .and_then(|n| n.checked_add(RESAMPLER_BYTES));
     working(needed, limits)?;
 
-    let source = ImageRef::new(image.width(), image.height(), image.rgba(), PixelType::U8x4)
+    let source = TypedImageRef::<U8x4>::from_buffer(image.width(), image.height(), image.rgba())
         .map_err(refused)?;
-    let mut target = Pixels::new(size.0, size.1, PixelType::U8x4);
+    // The result's own shared buffer, written in place.
+    let mut result = zeroed_pixels(dw * dh * 4);
+    let mut target = TypedImage::<U8x4>::from_buffer(size.0, size.1, Arc::make_mut(&mut result))
+        .map_err(refused)?;
     let mut resizer = Resizer::new();
     if opaque {
         two_passes(
@@ -213,44 +225,59 @@ fn larger(
             &source,
             crop,
             &mut target,
-            PixelType::U8x4,
             FilterType::CatmullRom,
         )?;
     } else {
-        let mut premultiplied = Pixels::new(image.width(), image.height(), PixelType::U8x4);
+        let mut premultiplied = TypedImage::<U8x4>::new(image.width(), image.height());
         MulDiv::default()
-            .multiply_alpha(&source, &mut premultiplied)
+            .multiply_alpha_typed(&source, &mut premultiplied)
             .map_err(refused)?;
         two_passes(
             &mut resizer,
             &premultiplied,
             crop,
             &mut target,
-            PixelType::U8x4,
             FilterType::CatmullRom,
         )?;
         drop(premultiplied);
         MulDiv::default()
-            .divide_alpha_inplace(&mut target)
+            .divide_alpha_inplace_typed(&mut target)
             .map_err(refused)?;
     }
-    Ok(target.into_vec())
+    drop(target);
+    Ok(result)
+}
+
+/// `image`'s pixels seen as `P`. The smaller path's images are made as `P`
+/// for the sRGB mapper, which takes untyped images only; seen as another
+/// type, they are refused.
+fn typed<'a, P: PixelTrait>(image: &'a Pixels<'_>) -> Result<TypedImageRef<'a, P>, FitError> {
+    image
+        .typed_image()
+        .ok_or_else(|| refused("an image seen as a pixel type it was not made as"))
+}
+
+/// [`typed`], to write.
+fn typed_mut<'a, P: PixelTrait>(image: &'a mut Pixels<'_>) -> Result<TypedImage<'a, P>, FitError> {
+    image
+        .typed_image_mut()
+        .ok_or_else(|| refused("an image seen as a pixel type it was not made as"))
 }
 
 /// `crop` of `source` resampled into `target` with `filter`, one axis at a
 /// time (see the module's documentation): the columns over all of the
 /// source's rows, then the rows. Alpha is not touched: the caller has
-/// premultiplied it.
-fn two_passes(
+/// premultiplied it. Typed, so that only the pixel types used here are
+/// compiled, not the resampler's every one.
+fn two_passes<P: PixelTrait>(
     resizer: &mut Resizer,
-    source: &impl IntoImageView,
+    source: &impl ImageView<Pixel = P>,
     crop: CropBox,
-    target: &mut Pixels<'_>,
-    pixels: PixelType,
+    target: &mut impl ImageViewMut<Pixel = P>,
     filter: FilterType,
 ) -> Result<(), FitError> {
     let rows = source.height();
-    let mut columns = Pixels::new(target.width(), rows, pixels);
+    let mut columns = TypedImage::<P>::new(target.width(), rows);
     let across = CropBox {
         left: crop.left,
         top: 0.0,
@@ -258,7 +285,7 @@ fn two_passes(
         height: f64::from(rows),
     };
     resizer
-        .resize(source, &mut columns, &options(across, filter))
+        .resize_typed(source, &mut columns, &options(across, filter))
         .map_err(refused)?;
     let down = CropBox {
         left: 0.0,
@@ -267,7 +294,7 @@ fn two_passes(
         height: crop.height,
     };
     resizer
-        .resize(&columns, target, &options(down, filter))
+        .resize_typed(&columns, target, &options(down, filter))
         .map_err(refused)
 }
 

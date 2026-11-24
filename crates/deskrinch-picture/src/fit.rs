@@ -28,7 +28,9 @@
 //! checked before anything is allocated. The source is the caller's and is
 //! not counted.
 
-use deskrinch_untrusted::Image;
+use std::sync::Arc;
+
+use deskrinch_untrusted::{Image, held, zeroed_pixels};
 use fast_image_resize::CropBox;
 
 use crate::limits::Limits;
@@ -58,6 +60,18 @@ pub enum Fit {
 /// Why a picture was not fitted.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum FitError {
+    /// The part asked of [`crop`] is not all within the picture.
+    #[error("a part {width}×{height} at ({x}, {y}) is not within the picture")]
+    Outside {
+        /// Its left edge.
+        x: u32,
+        /// Its top edge.
+        y: u32,
+        /// Its width.
+        width: u32,
+        /// Its height.
+        height: u32,
+    },
     /// The target has a side of 0 or over `max_side`.
     #[error("a target of {width}×{height}: a side is 0 or over {max_side}")]
     Dimensions {
@@ -130,24 +144,31 @@ pub fn fit(
             let scale = (f64::from(width) / sw).min(f64::from(height) / sh);
             let inner = (scaled(sw, scale, width), scaled(sh, scale, height));
             // The canvas is allocated while the resampled picture is too.
-            let picture = resample(image, whole, inner, target, limits)?;
-            let mut canvas = vec![0; target];
+            let picture = resample(image, whole, inner, held(target), limits)?;
+            let mut canvas = zeroed_pixels(target);
             let at = (
                 i64::from((width - inner.0) / 2),
                 i64::from((height - inner.1) / 2),
             );
-            copy(&mut canvas, width, height, &picture, inner, at);
+            copy(
+                Arc::make_mut(&mut canvas),
+                width,
+                height,
+                &picture,
+                inner,
+                at,
+            );
             canvas
         }
         Fit::Centre => {
-            working(Some(target), limits)?;
-            let mut canvas = vec![0; target];
+            working(Some(held(target)), limits)?;
+            let mut canvas = zeroed_pixels(target);
             let at = (
                 (i64::from(width) - i64::from(image.width())) / 2,
                 (i64::from(height) - i64::from(image.height())) / 2,
             );
             copy(
-                &mut canvas,
+                Arc::make_mut(&mut canvas),
                 width,
                 height,
                 image.rgba(),
@@ -157,13 +178,14 @@ pub fn fit(
             canvas
         }
         Fit::Tile => {
-            working(Some(target), limits)?;
-            let mut canvas = vec![0; target];
+            working(Some(held(target)), limits)?;
+            let mut canvas = zeroed_pixels(target);
+            let pixels = Arc::make_mut(&mut canvas);
             let (tw, th) = (image.width(), image.height());
             for y in (0..height).step_by(th as usize) {
                 for x in (0..width).step_by(tw as usize) {
                     copy(
-                        &mut canvas,
+                        pixels,
                         width,
                         height,
                         image.rgba(),
@@ -177,6 +199,46 @@ pub fn fit(
     };
     Image::new(width, height, rgba)
         .ok_or_else(|| FitError::Resample("the result is not the target's size".to_owned()))
+}
+
+/// The part of `image` `width` × `height` from (`x`, `y`), its pixels as
+/// they are, under `limits` (the part's sides and bytes, and its buffer
+/// within the working bound): what the wallpaper hands an output that
+/// shows only part of a picture at its own size.
+///
+/// # Errors
+///
+/// [`FitError::Outside`] for a part not all within the picture; otherwise
+/// as [`fit`] for its bounds.
+pub fn crop(
+    image: &Image,
+    x: u32,
+    y: u32,
+    width: u32,
+    height: u32,
+    limits: &Limits,
+) -> Result<Image, FitError> {
+    let within = |at: u32, length: u32, whole: u32| {
+        length >= 1 && at.checked_add(length).is_some_and(|end| end <= whole)
+    };
+    if !within(x, width, image.width()) || !within(y, height, image.height()) {
+        return Err(FitError::Outside {
+            x,
+            y,
+            width,
+            height,
+        });
+    }
+    let target = target_bytes(width, height, limits)?;
+    working(Some(held(target)), limits)?;
+    let (sw, row) = (image.width() as usize, width as usize * 4);
+    Image::filled(width, height, |part| {
+        for (r, out) in part.chunks_exact_mut(row).enumerate() {
+            let from = ((y as usize + r) * sw + x as usize) * 4;
+            out.copy_from_slice(&image.rgba()[from..from + row]);
+        }
+    })
+    .ok_or_else(|| FitError::Resample("the part is not its size".to_owned()))
 }
 
 /// The target's bytes, if `width` × `height` is within `limits`.
@@ -249,3 +311,7 @@ fn copy(
 #[cfg(test)]
 #[path = "fit_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fit_reference_tests.rs"]
+mod reference_tests;

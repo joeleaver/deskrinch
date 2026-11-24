@@ -3,6 +3,9 @@
 //! (which swap width and height) through a second buffer the size of the
 //! result, which the working bound counts ([`extra`]).
 
+use std::sync::Arc;
+
+use deskrinch_untrusted::{held, zeroed_pixels};
 use image::metadata::Orientation;
 
 /// The orientation EXIF data gives, as a decoder hands it over: a TIFF
@@ -16,7 +19,11 @@ pub(crate) fn from_exif(exif: Option<&[u8]>) -> Orientation {
 
 /// What applying `orientation` to a result of `decoded` bytes allocates.
 pub(crate) fn extra(orientation: Orientation, decoded: usize) -> usize {
-    if swaps_sides(orientation) { decoded } else { 0 }
+    if swaps_sides(orientation) {
+        held(decoded)
+    } else {
+        0
+    }
 }
 
 /// Whether `orientation` turns the picture by a quarter, so its width and
@@ -34,33 +41,36 @@ fn swaps_sides(orientation: Orientation) -> bool {
 /// `rgba`, `width` × `height`, shown as `orientation` says: the pixels,
 /// and the width and height they now have.
 pub(crate) fn apply(
-    rgba: Vec<u8>,
+    rgba: Arc<[u8]>,
     width: u32,
     height: u32,
     orientation: Orientation,
-) -> (Vec<u8>, u32, u32) {
+) -> (Arc<[u8]>, u32, u32) {
     let (w, h) = (width as usize, height as usize);
     let mut rgba = rgba;
     match orientation {
         Orientation::NoTransforms => (rgba, width, height),
         Orientation::FlipHorizontal => {
-            flip_rows(&mut rgba, w);
+            flip_rows(Arc::make_mut(&mut rgba), w);
             (rgba, width, height)
         }
         Orientation::FlipVertical => {
-            flip_columns(&mut rgba, w, h);
+            flip_columns(Arc::make_mut(&mut rgba), w, h);
             (rgba, width, height)
         }
         Orientation::Rotate180 => {
-            flip_rows(&mut rgba, w);
-            flip_columns(&mut rgba, w, h);
+            let pixels = Arc::make_mut(&mut rgba);
+            flip_rows(pixels, w);
+            flip_columns(pixels, w, h);
             (rgba, width, height)
         }
         Orientation::Rotate90
         | Orientation::Rotate270
         | Orientation::Rotate90FlipH
         | Orientation::Rotate270FlipH => {
-            let mut out = vec![0; rgba.len()];
+            // The second buffer, the result's own.
+            let mut turned = zeroed_pixels(rgba.len());
+            let out = Arc::make_mut(&mut turned);
             for y in 0..h {
                 for x in 0..w {
                     // Where (x, y) goes in the turned picture, `h` wide.
@@ -75,7 +85,7 @@ pub(crate) fn apply(
                     out[to..to + 4].copy_from_slice(&rgba[from..from + 4]);
                 }
             }
-            (out, height, width)
+            (turned, height, width)
         }
     }
 }
@@ -126,11 +136,11 @@ mod tests {
         ];
         for (exif, size, expected) in cases {
             let orientation = Orientation::from_exif(exif).unwrap();
-            let (rgba, w, h) = apply(numbered(), 3, 2, orientation);
+            let (rgba, w, h) = apply(numbered().into(), 3, 2, orientation);
             assert_eq!((w, h), size, "orientation {exif}");
             assert_eq!(numbers(&rgba), expected, "orientation {exif}");
             let swaps = size != (3, 2);
-            assert_eq!(extra(orientation, 24), if swaps { 24 } else { 0 });
+            assert_eq!(extra(orientation, 24), if swaps { held(24) } else { 0 });
         }
     }
 }

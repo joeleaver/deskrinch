@@ -117,11 +117,17 @@ pub(crate) fn decode(width: i32, height: i32, argb: &[u8], max_side: u32) -> Opt
     if argb.len() != len {
         return None;
     }
-    let mut rgba = Vec::with_capacity(len);
-    for &[a, r, g, b] in argb.as_chunks::<4>().0 {
-        rgba.extend_from_slice(&[r, g, b, a]);
-    }
-    Image::new(width, height, rgba)
+    // Written in place into the image's own buffer.
+    Image::filled(width, height, |rgba| {
+        for (to, &[a, r, g, b]) in rgba
+            .as_chunks_mut::<4>()
+            .0
+            .iter_mut()
+            .zip(argb.as_chunks::<4>().0)
+        {
+            *to = [r, g, b, a];
+        }
+    })
 }
 
 pub(crate) mod menu;
