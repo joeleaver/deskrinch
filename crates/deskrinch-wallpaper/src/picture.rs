@@ -67,11 +67,11 @@ impl Follower {
 /// run after it in the same turn on the UI thread, before any window
 /// paints. So at a paint no element names an image that has been let go.
 ///
-/// A window still paints one frame without its picture when its style
-/// moves to a name it has not shown: rinch loads that source on a
-/// background thread, and the frame that applies the style comes before
-/// the picture does. That is rinch's (issue 2857); the compositor test
-/// `handover` holds it.
+/// Nor does a window paint a frame without its picture when its style
+/// moves to a name it has not shown: rinch resolves a registered
+/// `rinch-image:` source in the frame that names it, with no load on
+/// another thread (rinch issue 2857). The compositor test `handover` holds
+/// that.
 #[derive(Debug, Default)]
 pub(crate) struct Registered {
     names: BTreeSet<String>,
