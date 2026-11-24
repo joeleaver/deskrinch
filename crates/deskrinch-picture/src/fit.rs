@@ -311,3 +311,7 @@ fn copy(
 #[cfg(test)]
 #[path = "fit_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "fit_reference_tests.rs"]
+mod reference_tests;

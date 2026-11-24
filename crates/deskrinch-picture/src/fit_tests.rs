@@ -287,7 +287,7 @@ proptest::proptest! {
 }
 
 /// What the property test found: a 4 × 1 picture covering 27 × 26, where
-/// the resampler, given both axes at once, underflowed.
+/// `fast_image_resize` 6.1.0, given both axes at once, underflowed.
 #[test]
 fn a_narrow_crop_made_much_larger_is_resampled() {
     for opaque in [true, false] {
