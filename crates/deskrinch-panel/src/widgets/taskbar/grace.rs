@@ -14,6 +14,14 @@
 //! clock's alone to say, here and in the bars. With every window placed,
 //! which is the usual state, or with one bar, where no window waits a
 //! grace, nothing is armed and nothing wakes the panel.
+//!
+//! # Limits
+//!
+//! A window placed just before its grace's end can be placed after the
+//! timer fired: the placement is heard on the follower's thread, and its
+//! buttons reach the UI a turn later, by which time the clock has moved and
+//! the window is on every bar. It then leaves the others in the next turn,
+//! so for one frame it is on every bar.
 
 use std::cell::Cell;
 use std::rc::Rc;
