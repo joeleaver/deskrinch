@@ -8,12 +8,12 @@
 //! them, the bars there are and the [`GraceClock`] arms one rinch timeout
 //! for the earliest grace not yet over by that clock
 //! ([`deskrinch_taskbar::next_wake`]). When it fires, it moves the clock
-//! ([`deskrinch_taskbar::clock_on_wake`]), which every bar's list reads,
-//! and the effect arms the next, if any. It is cleared when that window is
-//! placed or closes first. Whether a grace is over is the clock's alone to
-//! say, here and in the bars. With every window placed, which is the usual
-//! state, or with one bar, where no window waits a grace, nothing is armed
-//! and nothing wakes the panel.
+//! ([`deskrinch_taskbar::clock_on_wake`]), which the bars' lists read while
+//! they hang on it, and the effect arms the next, if any. It is cleared when
+//! that window is placed or closes first. Whether a grace is over is the
+//! clock's alone to say, here and in the bars. With every window placed,
+//! which is the usual state, or with one bar, where no window waits a
+//! grace, nothing is armed and nothing wakes the panel.
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -27,8 +27,10 @@ use rinch::reactive::Effect;
 use crate::widgets::taskbar::Buttons;
 
 /// The time the bars judge the graces by: the panel's start, then at each
-/// wake the later of the grace's end it woke for and the real time. Only an
-/// unplaced window's button reads it, so only a grace's end moves a bar.
+/// wake the later of the grace's end it woke for and the real time. A bar's
+/// list reads it only while its list hangs on it
+/// ([`deskrinch_taskbar::hangs_on_time`]: several bars and a window
+/// unplaced), so with every window placed it moves no bar.
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GraceClock(pub(crate) Signal<Instant>);
 

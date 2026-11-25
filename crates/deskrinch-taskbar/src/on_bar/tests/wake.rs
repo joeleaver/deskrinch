@@ -106,3 +106,17 @@ fn with_one_bar_or_none_nothing_wakes_for_a_window_never_placed() {
         })
     );
 }
+
+#[test]
+fn the_time_matters_only_with_several_bars_and_a_window_unplaced() {
+    let t0 = Instant::now();
+    let placed = Button {
+        placement: Placement::Placed(names(&["A"])),
+        ..unplaced(1, t0)
+    };
+    let waiting = unplaced(2, t0);
+    assert!(hangs_on_time(&[placed.clone(), waiting.clone()], &two()));
+    assert!(!hangs_on_time(std::slice::from_ref(&placed), &two()));
+    assert!(!hangs_on_time::<u32>(&[], &two()));
+    assert!(!hangs_on_time(&[placed, waiting], &bars(&["A"])));
+}

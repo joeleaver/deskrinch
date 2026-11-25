@@ -309,4 +309,48 @@ proptest::proptest! {
             Some(last.map_or(Placement::Unplaced { since: at }, Placement::Placed))
         );
     }
+
+    /// When no bar's list hangs on the time ([`hangs_on_time`]), every bar
+    /// shows the same at any two times, so a bar that does not follow the
+    /// clock misses nothing.
+    #[test]
+    fn a_list_that_does_not_hang_on_the_time_is_the_same_at_any_time(
+        known in proptest::collection::vec(
+            proptest::option::of(proptest::collection::btree_set(name(), 1..3)),
+            0..5,
+        ),
+        outputs in proptest::collection::vec(proptest::option::of(name()), 1..4),
+        later in 0_u64..1000,
+    ) {
+        let since = Instant::now();
+        let buttons: Vec<Button<u32>> = (0_u32..)
+            .zip(&known)
+            .map(|(id, known)| Button {
+                placement: known
+                    .clone()
+                    .map_or(Placement::Unplaced { since }, Placement::Placed),
+                ..unplaced(id, since)
+            })
+            .collect();
+        let bars = Bars {
+            named: outputs
+                .iter()
+                .flatten()
+                .filter(|name| !name.is_empty())
+                .cloned()
+                .collect(),
+            count: outputs.len(),
+        };
+        if !hangs_on_time(&buttons, &bars) {
+            for bar in &outputs {
+                let ids = |at| -> Vec<u32> {
+                    shown_on(&buttons, bar.as_deref(), &bars, at)
+                        .iter()
+                        .map(|button| button.id)
+                        .collect()
+                };
+                proptest::prop_assert_eq!(ids(since), ids(since + ms(later)));
+            }
+        }
+    }
 }

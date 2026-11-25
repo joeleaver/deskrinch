@@ -159,6 +159,18 @@ pub fn shown_on<Id: Clone>(
         .collect()
 }
 
+/// Whether what a bar shows of `buttons`, among `bars`, can hang on the
+/// time handed to [`shown_on`]: only while there are several bars and some
+/// window is unplaced. Otherwise every bar's list is the same at any time,
+/// and a bar need not follow the clock.
+#[must_use]
+pub fn hangs_on_time<Id>(buttons: &[Button<Id>], bars: &Bars) -> bool {
+    bars.count > 1
+        && buttons
+            .iter()
+            .any(|button| matches!(button.placement, Placement::Unplaced { .. }))
+}
+
 /// When the panel next looks at the graces ([`next_wake`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Wake {

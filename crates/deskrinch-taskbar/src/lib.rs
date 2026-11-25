@@ -78,5 +78,7 @@ mod taskbar;
 
 pub use deskrinch_window_management::{Action, Actions, EndReason, WindowState};
 pub use fit::{Fit, Form, Room, fit};
-pub use on_bar::{GRACE, Placement, Wake, clock_on_wake, next_wake, on_bar, shown_on};
+pub use on_bar::{
+    GRACE, Placement, Wake, clock_on_wake, hangs_on_time, next_wake, on_bar, shown_on,
+};
 pub use taskbar::{Answer, Button, Change, Input, PointerButton, TaskWindow, Taskbar};

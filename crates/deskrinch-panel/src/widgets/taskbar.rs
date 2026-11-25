@@ -8,7 +8,9 @@
 //!
 //! Each bar's taskbar shows the windows on its own output, from the one
 //! list of buttons the panel follows: a memo over that list, the bar's
-//! output, the bars there are, and the [`GraceClock`]. The rule is
+//! output, the bars there are, and the [`GraceClock`], which it follows
+//! only while its list hangs on it (several bars and a window unplaced:
+//! [`deskrinch_taskbar::hangs_on_time`]). The rule is
 //! [`deskrinch_taskbar::on_bar`](mod@deskrinch_taskbar::on_bar)'s: a window
 //! whose outputs have no bar is on every bar, and one the compositor has
 //! not yet placed waits a short grace, then is on every bar until it is
@@ -39,7 +41,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 
 use deskrinch_bars::Bars;
-use deskrinch_taskbar::{Room, fit, shown_on};
+use deskrinch_taskbar::{Room, fit, hangs_on_time, shown_on};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
@@ -77,8 +79,16 @@ pub(crate) fn TaskbarWidget() -> NodeHandle {
     let GraceClock(clock) = use_context();
     let buttons = Memo::new(move || {
         let bars = bars.get();
-        let now = clock.get();
-        output.with(|output| all.with(|all| Arc::new(shown_on(all, output.as_deref(), &bars, now))))
+        all.with(|all| {
+            // The clock is followed only while the list hangs on it, so
+            // that with every window placed a grace's end wakes no bar.
+            let now = if hangs_on_time(all, &bars) {
+                clock.get()
+            } else {
+                untracked(|| clock.get())
+            };
+            output.with(|output| Arc::new(shown_on(all, output.as_deref(), &bars, now)))
+        })
     });
     let width = Signal::new(0.0_f32);
     let fitted = Memo::new(move || {
