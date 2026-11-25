@@ -20,7 +20,7 @@ use signal_hook::low_level::raise;
 
 use deskrinch_shell::exit_status::stops_in_order_line;
 
-use super::{BOUND, asked_line, bound_line, install_once};
+use super::{BOUND, asked_line, bound_line, ignored, install_once, name};
 
 /// The variable naming the case the child runs.
 const CASE: &str = "DESKRINCH_STOP_CASE";
@@ -37,9 +37,34 @@ struct Ended {
     pid: u32,
 }
 
+/// The start of the message a case gives, at once, when the signal it
+/// relies on is ignored in the test process.
+const IGNORED_HERE: &str = "is ignored in this test process";
+
+/// Fails at once, saying why, when `signal` is ignored (`SIG_IGN`) in this
+/// test process. A child inherits that, and keeps it ignored by design
+/// (the module's doc), so a case relying on it would wait out the patience
+/// and fail as if the stop were broken. `nohup` starts a process with
+/// `SIGHUP` ignored; a shell without job control starts a background job
+/// with `SIGINT` ignored.
+#[track_caller]
+fn not_ignored_here(signal: i32) {
+    assert!(
+        !ignored(signal),
+        "{} {IGNORED_HERE} (started under nohup, or as a background job?): \
+         the child would inherit that and keep it ignored, so this case \
+         cannot show the stop here; run the tests with it not ignored",
+        name(signal)
+    );
+}
+
 /// Runs the child with `case`, through `sh -c 'PREFIX exec "$0" "$@"'`
-/// when `prefix` is given (a `trap` the child inherits).
-fn run_child_with(case: &str, prefix: Option<&str>) -> Ended {
+/// when `prefix` is given (a `trap` the child inherits). The case relies
+/// on `relies_on` reaching the child: the run fails at once if it is
+/// ignored here ([`not_ignored_here`]).
+#[track_caller]
+fn run_child_with(case: &str, prefix: Option<&str>, relies_on: i32) -> Ended {
+    not_ignored_here(relies_on);
     let exe = std::env::current_exe().unwrap();
     let test_args = [
         "--exact",
@@ -79,8 +104,9 @@ fn run_child_with(case: &str, prefix: Option<&str>) -> Ended {
     }
 }
 
-fn run_child(case: &str) -> Ended {
-    run_child_with(case, None)
+#[track_caller]
+fn run_child(case: &str, relies_on: i32) -> Ended {
+    run_child_with(case, None, relies_on)
 }
 
 #[track_caller]
@@ -109,22 +135,22 @@ fn ended_in_order(ended: &Ended, signal: i32) {
 
 #[test]
 fn sigterm_asks_it_to_end_and_it_ends_with_success() {
-    ended_in_order(&run_child("ends:TERM"), SIGTERM);
+    ended_in_order(&run_child("ends:TERM", SIGTERM), SIGTERM);
 }
 
 #[test]
 fn sigint_does_too() {
-    ended_in_order(&run_child("ends:INT"), SIGINT);
+    ended_in_order(&run_child("ends:INT", SIGINT), SIGINT);
 }
 
 #[test]
 fn sighup_does_too() {
-    ended_in_order(&run_child("ends:HUP"), SIGHUP);
+    ended_in_order(&run_child("ends:HUP", SIGHUP), SIGHUP);
 }
 
 #[test]
 fn a_loop_that_does_not_end_is_ended_by_the_signal_after_the_bound() {
-    let ended = run_child("stuck");
+    let ended = run_child("stuck", SIGTERM);
     assert_eq!(
         ended.status.signal(),
         Some(SIGTERM),
@@ -157,7 +183,7 @@ fn a_loop_that_does_not_end_is_ended_by_the_signal_after_the_bound() {
 
 #[test]
 fn a_second_signal_ends_it_at_once_by_the_signal() {
-    let ended = run_child("twice");
+    let ended = run_child("twice", SIGTERM);
     assert_eq!(
         ended.status.signal(),
         Some(SIGTERM),
@@ -174,14 +200,50 @@ fn a_second_signal_ends_it_at_once_by_the_signal() {
 
 #[test]
 fn a_signal_ignored_when_it_started_stays_ignored() {
-    let ended = run_child_with("ignored-hup", Some("trap '' HUP;"));
+    let ended = run_child_with("ignored-hup", Some("trap '' HUP;"), SIGTERM);
     ended_in_order(&ended, SIGTERM);
     assert!(!ended.said.contains(&asked_line(SIGHUP)), "{}", ended.said);
 }
 
 #[test]
+fn a_case_whose_signal_is_ignored_here_says_so_at_once() {
+    // This test binary again, running only `sighup_does_too`, with SIGHUP
+    // ignored as `nohup` leaves it.
+    let exe = std::env::current_exe().unwrap();
+    let started = Instant::now();
+    let output = Command::new("/bin/sh")
+        .arg("-c")
+        .arg("trap '' HUP; exec \"$0\" \"$@\"")
+        .arg(&exe)
+        .args([
+            "--exact",
+            "stop::tests::sighup_does_too",
+            "--nocapture",
+            "--test-threads=1",
+        ])
+        .stdin(Stdio::null())
+        .output()
+        .unwrap();
+    let after = started.elapsed();
+    let said = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!output.status.success(), "it passed; it said:\n{said}");
+    let message = format!("SIGHUP {IGNORED_HERE}");
+    assert!(
+        said.contains(&message),
+        "it did not say {message:?}; it said:\n{said}"
+    );
+    // Without the check it fails too, but only once the child's patience
+    // has run out.
+    assert!(after < PATIENCE, "it took {after:?}; it said:\n{said}");
+}
+
+#[test]
 fn installing_twice_installs_once() {
-    let ended = run_child("installed-twice");
+    let ended = run_child("installed-twice", SIGTERM);
     ended_in_order(&ended, SIGTERM);
     assert_eq!(
         ended.said.matches(&asked_line(SIGTERM)).count(),
