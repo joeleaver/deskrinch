@@ -29,7 +29,7 @@ use rinch::testing::TestApp;
 use super::bars;
 use super::bars_tests::contexts;
 use crate::surface::Placement;
-use crate::widgets::{Buttons, Runs, apply_window_change};
+use crate::widgets::{Buttons, GraceClock, Runs, apply_window_change};
 
 /// The output named `name`, with id `id`, at 1920x1080 and scale 1.
 fn screen(id: u64, name: &str) -> Output {
@@ -63,17 +63,24 @@ struct Bars {
     app: TestApp,
     model: Mutex<Taskbar<WindowId>>,
     buttons: deskrinch_component::Handover<Buttons>,
+    /// The clock the graces are judged by, and the time it started at.
+    clock: Signal<Instant>,
+    started: Instant,
 }
 
 impl Bars {
     /// The bars, at the bottom, on `outputs`.
     fn on(outputs: Vec<Output>) -> Self {
         let (buttons, inbox) = handover();
+        let held: Rc<Cell<Option<Signal<Instant>>>> = Rc::default();
+        let out = Rc::clone(&held);
         let mut app = TestApp::mount(move |__scope: &mut RenderScope| {
             contexts(
                 inbox.into_signal(Arc::default()),
                 Signal::new(Runs::default()),
             );
+            let GraceClock(clock) = use_context();
+            out.set(Some(clock));
             let placement = Placement {
                 edge: Edge::Bottom,
                 height: Height::try_from(40).unwrap(),
@@ -83,11 +90,28 @@ impl Bars {
         app.set_outputs(outputs);
         let mut model = Taskbar::new();
         model.connected(Actions::all());
+        let clock = held.take().expect("the mount provided the grace clock");
+        let started = clock.get();
         Self {
             app,
             model: Mutex::new(model),
             buttons,
+            clock,
+            started,
         }
+    }
+
+    /// Asserts that no grace's timer is pending: the virtual clock is moved
+    /// past the longest a grace's timer is armed for, and the grace clock,
+    /// which every such timer moves when it fires, is still where it
+    /// started.
+    fn assert_no_grace_timer(&mut self, when: &str) {
+        self.app.advance_time(GRACE * 2);
+        assert_eq!(
+            self.clock.get(),
+            self.started,
+            "a grace's timer fired, so one was pending {when}"
+        );
     }
 
     /// `change`, heard now, through the follower's step, then the turns that
@@ -120,8 +144,8 @@ impl Bars {
 
 /// A window heard before the compositor placed it is on no bar, turn after
 /// turn; placed inside its grace, it is on its own bar only, then and
-/// through the whole grace and past it: its grace's timer was cleared, and
-/// no bar ever showed it elsewhere.
+/// through the whole grace and past it, so no bar ever showed it elsewhere;
+/// and its grace's timer was cleared (its own test, below).
 #[test]
 fn a_window_placed_inside_its_grace_is_only_ever_on_its_own_bar() {
     let mut bars = Bars::on(vec![screen(1, "DP-1"), screen(2, "DP-2")]);
@@ -224,4 +248,33 @@ fn the_step_hands_the_buttons_over_only_when_they_change() {
     apply_window_change(&model, added, Instant::now(), &buttons);
     app.settle();
     assert_eq!(shown.get().len(), 1, "a window added is handed over");
+}
+
+/// A window placed inside its grace leaves no timer pending: the one armed
+/// for its grace is cleared once it is placed.
+#[test]
+fn a_window_placed_inside_its_grace_leaves_no_timer_pending() {
+    let mut bars = Bars::on(vec![screen(1, "DP-1"), screen(2, "DP-2")]);
+    bars.hear(Change::Added(window(5, "editor", &[])));
+    bars.hear(Change::Changed(window(5, "editor", &["DP-2"])));
+    bars.assert_no_grace_timer("once the window was placed");
+}
+
+/// With every window placed from its first report, as under labwc, no
+/// timer is ever armed, so nothing wakes the panel.
+#[test]
+fn with_every_window_placed_no_timer_is_pending() {
+    let mut bars = Bars::on(vec![screen(1, "DP-1"), screen(2, "DP-2")]);
+    bars.hear(Change::Added(window(6, "editor", &["DP-1"])));
+    bars.hear(Change::Added(window(7, "notes", &["DP-2"])));
+    bars.assert_no_grace_timer("with every window placed");
+}
+
+/// With one bar no window waits a grace, so none arms a timer, even one
+/// the compositor never places.
+#[test]
+fn with_one_bar_no_timer_is_pending_for_a_window_never_placed() {
+    let mut bars = Bars::on(vec![screen(1, "DP-1")]);
+    bars.hear(Change::Added(window(8, "mail", &[])));
+    bars.assert_no_grace_timer("with one bar");
 }
