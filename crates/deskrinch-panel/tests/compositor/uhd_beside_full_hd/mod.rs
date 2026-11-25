@@ -20,6 +20,7 @@ use deskrinch_test_wait::wait_for;
 use deskrinch_window_management::{Action, WindowManagement, WindowState};
 
 use crate::open_on::open_on;
+use crate::reported::wait_reported;
 use crate::support::{Band, Edge, Panel, Pictures, in_nested_session, panel_table, write_settings};
 use crate::taskbar::window_of;
 
@@ -95,24 +96,34 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     let empty = Pictures::still(&mut screen);
     let client = TestClient::connect().unwrap();
     let outputs = screen.outputs();
+    // Each window's name is its place among all the test's windows, so that
+    // no two share an app id, by which the compositor's window list is read.
     let named = |i: usize| (format!("Window {i}"), format!("org.deskrinch.wide.App{i}"));
     let mut windows = Vec::new();
+    // Each window's app id and the output it was opened on.
+    let mut placed = Vec::new();
     for output in &outputs {
         // The pointer onto the output for the first window only: the
         // compositors open the rest beside it. (Moved before each window,
         // sway 1.11 sent no `wl_surface.enter` within 120 s to the 65th
         // window opened on the output; the first 64 had theirs.)
-        let (title, app_id) = named(0);
+        let (title, app_id) = named(windows.len());
         windows.push(open_on(&mut input, &client, output, &title, &app_id));
+        placed.push((app_id, output.clone()));
         let (width, _) = client
             .output_info(output)
             .and_then(|info| info.logical_size)
             .unwrap_or_else(|| panic!("{output}'s logical size"));
-        for i in 1..windows_for(width) {
-            let (title, app_id) = named(i);
+        for _ in 1..windows_for(width) {
+            let (title, app_id) = named(windows.len());
             windows.push(client.open(&title, &app_id).unwrap());
+            placed.push((app_id, output.clone()));
         }
     }
+    // The bars show a window by the outputs the compositor's window
+    // management reports for it: once it reports each where it opened, a
+    // bar drawn otherwise is the panel's doing.
+    wait_reported(&placed);
     let band = Band::of(Edge::Bottom, 40, 1);
     let read = |now: &Pictures| -> Result<Vec<strip::Full>, String> {
         let mut taskbars = Vec::new();
@@ -144,8 +155,10 @@ fn a_full_taskbar_on_a_wide_output_is_drawn_whole() {
     for output in &outputs {
         let (title, app_id) = named(windows.len());
         windows.push(open_on(&mut input, &client, output, &title, &app_id));
+        placed.push((app_id.clone(), output.clone()));
         newest = app_id;
     }
+    wait_reported(&placed);
     activate(&newest);
     // That nothing among the buttons changes is what stays as it is: each
     // bar is judged on a still picture of its output.

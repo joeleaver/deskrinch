@@ -36,6 +36,8 @@ mod outputs;
 #[cfg(test)]
 mod placement;
 #[cfg(test)]
+mod reported;
+#[cfg(test)]
 mod spans;
 #[cfg(test)]
 mod support;
