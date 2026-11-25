@@ -15,6 +15,7 @@
 //! with why reported once, when it offers none.
 
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::time::Instant;
 
 use deskrinch_component::{Handover, Inbox, handover, report};
 use deskrinch_taskbar::{Answer, Button, Change, Input, TaskWindow, Taskbar};
@@ -95,15 +96,8 @@ fn follow(
         let Some(change) = change(event) else {
             return;
         };
-        let mut model = lock(&applied);
-        let before = model.buttons();
-        if let Answer::Ended(reason) = model.input(Input::Change(change)) {
-            report::error("following the windows (the taskbar is empty)", &reason);
-        }
-        let after = model.buttons();
-        if after != before {
-            deliver.deliver(Arc::new(after));
-        }
+        // Heard now: a new window's grace counts from it.
+        apply(&applied, change, Instant::now(), &deliver);
     });
     match connected {
         Ok(connected) => {
@@ -116,6 +110,27 @@ fn follow(
             report::error("following the windows (the taskbar shows none)", &error);
             *lock(model) = Taskbar::unavailable();
         }
+    }
+}
+
+/// The follower's step for each change: `change`, heard `at`, applied to
+/// `model` under its lock, and the buttons that result handed to the UI
+/// through `buttons` when they differ from those before. The end of the
+/// window list is reported once. The tests drive the bars through it.
+pub(crate) fn apply(
+    model: &Mutex<Taskbar<WindowId>>,
+    change: Change<WindowId>,
+    at: Instant,
+    buttons: &Handover<Buttons>,
+) {
+    let mut model = lock(model);
+    let before = model.buttons();
+    if let Answer::Ended(reason) = model.input(Input::Change(change, at)) {
+        report::error("following the windows (the taskbar is empty)", &reason);
+    }
+    let after = model.buttons();
+    if after != before {
+        buttons.deliver(Arc::new(after));
     }
 }
 
@@ -139,6 +154,7 @@ fn task_window(window: Window) -> TaskWindow<WindowId> {
         app_id: window.app_id,
         state: window.state,
         parent: window.parent,
+        outputs: window.outputs,
     }
 }
 

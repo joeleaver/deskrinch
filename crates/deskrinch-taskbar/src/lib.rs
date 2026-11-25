@@ -50,6 +50,14 @@
 //! more is heard or done. A taskbar that could not connect at all is
 //! [`Taskbar::unavailable`], and shows nothing.
 //!
+//! # Which bar shows a button
+//!
+//! With a bar on each output, a button is on the bars of the outputs its
+//! window is on, a window whose outputs have no bar is on every bar, and a
+//! new window the compositor has not yet placed waits a short grace before
+//! it is shown on every bar: with several bars, every window that is placed
+//! or whose grace is over is on at least one ([`on_bar`](mod@on_bar)).
+//!
 //! # When the buttons do not fit
 //!
 //! [`fit`]: the buttons share the room up to a widest size, with their
@@ -65,8 +73,12 @@
 //! the UI; the UI is handed the [`Button`]s that result.
 
 mod fit;
+pub mod on_bar;
 mod taskbar;
 
 pub use deskrinch_window_management::{Action, Actions, EndReason, WindowState};
 pub use fit::{Fit, Form, Room, fit};
+pub use on_bar::{
+    GRACE, Placement, Wake, clock_on_wake, hangs_on_time, next_wake, on_bar, shown_on,
+};
 pub use taskbar::{Answer, Button, Change, Input, PointerButton, TaskWindow, Taskbar};

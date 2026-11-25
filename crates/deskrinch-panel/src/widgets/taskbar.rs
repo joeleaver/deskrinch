@@ -6,6 +6,16 @@
 //! click of the primary button activates its window, or minimizes the
 //! active one; the middle button closes it.
 //!
+//! Each bar's taskbar shows the windows on its own output, from the one
+//! list of buttons the panel follows: a memo over that list, the bar's
+//! output, the bars there are, and the [`GraceClock`], which it follows
+//! only while its list hangs on it (several bars and a window unplaced:
+//! [`deskrinch_taskbar::hangs_on_time`]). The rule is
+//! [`deskrinch_taskbar::on_bar`](mod@deskrinch_taskbar::on_bar)'s: a window
+//! whose outputs have no bar is on every bar, and one the compositor has
+//! not yet placed waits a short grace, then is on every bar until it is
+//! placed. A window's change wakes only the bars whose list it changes.
+//!
 //! The buttons share the room the bar leaves the taskbar (its width, from
 //! rinch's `bounds_signal`, refreshed after each layout), shrink to their
 //! icons when there is too little, and the oldest that are not active are
@@ -19,13 +29,19 @@
 
 mod button;
 mod follow;
+mod grace;
 
 pub(crate) use button::AppIcons;
+#[cfg(test)]
+pub(crate) use follow::apply as apply_window_change;
 pub(crate) use follow::{Buttons, Following};
+pub(crate) use grace::{GraceClock, follow as follow_graces};
 
 use std::rc::Rc;
+use std::sync::Arc;
 
-use deskrinch_taskbar::{Room, fit};
+use deskrinch_bars::Bars;
+use deskrinch_taskbar::{Room, fit, hangs_on_time, shown_on};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
 
@@ -41,11 +57,39 @@ const SIZES: ButtonSizes = ButtonSizes {
     count_width: 36.0,
 };
 
-/// The taskbar widget: it takes the room the bar gives it.
+/// The name of the output a bar is on, as it is now (`None` while it has
+/// none), which each bar provides as a context for its taskbar.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BarOutput(pub(crate) Signal<Option<String>>);
+
+/// The bars there are, which the panel's root provides as a context: one
+/// on every output, counted, and named by the outputs that have a name. A
+/// memo, so an output moved or rescaled wakes no taskbar.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BarOutputs(pub(crate) Memo<Bars>);
+
+/// The taskbar widget: the buttons of its bar's output
+/// ([`deskrinch_taskbar::shown_on`]), in the room the bar gives it.
 #[component]
 pub(crate) fn TaskbarWidget() -> NodeHandle {
     let following: Rc<Following> = use_context();
-    let buttons: Signal<Buttons> = use_context();
+    let all: Signal<Buttons> = use_context();
+    let BarOutput(output) = use_context();
+    let BarOutputs(bars) = use_context();
+    let GraceClock(clock) = use_context();
+    let buttons = Memo::new(move || {
+        let bars = bars.get();
+        all.with(|all| {
+            // The clock is followed only while the list hangs on it, so
+            // that with every window placed a grace's end wakes no bar.
+            let now = if hangs_on_time(all, &bars) {
+                clock.get()
+            } else {
+                untracked(|| clock.get())
+            };
+            output.with(|output| Arc::new(shown_on(all, output.as_deref(), &bars, now)))
+        })
+    });
     let width = Signal::new(0.0_f32);
     let fitted = Memo::new(move || {
         let room = Room {
@@ -56,7 +100,7 @@ pub(crate) fn TaskbarWidget() -> NodeHandle {
             gap: SIZES.gap,
             count_width: SIZES.count_width,
         };
-        buttons.with(|buttons| fit(buttons, room))
+        fit(&buttons.get(), room)
     });
     let shown = Memo::new(move || fitted.get().shown);
     let left_out = Memo::new(move || fitted.get().left_out);

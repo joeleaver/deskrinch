@@ -51,13 +51,12 @@ impl ButtonSizes {
 pub(crate) fn button_view(
     __scope: &mut RenderScope,
     id: WindowId,
-    buttons: Signal<Buttons>,
+    buttons: Memo<Buttons>,
     form: Memo<Form>,
     following: &Rc<Following>,
     sizes: ButtonSizes,
 ) -> NodeHandle {
-    let button =
-        Memo::new(move || buttons.with(|all| all.iter().find(|button| button.id == id).cloned()));
+    let button = Memo::new(move || buttons.get().iter().find(|button| button.id == id).cloned());
     let icons: AppIcons = use_context();
     let icon = icon_view(__scope, button, icons, sizes.icon);
     let title = Memo::new(move || button.get().map(|b| b.title).unwrap_or_default());

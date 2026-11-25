@@ -5,7 +5,15 @@
 //! The empty bar is its background from the switcher to the clock, so the
 //! clock is what the empty bar draws right of its middle, and the taskbar
 //! is what changed left of the clock. The buttons, icons alone on a full
-//! bar, repeat at one pitch from the first; the count follows the last.
+//! bar, are alike: they repeat at one pitch from the first, each as wide as
+//! the others. The count follows the last.
+//!
+//! The width is what tells the count from one more button. Its text is
+//! centred in its own room right after the last button's gap, so where an
+//! icon is centred in a button the count can start in the column a next
+//! button would: with the panel's sizes (an icon 16 wide in a button 28
+//! wide, a count's room 36 wide), a count 24 wide, such as `+15`, does.
+//! It is then as wide as no icon is.
 
 use std::ops::Range;
 
@@ -52,9 +60,10 @@ fn clock_left(empty: &Image, rows: &Range<u32>) -> Option<u32> {
 }
 
 /// Reads `full` against `empty`, the same bar before any window, in its
-/// band `rows`, as a full taskbar: buttons at one pitch with no gap as wide
-/// as that pitch anywhere up to the clock (none missing, the last
-/// included), and something drawn after them (the count, which
+/// band `rows`, as a full taskbar: buttons at one pitch and of one width
+/// (the most common of each), with no gap as wide as that pitch anywhere
+/// up to the clock (none missing, the last included), and something drawn
+/// after them that is not one more button (the count, which
 /// [`count_changed`] confirms).
 ///
 /// # Errors
@@ -70,13 +79,18 @@ pub(crate) fn full(empty: &Image, full: &Image, rows: &Range<u32>) -> Result<Ful
     }
     pitches.sort_unstable();
     let pitch = pitches[pitches.len() / 2];
+    let mut widths: Vec<u32> = runs.iter().map(|run| run.end - run.start).collect();
+    widths.sort_unstable();
+    let width = widths[widths.len() / 2];
     let buttons = (0_u32..)
-        .zip(&starts)
-        .take_while(|&(k, &start)| start == starts[0] + k * pitch)
+        .zip(&runs)
+        .take_while(|&(k, run)| {
+            run.start == runs[0].start + k * pitch && run.end - run.start == width
+        })
         .count();
     if buttons < 2 || buttons == runs.len() {
         return Err(format!(
-            "{buttons} buttons at a pitch of {pitch} and nothing after them: {runs:?}"
+            "{buttons} buttons {width} wide at a pitch of {pitch} and nothing after them: {runs:?}"
         ));
     }
     if let Some(gap) = runs
@@ -170,6 +184,23 @@ mod tests {
         assert!(count_changed(read, &full_bar, &full_bar, &rows).is_err());
     }
 
+    /// The count as CI drew it after the last button (sway's `+15` read as
+    /// a 57th button): starting in the column a ninth button would, but
+    /// wider than an icon.
+    #[test]
+    fn a_count_where_a_button_would_start_is_still_the_count() {
+        let rows = 0..1;
+        let empty = bar(340, &taskbar(0, &[]));
+        let full_bar = bar(340, &taskbar(8, std::slice::from_ref(&(266..290))));
+        assert_eq!(
+            full(&empty, &full_bar, &rows),
+            Ok(Full {
+                buttons_end: 250,
+                clock_left: 320
+            })
+        );
+    }
+
     #[test]
     fn a_missing_button_or_count_is_not_a_full_taskbar() {
         let rows = 0..1;
@@ -183,6 +214,9 @@ mod tests {
         );
         let error = full(&empty, &bar(340, &taskbar(8, &[])), &rows).unwrap_err();
         assert!(error.contains("nothing after them"), "{error}");
+        // A ninth icon after the eighth is a button, not the count.
+        let error = full(&empty, &bar(340, &taskbar(9, &[])), &rows).unwrap_err();
+        assert!(error.contains("9 buttons 16 wide"), "{error}");
         assert!(full(&empty, &empty, &rows).is_err());
         let no_clock = bar(340, &[]);
         assert!(full(&no_clock, &no_clock, &rows).is_err());

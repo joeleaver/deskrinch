@@ -12,6 +12,23 @@ use crate::error::EndReason;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct WorkspaceId(pub(crate) u64);
 
+impl WorkspaceId {
+    /// An id made from a number, for tests and for a model's own ids.
+    ///
+    /// It is not an id a connection issued: each connection numbers its
+    /// workspaces and groups from 1, together, so a number one of them has
+    /// on a connection is that one's id there, and any other names no
+    /// workspace. An action asked for with an id the connection does not
+    /// hold is refused as for a workspace that has just gone,
+    /// [`ActionError::UnknownWorkspace`](crate::ActionError::UnknownWorkspace),
+    /// which every caller handles anyway, since a workspace can go between
+    /// its last event and the action.
+    #[must_use]
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+}
+
 impl fmt::Display for WorkspaceId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "workspace {}", self.0)
@@ -21,6 +38,20 @@ impl fmt::Display for WorkspaceId {
 /// A workspace group's identity for as long as the connection lasts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct GroupId(pub(crate) u64);
+
+impl GroupId {
+    /// An id made from a number, for tests and for a model's own ids.
+    ///
+    /// It is not an id a connection issued: each connection numbers its
+    /// workspaces and groups from 1, together, so a number a group has on a
+    /// connection is that group's id there, and any other names no group.
+    /// No action takes a group; a workspace whose group the connection does
+    /// not hold is in no known group.
+    #[must_use]
+    pub const fn from_raw(raw: u64) -> Self {
+        Self(raw)
+    }
+}
 
 impl fmt::Display for GroupId {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {

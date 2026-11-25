@@ -24,12 +24,15 @@
 //! made here, once, from its hand-over's inbox, so that every widget
 //! reading it is told of every change and the signal lives as long as the
 //! panel. And the panel's one clock's text, which every clock face reads
-//! (`widgets`' `clock`).
+//! (`widgets`' `clock`). And the bars there are, which each bar's taskbar
+//! reads to show the windows on its own output ([`BarOutputs`]), with the
+//! one timer for the new windows' graces (`widgets`' `taskbar`).
 
 use std::rc::Rc;
 use std::sync::Arc;
 
 use deskrinch_applications::{Icons, Installed};
+use deskrinch_bars::Bars;
 use deskrinch_component::{Inbox, LiveSettings};
 use deskrinch_settings::panel::PanelSettings;
 use deskrinch_theme::Theme;
@@ -39,7 +42,10 @@ use rinch::{OutputId, WindowHandle};
 
 use crate::bar::Bar;
 use crate::surface::{self, BarSurface, Placement};
-use crate::widgets::{AppIcons, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock};
+use crate::widgets::{
+    AppIcons, BarOutputs, Buttons, FollowedWindows, FollowedWorkspaces, Runs, follow_clock,
+    follow_graces,
+};
 
 /// What the panel runs with.
 pub(crate) struct Parts {
@@ -78,7 +84,7 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     });
     create_context(Rc::new(windows));
     create_context(Rc::new(workspaces));
-    create_context(buttons.into_signal(Arc::default()));
+    taskbar_contexts(buttons.into_signal(Arc::default()));
     create_context(runs.into_signal(Arc::default()));
     let settings = live.into_signal();
     create_context(settings);
@@ -86,6 +92,30 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
     create_context(follow_clock(settings));
     let placement = Memo::new(move || Placement::of(&settings.get()));
     bars(__scope, Memo::new(output_ids), placement)
+}
+
+/// What every bar's taskbar reads beside its own output: the buttons as
+/// they are handed over, the one clock their graces are judged by, and the
+/// bars there are. The root provides them, and a test's mount the same.
+fn taskbar_contexts(buttons: Signal<Buttons>) {
+    let bars = Memo::new(bars_there_are);
+    create_context(buttons);
+    create_context(follow_graces(buttons, bars));
+    create_context(BarOutputs(bars));
+}
+
+/// The bars there are: one on each connected output, named by the
+/// outputs' names (an empty name is no name).
+fn bars_there_are() -> Bars {
+    let outputs = outputs();
+    Bars {
+        count: outputs.len(),
+        named: outputs
+            .into_iter()
+            .filter_map(|output| output.name)
+            .filter(|name| !name.is_empty())
+            .collect(),
+    }
 }
 
 /// A bar on each of `outputs`, at `placement`: one `Window` per output, a
@@ -176,11 +206,36 @@ fn output_bar(
             applied = sent;
         }
     });
+    // The output's name, followed, since it can come after the output is
+    // listed:
+    // - rinch's list is winit's `available_monitors()`, sctk's every bound
+    //   `wl_output`, a new one before its first `done` included;
+    // - rinch leaves out one with neither a mode nor an `xdg_output`
+    //   rectangle, which is one before that `done`;
+    // - with `wl_output` version 4 (KWin 6, sway 1.11, labwc 0.9), the name
+    //   comes before the first `done`, so a listed output has it;
+    // - below version 4 the name comes only with `xdg_output`, and an
+    //   output can be listed by its modes before it.
+    // Set only when it changes, so another output's change wakes no
+    // taskbar; kept when the output goes, for the one run before its row
+    // does.
+    let name = Signal::new(untracked(|| rinch::prelude::output(output)).and_then(|o| o.name));
+    Effect::new(move || {
+        if let Some(now) = rinch::prelude::output(output)
+            && untracked(|| name.get()) != now.name
+        {
+            name.set(now.name);
+        }
+    });
     rsx! {
-        Bar {}
+        Bar { output: name }
     }
 }
 
 #[cfg(test)]
 #[path = "bars_tests.rs"]
 mod bars_tests;
+
+#[cfg(test)]
+#[path = "bars_taskbar_tests.rs"]
+mod bars_taskbar_tests;

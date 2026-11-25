@@ -20,7 +20,7 @@ use rinch::testing::{TestApp, WindowRequest};
 
 use super::bars;
 use crate::surface::{self, Placement};
-use crate::widgets::{AppIcons, ClockText, FollowedWindows, FollowedWorkspaces};
+use crate::widgets::{AppIcons, Buttons, ClockText, FollowedWindows, FollowedWorkspaces, Runs};
 
 fn at(edge: Edge, height: u32) -> Placement {
     Placement {
@@ -40,22 +40,31 @@ struct Owned {
     placement: Signal<Placement>,
 }
 
-/// [`bars`] on `outputs` at `placement`, with the contexts the bar's
-/// widgets read (inert: no compositor connection, no applications, a fixed
-/// clock face). Returns the app, settled, and the signals.
+/// The contexts a bar's widgets read, inert but for the buttons and runs
+/// given: no compositor connection, no applications, a fixed clock face.
+/// Made in a mount, as the panel's root makes its own.
+pub(super) fn contexts(buttons: Signal<Buttons>, runs: Signal<Runs>) {
+    create_context(AppIcons {
+        applications: Signal::new(Arc::default()),
+        index: Signal::new(None),
+    });
+    create_context(Rc::new(FollowedWindows::new().0));
+    create_context(Rc::new(FollowedWorkspaces::new().0));
+    super::taskbar_contexts(buttons);
+    create_context(runs);
+    create_context(ClockText::fixed(Signal::new("12:00".to_owned())));
+}
+
+/// [`bars`] on `outputs` at `placement`, with inert [`contexts`]. Returns
+/// the app, settled, and the signals.
 fn mount(outputs: Vec<OutputId>, placement: Placement) -> (TestApp, Owned) {
     let owned: Rc<Cell<Option<Owned>>> = Rc::default();
     let out = Rc::clone(&owned);
     let mut app = TestApp::mount(move |__scope: &mut RenderScope| {
-        create_context(AppIcons {
-            applications: Signal::new(Arc::default()),
-            index: Signal::new(None),
-        });
-        create_context(Rc::new(FollowedWindows::new().0));
-        create_context(Rc::new(FollowedWorkspaces::new().0));
-        create_context(Signal::new(crate::widgets::Buttons::default()));
-        create_context(Signal::new(crate::widgets::Runs::default()));
-        create_context(ClockText::fixed(Signal::new("12:00".to_owned())));
+        contexts(
+            Signal::new(Buttons::default()),
+            Signal::new(Runs::default()),
+        );
         let signals = Owned {
             outputs: Signal::new(outputs),
             placement: Signal::new(placement),

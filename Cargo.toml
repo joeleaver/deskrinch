@@ -26,6 +26,7 @@ clap = { version = "4.6.7", features = ["derive"] }
 ctrlc = { version = "3.5.2", features = ["termination"] }
 deskrinch-appearance = { path = "crates/deskrinch-appearance" }
 deskrinch-applications = { path = "crates/deskrinch-applications" }
+deskrinch-bars = { path = "crates/deskrinch-bars" }
 deskrinch-bus = { path = "crates/deskrinch-bus" }
 deskrinch-clock = { path = "crates/deskrinch-clock" }
 deskrinch-component = { path = "crates/deskrinch-component" }
