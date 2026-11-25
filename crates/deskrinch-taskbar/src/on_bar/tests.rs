@@ -278,7 +278,7 @@ proptest::proptest! {
         let mut now = t0 + ms(last + seen_after);
         let mut clock = t0;
         let mut wakes = 0;
-        while let Some(wake) = next_wake(&windows, clock, now) {
+        while let Some(wake) = next_wake(&windows, &bars(&["A", "B"]), clock, now) {
             // A wake comes no earlier than asked, and maybe late.
             now = (now + wake.after).max(wake.at) + ms(lateness[wakes % lateness.len()]);
             clock = clock_on_wake(wake.at, now);

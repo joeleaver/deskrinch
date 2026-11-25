@@ -5,19 +5,21 @@
 //!
 //! It lives on the UI's thread, beside the bars that read it: the buttons
 //! come to the UI through their hand-over as before, and an effect over
-//! them and the [`GraceClock`] arms one rinch timeout for the earliest
-//! grace not yet over by that clock ([`deskrinch_taskbar::next_wake`]).
-//! When it fires, it moves the clock ([`deskrinch_taskbar::clock_on_wake`]),
-//! which every bar's list reads, and the effect arms the next, if any. It
-//! is cleared when that window is placed or closes first. Whether a grace
-//! is over is the clock's alone to say, here and in the bars. With no
-//! window unplaced, which is the usual state, nothing is armed and nothing
-//! wakes the panel.
+//! them, the bars there are and the [`GraceClock`] arms one rinch timeout
+//! for the earliest grace not yet over by that clock
+//! ([`deskrinch_taskbar::next_wake`]). When it fires, it moves the clock
+//! ([`deskrinch_taskbar::clock_on_wake`]), which every bar's list reads,
+//! and the effect arms the next, if any. It is cleared when that window is
+//! placed or closes first. Whether a grace is over is the clock's alone to
+//! say, here and in the bars. With every window placed, which is the usual
+//! state, or with one bar, where no window waits a grace, nothing is armed
+//! and nothing wakes the panel.
 
 use std::cell::Cell;
 use std::rc::Rc;
 use std::time::Instant;
 
+use deskrinch_bars::Bars;
 use deskrinch_taskbar::{Wake, clock_on_wake, next_wake};
 use rinch::prelude::*;
 use rinch::reactive::Effect;
@@ -30,14 +32,16 @@ use crate::widgets::taskbar::Buttons;
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct GraceClock(pub(crate) Signal<Instant>);
 
-/// Follows `buttons`' unplaced windows, keeping one timer for the earliest
-/// grace not yet over by the clock, and returns the clock it moves.
-pub(crate) fn follow(buttons: Signal<Buttons>) -> GraceClock {
+/// Follows `buttons`' unplaced windows among `bars`, keeping one timer for
+/// the earliest grace not yet over by the clock, and returns the clock it
+/// moves.
+pub(crate) fn follow(buttons: Signal<Buttons>, bars: Memo<Bars>) -> GraceClock {
     let clock = Signal::new(Instant::now());
     let armed: Rc<Cell<Option<(Instant, TimeoutHandle)>>> = Rc::default();
     Effect::new(move || {
         let judged = clock.get();
-        let wake = buttons.with(|buttons| next_wake(buttons, judged, Instant::now()));
+        let bars = bars.get();
+        let wake = buttons.with(|buttons| next_wake(buttons, &bars, judged, Instant::now()));
         if armed.get().map(|(at, _)| at) == wake.map(|wake| wake.at) {
             return;
         }

@@ -29,8 +29,8 @@
 //! ([`next_wake`]), at once when it has already ended in real time, and on
 //! waking moves the clock to the later of that end and the real time
 //! ([`clock_on_wake`]), so that every grace that has run out by then is
-//! over together. It wakes only while some window is unplaced and its
-//! grace not yet over by the clock.
+//! over together. It wakes only while there are several bars and some
+//! window is unplaced and its grace not yet over by the clock.
 //!
 //! # When a new window first reports an output
 //!
@@ -170,11 +170,20 @@ pub struct Wake {
 
 /// The earliest end, among `buttons`' unplaced windows, of a grace not yet
 /// over by `clock` (the time the bars judge the graces by), and how long
-/// from `now`, the real time, until it. `None` when every grace is over by
-/// the clock, or no window is unplaced: then nothing needs a wake, and the
-/// clock stays as it is.
+/// from `now`, the real time, until it. `None` when `bars` are one or none,
+/// since then no window waits a grace ([`on_bar`]), when every grace is
+/// over by the clock, or when no window is unplaced: then nothing needs a
+/// wake, and the clock stays as it is.
 #[must_use]
-pub fn next_wake<Id>(buttons: &[Button<Id>], clock: Instant, now: Instant) -> Option<Wake> {
+pub fn next_wake<Id>(
+    buttons: &[Button<Id>],
+    bars: &Bars,
+    clock: Instant,
+    now: Instant,
+) -> Option<Wake> {
+    if bars.count <= 1 {
+        return None;
+    }
     let at = buttons
         .iter()
         .filter_map(|button| button.placement.grace_ends())

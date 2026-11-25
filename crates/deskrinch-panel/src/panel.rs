@@ -98,9 +98,10 @@ pub(crate) fn panel(parts: Parts) -> NodeHandle {
 /// they are handed over, the one clock their graces are judged by, and the
 /// bars there are. The root provides them, and a test's mount the same.
 fn taskbar_contexts(buttons: Signal<Buttons>) {
+    let bars = Memo::new(bars_there_are);
     create_context(buttons);
-    create_context(follow_graces(buttons));
-    create_context(BarOutputs(Memo::new(bars_there_are)));
+    create_context(follow_graces(buttons, bars));
+    create_context(BarOutputs(bars));
 }
 
 /// The bars there are: one on each connected output, named by the
